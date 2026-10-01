@@ -1,0 +1,426 @@
+# Civo DNS-01 solver for cert-manager.
+#
+# WHY THIS EXISTS. Civo was the one supported DNS backend with no DNS-01 solver:
+# cluster-issuers.yaml.tmpl had branches for aws, azure, cloudflare, digitalocean
+# and gcp, so a Civo platform published DNS records through external-dns and then
+# served a SELF-SIGNED certificate on every URL, with nothing in the output saying
+# why. cert-manager has no built-in Civo provider, so the gap is filled the way
+# cert-manager intends: a webhook solver registered as an aggregated APIService.
+#
+# These manifests are RENDERED, not hand-written, from
+# okteto/cert-manager-webhook-civo chart 0.5.4 (image okteto/civo-webhook:0.5.4):
+#
+#   helm template adhar-civo-dns-webhook chart/cert-manager-webhook-civo \
+#     --namespace adhar-system --set fullnameOverride=adhar-civo-dns-webhook \
+#     --set groupName=civo.webhook.okteto.com --set region=<region> \
+#     --set image.repository=okteto/civo-webhook --set image.tag=0.5.4 \
+#     --set certManager.namespace=adhar-system \
+#     --set certManager.serviceAccountName=cert-manager
+#
+# Two deliberate edits on top of that render:
+#   * the chart's `helm test` Pod is dropped — it is a test hook, not state
+#   * the secret-reader Role is narrowed to resourceNames [adhar-dns-provider];
+#     the chart grants get/watch on EVERY secret in the namespace, and this
+#     namespace holds the whole platform's credentials
+#
+# It is a THIRD-PARTY component in the certificate path: 21 stars, last released
+# March 2024. That is a real supply-chain consideration and the reason the image
+# tag is pinned rather than :latest. The alternative is hosting the zone at a
+# provider cert-manager supports natively (see the note in cluster-issuers).
+#
+# Applied ONLY when the platform's DNS provider is Civo — on every other cloud
+# these resources would be an idle Deployment and an APIService whose failure
+# makes `kubectl api-resources` noisy for everyone.
+{{- if eq .DNSProvider "civo" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-civo-dns-webhook:domain-solver
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+rules:
+- apiGroups:
+  - civo.webhook.okteto.com
+  resources:
+  - '*'
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-civo-dns-webhook:flowcontrol-solver
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+rules:
+- apiGroups:
+  - flowcontrol.apiserver.k8s.io
+  resources:
+  - prioritylevelconfigurations
+  - flowschemas
+  verbs:
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-civo-dns-webhook:auth-delegator
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- apiGroup: ''
+  kind: ServiceAccount
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-civo-dns-webhook:domain-solver
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-civo-dns-webhook:domain-solver
+subjects:
+- apiGroup: ''
+  kind: ServiceAccount
+  name: cert-manager
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-civo-dns-webhook:flowcontrol-solver
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-civo-dns-webhook:flowcontrol-solver
+subjects:
+- apiGroup: ''
+  kind: ServiceAccount
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-civo-dns-webhook:secret-reader
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  resourceNames:
+  - adhar-dns-provider
+  verbs:
+  - get
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-civo-dns-webhook:secret-reader
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: adhar-civo-dns-webhook:secret-reader
+subjects:
+- kind: ServiceAccount
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-civo-dns-webhook:webhook-authentication-reader
+  namespace: kube-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- apiGroup: ''
+  kind: ServiceAccount
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  type: ClusterIP
+  ports:
+  - port: 443
+    targetPort: https
+    protocol: TCP
+    name: https
+  selector:
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-civo-dns-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook-civo
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager-webhook-civo
+      app.kubernetes.io/instance: adhar-civo-dns-webhook
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cert-manager-webhook-civo
+        app.kubernetes.io/instance: adhar-civo-dns-webhook
+    spec:
+      serviceAccountName: adhar-civo-dns-webhook
+      securityContext:
+        fsGroup: 3000
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: cert-manager-webhook-civo
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+        image: okteto/civo-webhook:0.5.4
+        imagePullPolicy: IfNotPresent
+        args:
+        - --secure-port=8443
+        - --tls-cert-file=/tls/tls.crt
+        - --tls-private-key-file=/tls/tls.key
+        env:
+        - name: GROUP_NAME
+          value: civo.webhook.okteto.com
+        - name: REGION
+          value: mum1
+        ports:
+        - name: https
+          containerPort: 8443
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            scheme: HTTPS
+            path: /healthz
+            port: https
+        readinessProbe:
+          httpGet:
+            scheme: HTTPS
+            path: /healthz
+            port: https
+        volumeMounts:
+        - name: certs
+          mountPath: /tls
+          readOnly: true
+        resources: {}
+      volumes:
+      - name: certs
+        secret:
+          secretName: adhar-civo-dns-webhook-webhook-tls
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.civo.webhook.okteto.com
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    cert-manager.io/inject-ca-from: adhar-system/adhar-civo-dns-webhook-webhook-tls
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  group: civo.webhook.okteto.com
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: adhar-civo-dns-webhook
+    namespace: adhar-system
+  version: v1alpha1
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: adhar-civo-dns-webhook-ca
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  secretName: adhar-civo-dns-webhook-ca
+  duration: 43800h
+  issuerRef:
+    name: adhar-civo-dns-webhook-selfsign
+  commonName: ca.civo-acme.cert-manager
+  isCA: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: adhar-civo-dns-webhook-webhook-tls
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  secretName: adhar-civo-dns-webhook-webhook-tls
+  duration: 8760h
+  issuerRef:
+    name: adhar-civo-dns-webhook-ca
+  dnsNames:
+  - adhar-civo-dns-webhook
+  - adhar-civo-dns-webhook.adhar-system
+  - adhar-civo-dns-webhook.adhar-system.svc
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: adhar-civo-dns-webhook-selfsign
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: adhar-civo-dns-webhook-ca
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: cert-manager-webhook-civo-0.5.4
+    app.kubernetes.io/name: cert-manager-webhook-civo
+    app.kubernetes.io/instance: adhar-civo-dns-webhook
+    app.kubernetes.io/version: 0.5.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '4'
+spec:
+  ca:
+    secretName: adhar-civo-dns-webhook-ca
+{{- end }}

@@ -134,9 +134,10 @@ func providerNameserverMark(dnsProvider string) (string, bool) {
 	case "cloudflare":
 		return "ns.cloudflare.com", true
 	case "civo":
-		// external-dns supports Civo, but its nameserver hostnames are not a
-		// stable public marker; skip rather than raise a false alarm.
-		return "", false
+		// Civo serves zones from ns0/ns1.civo.com. Checked now that Civo is a
+		// first-class DNS-01 provider (a webhook solver ships with cert-manager):
+		// a Civo zone that is not delegated fails issuance as surely as any other.
+		return "civo.com", true
 	default:
 		// Includes "" and "none": nothing is claimed about the zone, so there is
 		// nothing to verify.

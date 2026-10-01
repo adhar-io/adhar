@@ -141,6 +141,23 @@ spec:
             resourceGroupName: {{ .DNSAzureResourceGroup }}
             hostedZoneName: {{ .Host }}
             environment: AzurePublicCloud
+{{- else if eq .DNSProvider "civo" }}
+          # Civo has no BUILT-IN cert-manager solver, so this routes through the
+          # webhook solver installed by civo-dns-webhook.yaml.tmpl (wave 4, ahead
+          # of these issuers). Before it existed a Civo platform published DNS
+          # records happily and then served a self-signed certificate on every
+          # URL, because this template simply had no civo branch and fell through
+          # to the selfsigned issuer.
+          #
+          # secretName/secretKey are the webhook's own config keys, not
+          # cert-manager's tokenSecretRef — it reads the token itself, from the
+          # same adhar-dns-provider Secret external-dns uses.
+          webhook:
+            groupName: civo.webhook.okteto.com
+            solverName: civo
+            config:
+              secretName: adhar-dns-provider
+              secretKey: CIVO_TOKEN
 {{- else if eq .DNSProvider "cloudflare" }}
           cloudflare:
             apiTokenSecretRef:

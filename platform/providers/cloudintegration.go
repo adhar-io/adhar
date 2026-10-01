@@ -410,6 +410,49 @@ func StepTolerateCSIStartupTaint(namespace, daemonset string) IntegrationStep {
 	}
 }
 
+// StepSchedulableOnControlPlane makes a cloud-controller-manager workload
+// schedulable, by tolerating every taint a fresh Adhar node carries.
+//
+// A CCM is the thing that REMOVES node.cloudprovider.kubernetes.io/uninitialized,
+// so it has to be able to run on a cluster where every node still has it. Upstream
+// manifests know that and tolerate it — and nothing else, which is not enough here:
+//
+//   - the control plane also carries node-role.kubernetes.io/control-plane, which a
+//     CCM normally WANTS to run on
+//   - the workers also carry node.adhar.io/csi-not-ready, the platform's own taint,
+//     which upstream has never heard of
+//
+// So the Civo CCM landed with no schedulable node at all and sat Pending while the
+// uninitialized taint it was supposed to lift stayed on every node — a deadlock
+// that stops the Gateway's LoadBalancer ever getting an address, i.e. no URLs.
+//
+// Idempotent: a `kubectl patch` of the whole tolerations list, so re-running the
+// integration converges rather than appending duplicates.
+func StepSchedulableOnControlPlane(namespace, kind, name string) IntegrationStep {
+	tolerations := fmt.Sprintf(`[`+
+		`{"key":"node.cloudprovider.kubernetes.io/uninitialized","operator":"Exists","effect":"NoSchedule"},`+
+		`{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"},`+
+		`{"key":"node-role.kubernetes.io/master","operator":"Exists","effect":"NoSchedule"},`+
+		`{"key":"%s","operator":"Exists","effect":"NoSchedule"}`+
+		`]`, globals.NodeCSIStartupTaint)
+	return IntegrationStep{
+		Desc: fmt.Sprintf("%s/%s tolerates the bootstrap taints", kind, name),
+		Cmd: fmt.Sprintf(`%s -n %s patch %s %s --type=merge -p '{"spec":{"template":{"spec":{"tolerations":%s}}}}'`,
+			KubectlAdmin, namespace, kind, name, tolerations),
+	}
+}
+
+// StepWaitWorkload waits until a workload exists, so a following patch has
+// something to patch. The kustomization or manifest that creates it may still be
+// settling when the next step runs.
+func StepWaitWorkload(namespace, kind, name string) IntegrationStep {
+	return IntegrationStep{
+		Desc: fmt.Sprintf("wait for %s %s", kind, name),
+		Cmd: fmt.Sprintf("for i in $(seq 1 60); do %s -n %s get %s %s >/dev/null 2>&1 && exit 0; sleep 5; done; echo '%s %s did not appear'; exit 1",
+			KubectlAdmin, namespace, kind, name, kind, name),
+	}
+}
+
 // StepWaitDaemonSet waits until a DaemonSet exists (a chart or kustomization
 // creates it asynchronously) so a following patch has something to patch.
 func StepWaitDaemonSet(namespace, daemonset string) IntegrationStep {

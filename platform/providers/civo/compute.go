@@ -204,6 +204,28 @@ func (p *Provider) createComputeInstance(ctx context.Context, name, networkID, f
 	}
 }
 
+// Civo's compute mode has NO usable external cloud-controller-manager, so a node
+// must not be told there is one.
+//
+// civo-cloud-controller-manager resolves CIVO_CLUSTER_ID against Civo's MANAGED
+// Kubernetes API. A self-managed kubeadm cluster on plain instances has no such
+// object, so the CCM logs "Unable to get kubernetes cluster" and then nil-panics
+// inside the service controller (verified on a live mum1 cluster, 2026-10-02).
+//
+// That matters far beyond losing cloud LoadBalancers. `--cloud-provider=external`
+// makes kubelet register the node with
+// node.cloudprovider.kubernetes.io/uninitialized:NoSchedule, which ONLY a CCM
+// removes — so with a CCM that cannot start, every node in the cluster stays
+// unschedulable forever and the platform never comes up. Claiming an external
+// provider you cannot supply is worse than claiming none.
+//
+// So compute mode runs with the in-tree-less default: no cloud provider, no
+// uninitialized taint, and the Gateway served on its node ports. The CSI startup
+// taint is still requested — that one is the platform's own and the autoscaler
+// lifts it. `clusterMode: k3s` (Civo's managed service) is the path where the CCM
+// and cloud LoadBalancers do work.
+const civoComputeHasExternalCCM = false
+
 // createComputeCluster provisions Civo instances and bootstraps Kubernetes on
 // them with kubeadm.
 func (p *Provider) createComputeCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
@@ -218,7 +240,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	// per-account and modest by default; without this the create provisions some
 	// of the nodes, fails on the one that crosses a limit, and leaves a half-built
 	// cluster behind.
-	if err := p.checkQuota(plannedNodeCount(spec, p.config.DefaultNodeCount), plannedSize(spec, p.config.Size)); err != nil {
+	if err := p.checkQuota(plannedInstanceSizes(spec, p.config.Size, p.config.DefaultNodeCount)); err != nil {
 		return nil, err
 	}
 
@@ -311,7 +333,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, instance.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", instance.Hostname, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, true, true); err != nil {
+		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, civoComputeHasExternalCCM, true); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", instance.Hostname, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, instance.PublicIP, joinCmd); err != nil {
@@ -698,7 +720,7 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 			// .spec.providerID, so the CSI node plugin cannot identify its instance
 			// and publishes no CSINode, so node.adhar.io/csi-not-ready is never
 			// lifted and the node stays Ready and completely empty.
-			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, true, true); err != nil {
+			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, civoComputeHasExternalCCM, true); err != nil {
 				return fmt.Errorf("new worker %s: %w", host, err)
 			}
 			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, inst.PublicIP, joinCmd); err != nil {

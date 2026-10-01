@@ -235,7 +235,7 @@ func (p *Provider) sweepLoadBalancers(id clusterIdentity) []string {
 // create runs for ten minutes, provisions some of the nodes, then fails on the
 // one that crosses the limit and leaves a half-built cluster to clean up. The
 // numbers come from the account, not from a guess about the default plan.
-func quotaShortfall(q *civogo.Quota, nodes, cpuPerNode, ramMBPerNode, diskGBPerNode int) []string {
+func quotaShortfall(q *civogo.Quota, nodes, cpu, ramMB, diskGB int) []string {
 	if q == nil || nodes <= 0 {
 		return nil
 	}
@@ -248,10 +248,16 @@ func quotaShortfall(q *civogo.Quota, nodes, cpuPerNode, ramMBPerNode, diskGBPerN
 			out = append(out, fmt.Sprintf("%s: need %d, %d of %d already in use", what, need, usage, limit))
 		}
 	}
+	// Totals, already summed per node by the caller. They used to be
+	// perNode × nodes, which silently assumed every instance was the same size and
+	// over-counted whenever the control plane was smaller than the workers — the
+	// usual shape. A 1 × g3.medium + 2 × g3.xlarge cluster is 14 vCPU; multiplying
+	// the WORKER size by three made it 18 and refused to build inside a 16-core
+	// quota it actually fitted.
 	check("instances", nodes, q.InstanceCountUsage, q.InstanceCountLimit)
-	check("CPU cores", nodes*cpuPerNode, q.CPUCoreUsage, q.CPUCoreLimit)
-	check("RAM (MB)", nodes*ramMBPerNode, q.RAMMegabytesUsage, q.RAMMegabytesLimit)
-	check("disk (GB)", nodes*diskGBPerNode, q.DiskGigabytesUsage, q.DiskGigabytesLimit)
+	check("CPU cores", cpu, q.CPUCoreUsage, q.CPUCoreLimit)
+	check("RAM (MB)", ramMB, q.RAMMegabytesUsage, q.RAMMegabytesLimit)
+	check("disk (GB)", diskGB, q.DiskGigabytesUsage, q.DiskGigabytesLimit)
 	// One network per cluster: the create fails outright without it.
 	check("networks", 1, q.NetworkCountUsage, q.NetworkCountLimit)
 	// The Gateway Service's load balancer is deliberately NOT checked. An
@@ -265,21 +271,77 @@ func quotaShortfall(q *civogo.Quota, nodes, cpuPerNode, ramMBPerNode, diskGBPerN
 // checkQuota fails a create before it starts when the account cannot hold the
 // cluster. A quota the API will not report is not a reason to refuse: it logs and
 // proceeds, so a token without quota access still works.
-func (p *Provider) checkQuota(nodes int, size string) error {
+func (p *Provider) checkQuota(plan []string) error {
 	q, err := p.client.GetQuota()
 	if err != nil {
 		log.Printf("Warning: could not read the account quota (%v); proceeding without a preflight check", err)
 		return nil
 	}
-	cpu, ram, disk := p.sizeShape(size)
-	shortfalls := quotaShortfall(q, nodes, cpu, ram, disk)
+	// Sum the REAL shapes. A cluster is a control plane plus workers and those are
+	// routinely different sizes, so one size times a node count is the wrong model:
+	// it refuses clusters that fit.
+	var cpu, ram, disk int
+	for _, size := range plan {
+		c, r, d := p.sizeShape(size)
+		cpu, ram, disk = cpu+c, ram+r, disk+d
+	}
+	shortfalls := quotaShortfall(q, len(plan), cpu, ram, disk)
+	summary := strings.Join(plan, " + ")
 	if len(shortfalls) == 0 {
-		log.Printf("Quota preflight passed: %d × %s fits within the account limits", nodes, size)
+		log.Printf("Quota preflight passed: %s (%d vCPU, %d MB RAM, %d GB disk) fits within the account limits",
+			summary, cpu, ram, disk)
 		return nil
 	}
-	return fmt.Errorf("the Civo account cannot hold this cluster (%d × %s):\n  %s\n"+
+	return fmt.Errorf("the Civo account cannot hold this cluster (%s):\n  %s\n"+
 		"Request an increase at https://dashboard.civo.com/quota, or lower nodeCount / choose a smaller size",
-		nodes, size, strings.Join(shortfalls, "\n  "))
+		summary, strings.Join(shortfalls, "\n  "))
+}
+
+// plannedInstanceSizes lists the size of EVERY instance the spec will create,
+// control plane first, in the same order createComputeCluster builds them. It is
+// what the quota check sums.
+func plannedInstanceSizes(spec *types.ClusterSpec, fallbackSize string, defaultNodeCount int) []string {
+	control := fallbackSize
+	if spec != nil && spec.ControlPlane.InstanceType != "" {
+		control = spec.ControlPlane.InstanceType
+	}
+	replicas := 1
+	if spec != nil && spec.ControlPlane.Replicas > 1 {
+		replicas = spec.ControlPlane.Replicas
+	}
+	plan := make([]string, 0, replicas+2)
+	for i := 0; i < replicas; i++ {
+		plan = append(plan, control)
+	}
+
+	workers := 0
+	if spec != nil {
+		for _, ng := range spec.NodeGroups {
+			size := ng.InstanceType
+			if size == "" {
+				size = fallbackSize
+			}
+			count := ng.Replicas
+			if count <= 0 {
+				count = 1
+			}
+			for i := 0; i < count; i++ {
+				plan = append(plan, size)
+			}
+			workers += count
+		}
+	}
+	if workers == 0 {
+		// Mirrors the create path's own default when a spec declares no groups.
+		n := 2
+		if defaultNodeCount > 0 {
+			n = defaultNodeCount
+		}
+		for i := 0; i < n; i++ {
+			plan = append(plan, fallbackSize)
+		}
+	}
+	return plan
 }
 
 // sizeShape returns the CPU, RAM and disk one instance of a size consumes,
@@ -298,40 +360,4 @@ func (p *Provider) sizeShape(size string) (cpu, ramMB, diskGB int) {
 	}
 	log.Printf("Warning: instance size %q not found in region %s; skipping its part of the quota check", size, p.config.Region)
 	return 0, 0, 0
-}
-
-// plannedNodeCount is the number of instances a spec will create: the control
-// plane plus every node group, or the two-worker default the create path falls
-// back to when a spec declares no groups.
-func plannedNodeCount(spec *types.ClusterSpec, defaultNodeCount int) int {
-	workers := 0
-	for _, ng := range spec.NodeGroups {
-		if ng.Replicas > 0 {
-			workers += ng.Replicas
-			continue
-		}
-		workers++
-	}
-	if workers == 0 {
-		workers = 2
-		if defaultNodeCount > 0 {
-			workers = defaultNodeCount
-		}
-	}
-	return workers + 1
-}
-
-// plannedSize is the instance size the nodes will use. The quota check is about
-// the bulk of the cluster, so a mixed-size spec is measured by its first node
-// group rather than by averaging sizes into a number no node actually has.
-func plannedSize(spec *types.ClusterSpec, fallback string) string {
-	for _, ng := range spec.NodeGroups {
-		if ng.InstanceType != "" {
-			return ng.InstanceType
-		}
-	}
-	if spec.ControlPlane.InstanceType != "" {
-		return spec.ControlPlane.InstanceType
-	}
-	return fallback
 }

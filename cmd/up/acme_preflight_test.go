@@ -161,7 +161,9 @@ func TestProviderNameserverMarkCoversTheSupportedBackends(t *testing.T) {
 // Where there is no stable marker the check must be SKIPPED, not guessed —
 // a false alarm on a working cluster is worse than no check.
 func TestUnknownDNSProvidersSkipTheNameserverCheck(t *testing.T) {
-	for _, provider := range []string{"", "none", "civo", "something-else"} {
+	// civo is deliberately NOT here any more: it became a first-class DNS-01
+	// provider when the webhook solver shipped, so its delegation IS checked.
+	for _, provider := range []string{"", "none", "something-else"} {
 		if _, known := providerNameserverMark(provider); known {
 			t.Errorf("provider %q must not claim a nameserver mark", provider)
 		}

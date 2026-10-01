@@ -143,6 +143,19 @@ type Provider struct {
 	config           *Config
 	clusters         map[string]*types.Cluster
 	resourceTrackers map[string]*ResourceTracker
+	// token is the RESOLVED API token, retained for the in-cluster cloud
+	// integration (the kube-system/civo-api-access Secret the CCM and CSI read).
+	//
+	// It cannot be taken from config.Token at that point: the token legitimately
+	// arrives from CIVO_TOKEN or a token file, and in both cases config.Token stays
+	// empty. The integration read config.Token, so `useEnvironment: true` — the way
+	// every shipped example does it, precisely to keep the token out of a committed
+	// file — wrote an EMPTY api-key into the Secret. The CCM then crash-looped on
+	// "CIVO_API_URL, CIVO_API_KEY, CIVO_REGION, CIVO_CLUSTER_ID environment
+	// variables must be set", never removed the uninitialized taint, and the
+	// Gateway's LoadBalancer never got an address. DigitalOcean's provider keeps the
+	// same field for the same reason.
+	token string
 }
 
 type Config struct {
@@ -260,6 +273,7 @@ func NewProvider(config *Config) (*Provider, error) {
 		config:           config,
 		clusters:         make(map[string]*types.Cluster),
 		resourceTrackers: make(map[string]*ResourceTracker),
+		token:            token,
 	}, nil
 }
 

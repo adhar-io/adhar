@@ -92,6 +92,10 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-mgmt               # platform/tag name; the CLUSTER is named after the environment ("dev")
+      # The control plane does not need a worker-sized instance, and on a small
+      # quota the cores saved are a large share of the worker capacity.
+      - key: controlPlaneMachineType
+        value: g3.medium                # 2 vCPU / 4 GB / 50 GB
       - key: nodeSize
         value: g3.xlarge                # overrides the provider's `size` for this environment
       - key: nodeCount

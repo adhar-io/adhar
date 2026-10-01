@@ -174,27 +174,60 @@ func TestQuotaShortfallNamesEveryExhaustedLimit(t *testing.T) {
 	}
 }
 
-func TestPlannedShapeMatchesWhatCreateWillActuallyBuild(t *testing.T) {
+// The quota preflight must count the cluster it will actually build.
+//
+// It used to take ONE size and multiply by the node count, which assumed every
+// instance was identical. A control plane smaller than the workers is the usual
+// shape, so that over-counted: 1 × g3.medium + 2 × g3.xlarge is 14 vCPU, and
+// multiplying the worker size by three made it 18 — refusing to build a cluster
+// that fitted inside a 16-core quota.
+func TestPlannedInstanceSizesMatchWhatCreateWillBuild(t *testing.T) {
 	t.Parallel()
+
 	// No node groups: the create path falls back to two workers plus the control
-	// plane, so the preflight must count three.
-	if got := plannedNodeCount(&types.ClusterSpec{}, 0); got != 3 {
-		t.Errorf("default shape = %d nodes, want 3", got)
+	// plane, all at the configured size.
+	if got := plannedInstanceSizes(&types.ClusterSpec{}, "g3.medium", 0); len(got) != 3 {
+		t.Errorf("default shape = %v, want 3 instances", got)
 	}
-	if got := plannedNodeCount(&types.ClusterSpec{}, 4); got != 5 {
-		t.Errorf("defaultNodeCount=4 = %d nodes, want 5", got)
+	if got := plannedInstanceSizes(&types.ClusterSpec{}, "g3.medium", 4); len(got) != 5 {
+		t.Errorf("defaultNodeCount=4 = %v, want 5 instances", got)
 	}
-	spec := &types.ClusterSpec{NodeGroups: []types.NodeGroupSpec{
-		{Name: "workers", Replicas: 3, InstanceType: "g3.large"},
+
+	// The mixed shape the old arithmetic got wrong: a small control plane and
+	// larger workers must be listed at their own sizes, control plane first.
+	spec := &types.ClusterSpec{
+		ControlPlane: types.ControlPlaneSpec{InstanceType: "g3.medium"},
+		NodeGroups: []types.NodeGroupSpec{
+			{Name: "workers", Replicas: 2, InstanceType: "g3.xlarge"},
+		},
+	}
+	got := plannedInstanceSizes(spec, "g3.small", 0)
+	want := []string{"g3.medium", "g3.xlarge", "g3.xlarge"}
+	if len(got) != len(want) {
+		t.Fatalf("plan = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("plan = %v, want %v", got, want)
+		}
+	}
+
+	// A node group with no size of its own falls back to the provider's.
+	spec = &types.ClusterSpec{NodeGroups: []types.NodeGroupSpec{
+		{Name: "workers", Replicas: 1, InstanceType: "g3.large"},
 		{Name: "gpu", Replicas: 1},
 	}}
-	if got := plannedNodeCount(spec, 0); got != 5 {
-		t.Errorf("3+1 workers = %d nodes, want 5", got)
+	got = plannedInstanceSizes(spec, "g3.small", 0)
+	if len(got) != 3 || got[1] != "g3.large" || got[2] != "g3.small" {
+		t.Errorf("plan = %v, want [g3.small g3.large g3.small] (control plane falls back too)", got)
 	}
-	if got := plannedSize(spec, "g3.small"); got != "g3.large" {
-		t.Errorf("size = %q, want the first node group's g3.large", got)
+
+	// An HA control plane contributes every replica.
+	spec = &types.ClusterSpec{
+		ControlPlane: types.ControlPlaneSpec{InstanceType: "g3.large", Replicas: 3},
+		NodeGroups:   []types.NodeGroupSpec{{Name: "workers", Replicas: 1, InstanceType: "g3.xlarge"}},
 	}
-	if got := plannedSize(&types.ClusterSpec{}, "g3.small"); got != "g3.small" {
-		t.Errorf("size = %q, want the configured fallback", got)
+	if got := plannedInstanceSizes(spec, "g3.small", 0); len(got) != 4 {
+		t.Errorf("HA plan = %v, want 4 instances (3 control plane + 1 worker)", got)
 	}
 }

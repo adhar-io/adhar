@@ -461,11 +461,23 @@ func (s *BuildCustomizationSpec) Normalize() {
 // DNS credentials consumed by external-dns and cert-manager's DNS-01 solver.
 const DNSProviderSecretName = "adhar-dns-provider"
 
-// acmeDNS01Providers are the DNSProvider values cert-manager can solve
-// DNS-01 challenges for natively; other providers (civo) publish records
-// through external-dns but keep the self-signed platform certificate.
+// acmeDNS01Providers are the DNSProvider values a DNS-01 challenge can be solved
+// for, and so the values for which a publicly trusted wildcard certificate is
+// possible.
+//
+// All but civo are cert-manager's own built-in solvers. Civo is served by a
+// WEBHOOK solver the platform installs with cert-manager
+// (packages/security/cert-manager/manifests/civo-dns-webhook.yaml.tmpl), which is
+// why it belongs here even though cert-manager has no native Civo support.
+//
+// Membership is load-bearing in both directions: ACMEIssuer() reads it to decide
+// between the Let's Encrypt and the self-signed issuer, so a provider missing from
+// this map gets a self-signed certificate no matter what solvers are installed —
+// which is exactly how Civo behaved before the webhook existed, and how it would
+// still behave if the webhook were added without this line.
 var acmeDNS01Providers = map[string]bool{
 	"digitalocean": true, "aws": true, "gcp": true, "azure": true, "cloudflare": true,
+	"civo": true,
 }
 
 // HasDNS01 reports whether the configured DNS provider supports ACME DNS-01,
