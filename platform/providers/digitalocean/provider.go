@@ -113,8 +113,10 @@ type DestinationsConfig struct {
 	DropletIDs []int    `json:"dropletIds,omitempty"`
 }
 
-// Provider implements the DigitalOcean provider backed by managed DOKS
-// (DigitalOcean Kubernetes) clusters via the godo API.
+// Provider implements the DigitalOcean provider via the godo API, in either of
+// two modes: kubeadm on raw droplets (the DEFAULT, and the path the platform is
+// designed around) or the managed DOKS service, opted into with
+// `useManagedK8s: true` / `cluster_mode: doks`. See Config.ClusterMode.
 type Provider struct {
 	client   *godo.Client
 	config   *Config
@@ -126,9 +128,35 @@ type Provider struct {
 // Compile-time check that Provider satisfies the platform provider interface.
 var _ provider.Provider = (*Provider)(nil)
 
-// NewProvider creates a new DigitalOcean provider instance for managed DOKS clusters
+// modeLabel names the RESOLVED cluster mode, for logs.
+//
+// It exists because several messages here said "managed DOKS" unconditionally,
+// left over from when DOKS was the only mode. On a default run — kubeadm on
+// droplets — `adhar up` therefore announced "Initializing DigitalOcean provider
+// (managed DOKS)" and then correctly built a self-managed cluster, which reads
+// like the provider ignored the config. Never describe the mode without asking
+// what it actually resolved to.
+func (c *Config) modeLabel() string {
+	if c.isManaged() {
+		return "managed DOKS"
+	}
+	return "self-managed kubeadm on droplets"
+}
+
+// isManaged reports whether this config selects the managed service. The mode
+// strings match the dispatch in CreateCluster.
+func (c *Config) isManaged() bool {
+	switch strings.ToLower(c.ClusterMode) {
+	case "doks", "managed":
+		return true
+	default:
+		return false
+	}
+}
+
+// NewProvider creates a new DigitalOcean provider instance.
 func NewProvider(config *Config) (*Provider, error) {
-	log.Printf("Initializing DigitalOcean provider (managed DOKS)")
+	log.Printf("Initializing DigitalOcean provider (%s)", config.modeLabel())
 
 	// Determine authentication method and get the token
 	var token string
@@ -389,7 +417,13 @@ func (p *Provider) Authenticate(ctx context.Context, credentials *types.Credenti
 // actually needs: the Kubernetes API for clusters and the VPC API (clusters
 // are attached to a VPC when one is configured).
 func (p *Provider) ValidatePermissions(ctx context.Context) error {
-	log.Printf("Validating DigitalOcean permissions for DOKS cluster management")
+	// The two modes need different permissions: DOKS needs the Kubernetes scope,
+	// droplets need compute. Say which one is being checked.
+	if p.config.isManaged() {
+		log.Printf("Validating DigitalOcean permissions for DOKS cluster management")
+	} else {
+		log.Printf("Validating DigitalOcean permissions for droplet-based cluster management")
+	}
 
 	if _, _, err := p.client.Kubernetes.List(ctx, &godo.ListOptions{Page: 1, PerPage: 1}); err != nil {
 		return fmt.Errorf("insufficient Kubernetes (DOKS) permissions: %w", err)

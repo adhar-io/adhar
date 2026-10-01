@@ -536,13 +536,23 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 		return fmt.Errorf("failed to create packages repository: %w", err)
 	}
 
-	// NOTE: there is deliberately no third repo here for templates. The
-	// platform's golden paths live in `adhar/adhar-templates`, mirrored from
-	// github.com/adhar-io/adhar-templates by the `adhar-libraries` package.
-	// Bootstrap used to also create an `adhar/templates` repo seeded from
+	// The templates repo is a MIRROR, not a seeded repo. The platform's golden
+	// paths live in `adhar/adhar-templates` and are owned upstream, so bootstrap
+	// points Gitea at GitHub and lets it track: the Console's Create New page and
+	// `adhar apps templates` then read the current collection without this
+	// repository having to carry or re-publish a copy.
+	//
+	// Bootstrap once created an `adhar/templates` repo seeded from
 	// platform/stack/templates/ — a second, thinner collection in a different
 	// format — and the Console and CLI then disagreed about which was
 	// authoritative. One collection, owned upstream.
+	//
+	// It is mirrored HERE rather than by the `adhar-libraries` package (where it
+	// lived until 2026-09-30) because that package is off in the local profile:
+	// its release pipelines cost ~1 CPU core each and run while CNPG and Keycloak
+	// are booting, so a local cluster either had no templates or paid for two
+	// library builds to get them. Best effort — see mirrorGiteaRepository.
+	r.mirrorGiteaRepository(ctx, globals.GitOpsRepoTemplates, globals.TemplatesUpstreamURL)
 
 	// Populate repositories with content
 	if err := r.populateRepositories(ctx); err != nil {
@@ -885,6 +895,71 @@ func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, nam
 
 	logger.Info("Successfully created repository", "name", name)
 	return nil
+}
+
+// mirrorGiteaRepository creates a PULL MIRROR of an upstream repository inside the
+// platform org, so its content tracks upstream and nothing here has to republish
+// it. Gitea does the fetching on its own schedule once the mirror exists.
+//
+// BEST EFFORT, deliberately. It needs egress from the Gitea pod to the upstream
+// host, and a laptop that is offline (or behind a proxy that blocks it) must still
+// get a working platform. What this brings in feeds the Console's Create New page
+// and `adhar apps templates`; its absence is a missing feature, not a broken
+// cluster, so every failure here is logged and swallowed.
+//
+// This replaced a PostSync Job in the `adhar-libraries` package (2026-09-30). That
+// package is off in the local profile because its release pipelines cost ~1 CPU
+// core each, spent exactly while CNPG and Keycloak are booting — the chain most of
+// the platform waits on — so wiring the templates repo to it meant a local cluster
+// either had no templates at all or paid for two library builds to get them. A
+// mirror belongs to the bootstrap, next to the other repos it creates.
+func (r *AdharPlatformReconciler) mirrorGiteaRepository(ctx context.Context, name, cloneAddr string) {
+	logger := log.FromContext(ctx)
+
+	podName, err := r.getGiteaPodName(ctx)
+	if err != nil {
+		logger.Info("Skipping repository mirror: no Gitea pod available", "name", name, "error", err)
+		return
+	}
+
+	migrateCmd := fmt.Sprintf(
+		`curl -sf -X POST "http://localhost:3000/api/v1/repos/migrate" `+
+			`-H "Content-Type: application/json" `+
+			`-d '{"clone_addr":"%s","repo_owner":"%s","repo_name":"%s","service":"git",`+
+			`"mirror":true,"private":false,"description":"Mirror of %s"}' `+
+			`-u `+r.giteaAdminCurlCred(ctx)+` -o /dev/null -w "%%{http_code}"`,
+		cloneAddr, globals.GiteaPlatformOrg, name, cloneAddr)
+
+	// Bounded: Gitea queues the actual fetch, but the call still blocks while it
+	// contacts the upstream host, and an unreachable one must not stall the
+	// bootstrap behind a TCP timeout.
+	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(cctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", migrateCmd)
+	// STDOUT ONLY — see createGiteaRepository: kubectl writes exit-code noise and
+	// one discovery warning per unavailable aggregated API to stderr, and those can
+	// arrive first, so a prefix match on the combined stream cannot find the code.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		raw := strings.TrimSpace(stdout.String())
+		if raw == "" {
+			raw = strings.TrimSpace(stderr.String())
+		}
+		// 409/422 mean the repo is already there, which is the steady state on
+		// every run after the first.
+		if code := httpStatusFromOutput(raw); code == "409" || code == "422" {
+			logger.Info("Mirror already exists, continuing", "name", name)
+			return
+		}
+		logger.Info("Could not mirror repository; the platform continues without it",
+			"name", name, "from", cloneAddr, "status", httpStatusFromOutput(raw), "error", err)
+		return
+	}
+
+	logger.Info("Mirroring upstream repository into Gitea", "name", name, "from", cloneAddr)
 }
 
 // populateRepositories populates the GitOps repositories with content

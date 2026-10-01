@@ -44,6 +44,10 @@ const (
 	DefaultAppsConvergeTimeout = 15 * time.Minute
 	// maxPendingListed caps the names carried on the status.
 	maxPendingListed = 12
+	// readyGateApp is the application whose readiness ends the wait: the console is
+	// what a person opens after `adhar up`, so once it serves, the command has
+	// delivered what it promised. See ConvergenceReport.Usable.
+	readyGateApp = "adhar-console"
 )
 
 // ConvergenceReport summarises one pass over the platform Applications.
@@ -52,11 +56,38 @@ type ConvergenceReport struct {
 	Healthy   int
 	Refreshed int
 	Pending   []string
+	// GateReady is true once the entry-point application is Synced + Healthy.
+	// GatePresent says whether it exists at all in this profile.
+	GateReady   bool
+	GatePresent bool
 }
 
 // Converged reports whether every Application is Synced and Healthy.
 func (c ConvergenceReport) Converged() bool {
 	return c.Total > 0 && c.Healthy == c.Total
+}
+
+// Usable reports whether `adhar up` can hand the platform over.
+//
+// Waiting for EVERY application was the wrong bar. The platform is a large
+// catalogue and the tail is long — a cloud profile is 75 applications, and the
+// count does not even rise monotonically (an observed run went 26/75 then back to
+// 20/75 as later waves restarted things), so "all healthy" is a state a busy
+// cluster may not hold for many minutes after it is perfectly usable. Meanwhile
+// the person who ran the command is waiting on one thing: a console to open.
+//
+// So the gate is the entry point being ready. ArgoCD keeps converging the rest in
+// the background exactly as it does after --apps-timeout expires; nothing is
+// abandoned, it just stops being something a human waits for.
+//
+// If the gate application is not in this profile at all, there is nothing to hand
+// over to and the old bar applies — full convergence, still bounded by the
+// timeout.
+func (c ConvergenceReport) Usable() bool {
+	if c.GatePresent {
+		return c.GateReady
+	}
+	return c.Converged()
 }
 
 // appConverged is "Synced + Healthy" — the state the CLI waits for.
@@ -145,6 +176,12 @@ func (r *AdharPlatformReconciler) nudgeApplications(ctx context.Context) (Conver
 	report := ConvergenceReport{Total: len(apps.Items)}
 	for i := range apps.Items {
 		app := &apps.Items[i]
+		// Checked BEFORE the converged shortcut below, which skips the rest of the
+		// loop body: the gate has to be recorded whether or not it is healthy yet.
+		if app.Name == readyGateApp {
+			report.GatePresent = true
+			report.GateReady = appConverged(app)
+		}
 		if appConverged(app) {
 			report.Healthy++
 			continue
@@ -219,6 +256,12 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 	switch {
 	case report.Converged():
 		logger.Info("● Platform GitOps sync complete: every application is Synced and Healthy", "apps", report.Total)
+	case report.Usable():
+		// The entry point is up, so hand over and let ArgoCD finish the tail in the
+		// background. Say what is still outstanding, so "ready" is not mistaken for
+		// "everything is running".
+		logger.Info("● Platform ready: the console is serving; ArgoCD keeps converging the rest in the background",
+			"gate", readyGateApp, "healthy", report.Healthy, "total", report.Total)
 	case expired:
 		logger.Info("◌ Platform GitOps sync still converging at the timeout; ArgoCD continues in the background",
 			"healthy", report.Healthy, "total", report.Total, "pending", report.Pending)

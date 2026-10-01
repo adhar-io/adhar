@@ -403,10 +403,9 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/harbor/manifests"
-  # Enabled 2026-09-29: adhar-libraries resolves Maven and npm THROUGH Nexus, so
-  # without it adhar-kit could not build at all. See adhar-appset-local.yaml.
+  # Off again 2026-09-30: only needed by adhar-libraries, which is off.
   - name: "nexus"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/nexus/manifests"
@@ -435,11 +434,10 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/adhar-preview-environments/kyverno"
-  # Enabled 2026-09-29: it is the only thing that mirrors adhar/adhar-templates
-  # into Gitea, which the Console's Create New page reads. See the longer note in
-  # adhar-appset-local.yaml for the CPU cost this accepts.
+  # Off again 2026-09-30: its release builds starve the CNPG/Keycloak critical
+  # path. Bootstrap mirrors adhar-templates into Gitea instead.
   - name: "adhar-libraries"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/adhar-libraries/manifests"

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 )
 
@@ -58,7 +59,7 @@ func TestBuildClusterSpecOIDCOptIn(t *testing.T) {
 	}
 
 	// Default: no flags at all, so an existing cluster's auth is untouched.
-	spec, err := buildClusterSpec(base(nil))
+	spec, err := buildClusterSpec(base(nil), globals.DefaultClusterName)
 	if err != nil {
 		t.Fatalf("buildClusterSpec: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestBuildClusterSpecOIDCOptIn(t *testing.T) {
 	// the apiserver at a Keycloak that does not exist yet; on a real DigitalOcean
 	// build the apiserver never started and provisioning died at
 	// `kubeadm token create`. Removing the flags recovered it in seconds.
-	_, err = buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "true"}}))
+	_, err = buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "true"}}), globals.DefaultClusterName)
 	if err == nil {
 		t.Fatal("oidcAuth at creation time must be rejected; it prevents the apiserver from starting")
 	}
@@ -83,7 +84,7 @@ func TestBuildClusterSpecOIDCOptIn(t *testing.T) {
 	}
 
 	// A value that is not "true" is simply ignored, so an explicit opt-out is fine.
-	if _, err := buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "false"}})); err != nil {
+	if _, err := buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "false"}}), globals.DefaultClusterName); err != nil {
 		t.Errorf("oidcAuth=false must be accepted: %v", err)
 	}
 }

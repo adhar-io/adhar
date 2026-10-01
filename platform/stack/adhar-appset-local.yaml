@@ -493,15 +493,13 @@ spec:
           # Nexus Repository OSS — artefact repository for language packages
           # (Maven/npm/PyPI). Harbor stays OCI-images-only; Nexus owns the rest.
           #
-          # ON locally since 2026-09-29, because adhar-libraries is: the library
-          # pipelines do not merely PUBLISH to Nexus, they RESOLVE through it. The
-          # `maven` Task carries the nexus-credentials env on its one step and that
-          # step runs build, test AND publish, so with no Secret every Maven pod
-          # died at CreateContainerConfigError and adhar-kit did not build at all
-          # (adhar-ui got further — deno build/test need no credential — and then
-          # failed at publish). Costs 500m CPU / 2Gi memory / 8Gi disk.
+          # OFF locally again (2026-09-30). It was enabled a day earlier only because
+          # adhar-libraries needs it to build, and adhar-libraries is off again: a 2Gi
+          # JVM that also waits on `keycloak-clients` lengthens the very chain the
+          # GitOps phase is already bound by. Costs 500m CPU / 2Gi memory / 8Gi disk
+          # when on.
           - name: "nexus"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/nexus/manifests"
@@ -538,23 +536,22 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-preview-environments/kyverno"
-          # ON in the local core since 2026-09-29, reversing the 2026-09-19 decision
-          # to disable it. It is the only thing that creates adhar/adhar-templates in
-          # Gitea, and the Console's Create New page plus `adhar apps templates` read
-          # that repo — with the package off, a local cluster had no templates at all
-          # and the page showed "No templates available".
+          # OFF locally, restored 2026-09-30 after a measured failure.
           #
-          # The original reason for disabling it was measured and real: its PostSync
-          # hook pushes adhar-ui and adhar-kit, each push fires the Gitea → Tekton
-          # webhook, and each resulting release build cost ~1 full CPU core on an
-          # 11-core box while the app stayed unhealthy until they finished. That cost
-          # is accepted here as the price of having templates. It is also smaller than
-          # it was: `nexus` is off in this profile, so the release PipelineRuns cannot
-          # publish and fail early rather than building to completion, and the mirror
-          # Jobs no longer burn 20 minutes waiting for a nexus-credentials Secret that
-          # this profile never produces (see manifests/mirror.yaml).
+          # It was enabled on 2026-09-29 purely to get adhar/adhar-templates into
+          # Gitea for the Console's Create New page. That works, but it drags in the
+          # release pipelines: each push fires the Gitea → Tekton webhook and each
+          # build costs ~1 full CPU core, spent precisely while CNPG and Keycloak are
+          # booting — the critical path that 8 of the local apps wait on. Enabling it
+          # also forced `nexus` on (the maven Task carries nexus-credentials on the
+          # one step that runs build, test AND publish), adding a 2Gi JVM that is
+          # itself on that gated list. The local bring-up then failed outright.
+          #
+          # The templates repo no longer needs this package: bootstrap mirrors it into
+          # Gitea directly (platform/controllers/adharplatform/controller.go), which
+          # needs no ArgoCD app, no Nexus and no Tekton.
           - name: "adhar-libraries"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-libraries/manifests"

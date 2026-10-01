@@ -218,22 +218,35 @@ func FindCluster(ctx context.Context, cfg *config.Config, name string, providerO
 	return nil, &NotFoundError{Name: name, Searched: searched, Failures: failures}
 }
 
-// EnvironmentClusterName returns the name under which an environment's cluster
-// is registered with its provider.
+// EnvironmentClusterNames returns every name an environment's cluster may be
+// registered under, most likely first. Teardown must try all of them.
 //
-// It is the ENVIRONMENT name. buildClusterSpec (platform/providers/provider.go)
-// sets ObjectMeta.Name from envConfig.Name, so that is what every provider
-// lists the cluster as.
+// There are two because the naming CHANGED. `adhar up` now names the cluster
+// after the platform (`adhar`, or whatever `--name` says) rather than after the
+// environment, so a cluster built before that change is called `dev` while a new
+// one is called `adhar`. Searching only the current scheme would leave every
+// pre-existing cloud cluster running while `adhar down` reported success — the
+// most expensive failure this command has.
 //
-// It is deliberately NOT the `clusterConfig.name` entry. That value names the
-// platform for tagging -- `adhar-mgmt` in the shipped DigitalOcean config,
-// which appears in droplet tags -- while the cluster itself is still `dev`.
-// Teardown that keyed on clusterConfig.name would look for a cluster that does
-// not exist, report "nothing to remove", and leave the whole environment
-// running.
-func EnvironmentClusterName(env *config.ResolvedEnvironmentConfig) string {
-	if env == nil {
-		return ""
+// Neither is the `clusterConfig.name` entry. That value names the platform for
+// tagging -- `adhar-mgmt` in the shipped DigitalOcean config, which appears in
+// droplet tags -- and is not what any provider lists the cluster as. Teardown
+// that keyed on it would look for a cluster that does not exist, report
+// "nothing to remove", and leave the whole environment running.
+//
+// `override` is `adhar down --name`; it must match whatever `adhar up --name`
+// used. Resolution is shared with provisioning (providers.ResolveClusterName) so
+// the two commands cannot drift apart.
+func EnvironmentClusterNames(override string, env *config.ResolvedEnvironmentConfig) []string {
+	names := []string{pfactory.ResolveClusterName(override)}
+	if env != nil && env.Name != "" && env.Name != names[0] {
+		names = append(names, env.Name)
 	}
-	return env.Name
+	return names
+}
+
+// EnvironmentClusterName is the primary name only — for messages, where listing
+// every candidate would be noise.
+func EnvironmentClusterName(override string, env *config.ResolvedEnvironmentConfig) string {
+	return EnvironmentClusterNames(override, env)[0]
 }

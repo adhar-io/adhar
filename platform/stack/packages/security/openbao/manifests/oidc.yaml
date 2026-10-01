@@ -73,7 +73,12 @@ spec:
   # 1h, not "0": sync-once is a single attempt with no retry, so any ES created
   # before the Keycloak client reconciler has written keycloak-clients wedges as
   # SecretSyncedError forever.
-  refreshInterval: 30s
+  # 10s, not 30s: this is the RETRY cadence until keycloak-clients exists, and
+  # the wait is the platform's critical path — Keycloak's wave-20 config Job
+  # writes that Secret and several apps cannot go Healthy until their own ES has
+  # picked it up. At 30s each consumer could sit on a Secret that was already
+  # there for half a minute; the whole GitOps phase is a chain of such waits.
+  refreshInterval: 10s
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore

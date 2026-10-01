@@ -4,28 +4,40 @@ import (
 	"context"
 	"testing"
 
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 )
 
-// The cluster name a teardown looks for must be the one `adhar up` registered.
-// buildClusterSpec sets ObjectMeta.Name from the ENVIRONMENT name, so that is
-// what providers list. Keying on `clusterConfig.name` instead finds nothing,
-// reports "nothing to remove", and leaves the whole environment running and
-// billing -- which is exactly how `adhar down` used to behave on a cloud.
-func TestEnvironmentClusterNameIsTheEnvironmentName(t *testing.T) {
+// The names a teardown searches must include every name `adhar up` could have
+// registered. Searching the wrong one finds nothing, reports "nothing to remove",
+// and leaves the whole environment running and billing -- which is exactly how
+// `adhar down` used to behave on a cloud.
+//
+// There are two schemes because the naming changed: `adhar up` now names the
+// cluster after the PLATFORM (`adhar`, or `--name`), and used to name it after the
+// ENVIRONMENT. Both must be searched or every pre-existing cloud cluster is
+// orphaned by the upgrade.
+func TestEnvironmentClusterNamesCoverBothSchemes(t *testing.T) {
 	tests := []struct {
-		name string
-		env  *config.ResolvedEnvironmentConfig
-		want string
+		name     string
+		override string
+		env      *config.ResolvedEnvironmentConfig
+		want     []string
 	}{
 		{
-			name: "plain environment",
+			name: "default: platform name first, legacy environment name second",
 			env:  &config.ResolvedEnvironmentConfig{Name: "dev"},
-			want: "dev",
+			want: []string{globals.DefaultClusterName, "dev"},
 		},
 		{
-			// The shipped DigitalOcean config: clusterConfig.name is adhar-mgmt
-			// (a tag/platform name) while the cluster is registered as "dev".
+			name:     "--name wins, and the legacy name is still searched",
+			override: "my-cluster",
+			env:      &config.ResolvedEnvironmentConfig{Name: "dev"},
+			want:     []string{"my-cluster", "dev"},
+		},
+		{
+			// The shipped DigitalOcean config: clusterConfig.name is adhar-mgmt (a
+			// tag/platform name) and must never be treated as the cluster name.
 			name: "clusterConfig.name must NOT win",
 			env: &config.ResolvedEnvironmentConfig{
 				Name: "dev",
@@ -34,19 +46,34 @@ func TestEnvironmentClusterNameIsTheEnvironmentName(t *testing.T) {
 					{Key: "nodeCount", Value: "3"},
 				},
 			},
-			want: "dev",
+			want: []string{globals.DefaultClusterName, "dev"},
 		},
 		{
-			name: "nil environment yields empty, never a wrong target",
+			name: "no duplicate when the environment already carries the default name",
+			env:  &config.ResolvedEnvironmentConfig{Name: globals.DefaultClusterName},
+			want: []string{globals.DefaultClusterName},
+		},
+		{
+			name: "nil environment still yields the platform default, never an empty target",
 			env:  nil,
-			want: "",
+			want: []string{globals.DefaultClusterName},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := EnvironmentClusterName(tc.env); got != tc.want {
-				t.Fatalf("EnvironmentClusterName() = %q, want %q", got, tc.want)
+			got := EnvironmentClusterNames(tc.override, tc.env)
+			if len(got) != len(tc.want) {
+				t.Fatalf("EnvironmentClusterNames() = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("EnvironmentClusterNames() = %v, want %v", got, tc.want)
+				}
+			}
+			// The primary is what messages show, so it must be the first candidate.
+			if primary := EnvironmentClusterName(tc.override, tc.env); primary != tc.want[0] {
+				t.Errorf("EnvironmentClusterName() = %q, want %q", primary, tc.want[0])
 			}
 		})
 	}

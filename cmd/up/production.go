@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/config"
@@ -60,8 +61,10 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// Create provider manager for production operations
 	providerManager := pfactory.NewProviderManager(pfactory.DefaultFactory)
 
-	// Show banner
-	logger.Banner("Adhar Platform", "Provisioning Management Cluster and Platform Components")
+	// No banner here. The `adhar up` header (mode / config / env) has already
+	// printed, and the checklist carries its own title — a third and fourth
+	// announcement of "Adhar Platform / Provisioning …" before any work started
+	// just pushed the useful output down the screen.
 
 	// If no environment specified, provision the complete platform
 	if environment == "" {
@@ -80,18 +83,35 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 		return showDryRunInfo(envConfig)
 	}
 
-	// Provision the environment
-	log.StartOperation("Environment Provisioning", fmt.Sprintf("Deploying %s environment", environment))
+	// One checklist for the whole run, same as the local path. Every provider's own
+	// log.Printf output is routed into it, so it scrolls above the block.
+	//
+	// The name is resolved the same way provisioning resolves it, so the checklist
+	// names the cluster that will actually be built.
+	resolvedName := pfactory.ResolveClusterName(clusterName)
+	clusterTarget := clusterTargetLabel(resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion)
+	tracker, restoreProgress := startCloudProgress(envConfig.Name, resolvedName,
+		envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose)
+	// The buffered provider detail is only worth printing when something went
+	// wrong, so the deferred restore needs to know the outcome.
+	provisionFailed := false
+	defer func() { restoreProgress(provisionFailed) }()
 
+	tracker.Activate(0) // Preflight — the provider validates credentials and quota
 	// Set provision options
 	provisionOpts := pfactory.ProvisionOptions{
-		DryRun:   dryRun,
-		Force:    force,
-		Recreate: recreateCluster,
+		DryRun:      dryRun,
+		Force:       force,
+		Recreate:    recreateCluster,
+		ClusterName: clusterName,
+		OnPhase:     trackPhases(tracker, clusterTarget),
 	}
 
+	// Stages 0-2 are advanced by OnPhase as provisioning reports each milestone.
 	result, err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts)
 	if err != nil {
+		tracker.Fail(1)
+		provisionFailed = true
 		// Deliberately NOT logged as well as returned. The returned error already
 		// names the environment and the provider, and — for an access failure — it
 		// carries the remedy ExplainAccessError attached. Logging it here too
@@ -105,7 +125,8 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// manager) on the freshly provisioned cluster — same flow as local, sized
 	// by enableHAMode.
 	if result != nil {
-		if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg); err != nil {
+		if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker); err != nil {
+			provisionFailed = true
 			return fmt.Errorf("failed to bootstrap platform on environment %s: %w", environment, err)
 		}
 	}
@@ -189,7 +210,7 @@ func printProductionSuccessMsg(envName, host, clusterName string) {
 	fmt.Printf("  ● Security policies and monitoring\n")
 	fmt.Printf("  ● Auto-scaling and high availability\n\n")
 	fmt.Printf("Next steps:\n")
-	fmt.Printf("  1. kubectl is ready — context %q is current\n", "adhar-"+clusterName)
+	fmt.Printf("  1. kubectl is ready — context %q is current\n", KubeContextName(clusterName))
 	fmt.Printf("     (standalone copy: ~/.adhar/clusters/%s/kubeconfig)\n", clusterName)
 	fmt.Printf("  2. Platform credentials:  adhar get secrets        (e.g. adhar get secrets -p argocd)\n")
 	fmt.Printf("  3. Console: https://console.%s   ArgoCD: https://argocd.%s   Gitea: https://gitea.%s\n", host, host, host)
@@ -213,7 +234,7 @@ var tlsBlocker *acmeDNS01Blocker
 
 // provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
 func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory.ProviderManager, cfg *config.Config, dryRun bool, force bool) error {
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("▣ Starting Complete Adhar Platform Provisioning"))
+	// Each environment prints its own checklist below; no separate header.
 	fmt.Println()
 
 	// Determine environments to provision
@@ -222,52 +243,96 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		return fmt.Errorf("no environments defined in configuration file")
 	}
 
-	// Use environments from config
+	// Use environments from config, in a stable order — ranging over the map
+	// provisioned them in a different sequence every run, which makes two runs of
+	// the same file impossible to compare.
 	for envName := range cfg.Environments {
 		environmentsToProvision = append(environmentsToProvision, envName)
 	}
+	sort.Strings(environmentsToProvision)
 
 	// Provision each environment
 	successCount := 0
+	// Collected so the summary can say WHICH environment failed and why. The
+	// per-environment lines scroll away above a long run.
+	type envFailure struct {
+		env    string
+		reason error
+	}
+	var envFailures []envFailure
 	for _, envName := range environmentsToProvision {
-		fmt.Printf("  Provisioning environment: %s...\n", envName)
+		// The environment is named on the checklist's Cloud cluster stage and in the
+		// per-environment result line below, so it is not announced up front too.
 
 		envConfig, err := resolveEnvironmentConfig(cfg, envName)
 		if err != nil {
-			fmt.Printf("  ✖ Failed to resolve configuration for %s: %v\n", envName, err)
+			fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
+			envFailures = append(envFailures, envFailure{envName, err})
 			continue
 		}
 		applyKubeVersionOverride(envConfig)
 
 		provisionOpts := pfactory.ProvisionOptions{
-			DryRun:   dryRun,
-			Force:    force,
-			Recreate: recreateCluster,
+			DryRun:      dryRun,
+			Force:       force,
+			Recreate:    recreateCluster,
+			ClusterName: clusterName,
 		}
 
+		// A checklist per environment: this loop provisions each in turn, so one
+		// block covering all of them would show several clusters' progress on the
+		// same lines.
+		resolvedName := pfactory.ResolveClusterName(clusterName)
+		tracker, restoreProgress := startCloudProgress(envConfig.Name, resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose)
+		tracker.Activate(0)
+		provisionOpts.OnPhase = trackPhases(tracker,
+			clusterTargetLabel(resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion))
 		result, err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts)
 		if err != nil {
-			fmt.Printf("  ✖ Failed to provision %s: %v\n", envName, err)
+			tracker.Fail(1)
+			restoreProgress(true)
+			fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
+			envFailures = append(envFailures, envFailure{envName, err})
 			continue
 		}
 		if result != nil {
-			if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg); err != nil {
-				fmt.Printf("  ✖ Failed to bootstrap platform on %s: %v\n", envName, err)
+			if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker); err != nil {
+				restoreProgress(true)
+				fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
+				envFailures = append(envFailures, envFailure{envName, err})
 				continue
 			}
 		}
-		fmt.Printf("  ● Environment %s provisioned successfully\n", envName)
+		// Finalise this environment's block before the next one starts its own.
+		restoreProgress(false)
+		fmt.Printf("  %s %s provisioned\n", helpers.SuccessStyle.Render(helpers.IconReady), envName)
 		successCount++
 	}
 
-	// Print summary
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("● Platform Provisioning Complete!"))
-	fmt.Printf("┌─────────────────────────────────────────────┐\n")
-	fmt.Printf("│ Environments Provisioned: %d/%d              │\n", successCount, len(environmentsToProvision))
-	fmt.Printf("└─────────────────────────────────────────────┘\n")
+	// Summary that matches the result.
+	//
+	// This said "● Platform Provisioning Complete!" unconditionally — printed after
+	// provisioning 0 of 1 environments, directly above "Error: failed to provision 1
+	// out of 1". A summary that contradicts its own outcome teaches people not to
+	// read it. The box was hand-drawn too, with the count followed by a fixed run of
+	// spaces, so the closing │ moved as soon as the numbers were not one digit.
+	total := len(environmentsToProvision)
+	fmt.Println(renderProvisionSummary(successCount, total, func() []string {
+		lines := make([]string, 0, len(envFailures))
+		for _, f := range envFailures {
+			lines = append(lines, fmt.Sprintf("%s — %v", f.env, f.reason))
+		}
+		return lines
+	}()))
 
-	if successCount < len(environmentsToProvision) {
-		return fmt.Errorf("failed to provision %d out of %d environments", len(environmentsToProvision)-successCount, len(environmentsToProvision))
+	if successCount < total {
+		// Carry the first reason into the returned error. "failed to provision 1 out
+		// of 1 environments" told the operator only what they could already count.
+		if len(envFailures) > 0 {
+			return fmt.Errorf("provisioning failed for %d of %d environments: %s: %w",
+				total-successCount, total, envFailures[0].env, envFailures[0].reason)
+		}
+		return fmt.Errorf("provisioning failed for %d of %d environments", total-successCount, total)
 	}
 
 	return nil

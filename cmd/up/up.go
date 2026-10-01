@@ -41,6 +41,7 @@ import (
 
 const (
 	recreateClusterUsage           = "✖ Delete existing cluster before creating new one"
+	clusterNameUsage               = "◈ Name for the cluster (default \"" + globals.DefaultClusterName + "\"); 'adhar down --name' must match"
 	devPasswordUsage               = "⛨ Set password 'developer' for admin users (ArgoCD & Gitea)"
 	kubeVersionUsage               = "⎔ Kubernetes version to provision (any provider, e.g. v1.37.0); defaults to the platform version"
 	extraPortsMappingUsage         = "⇄ Extra ports to expose (e.g., '22:32222,9090:39090')"
@@ -61,6 +62,7 @@ const (
 
 var (
 	// Flags
+	clusterName               string
 	recreateCluster           bool
 	devPassword               bool
 	kubeVersion               string
@@ -147,6 +149,7 @@ For more information, visit: https://github.com/adhar-io/adhar`,
 
 func init() {
 	// cluster related flags
+	UpCmd.PersistentFlags().StringVar(&clusterName, "name", "", clusterNameUsage)
 	UpCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
 	UpCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
 	UpCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", globals.DefaultKubernetesVersion, kubeVersionUsage)
@@ -223,7 +226,7 @@ func create(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("env   "), helpers.InfoStyle.Render("all environments"))
 		}
-		fmt.Println()
+		// No trailing blank: the stage tracker opens with one of its own.
 		return createProductionCluster(ctx, cmd, args, ctxCancel)
 	}
 

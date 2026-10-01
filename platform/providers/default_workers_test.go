@@ -3,6 +3,7 @@ package provider
 import (
 	"testing"
 
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 )
 
@@ -17,7 +18,7 @@ import (
 func TestProductionStartsWithTwoWorkers(t *testing.T) {
 	spec, err := buildClusterSpec(&config.ResolvedEnvironmentConfig{
 		Name: "prod", ResolvedType: config.EnvironmentTypeProduction, ResolvedProvider: "azure", ResolvedRegion: "malaysiawest",
-	})
+	}, globals.DefaultClusterName)
 	if err != nil {
 		t.Fatalf("buildClusterSpec: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestProductionStartsWithTwoWorkers(t *testing.T) {
 func TestLocalStartsWithNoSeparateWorker(t *testing.T) {
 	spec, err := buildClusterSpec(&config.ResolvedEnvironmentConfig{
 		Name: "local", ResolvedType: config.EnvironmentTypeNonProduction, ResolvedProvider: "kind",
-	})
+	}, globals.DefaultClusterName)
 	if err != nil {
 		t.Fatalf("buildClusterSpec: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestAutoscalingFloorRaisesTheStartingWorkers(t *testing.T) {
 	spec, err := buildClusterSpec(&config.ResolvedEnvironmentConfig{
 		Name: "prod", ResolvedType: config.EnvironmentTypeProduction, ResolvedProvider: "azure",
 		Autoscaling: &config.AutoscalingConfig{Enabled: true, MinWorkers: 4, MaxWorkers: 8},
-	})
+	}, globals.DefaultClusterName)
 	if err != nil {
 		t.Fatalf("buildClusterSpec: %v", err)
 	}

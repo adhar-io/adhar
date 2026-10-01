@@ -137,6 +137,10 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		{Label: "GitOps sync - platform stack", Detail: "curated platform apps via ArgoCD"},
 	}
 	tracker := helpers.NewStageTracker(os.Stderr, "Provisioning Adhar platform", stages, !lp.options.Verbose)
+	// Guard the hand-counted base against someone inserting a stage above it.
+	if got := stages[localControllerStageBase].Label; got != "Cilium & Gateway" {
+		panic(fmt.Sprintf("localControllerStageBase points at %q, not the first controller-driven stage", got))
+	}
 	tracker.Start()
 	// Finalise the animated block on EVERY return, not just the ones that remember.
 	//
@@ -290,7 +294,10 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	// Poll the AdharPlatform status to advance the controller-owned stages as
 	// each core component reports Available.
 	stopPoll := make(chan struct{})
-	go pollPlatformStages(ctx, kubeClient, lp.options.Name, tracker, stopPoll)
+	// Local checklist: Kind cluster, Platform CRDs, Networking come first, so the
+	// controller-driven run starts at index 3.
+	appProgress := &syncProgress{}
+	go pollPlatformStages(ctx, kubeClient, lp.options.Name, tracker, localControllerStageBase, appProgress, stopPoll)
 
 	// The apps budget is enforced HERE as well as in the controller. The
 	// controller checks it once per reconcile, which is fine while reconciles
@@ -312,7 +319,14 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		// Force-complete any stage the poller hasn't caught yet — the controller
 		// shuts down the instant the platform is deployed, which can race the
 		// final status read.
-		for i := 3; i < len(stages); i++ {
+		//
+		// The GitOps stage gets a caption first: `adhar up` now hands over as soon
+		// as the console is serving, so this stage is normally ticked with a tail
+		// still converging, and a bare tick next to "26/75" would read as a lie.
+		if h, t := appProgress.get(); t > 0 {
+			tracker.SetDetail(localControllerStageBase+ControllerStageCount-1, finalGitOpsDetail(h, t))
+		}
+		for i := localControllerStageBase; i < len(stages); i++ {
 			tracker.Done(i)
 		}
 		tracker.Stop()
@@ -488,7 +502,34 @@ func verifyPlatformProvisioned(ctx context.Context, c client.Client, name string
 // core component reports Available in the AdharPlatform status. It runs until the
 // stop channel closes or the context is cancelled. Marks are idempotent, so it is
 // safe for several components to become Available between ticks.
-func pollPlatformStages(ctx context.Context, c client.Client, name string, tracker *helpers.StageTracker, stop <-chan struct{}) {
+// controllerStages is the run of checklist entries this poll owns, in order:
+//
+//	gateway, argocd, gitea, repos, crossplane, gitopsSync
+//
+// `base` is the index of the FIRST of them, because the stages BEFORE them differ
+// per path — local has three (Kind cluster, CRDs, networking), a cloud has its own
+// (preflight, cluster, cloud integration, kubeconfig) — while everything the
+// controller drives is identical on every provider. Passing the base is what lets
+// one poller serve both instead of each path growing its own copy.
+type controllerStages struct{ base int }
+
+func (c controllerStages) gateway() int    { return c.base }
+func (c controllerStages) argocd() int     { return c.base + 1 }
+func (c controllerStages) gitea() int      { return c.base + 2 }
+func (c controllerStages) repos() int      { return c.base + 3 }
+func (c controllerStages) crossplane() int { return c.base + 4 }
+func (c controllerStages) gitopsSync() int { return c.base + 5 }
+
+// localControllerStageBase is where the controller-driven stages start on the LOCAL
+// checklist: after Kind cluster (0), Platform CRDs (1) and Networking (2).
+const localControllerStageBase = 3
+
+// ControllerStageCount is how many checklist entries pollPlatformStages advances,
+// so a caller can size its stage list correctly.
+const ControllerStageCount = 6
+
+func pollPlatformStages(ctx context.Context, c client.Client, name string, tracker *helpers.StageTracker, base int, progress *syncProgress, stop <-chan struct{}) {
+	idx := controllerStages{base: base}
 	defer func() { _ = recover() }()
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
@@ -518,32 +559,36 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			// Deployment to be Ready before advancing (the flag guards ordering;
 			// the Deployment readiness times the stage).
 			if st.Gateway.Available {
-				tracker.Done(3)
-				tracker.Activate(4)
+				tracker.Done(idx.gateway())
+				tracker.Activate(idx.argocd())
 			}
 			if st.ArgoCD.Available && deployReady(ctx, c, "argo-cd-argocd-server") {
-				tracker.Done(4)
-				tracker.Activate(5)
+				tracker.Done(idx.argocd())
+				tracker.Activate(idx.gitea())
 			}
 			if st.Gitea.Available && deployReady(ctx, c, "gitea") {
-				tracker.Done(5)
-				tracker.Activate(6)
+				tracker.Done(idx.gitea())
+				tracker.Activate(idx.repos())
 			}
 			// Stage 6 GitOps repos: the ~1 min seeding of the packages /
 			// environments / templates repos used to be booked under
 			// "Crossplane", which merely followed it.
 			if st.Gitea.RepositoriesCreated {
-				tracker.Done(6)
-				tracker.Activate(7)
+				tracker.Done(idx.repos())
+				tracker.Activate(idx.crossplane())
 			}
 			if st.Crossplane.Available {
-				tracker.Done(7)
-				tracker.Activate(8)
+				tracker.Done(idx.crossplane())
+				tracker.Activate(idx.gitopsSync())
 			}
 			if st.GitOps != nil && st.GitOps.ApplicationsTotal > 0 {
-				// The live count goes to the checklist, which rewrites it in place.
-				tracker.SetDetail(8, fmt.Sprintf("%d/%d apps Synced + Healthy",
+				// The live count goes to the checklist, which rewrites it in place,
+				// and to the finaliser, which needs it to caption the tick.
+				tracker.SetDetail(idx.gitopsSync(), fmt.Sprintf("%d/%d apps Synced + Healthy",
 					st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal))
+				if progress != nil {
+					progress.set(st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal)
+				}
 			}
 		}
 	}

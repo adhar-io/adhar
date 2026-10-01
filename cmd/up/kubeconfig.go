@@ -7,6 +7,8 @@ import (
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"adhar-io/adhar/globals"
 )
 
 // persistClusterKubeconfig saves a freshly provisioned cluster's kubeconfig to
@@ -32,11 +34,25 @@ func persistClusterKubeconfig(clusterName, kubeconfigStr string) (path, ctxName 
 		return "", "", fmt.Errorf("writing %s: %w", path, err)
 	}
 
-	ctxName = "adhar-" + clusterName
+	ctxName = KubeContextName(clusterName)
 	if err := mergeIntoDefaultKubeconfig(kubeconfigStr, ctxName); err != nil {
 		return path, ctxName, fmt.Errorf("merging into default kubeconfig: %w", err)
 	}
 	return path, ctxName, nil
+}
+
+// KubeContextName is the kube-context a provisioned cluster is merged in as.
+//
+// Prefixed so a platform cluster is recognisable among an engineer's other
+// contexts — EXCEPT when the name already is the platform's, which is now the
+// default (`adhar up` names the cluster `adhar` unless --name says otherwise).
+// Prefixing unconditionally produced "adhar-adhar", and a stuttering context name
+// looks like a bug in the tool that generated it.
+func KubeContextName(clusterName string) string {
+	if clusterName == globals.DefaultClusterName {
+		return clusterName
+	}
+	return globals.DefaultClusterName + "-" + clusterName
 }
 
 // mergeIntoDefaultKubeconfig adds the cluster, user and context found in

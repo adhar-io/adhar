@@ -123,6 +123,10 @@ const (
 	// directory per template (`<id>/template.yaml` plus the `skeleton/` tree it
 	// renders).
 	GitOpsTemplatesPath = "templates"
+	// TemplatesUpstreamURL is where GitOpsRepoTemplates is mirrored FROM. Bootstrap
+	// creates it as a Gitea pull mirror of this address, so the templates a platform
+	// offers are the upstream ones and stay current without a platform release.
+	TemplatesUpstreamURL = "https://github.com/adhar-io/adhar-templates.git"
 )
 
 var (

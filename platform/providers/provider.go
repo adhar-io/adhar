@@ -290,6 +290,62 @@ type ProvisionOptions struct {
 	// name before provisioning, giving a clean cluster instead of adopting the
 	// existing machines (`adhar up --recreate`, same semantics as local Kind).
 	Recreate bool
+	// OnPhase, when set, is called as provisioning crosses each milestone.
+	//
+	// It exists so a caller can drive a progress display without this package
+	// knowing what one is. Without it the CLI had to guess: it marked "Preflight"
+	// and "Cloud cluster" active together and both spun at once, because from
+	// outside, ProvisionEnvironment is a single opaque call.
+	//
+	// Always called in order, and PhaseClusterReady fires on the reuse path too —
+	// adopting an existing cluster is still a cluster being ready.
+	OnPhase func(Phase)
+	// ClusterName overrides the name the cluster is registered under with its
+	// provider (`adhar up --name`). Empty means the platform default.
+	//
+	// Whatever this resolves to is the name `adhar down` must look for, so the
+	// resolution lives in ONE place — ResolveClusterName — and both commands call
+	// it. A cluster created under a name teardown does not search for is a cluster
+	// that keeps billing while `adhar down` reports success.
+	ClusterName string
+}
+
+// ResolveClusterName is the single source of truth for what a cluster is called.
+//
+// The default is the platform name (`adhar`), matching the local Kind cluster, so
+// one platform is one cluster name across every provider. It used to be the
+// ENVIRONMENT name, which made `adhar up -f config.yaml` on the shipped
+// DigitalOcean config build a cluster called `dev`.
+//
+// `override` is `adhar up --name` / `adhar down --name`. Both commands resolve
+// through here; see the note on ProvisionOptions.ClusterName.
+func ResolveClusterName(override string) string {
+	if override != "" {
+		return override
+	}
+	return globals.DefaultClusterName
+}
+
+// Phase is a provisioning milestone reported through ProvisionOptions.OnPhase.
+type Phase int
+
+const (
+	// PhasePreflightDone: credentials, quota and permissions are proven (or the
+	// provider is exempt). Nothing has been created yet.
+	PhasePreflightDone Phase = iota
+	// PhaseClusterCreating: about to ask the cloud for machines. Everything after
+	// this point can leave billable resources behind if it fails.
+	PhaseClusterCreating
+	// PhaseClusterReady: the cluster exists and is running, whether it was just
+	// built or adopted.
+	PhaseClusterReady
+)
+
+// notify reports a phase when the caller asked for phases.
+func (o ProvisionOptions) notify(p Phase) {
+	if o.OnPhase != nil {
+		o.OnPhase(p)
+	}
 }
 
 // recreateCluster deletes an existing cluster named like the environment and
@@ -361,14 +417,18 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 		return nil, fmt.Errorf("failed to create %s provider: %w", providerType, err)
 	}
 
+	// One name, resolved once, used by every step below — create, reuse-detection
+	// and --recreate all have to agree, and so does `adhar down`.
+	clusterName := ResolveClusterName(opts.ClusterName)
+
 	if opts.DryRun {
-		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s'\n",
-			envConfig.ResolvedProvider, envConfig.Name, envConfig.ResolvedRegion)
+		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s' (environment '%s')\n",
+			envConfig.ResolvedProvider, clusterName, envConfig.ResolvedRegion, envConfig.Name)
 		return nil, nil
 	}
 
 	// Build cluster specification based on provider and environment
-	spec, err := buildClusterSpec(envConfig)
+	spec, err := buildClusterSpec(envConfig, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build cluster specification: %w", err)
 	}
@@ -413,7 +473,13 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 					logger.Warnf("           → %s", c.Fix)
 				}
 			default:
-				logger.Infof("preflight ● %s: %s", c.Name, c.Detail)
+				// A PASSING check is what the "Preflight ✓" stage on the checklist
+				// already says, so at normal verbosity it is a duplicate — and these
+				// details are long ("…no deep preflight yet, so quota and per-action
+				// permissions are unverified"), which is how two lines of noise ended
+				// up above the progress view. Failures and warnings stay at INFO
+				// because no checklist tick can convey them.
+				logger.Debugf("preflight ● %s: %s", c.Name, c.Detail)
 			}
 		}
 		if AnyFailed(checks) {
@@ -427,10 +493,13 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	}
 
 	if opts.Recreate {
-		if err := recreateCluster(ctx, prov, envConfig.Name); err != nil {
+		if err := recreateCluster(ctx, prov, clusterName); err != nil {
 			return nil, fmt.Errorf("recreating %s cluster: %w", providerType, err)
 		}
 	}
+	// Fires for kind too, which skips the checks above: the stage still has to
+	// complete, or a local run leaves "Preflight" spinning forever.
+	opts.notify(PhasePreflightDone)
 
 	// Reuse an existing cluster of this name instead of trying to build a second one.
 	//
@@ -442,21 +511,31 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	// already in use" — the 8 being its own previous attempt (Azure, 2026-09-26).
 	//
 	// --recreate is the way to ask for a fresh one, and it has already run above.
-	if existing := findExistingCluster(ctx, prov, envConfig.Name); existing != nil {
+	if existing := findExistingCluster(ctx, prov, clusterName); existing != nil {
 		logger.Infof("Cluster '%s' already exists (%s, status %s) — reusing it; "+
-			"pass --recreate to build a fresh one", envConfig.Name, existing.ID, existing.Status)
+			"pass --recreate to build a fresh one", clusterName, existing.ID, existing.Status)
+		opts.notify(PhaseClusterReady)
 		return &ProvisionResult{Provider: prov, Cluster: existing}, nil
 	}
 
-	// Create the cluster
-	logger.Infof("Creating cluster '%s' using %s provider in region %s", envConfig.Name, providerType, envConfig.ResolvedRegion)
+	// Create the cluster.
+	//
+	// Not logged at INFO: the checklist's "Cloud cluster" stage carries the cluster
+	// name, provider and region in its detail, so this line said the same thing a
+	// second time directly above it.
+	logger.Debugf("Creating cluster '%s' for environment '%s' using %s provider in region %s",
+		clusterName, envConfig.Name, providerType, envConfig.ResolvedRegion)
+	opts.notify(PhaseClusterCreating)
 
 	cluster, err := prov.CreateCluster(ctx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create %s cluster: %w", providerType, err)
 	}
 
-	logger.Infof("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
+	// The "Cloud cluster ✓" tick says this, and the ID is an internal handle the
+	// operator never types — `adhar down` and `adhar cluster` take the NAME.
+	logger.Debugf("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
+	opts.notify(PhaseClusterReady)
 
 	return &ProvisionResult{Provider: prov, Cluster: cluster}, nil
 }
@@ -511,7 +590,7 @@ func findExistingCluster(ctx context.Context, prov Provider, name string) *types
 }
 
 // buildClusterSpec creates a cluster specification based on environment configuration
-func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.ClusterSpec, error) {
+func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig, clusterName string) (*types.ClusterSpec, error) {
 	spec := &types.ClusterSpec{
 		Provider: envConfig.ResolvedProvider,
 		Region:   envConfig.ResolvedRegion,
@@ -522,7 +601,7 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 		// config produced different Kubernetes versions per cloud.
 		Version: globals.DefaultKubernetesVersion,
 		ObjectMeta: types.ObjectMeta{
-			Name: envConfig.Name,
+			Name: clusterName,
 		},
 	}
 

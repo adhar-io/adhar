@@ -88,30 +88,19 @@ Examples:
 		// destroys machines, volumes and load balancers that cost money and
 		// cannot be undone, and a full-screen spinner is no place to ask.
 		if downConfigFile != "" && !forceDelete {
-			target := downEnv
-			if target == "" {
-				target = "EVERY environment in " + downConfigFile
-			}
-			// Name the resources in the vocabulary of the cloud being torn
-			// down. The list used to be DigitalOcean's ("droplets… firewall,
-			// VPC") whatever the provider was, so an Azure teardown warned
-			// about objects Azure does not have and stayed silent about the
-			// ones it does.
+			// The panel names the resources in the vocabulary of the cloud being
+			// torn down. The list used to be DigitalOcean's ("droplets… firewall,
+			// VPC") whatever the provider was, so an Azure teardown warned about
+			// objects Azure does not have and stayed silent about the ones it does.
 			//
-			// Where it is running matters as much as what is deleted: the same
-			// config can point at different accounts, and "are you sure?" is
-			// worth nothing if it does not say sure about WHAT, WHERE. So the
-			// provider and region are named too when the file gives them.
-			fmt.Printf("\n%s  This deletes cloud infrastructure and cannot be undone.\n",
-				helpers.WarningStyle.Render(helpers.IconDegraded))
-			fmt.Printf("\n  Scope     %s\n", target)
-			if where := teardownTargetDescription(downConfigFile, downEnv); where != "" {
-				fmt.Printf("  Target    %s\n", where)
-			}
-			fmt.Printf("  Deletes   %s\n", teardownResourceSummary(downConfigFile, downEnv))
-			fmt.Printf("\n  Data on those volumes is destroyed with them. Anything not backed up\n")
-			fmt.Printf("  elsewhere is gone.\n")
-			fmt.Printf("\nType 'yes' to proceed, anything else to cancel: ")
+			// Where it runs matters as much as what is deleted: the same config can
+			// point at different accounts, and "are you sure?" is worth nothing if
+			// it does not say sure about WHAT, WHERE and under WHICH NAME. See
+			// confirm.go.
+			fmt.Println(RenderTeardownConfirmation(
+				buildTeardownPlan(downConfigFile, downEnv, downClusterName)))
+			fmt.Printf("\n  Type %s to proceed, anything else cancels: ",
+				helpers.HighlightStyle.Render("yes"))
 			var confirmation string
 			fmt.Scanln(&confirmation)
 			if confirmation != "yes" {
@@ -195,6 +184,7 @@ var (
 	verboseDown     bool
 	noAnimation     bool
 	downConfigFile  string
+	downClusterName string
 	downEnv         string
 	purgeVolumes    bool
 )
@@ -206,6 +196,9 @@ func init() {
 	// entirely -- the exact command someone reaches for to tear down a cloud
 	// environment. --force keeps its long form only.
 	DownCmd.Flags().StringVarP(&downConfigFile, "file", "f", "", "Configuration file describing the environment to tear down")
+	// Must match whatever `adhar up --name` used. Teardown also searches the legacy
+	// environment-name scheme, so a cluster from before the rename is still found.
+	DownCmd.Flags().StringVar(&downClusterName, "name", "", "◈ Name of the cluster to tear down (default \""+globals.DefaultClusterName+"\"); must match 'adhar up --name'")
 	DownCmd.Flags().StringVar(&downEnv, "env", "", "Environment to tear down (defaults to every environment in --file)")
 	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompt")
 	DownCmd.Flags().BoolVar(&purgeImageCache, "purge-image-cache", false, "Also remove the local Kind image cache containers and volume (the next `adhar up` pulls everything from the internet again)")
@@ -771,11 +764,15 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	seenProvider := map[string]bool{}
 	for _, envName := range envNames {
 		env := cfg.ResolvedEnvironments[envName]
-		clusterName := helpers.EnvironmentClusterName(env)
+		// Every name this environment's cluster could be registered under: the
+		// current scheme first, then the legacy environment name, so a cluster built
+		// before the rename is still found and deleted rather than left billing.
+		candidates := helpers.EnvironmentClusterNames(downClusterName, env)
+		clusterName := candidates[0]
 
 		emit(logger.StepMsg(fmt.Sprintf("Tearing down %s", envName)))
 		emit(logger.StatusMsg(fmt.Sprintf("locating '%s'", clusterName)))
-		detail("→ environment %s: provider=%s cluster=%s", envName, env.ResolvedProvider, clusterName)
+		detail("→ environment %s: provider=%s cluster candidates=%v", envName, env.ResolvedProvider, candidates)
 
 		// The environment's provider must actually be configured in this file.
 		// When it is not, ResolveEnvironments quietly falls back to whichever
@@ -790,7 +787,21 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 			continue
 		}
 
-		found, err := helpers.FindCluster(ctx, cfg, clusterName, providerOpts, func(w string) { detail("  ! %s", w) })
+		// Try each candidate; the first one a provider actually has wins. Only the
+		// LAST error matters for reporting — if none matched, they all said the same
+		// thing ("no provider has it"), and that is a successful teardown.
+		var found *helpers.ResolvedCluster
+		var err error
+		for _, candidate := range candidates {
+			found, err = helpers.FindCluster(ctx, cfg, candidate, providerOpts, func(w string) { detail("  ! %s", w) })
+			if err == nil {
+				if candidate != clusterName {
+					detail("  found it under the legacy name %q (clusters created before `adhar up --name`)", candidate)
+				}
+				clusterName = candidate
+				break
+			}
+		}
 		if err != nil {
 			var nf *helpers.NotFoundError
 			switch {

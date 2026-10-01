@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/cmd/version"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
@@ -101,8 +102,13 @@ func providerNameToEnvironmentProvider(name string) v1alpha1.EnvironmentProvider
 // CRDs, TLS secret, the AdharPlatform resource (which drives Cilium → Gateway →
 // ArgoCD → Gitea → Crossplane and the GitOps stack), and finally the in-cluster
 // controller manager for continuous reconciliation once the CLI exits.
-func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionResult, envConfig *config.ResolvedEnvironmentConfig, cfg *config.Config) error {
-	logger.Infof("Bootstrapping Adhar platform on cluster %s", result.Cluster.ID)
+// tracker is the caller's checklist. It owns stages 0-1 (preflight, cluster); this
+// function owns stage 2 (kubeconfig/TLS) and hands the rest to pollPlatformStages,
+// exactly as the local path does.
+func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionResult, envConfig *config.ResolvedEnvironmentConfig, cfg *config.Config, tracker *helpers.StageTracker) error {
+	// The checklist is titled with the environment and every stage below belongs to
+	// this bootstrap, so announcing it is a duplicate of the whole display.
+	logger.Debugf("Bootstrapping Adhar platform on cluster %s", result.Cluster.ID)
 
 	// Retrieve and materialize the kubeconfig. The controller's GitOps repo
 	// seeding shells out to kubectl, so KUBECONFIG must point at this cluster
@@ -123,7 +129,13 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	if kcPath, kcCtx, perr := persistClusterKubeconfig(clusterName, kubeconfigStr); perr != nil {
 		logger.Infof("Kubeconfig saved to %s, but merging into the default kubeconfig failed: %v", kcPath, perr)
 	} else {
-		logger.Infof("Kubeconfig saved to %s and merged as context %q (now current)", kcPath, kcCtx)
+		// The success panel names the context and the standalone copy's path under
+		// "Next steps", which is where someone looks for it. In-flight it goes on the
+		// Kubeconfig stage instead of into the log.
+		logger.Debugf("Kubeconfig saved to %s and merged as context %q (now current)", kcPath, kcCtx)
+		if tracker != nil {
+			tracker.SetDetail(2, "context "+kcCtx)
+		}
 	}
 
 	kubeconfigFile, err := os.CreateTemp("", "adhar-kubeconfig-")
@@ -261,7 +273,11 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		if err := ensureEdgeDNSSecret(ctx, kubeClient, dnsProvider, pc); err != nil {
 			return fmt.Errorf("configuring edge DNS (%s): %w", dnsProvider, err)
 		}
-		logger.Infof("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
+		// The zone came from the config the operator just passed, and a FAILURE to
+		// configure edge DNS is reported separately (tlsBlocker, printed with the
+		// success panel) — so confirming the happy path here told them only what
+		// they had already written down.
+		logger.Debugf("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
 
 		// Say so NOW if a publicly trusted certificate cannot be issued. Without
 		// this the ACME order simply goes to "invalid", the Gateway keeps serving
@@ -308,7 +324,8 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		if err := ensureCrossplaneCredentialSecret(ctx, kubeClient, cp, pc); err != nil {
 			logger.Warnf("Crossplane credentials for %s not materialised: %v (cloud compositions will wait for %s-credentials)", cp, err, cp)
 		} else {
-			logger.Infof("Crossplane credentials materialised: %s-credentials", cp)
+			// Internal wiring; nothing for the operator to act on.
+			logger.Debugf("Crossplane credentials materialised: %s-credentials", cp)
 		}
 	}
 
@@ -406,7 +423,27 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// on-prem bring-up this phase is the longest part of `adhar up` and used to
 	// print nothing at all between "Bootstrapping" and "bootstrapped".
 	stopProgress := make(chan struct{})
-	go logAppConvergence(bootstrapCtx, kubeClient, platformName, stopProgress)
+	appProgress := &syncProgress{}
+	if tracker != nil {
+		// The same poller the local path uses: these stages are controller-driven and
+		// identical on every provider, so the checklist advances the same way.
+		tracker.Done(2)
+		tracker.Activate(cloudControllerStageBase)
+		go pollPlatformStages(bootstrapCtx, kubeClient, platformName, tracker, cloudControllerStageBase, appProgress, stopProgress)
+		// Caption the GitOps stage and tick whatever the poller did not catch — the
+		// controller shuts down the moment the console is serving, which races the
+		// final status read, and an uncaptioned tick beside a converging tail lies.
+		defer func() {
+			if h, t := appProgress.get(); t > 0 {
+				tracker.SetDetail(cloudControllerStageBase+ControllerStageCount-1, finalGitOpsDetail(h, t))
+			}
+			for i := cloudControllerStageBase; i < cloudControllerStageBase+ControllerStageCount; i++ {
+				tracker.Done(i)
+			}
+		}()
+	} else {
+		go logAppConvergence(bootstrapCtx, kubeClient, platformName, stopProgress)
+	}
 	select {
 	case mgrErr := <-exitCh:
 		close(stopProgress)
@@ -434,7 +471,10 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return fmt.Errorf("installing in-cluster controller manager: %w", err)
 	}
 
-	logger.Infof("● Platform bootstrapped on cluster %s (HA mode: %t)", result.Cluster.ID, enableHA)
+	// The checklist's completed stages and the success panel both say this, and it
+	// said it with the provider's internal ID ("adhar-cluster-adhar") rather than
+	// the name the operator uses.
+	logger.Debugf("● Platform bootstrapped on cluster %s (HA mode: %t)", result.Cluster.ID, enableHA)
 	return nil
 }
 
