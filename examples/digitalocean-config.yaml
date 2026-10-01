@@ -21,6 +21,10 @@ globalSettings:
   enableHAMode: true                    # ArgoCD x2 + redis-ha x3, CNPG 2 instances, PDBs
   email: admin@platform.adhar.io        # Let's Encrypt (ACME) account
 
+  # DigitalOcean DNS for external-dns records AND the cert-manager DNS-01 solver,
+  # so the wildcard certificate is a real one. `none` stays on self-signed.
+  dnsProvider: digitalocean
+
 providers:
   digitalocean:
     type: digitalocean

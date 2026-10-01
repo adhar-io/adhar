@@ -31,7 +31,7 @@ type acmeDNS01Blocker struct {
 // A nil return means nothing stands in the way. Errors resolving are reported as
 // blockers rather than swallowed: not being able to answer the question is
 // itself worth telling the operator about.
-func checkACMEDNS01Ready(ctx context.Context, host string) *acmeDNS01Blocker {
+func checkACMEDNS01Ready(ctx context.Context, host, dnsProvider string) *acmeDNS01Blocker {
 	if host == "" {
 		return nil
 	}
@@ -45,9 +45,11 @@ func checkACMEDNS01Ready(ctx context.Context, host string) *acmeDNS01Blocker {
 	//    setup like cloud.google.com, which is a record inside google.com.
 	served := false
 	var serving []string // the nameservers that DO answer for the platform host
+	servingZone := ""    // and the name they answer for, which matters in check 3
 	for _, name := range append([]string{host}, parentDomains(host)...) {
 		if ns, err := resolver.LookupNS(lookup, name); err == nil && len(ns) > 0 {
 			served = true
+			servingZone = name
 			for _, n := range ns {
 				serving = append(serving, strings.TrimSuffix(n.Host, "."))
 			}
@@ -84,7 +86,74 @@ func checkACMEDNS01Ready(ctx context.Context, host string) *acmeDNS01Blocker {
 			}
 		}
 	}
+	// 3. The nameservers answering for the platform host must belong to the
+	//    configured DNS provider.
+	//
+	//    This is what the two checks above cannot see, and it is what left a real
+	//    cluster with no working URL at all. `do.adhar.io` had no delegation; check 1
+	//    walked UP to `adhar.io`, found the registrar's nameservers and concluded a
+	//    zone served the host, and check 2 confirmed the registrable domain resolved.
+	//    Both were true — and nothing resolved, because external-dns was writing the
+	//    platform's records into a DigitalOcean zone while every query for the host
+	//    went to GoDaddy. Records in a zone nobody is asked about.
+	//
+	//    Comparing the ANSWERING nameservers against the provider catches it at any
+	//    level: hosting the whole apex at the provider still passes, because then the
+	//    registrable domain's own nameservers carry the provider's mark.
+	if mark, known := providerNameserverMark(dnsProvider); known && len(serving) > 0 {
+		if !anyNameserverMatches(serving, mark) {
+			return &acmeDNS01Blocker{
+				Reason: fmt.Sprintf(
+					"queries for %s are answered by %s (zone %q), which is not %s DNS — external-dns writes the platform's records into your %s zone, so nothing ever asks the nameservers that hold them",
+					host, strings.Join(serving, ", "), servingZone, dnsProvider, dnsProvider),
+				Fix: delegationFix(host, registrableDomain(host), nil),
+			}
+		}
+	}
+
 	return nil
+}
+
+// providerNameserverMark is a substring every nameserver of that provider's
+// hosted zones carries. The second return is false where there is no stable mark,
+// and the check is then skipped rather than guessed at.
+//
+// A substring rather than an exact set because the hostnames vary per zone —
+// Route 53 hands out ns-1234.awsdns-56.org, Cloud DNS ns-cloud-c1.googledomains.com
+// — while the vendor marker is stable.
+func providerNameserverMark(dnsProvider string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(dnsProvider)) {
+	case "digitalocean", "do":
+		return "digitalocean.com", true
+	case "aws", "route53":
+		return "awsdns", true
+	case "gcp", "google", "clouddns":
+		return "googledomains.com", true
+	case "azure":
+		return "azure-dns", true
+	case "cloudflare":
+		return "ns.cloudflare.com", true
+	case "civo":
+		// external-dns supports Civo, but its nameserver hostnames are not a
+		// stable public marker; skip rather than raise a false alarm.
+		return "", false
+	default:
+		// Includes "" and "none": nothing is claimed about the zone, so there is
+		// nothing to verify.
+		return "", false
+	}
+}
+
+// anyNameserverMatches reports whether at least one answering nameserver carries
+// the provider's mark. One is enough: a zone mid-migration can list both the old
+// and the new set, and that is a working state rather than a fault.
+func anyNameserverMatches(serving []string, mark string) bool {
+	for _, ns := range serving {
+		if strings.Contains(strings.ToLower(ns), mark) {
+			return true
+		}
+	}
+	return false
 }
 
 // registrableDomain is the last two labels of host — the domain someone

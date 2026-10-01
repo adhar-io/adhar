@@ -219,13 +219,18 @@ func create(cmd *cobra.Command, args []string) error {
 	// (printHeader) — do not repeat it here. Production mode shows a compact
 	// config summary; local mode goes straight to the live stage tracker.
 	if configFile != "" {
-		fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("mode  "), helpers.InfoStyle.Render("production"))
-		fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("config"), helpers.InfoStyle.Render(configFile))
-		if environment != "" {
-			fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("env   "), helpers.InfoStyle.Render(environment))
-		} else {
-			fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("env   "), helpers.InfoStyle.Render("all environments"))
+		env := environment
+		if env == "" {
+			env = "all environments"
 		}
+		// Framed, like the teardown confirmation and the provisioning summary, so the
+		// three panels of a session read as one tool. Loose indented lines ran into
+		// whatever logged next.
+		fmt.Println(helpers.RenderRunHeader([][2]string{
+			{"mode", "production"},
+			{"config", configFile},
+			{"env", env},
+		}))
 		// No trailing blank: the stage tracker opens with one of its own.
 		return createProductionCluster(ctx, cmd, args, ctxCancel)
 	}

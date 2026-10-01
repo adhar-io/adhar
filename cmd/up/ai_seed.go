@@ -85,6 +85,10 @@ func ensureAILLMSeedSecret(ctx context.Context, kubeClient client.Client) error 
 		}
 	}
 
-	logger.Infof("Adhar AI credential staged: %s (imported into OpenBao once it initialises)", seed.Describe())
+	// Not at INFO. It reports the KV SLOT rather than the provider the operator
+	// named — an OpenRouter key stages as "provider=openai", because OpenRouter is
+	// the OpenAI-compatible slot — which reads like the wrong provider was picked.
+	// `adhar ai key status` answers the question properly, on demand.
+	logger.Debugf("Adhar AI credential staged: %s (imported into OpenBao once it initialises)", seed.Describe())
 	return nil
 }

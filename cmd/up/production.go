@@ -216,16 +216,34 @@ func printProductionSuccessMsg(envName, host, clusterName string) {
 	fmt.Printf("  3. Console: https://console.%s   ArgoCD: https://argocd.%s   Gitea: https://gitea.%s\n", host, host, host)
 	fmt.Printf("  4. Deploy your applications\n\n")
 
-	// The one thing that will otherwise surprise them. It is printed last, and as
-	// its own block, because a self-signed certificate does not look like a DNS
-	// problem from a browser — it looks like the platform is broken.
-	if tlsBlocker != nil {
-		fmt.Printf("%s\n", helpers.WarningStyle.Render("▲ TLS is SELF-SIGNED — browsers will warn on every platform URL"))
-		fmt.Printf("   why: %s\n", tlsBlocker.Reason)
-		fmt.Printf("   fix: %s\n", tlsBlocker.Fix)
-		fmt.Printf("   Let's Encrypt is already configured; cert-manager issues a trusted\n")
-		fmt.Printf("   certificate on its own within minutes of that being resolved.\n\n")
+	// The one thing that will otherwise surprise them. Printed last, and as its own
+	// block, because a self-signed certificate does not look like a DNS problem from
+	// a browser — it looks like the platform is broken.
+	printEdgeDNSBlocker()
+}
+
+// printEdgeDNSBlocker reports why the platform's URLs will not work, if anything
+// was found to be wrong with the zone.
+//
+// Shared by BOTH provisioning paths, which is the whole point. It used to be
+// inlined in printProductionSuccessMsg, and that is only called for a single
+// named environment — so `adhar up -f config.yaml` with no --env (the documented
+// way to bring up a whole file) finished with a bare "provisioning complete" box
+// and dropped this warning entirely. The bootstrap had already detected the
+// missing delegation and written the exact registrar fix; nobody ever saw it, and
+// the platform looked broken for a reason the tool knew and did not say.
+func printEdgeDNSBlocker() {
+	if tlsBlocker == nil {
+		return
 	}
+	fmt.Printf("%s\n", helpers.WarningStyle.Render(
+		"▲ Platform URLs will not resolve, and TLS is SELF-SIGNED"))
+	fmt.Printf("   why: %s\n", tlsBlocker.Reason)
+	fmt.Printf("   fix: %s\n", tlsBlocker.Fix)
+	fmt.Printf("   Until then the gateway is reachable only by IP, and every platform\n")
+	fmt.Printf("   hostname fails to resolve. Let's Encrypt is already configured;\n")
+	fmt.Printf("   external-dns publishes the records and cert-manager issues a trusted\n")
+	fmt.Printf("   certificate on its own within minutes of the delegation being live.\n\n")
 }
 
 // tlsBlocker records why a publicly trusted certificate cannot be issued, so the
@@ -324,6 +342,18 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		}
 		return lines
 	}()))
+
+	// Everything the single-environment path tells the operator, on this path too.
+	// Without it `adhar up -f config.yaml` (no --env) ended at the box above: no
+	// URLs, no kubectl context, and no word about a broken DNS delegation.
+	if successCount > 0 {
+		fmt.Printf("\n  %s\n", helpers.BoldStyle.Render("Access"))
+		fmt.Printf("    Console: https://console.%s\n", cfg.GlobalSettings.DefaultHost)
+		fmt.Printf("    ArgoCD:  https://argocd.%s      Gitea: https://gitea.%s\n",
+			cfg.GlobalSettings.DefaultHost, cfg.GlobalSettings.DefaultHost)
+		fmt.Printf("    Secrets: adhar get secrets        (e.g. adhar get secrets -p argocd)\n\n")
+	}
+	printEdgeDNSBlocker()
 
 	if successCount < total {
 		// Carry the first reason into the returned error. "failed to provision 1 out

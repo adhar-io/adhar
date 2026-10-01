@@ -50,7 +50,7 @@ func TestFirstLabelNamesTheRecordToCreate(t *testing.T) {
 // An empty host must not be reported as a blocker: local builds have no real
 // hostname and never request a public certificate.
 func TestACMEPreflightIgnoresAnEmptyHost(t *testing.T) {
-	if b := checkACMEDNS01Ready(context.Background(), ""); b != nil {
+	if b := checkACMEDNS01Ready(context.Background(), "", "digitalocean"); b != nil {
 		t.Errorf("an empty host must not be treated as a blocker, got %+v", b)
 	}
 }
@@ -123,5 +123,66 @@ func TestDelegationAdviceIsDerivedFromTheConfiguredHost(t *testing.T) {
 		if !strings.Contains(got, "BEFORE") {
 			t.Errorf("advice for %s does not warn about the order of operations:\n%s", c.host, got)
 		}
+	}
+}
+
+// The nameservers answering for the platform host must belong to the configured
+// DNS provider. Nothing checked this, and it is what left a DigitalOcean cluster
+// with no working URL at all: `do.adhar.io` had no delegation, so queries went to
+// the registrar (GoDaddy) while external-dns wrote the platform's records into a
+// DigitalOcean zone. The two older checks both passed — a zone did serve the host
+// (adhar.io), and the registrable domain did resolve — and nothing resolved.
+func TestProviderNameserverMarkCoversTheSupportedBackends(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		ns       string
+		want     bool
+	}{
+		{"digitalocean", "ns1.digitalocean.com", true},
+		{"digitalocean", "ns59.domaincontrol.com", false}, // the real failure
+		{"aws", "ns-1234.awsdns-56.org", true},
+		{"route53", "ns-7.awsdns-01.co.uk", true},
+		{"gcp", "ns-cloud-c1.googledomains.com", true},
+		{"azure", "ns1-05.azure-dns.com", true},
+		{"cloudflare", "amy.ns.cloudflare.com", true},
+	} {
+		t.Run(tc.provider+"/"+tc.ns, func(t *testing.T) {
+			mark, known := providerNameserverMark(tc.provider)
+			if !known {
+				t.Fatalf("provider %q should have a known nameserver mark", tc.provider)
+			}
+			if got := anyNameserverMatches([]string{tc.ns}, mark); got != tc.want {
+				t.Errorf("anyNameserverMatches(%q, %q) = %v, want %v", tc.ns, mark, got, tc.want)
+			}
+		})
+	}
+}
+
+// Where there is no stable marker the check must be SKIPPED, not guessed —
+// a false alarm on a working cluster is worse than no check.
+func TestUnknownDNSProvidersSkipTheNameserverCheck(t *testing.T) {
+	for _, provider := range []string{"", "none", "civo", "something-else"} {
+		if _, known := providerNameserverMark(provider); known {
+			t.Errorf("provider %q must not claim a nameserver mark", provider)
+		}
+	}
+}
+
+// A zone mid-migration lists both the old and the new nameservers. That is a
+// working state, so one match is enough.
+func TestOneMatchingNameserverIsEnough(t *testing.T) {
+	mark, _ := providerNameserverMark("digitalocean")
+	mixed := []string{"ns59.domaincontrol.com", "ns1.digitalocean.com"}
+	if !anyNameserverMatches(mixed, mark) {
+		t.Error("a zone listing both the old and new nameservers is mid-migration, not broken")
+	}
+}
+
+// Case must not matter: nameservers come back from DNS in whatever case the zone
+// published them.
+func TestNameserverMatchIsCaseInsensitive(t *testing.T) {
+	mark, _ := providerNameserverMark("digitalocean")
+	if !anyNameserverMatches([]string{"NS1.DigitalOcean.COM"}, mark) {
+		t.Error("matching must be case-insensitive")
 	}
 }

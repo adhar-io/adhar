@@ -288,7 +288,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		// host, and cert-manager upgrades to Let's Encrypt on its own once the
 		// blocker below is cleared.
 		if templateData.HasDNS01() {
-			if b := checkACMEDNS01Ready(ctx, host); b != nil {
+			if b := checkACMEDNS01Ready(ctx, host, dnsProvider); b != nil {
 				logger.Warnf("TLS will stay SELF-SIGNED: %s", b.Reason)
 				logger.Warnf("  to get a publicly trusted certificate: %s", b.Fix)
 				logger.Warnf("  the platform is usable meanwhile; browsers will warn, and clients that verify strictly need the platform CA")

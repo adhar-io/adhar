@@ -28,6 +28,14 @@ globalSettings:
   enableHAMode: true                    # ArgoCD x2 + redis-ha x3, CNPG 2 instances, PDBs
   email: admin@example.com              # Let's Encrypt (ACME) account
 
+  # external-dns publishes records to Civo DNS. There is NO cert-manager solver
+  # for Civo — cluster-issuers.yaml.tmpl has solvers for digitalocean, aws, gcp,
+  # azure and cloudflare, and none for civo — so TLS stays SELF-SIGNED and
+  # browsers will warn. For real certificates, host the zone on Cloudflare and set
+  # `dnsProvider: cloudflare` with CLOUDFLARE_API_TOKEN; that solver works against
+  # any cluster whichever cloud runs it. `none` disables edge DNS entirely.
+  dnsProvider: civo
+
 providers:
   civo:
     type: civo
