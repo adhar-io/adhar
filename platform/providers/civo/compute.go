@@ -71,6 +71,26 @@ func (p *Provider) ensureComputeSSHKey(clusterName string) (string, ssh.Signer, 
 	return resp.ID, signer, nil
 }
 
+// computeNetworkLabel is the label the platform's own network carries: the
+// per-cluster convention, unless the operator named one.
+//
+// It exists because CREATE and TEARDOWN disagreed. Create preferred
+// config.NetworkLabel and fell back to the convention; teardown only ever matched
+// the convention. Every shipped Civo example sets `network_label`, so the network
+// was created as (say) "adhar-network", teardown looked for "adhar-adhar-net",
+// found nothing, and left the network behind on every single run — silently, while
+// the confirmation prompt promised to delete "instances, volumes, load balancers,
+// firewall, network and SSH key". Civo accounts cap networks (10 here), so the
+// leak eventually blocks new clusters.
+//
+// Both paths now call this, which is the only way they stay in agreement.
+func (p *Provider) computeNetworkLabel(clusterName string) string {
+	if p.config.NetworkLabel != "" {
+		return p.config.NetworkLabel
+	}
+	return fmt.Sprintf("adhar-%s-net", clusterName)
+}
+
 // ensureComputeNetwork returns the network ID to place the cluster in: an
 // explicitly configured network, or a per-cluster network created on demand.
 func (p *Provider) ensureComputeNetwork(clusterName string) (string, error) {
@@ -78,10 +98,7 @@ func (p *Provider) ensureComputeNetwork(clusterName string) (string, error) {
 		return p.config.NetworkID, nil
 	}
 
-	label := fmt.Sprintf("adhar-%s-net", clusterName)
-	if p.config.NetworkLabel != "" {
-		label = p.config.NetworkLabel
-	}
+	label := p.computeNetworkLabel(clusterName)
 
 	if networks, err := p.client.ListNetworks(); err == nil {
 		for _, n := range networks {
@@ -553,13 +570,25 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterID string) e
 		}
 	}
 
-	// Per-cluster network (only the one we created by naming convention)
-	if networks, err := p.client.ListNetworks(); err == nil {
-		for _, n := range networks {
-			if n.Label == fmt.Sprintf("adhar-%s-net", name) {
+	// The platform's network, matched by the SAME label the create path uses.
+	//
+	// Skipped entirely when the operator supplied a network ID: naming a label says
+	// "manage a network for me", handing over an ID says "put the cluster in mine",
+	// and the second is not ours to delete. A network that still has members makes
+	// the API refuse, which is logged rather than fatal — instances are deleted
+	// above, but Civo can take a moment to release them.
+	if p.config.NetworkID == "" {
+		label := p.computeNetworkLabel(name)
+		if networks, err := p.client.ListNetworks(); err == nil {
+			for _, n := range networks {
+				if n.Label != label || n.Default {
+					continue
+				}
 				if _, err := p.client.DeleteNetwork(n.ID); err != nil {
 					log.Printf("Warning: failed to delete network %s (may still have members): %v", n.Label, err)
+					continue
 				}
+				log.Printf("Deleted network %s", n.Label)
 			}
 		}
 	}

@@ -231,3 +231,34 @@ func TestPlannedInstanceSizesMatchWhatCreateWillBuild(t *testing.T) {
 		t.Errorf("HA plan = %v, want 4 instances (3 control plane + 1 worker)", got)
 	}
 }
+
+// Create and teardown must agree on the network's label, or the network leaks.
+//
+// They did not. Create preferred config.NetworkLabel and fell back to a
+// per-cluster convention; teardown only ever matched the convention. Every shipped
+// Civo example sets `network_label`, so on a real teardown the network was left
+// behind while the confirmation prompt promised to delete it — verified on a live
+// mum1 cluster (2026-10-02): instances, firewall and SSH key all went, and
+// `label: adhar-network` survived. Civo caps networks per account, so the leak
+// eventually blocks new clusters.
+func TestNetworkLabelIsTheSameForCreateAndTeardown(t *testing.T) {
+	t.Parallel()
+
+	// Configured label wins, and both paths see the same string.
+	configured := &Provider{config: &Config{NetworkLabel: "adhar-network"}}
+	if got := configured.computeNetworkLabel("adhar"); got != "adhar-network" {
+		t.Errorf("configured label = %q, want the operator's adhar-network", got)
+	}
+
+	// No label configured: the per-cluster convention.
+	convention := &Provider{config: &Config{}}
+	if got := convention.computeNetworkLabel("adhar"); got != "adhar-adhar-net" {
+		t.Errorf("default label = %q, want adhar-adhar-net", got)
+	}
+
+	// The bug in one assertion: the configured case must NOT resolve to the
+	// convention, which is what teardown used to look for.
+	if configured.computeNetworkLabel("adhar") == convention.computeNetworkLabel("adhar") {
+		t.Error("a configured network_label must not collapse to the convention; that mismatch is what leaked the network")
+	}
+}
