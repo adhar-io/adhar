@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net"
 	"os"
@@ -262,7 +261,12 @@ func EnsurePlatformCertificateOnDisk(dir string, sans []string) ([]byte, []byte,
 		if certificateCoversSANs(cert, sans) {
 			return cert, key, nil
 		}
-		log.Printf("cached platform certificate in %s does not cover %v; generating a new one", dir, sans)
+		// Debug, not info: this is a cache MISS on a path that handles it — the
+		// next few lines generate and cache a correct certificate, and the operator
+		// has nothing to do about it. What prevents the bug described above is the
+		// certificateCoversSANs check, not this line; it only narrated the miss, and
+		// it narrated it on every `adhar up` whose host differed from the last one.
+		logger.Debugf("cached platform certificate in %s does not cover %v; generating a new one", dir, sans)
 	}
 
 	cert, key, err := createSelfSignedCertificate(sans)
