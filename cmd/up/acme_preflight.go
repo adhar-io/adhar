@@ -106,12 +106,34 @@ func checkACMEDNS01Ready(ctx context.Context, host, dnsProvider string) *acmeDNS
 				Reason: fmt.Sprintf(
 					"queries for %s are answered by %s (zone %q), which is not %s DNS — external-dns writes the platform's records into your %s zone, so nothing ever asks the nameservers that hold them",
 					host, strings.Join(serving, ", "), servingZone, dnsProvider, dnsProvider),
-				Fix: delegationFix(host, registrableDomain(host), nil),
+				Fix: subdomainDelegationFix(host, registrableDomain(host), dnsProvider),
 			}
 		}
 	}
 
 	return nil
+}
+
+// subdomainDelegationFix is the remedy for the ONE missing delegation: the
+// registrable domain already resolves at the registrar, and only the platform's
+// own label is not pointed at the cloud zone.
+//
+// It is separate from delegationFix because that one is written for a broken APEX
+// and ends with "add those NS records BEFORE switching the nameservers, so the
+// host keeps resolving through the change". There is no nameserver switch here —
+// the apex is fine and stays exactly where it is — so that sentence sent the
+// reader looking for a migration they are not performing. One action, named
+// precisely, is the whole message.
+func subdomainDelegationFix(host, registrable, dnsProvider string) string {
+	label := firstLabel(host)
+	target := "the nameservers your " + dnsProvider + " DNS zone lists"
+	if ns, ok := providerNameservers(dnsProvider); ok {
+		target = strings.Join(ns, ", ")
+	}
+	return fmt.Sprintf(
+		"in the %s zone at your registrar, add NS records for the name %q pointing at %s. "+
+			"That is the only change: %s stays where it is, and the %s zone already holds the platform's records",
+		registrable, label, target, registrable, dnsProvider)
 }
 
 // providerNameserverMark is a substring every nameserver of that provider's
@@ -142,6 +164,29 @@ func providerNameserverMark(dnsProvider string) (string, bool) {
 		// Includes "" and "none": nothing is claimed about the zone, so there is
 		// nothing to verify.
 		return "", false
+	}
+}
+
+// providerNameservers are the EXACT nameservers to delegate to, for the providers
+// that use one fixed set for every zone.
+//
+// It matters because the remedy is a form at a registrar with boxes to fill in.
+// "point at the nameservers your cloud DNS zone lists" is correct and useless: it
+// sends the reader back to a console to look up something this already knows.
+// DigitalOcean and Civo publish a fixed set, so name them.
+//
+// AWS, GCP, Azure and Cloudflare assign nameservers PER ZONE — Route 53 hands out
+// ns-331.awsdns-41.com for one zone and something else for the next — so there is
+// nothing truthful to print, and those keep the generic wording rather than a
+// plausible-looking guess.
+func providerNameservers(dnsProvider string) ([]string, bool) {
+	switch strings.ToLower(strings.TrimSpace(dnsProvider)) {
+	case "digitalocean", "do":
+		return []string{"ns1.digitalocean.com", "ns2.digitalocean.com", "ns3.digitalocean.com"}, true
+	case "civo":
+		return []string{"ns0.civo.com", "ns1.civo.com"}, true
+	default:
+		return nil, false
 	}
 }
 

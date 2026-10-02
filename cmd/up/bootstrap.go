@@ -289,13 +289,17 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		// blocker below is cleared.
 		if templateData.HasDNS01() {
 			if b := checkACMEDNS01Ready(ctx, host, dnsProvider); b != nil {
-				logger.Warnf("TLS will stay SELF-SIGNED: %s", b.Reason)
-				logger.Warnf("  to get a publicly trusted certificate: %s", b.Fix)
-				logger.Warnf("  the platform is usable meanwhile; browsers will warn, and clients that verify strictly need the platform CA")
-				// Keep it for the closing summary as well. A warning 60 lines into a
-				// verbose bootstrap is a warning nobody reads: the first thing the
-				// operator actually notices is a browser refusing the certificate
-				// twenty minutes later, with nothing on screen connecting the two.
+				// Recorded, NOT logged here. printEdgeDNSBlocker reports the same
+				// Reason and Fix — verbatim, plus what to expect meanwhile — at the
+				// very end, on both provisioning paths, which is where someone
+				// actually reads it. Warning here as well printed three dense lines
+				// (one of them a full paragraph of registrar instructions) in the
+				// middle of the bootstrap, minutes before the summary repeated them.
+				//
+				// The original reason for warning early was that a mid-run warning
+				// gets lost; the fix for that was to put it in the CLOSING output, and
+				// once that existed this copy became the noise rather than the signal.
+				logger.Debugf("TLS will stay self-signed: %s", b.Reason)
 				tlsBlocker = b
 			}
 		}

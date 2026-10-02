@@ -188,3 +188,52 @@ func TestNameserverMatchIsCaseInsensitive(t *testing.T) {
 		t.Error("matching must be case-insensitive")
 	}
 }
+
+// The remedy must name the exact nameservers where the provider has a fixed set.
+// "point at the nameservers your cloud DNS zone lists" is correct and useless: the
+// reader is looking at a registrar form with boxes to fill in, and the tool
+// already knows what goes in them.
+func TestRemedyNamesExactNameserversWhereItCan(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		want     string
+	}{
+		{"digitalocean", "ns1.digitalocean.com"},
+		{"civo", "ns0.civo.com"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			got := subdomainDelegationFix("do.example.com", "example.com", tc.provider)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("remedy for %s should name %s:\n%s", tc.provider, tc.want, got)
+			}
+			if strings.Contains(got, "nameservers your") {
+				t.Errorf("remedy for %s fell back to the vague wording:\n%s", tc.provider, got)
+			}
+		})
+	}
+
+	// Route 53, Cloud DNS, Azure DNS and Cloudflare assign nameservers PER ZONE, so
+	// there is nothing truthful to print — the generic wording is correct there and
+	// a plausible-looking guess would be worse than vague.
+	for _, provider := range []string{"aws", "gcp", "azure", "cloudflare"} {
+		got := subdomainDelegationFix("do.example.com", "example.com", provider)
+		if !strings.Contains(got, "nameservers your") {
+			t.Errorf("%s assigns per-zone nameservers; the remedy must not invent any:\n%s", provider, got)
+		}
+	}
+}
+
+// The remedy for a missing SUBDOMAIN delegation must not talk about switching
+// nameservers. The apex is fine and stays where it is; mentioning a migration
+// sent the reader looking for work they are not doing.
+func TestSubdomainRemedyDoesNotMentionSwitchingNameservers(t *testing.T) {
+	got := subdomainDelegationFix("do.adhar.io", "adhar.io", "digitalocean")
+	for _, unwanted := range []string{"BEFORE switching", "switching the nameservers"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("the subdomain remedy must not mention a nameserver switch:\n%s", got)
+		}
+	}
+	if !strings.Contains(got, "only change") {
+		t.Errorf("the remedy should say it is the only change:\n%s", got)
+	}
+}

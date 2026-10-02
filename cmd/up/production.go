@@ -346,14 +346,24 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 	// Everything the single-environment path tells the operator, on this path too.
 	// Without it `adhar up -f config.yaml` (no --env) ended at the box above: no
 	// URLs, no kubectl context, and no word about a broken DNS delegation.
+	//
+	// The BLOCKER GOES FIRST when there is one. This block used to list
+	// "Console: https://console.<host>" and the paragraph immediately below it then
+	// explained that those hostnames do not resolve — an output that hands over
+	// three URLs and then says they do not work reads as a broken tool, and the
+	// reader has already copied the first one.
+	printEdgeDNSBlocker()
 	if successCount > 0 {
-		fmt.Printf("\n  %s\n", helpers.BoldStyle.Render("Access"))
+		heading := "Access"
+		if tlsBlocker != nil {
+			heading = "Access — once the DNS fix above is applied"
+		}
+		fmt.Printf("\n  %s\n", helpers.BoldStyle.Render(heading))
 		fmt.Printf("    Console: https://console.%s\n", cfg.GlobalSettings.DefaultHost)
 		fmt.Printf("    ArgoCD:  https://argocd.%s      Gitea: https://gitea.%s\n",
 			cfg.GlobalSettings.DefaultHost, cfg.GlobalSettings.DefaultHost)
 		fmt.Printf("    Secrets: adhar get secrets        (e.g. adhar get secrets -p argocd)\n\n")
 	}
-	printEdgeDNSBlocker()
 
 	if successCount < total {
 		// Carry the first reason into the returned error. "failed to provision 1 out
