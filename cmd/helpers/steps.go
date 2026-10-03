@@ -35,34 +35,10 @@ var (
 // RenderReadyPanel is the end-of-run success block: a ● header, a bordered
 // access table (service → URL), then labelled command hints. access and hints
 // are [label, value] pairs.
-//
-// Use it ONLY when the platform's entry point is actually serving. When the
-// cluster is up but the apps have not converged, use RenderConvergingPanel:
-// the two differ by one glyph and one line of text, and that difference is the
-// whole point — this one is a promise the reader will act on.
 func RenderReadyPanel(access, hints [][2]string) string {
-	return renderPanel("✓", "#10B981", "Platform ready", "", access, hints)
-}
-
-// RenderConvergingPanel is the same block for a platform that is UP but not yet
-// serving: an amber ◌ instead of a green ✓, and a headline saying so above the
-// URL table.
-//
-// The URLs are still listed, deliberately. They are correct — they are where the
-// services will be, the operator will want them shortly, and omitting them sends
-// someone to the docs to reconstruct hostnames the tool already knows. What
-// changes is that the panel no longer claims they work.
-func RenderConvergingPanel(headline string, access, hints [][2]string) string {
-	return renderPanel("◌", "#F59E0B", "Platform converging", headline, access, hints)
-}
-
-// renderPanel is the shared body. Extracted when the converging variant was
-// added, so the two endings cannot drift apart in layout the way the cloud and
-// local success messages once did.
-func renderPanel(glyph, glyphColor, title, headline string, access, hints [][2]string) string {
 	linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(brandBlue.hex())).Underline(true)
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(brandPurple.hex())).Bold(true)
-	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(glyphColor)).Bold(true)
+	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981")).Bold(true)
 	cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(brandBlue.hex())).Bold(true)
 
 	nameW := 0
@@ -83,12 +59,7 @@ func renderPanel(glyph, glyphColor, title, headline string, access, hints [][2]s
 		Render(strings.Join(rows, "\n"))
 
 	var b strings.Builder
-	b.WriteString("  " + okStyle.Render(glyph) + "  " + stepTitleStyle.Render(title) + "\n\n")
-	if headline != "" {
-		// Wrapped to the panel width so a long reason does not run off the
-		// terminal; WrapValue is what the teardown and provisioning summaries use.
-		b.WriteString("  " + stepDetailStyle.Render(WrapValue(headline, 70, 2)) + "\n\n")
-	}
+	b.WriteString("  " + okStyle.Render("✓") + "  " + stepTitleStyle.Render("Platform ready") + "\n\n")
 	b.WriteString(box + "\n")
 	hintW := 0
 	for _, h := range hints {

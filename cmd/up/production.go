@@ -124,11 +124,8 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// Bootstrap the platform (foundation + GitOps stack + in-cluster controller
 	// manager) on the freshly provisioned cluster — same flow as local, sized
 	// by enableHAMode.
-	var conv *convergenceSnapshot
 	if result != nil {
-		var err error
-		conv, err = bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker)
-		if err != nil {
+		if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker); err != nil {
 			provisionFailed = true
 			return fmt.Errorf("failed to bootstrap platform on environment %s: %w", environment, err)
 		}
@@ -141,7 +138,7 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	if clusterName == "" {
 		clusterName = result.Cluster.ID
 	}
-	printProductionSuccessMsg(environment, cfg.GlobalSettings.DefaultHost, clusterName, conv)
+	printProductionSuccessMsg(environment, cfg.GlobalSettings.DefaultHost, clusterName)
 	return nil
 }
 
@@ -204,7 +201,7 @@ func resolveEnvironmentConfig(cfg *config.Config, envName string) (*config.Resol
 // persisted and merged during bootstrap (context adhar-<cluster>, now current),
 // and every platform URL derives from the configured base domain (no
 // hardcoded host).
-func printProductionSuccessMsg(envName, host, clusterName string, conv *convergenceSnapshot) {
+func printProductionSuccessMsg(envName, host, clusterName string) {
 	// The SAME panel the local path prints, via the same renderer.
 	//
 	// This was a row of 75 '#' characters, a bulleted list of things the platform
@@ -218,7 +215,7 @@ func printProductionSuccessMsg(envName, host, clusterName string, conv *converge
 	// above them, and one of them ("Auto-scaling and high availability") is not even
 	// true unless the config asked for it.
 	fmt.Println()
-	fmt.Println(renderCloudReadyPanel(host, clusterName, conv))
+	fmt.Println(renderCloudReadyPanel(host, clusterName))
 	fmt.Println()
 
 	// The one thing that will otherwise surprise them. Printed last, and as its own
@@ -283,9 +280,6 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		reason error
 	}
 	var envFailures []envFailure
-	// Convergence of the LAST environment the panel will speak for — see the
-	// comment at the assignment below for why it is not simply the last one.
-	var lastConv *convergenceSnapshot
 	for _, envName := range environmentsToProvision {
 		// The environment is named on the checklist's Cloud cluster stage and in the
 		// per-environment result line below, so it is not announced up front too.
@@ -322,20 +316,11 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 			continue
 		}
 		if result != nil {
-			snap, err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker)
-			if err != nil {
+			if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker); err != nil {
 				restoreProgress(true)
 				fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
 				envFailures = append(envFailures, envFailure{envName, err})
 				continue
-			}
-			// Across several environments the panel can only make one claim, so it
-			// makes the WEAKEST one: a single environment whose console is not yet
-			// serving means the shared URL list is not a promise. Keeping the first
-			// non-serving snapshot rather than the last avoids a late healthy
-			// environment masking an earlier stalled one.
-			if lastConv == nil || (lastConv.serving() && !snap.serving()) {
-				lastConv = snap
 			}
 		}
 		// Finalise this environment's block before the next one starts its own.
@@ -380,7 +365,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 	// reader has already copied the first one.
 	printEdgeDNSBlocker()
 	if successCount > 0 {
-		fmt.Println(renderCloudReadyPanel(cfg.GlobalSettings.DefaultHost, pfactory.ResolveClusterName(clusterName), lastConv))
+		fmt.Println(renderCloudReadyPanel(cfg.GlobalSettings.DefaultHost, pfactory.ResolveClusterName(clusterName)))
 		fmt.Println()
 	}
 
