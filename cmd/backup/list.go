@@ -102,7 +102,7 @@ func fetchBackups(ctx context.Context) ([]backupRow, error) {
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	list, err := dyn.Resource(backupGVR).Namespace(veleroNamespace).List(cctx, metav1.ListOptions{})
+	list, err := dyn.Resource(backupGVR).Namespace(veleroNS()).List(cctx, metav1.ListOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return nil, fmt.Errorf("Velero Backup CRD not installed (velero not present in the cluster)")

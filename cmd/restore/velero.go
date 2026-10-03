@@ -83,7 +83,7 @@ func fetchRestores(ctx context.Context) ([]restoreRow, error) {
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	list, err := dyn.Resource(restoreGVR).Namespace(veleroNamespace).List(cctx, metav1.ListOptions{})
+	list, err := dyn.Resource(restoreGVR).Namespace(veleroNS()).List(cctx, metav1.ListOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return nil, fmt.Errorf("Velero Restore CRD not installed (velero not present in the cluster)")
@@ -168,7 +168,7 @@ func runCreateRestore(cmd *cobra.Command, args []string) error {
 		"kind":       "Restore",
 		"metadata": map[string]interface{}{
 			"name":      name,
-			"namespace": veleroNamespace,
+			"namespace": veleroNS(),
 			"labels":    map[string]interface{}{"adhar.io/managed-by": "adhar-cli"},
 		},
 		"spec": map[string]interface{}{
@@ -176,7 +176,7 @@ func runCreateRestore(cmd *cobra.Command, args []string) error {
 		},
 	}}
 
-	if _, err := dyn.Resource(restoreGVR).Namespace(veleroNamespace).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if _, err := dyn.Resource(restoreGVR).Namespace(veleroNS()).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Restore CRD not installed (velero not present in the cluster)")
 		}
@@ -227,7 +227,7 @@ func showSingleRestoreStatus(name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	obj, err := dyn.Resource(restoreGVR).Namespace(veleroNamespace).Get(ctx, name, metav1.GetOptions{})
+	obj, err := dyn.Resource(restoreGVR).Namespace(veleroNS()).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Restore CRD not installed (velero not present in the cluster)")

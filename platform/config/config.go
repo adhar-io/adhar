@@ -94,7 +94,31 @@ type EnvironmentConfig struct {
 	// a fixed `nodeCount`: the cluster is created with nodeCount workers and
 	// the in-cluster node autoscaler grows/shrinks it between min and max.
 	Autoscaling *AutoscalingConfig `mapstructure:"autoscaling" json:"autoscaling,omitempty"`
+	// Isolation decides what this environment physically IS:
+	//
+	//   namespace (default) — a namespace on the one shared platform cluster.
+	//   cluster             — a cluster of its own, with its own platform.
+	//
+	// Namespace is the default because it is what most teams want and what the
+	// cost allows: declaring dev/test/prod used to mean three clusters, three
+	// platform installs and three bills, and on a default cloud quota it simply
+	// did not fit (GCP's CPUS_ALL_REGIONS is 64, and one production cluster is
+	// ~40). A namespace environment costs a namespace.
+	//
+	// Promote a single environment to its own cluster when it genuinely needs
+	// hard isolation — a separate API server, separate etcd, separate blast
+	// radius — which is usually prod and nothing else.
+	Isolation string `mapstructure:"isolation" json:"isolation,omitempty"`
 }
+
+// Environment isolation modes. See EnvironmentConfig.Isolation.
+const (
+	// EnvironmentIsolationNamespace puts the environment in a namespace on the
+	// shared platform cluster. The default.
+	EnvironmentIsolationNamespace = "namespace"
+	// EnvironmentIsolationCluster gives the environment a cluster of its own.
+	EnvironmentIsolationCluster = "cluster"
+)
 
 // EnvironmentTemplateConfig holds environment template configuration
 type EnvironmentTemplateConfig struct {
@@ -165,6 +189,8 @@ type ResolvedEnvironmentConfig struct {
 	// Autoscaling is the environment's node autoscaler configuration, resolved
 	// from the environment block with the template as fallback.
 	Autoscaling *AutoscalingConfig `json:"autoscaling,omitempty"`
+	// ResolvedIsolation is `namespace` or `cluster`, defaulted and validated.
+	ResolvedIsolation string `json:"resolvedIsolation"`
 	// ProviderConfig is the full provider block from `providers.<name>` for the
 	// resolved provider. Without it the provisioning path only sees region +
 	// cluster-config key/values, silently dropping credentials (token) and the
@@ -440,6 +466,24 @@ func ValidateConfig(config *Config) error {
 			"(a stray YAML document-end marker `...` earlier in the file will also cause this, " +
 			"because the parser stops reading there and returns only what preceded it)")
 	}
+
+	// Isolation is checked HERE as well as in resolveEnvironment, because those
+	// run at different times: resolution happens during provisioning, while this
+	// is what `adhar config validate` actually calls. Without it a typo like
+	// `isolation: cluster-ish` validated clean and then silently behaved as a
+	// namespace — handing someone a shared cluster when they had asked for a
+	// dedicated one, which they would discover only when dev reached prod.
+	// The JSON schema declares the enum too, but its `additionalProperties`/enum
+	// constraints are not enforced by the validator in use, so the schema alone
+	// is documentation rather than a gate.
+	for name, env := range config.Environments {
+		switch env.Isolation {
+		case "", EnvironmentIsolationNamespace, EnvironmentIsolationCluster:
+		default:
+			return fmt.Errorf("environment %s: isolation must be %q or %q, got %q",
+				name, EnvironmentIsolationNamespace, EnvironmentIsolationCluster, env.Isolation)
+		}
+	}
 	return nil
 }
 
@@ -592,6 +636,21 @@ func (c *Config) ResolveEnvironments() error {
 func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig) (*ResolvedEnvironmentConfig, error) {
 	resolved := &ResolvedEnvironmentConfig{
 		Name: envName,
+	}
+
+	// Isolation: default to a namespace on the shared cluster. An unknown value
+	// is rejected rather than silently treated as the default — "isolaton:
+	// cluster" quietly meaning "namespace" would hand someone a shared cluster
+	// when they asked for a dedicated one, and they would not find out until
+	// something in dev reached prod.
+	switch envConfig.Isolation {
+	case "":
+		resolved.ResolvedIsolation = EnvironmentIsolationNamespace
+	case EnvironmentIsolationNamespace, EnvironmentIsolationCluster:
+		resolved.ResolvedIsolation = envConfig.Isolation
+	default:
+		return nil, fmt.Errorf("environment %s: isolation must be %q or %q, got %q",
+			envName, EnvironmentIsolationNamespace, EnvironmentIsolationCluster, envConfig.Isolation)
 	}
 
 	// Resolve provider - explicit > primary > first available

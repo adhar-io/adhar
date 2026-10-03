@@ -35,7 +35,7 @@ func runVerifyRestore(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	obj, err := dyn.Resource(restoreGVR).Namespace(veleroNamespace).Get(ctx, name, metav1.GetOptions{})
+	obj, err := dyn.Resource(restoreGVR).Namespace(veleroNS()).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Restore CRD not installed (velero not present in the cluster)")

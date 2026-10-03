@@ -29,7 +29,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/stdr"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/config"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/cmd/helpers"
@@ -361,6 +363,24 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	mgr, err := manager.New(restConfig, manager.Options{
 		Scheme:  scheme,
 		Metrics: server.Options{BindAddress: "0"},
+		// SkipNameValidation: this manager is created ONCE PER ENVIRONMENT inside a
+		// single `adhar up` process, and controller-runtime's controller-name
+		// check is process-GLOBAL, not per-manager.
+		//
+		// `adhar up -f config.gcp.yaml` with no --env provisions every environment
+		// in the file sequentially, so the second one failed outright:
+		//   ✖ prod: starting controllers: controller with name adharplatform
+		//     already exists. Controller names must be unique to avoid multiple
+		//     controllers reporting the same metric.
+		// 1 of 3 environments provisioned. The path had never been exercised with
+		// more than one environment because every provider config shipped exactly
+		// one, so declaring dev/test/prod as the default surfaced it immediately.
+		//
+		// The check exists solely to stop two controllers registering the same
+		// metric — and `Metrics.BindAddress: "0"` above means this manager serves
+		// no metrics at all, so there is nothing to collide. The in-cluster manager
+		// (cmd/controller) keeps the validation, where it does protect something.
+		Controller: ctrlcfg.Controller{SkipNameValidation: ptr.To(true)},
 		GracefulShutdownTimeout: func() *time.Duration {
 			d := 30 * time.Second
 			return &d

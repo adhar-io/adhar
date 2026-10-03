@@ -104,7 +104,7 @@ func runCreateSchedule(cmd *cobra.Command, args []string) error {
 		"kind":       "Schedule",
 		"metadata": map[string]interface{}{
 			"name":      scheduleName,
-			"namespace": veleroNamespace,
+			"namespace": veleroNS(),
 			"labels":    map[string]interface{}{"adhar.io/managed-by": "adhar-cli"},
 		},
 		"spec": map[string]interface{}{
@@ -114,7 +114,7 @@ func runCreateSchedule(cmd *cobra.Command, args []string) error {
 		},
 	}}
 
-	if _, err := dyn.Resource(scheduleGVR).Namespace(veleroNamespace).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if _, err := dyn.Resource(scheduleGVR).Namespace(veleroNS()).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Schedule CRD not installed (velero not present in the cluster)")
 		}
@@ -163,7 +163,7 @@ func runListSchedules(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	list, err := dyn.Resource(scheduleGVR).Namespace(veleroNamespace).List(ctx, metav1.ListOptions{})
+	list, err := dyn.Resource(scheduleGVR).Namespace(veleroNS()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Schedule CRD not installed (velero not present in the cluster)")
@@ -217,7 +217,7 @@ func runDeleteSchedule(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := dyn.Resource(scheduleGVR).Namespace(veleroNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+	if err := dyn.Resource(scheduleGVR).Namespace(veleroNS()).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Schedule CRD not installed (velero not present in the cluster)")
 		}
@@ -256,7 +256,7 @@ func setSchedulePaused(name string, paused bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	obj, err := dyn.Resource(scheduleGVR).Namespace(veleroNamespace).Get(ctx, name, metav1.GetOptions{})
+	obj, err := dyn.Resource(scheduleGVR).Namespace(veleroNS()).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Schedule CRD not installed (velero not present in the cluster)")
@@ -266,7 +266,7 @@ func setSchedulePaused(name string, paused bool) error {
 	if err := unstructured.SetNestedField(obj.Object, paused, "spec", "paused"); err != nil {
 		return fmt.Errorf("failed to set paused field: %w", err)
 	}
-	if _, err := dyn.Resource(scheduleGVR).Namespace(veleroNamespace).Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
+	if _, err := dyn.Resource(scheduleGVR).Namespace(veleroNS()).Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update schedule %q: %w", name, err)
 	}
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Schedule %q paused=%t", name, paused)))

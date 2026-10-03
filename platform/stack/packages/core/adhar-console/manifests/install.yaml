@@ -243,7 +243,20 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: '20'
 spec:
-  progressDeadlineSeconds: 120
+  # 600s (the Kubernetes default), NOT 120.
+  #
+  # The console does not serve until it has primed a watch cache over the WHOLE
+  # cluster and built its graph. Measured on a full production bring-up
+  # (2026-10-03): pod Scheduled 08:07:15, Ready 08:10:09 — 2m54s, having primed
+  # 352 pods, 293 services, 196 deployments, 75 Applications and 2000 events
+  # into a 1215-node graph. The 120s deadline could not be met on any real
+  # cluster, so the Deployment went
+  #   Progressing=False ProgressDeadlineExceeded
+  # Argo CD read that as a failed sync, retried (attempt #14 observed), and each
+  # retry restarted the clock — an app permanently Degraded while the console
+  # itself was running and healthy. The readiness probe is the real gate; this
+  # only has to be longer than a cold start on a busy cluster.
+  progressDeadlineSeconds: 600
   replicas: 1
   selector:
     matchLabels:
@@ -453,6 +466,14 @@ spec:
             port: http
           periodSeconds: 3
           failureThreshold: 40
+          # EXPLICIT 5s. Omitting it does not mean "no timeout" — Kubernetes
+          # defaults timeoutSeconds to 1, and the platform forbids a 1-second
+          # probe outright (TestNoProbeShipsAOneSecondTimeout) because a loaded
+          # node fails a healthy check. That invariant greps the manifests, so it
+          # could not see a default applied at admission: the live Deployment
+          # showed `timeoutSeconds: 1` while this file declared nothing. Harbor's
+          # database was killed 29 times by exactly this class of probe.
+          timeoutSeconds: 5
         livenessProbe:
           httpGet:
             path: /healthz

@@ -24,6 +24,8 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
+	stdlog "log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -31,6 +33,7 @@ import (
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/cmd/version"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/controllers"
@@ -38,10 +41,15 @@ import (
 	"adhar-io/adhar/platform/k8s"
 	"adhar-io/adhar/platform/utils"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -95,6 +103,28 @@ func init() {
 
 func runUpgrade(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
+
+	// Wire controller-runtime's logger BEFORE touching any controller code.
+	//
+	// `adhar upgrade` calls the AdharPlatform reconciler's ApplyPlatformStack,
+	// which calls log.FromContext. With no logger set, controller-runtime prints
+	// a 30-line "log.SetLogger(...) was never called" goroutine dump into the
+	// middle of the command's output — directly after "Pushing stack and
+	// re-applying the platform ApplicationSet…", so a successful upgrade looked
+	// like a crash. `adhar up` has always done this (cmd/up/bootstrap.go,
+	// cmd/up/local.go); this command simply never did.
+	//
+	// Verbose routes the reconciler's own progress to stderr, which is what you
+	// want when a push stalls. Otherwise discard: the CLI prints its own
+	// progress, and klog's output here is noise the operator cannot act on.
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	if verbose {
+		stdr.SetVerbosity(1)
+		ctrl.SetLogger(stdr.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags)))
+	} else {
+		ctrl.SetLogger(logr.Discard())
+		klog.SetOutput(io.Discard)
+	}
 
 	stackDir, err := filepath.Abs(stackDirFlag)
 	if err != nil {
@@ -153,7 +183,6 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Phase 1: converge foundation (embedded manifests, SSA-idempotent).
 	// ------------------------------------------------------------------
 	if !skipFoundation && !diffOnly {
-		fmt.Println("→ Converging foundation to this release's embedded manifests…")
 		if err := controllers.EnsureCRDs(ctx, scheme, kubeClient, platform.Spec.BuildCustomization); err != nil {
 			return fmt.Errorf("updating platform CRDs: %w", err)
 		}
@@ -181,11 +210,39 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		// newer configuration out, so clear the gate for this pass; every
 		// apply is server-side and idempotent.
 		platform.Status.Crossplane.ControlPlaneApplied = false
-		for _, s := range steps {
-			fmt.Printf("   • %s\n", s.name)
-			if _, err := s.run(ctx, ctrl.Request{}, &platform); err != nil {
-				return fmt.Errorf("converging %s: %w", s.name, err)
+
+		// The SHARED checklist, not a bullet list.
+		//
+		// Each component used to be printed BEFORE it ran, so the output could
+		// not distinguish "converged" from "started and then failed" — on a
+		// failure you saw the bullet and an error and had to guess which of the
+		// seven components the error belonged to. The tracker marks each one
+		// done or failed with its own duration, which is also what `adhar up`
+		// renders, so the two commands no longer look like different products.
+		defs := make([]helpers.StageDef, 0, len(steps)+1)
+		for _, st := range steps {
+			defs = append(defs, helpers.StageDef{Label: st.name, Detail: "embedded manifest"})
+		}
+		defs = append(defs, helpers.StageDef{Label: "controller-manager", Detail: "in-cluster manager"})
+
+		// os.Stderr and !verbose, matching `adhar up`: the animated frames belong
+		// on stderr so piping the command's output stays clean, and a verbose run
+		// prints the reconcilers' own logs that the animation would fight with.
+		tracker := helpers.NewStageTracker(os.Stderr, "Converging foundation to "+version.Version, defs, !verbose)
+		tracker.Start()
+		// Stop() is idempotent, and a failure path returns without reaching the
+		// explicit Stop below — without this the spinner goroutine outlives the
+		// command and the terminal is left mid-frame.
+		defer tracker.Stop()
+
+		for i, st := range steps {
+			tracker.Activate(i)
+			if _, err := st.run(ctx, ctrl.Request{}, &platform); err != nil {
+				tracker.Fail(i)
+				tracker.Stop()
+				return fmt.Errorf("converging %s: %w", st.name, err)
 			}
+			tracker.Done(i)
 		}
 
 		// The controller manager is part of the foundation too. It used to be
@@ -198,15 +255,19 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		// this release's default: an operator who pinned a tag did so on
 		// purpose, and an upgrade should roll the manifest shape, not silently
 		// change which image runs. A missing Deployment gets the release default.
-		fmt.Println("   • controller-manager")
+		cmIdx := len(defs) - 1
+		tracker.Activate(cmIdx)
 		if err := controllers.EnsureControllerManager(ctx, kubeClient, controllers.ManagerConfig{
 			Image:        liveControllerImage(ctx, kubeClient, platform.Namespace),
 			Namespace:    platform.Namespace,
 			PlatformName: platform.Name,
 		}); err != nil {
+			tracker.Fail(cmIdx)
+			tracker.Stop()
 			return fmt.Errorf("converging controller-manager: %w", err)
 		}
-		fmt.Println("● Foundation converged")
+		tracker.Done(cmIdx)
+		tracker.Stop()
 	}
 
 	// ------------------------------------------------------------------
@@ -241,8 +302,43 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if err := reconciler.ApplyPlatformStack(ctx, &platform); err != nil {
 		return fmt.Errorf("applying platform stack: %w", err)
 	}
-	fmt.Println("● Upgrade applied — ArgoCD is syncing the stack. Track progress with `adhar get status`.")
+
+	// Say what is about to happen, with a number.
+	//
+	// "ArgoCD is syncing the stack" understated it badly: ANY push to the
+	// packages repo flips every Application OutOfSync, because they all track
+	// one monorepo — roughly ten minutes of churn on a full production profile,
+	// most of it apps that did not change. An operator who does not know that
+	// reads the next `adhar get status` as the upgrade having broken the
+	// platform, and the honest fix is to name the scale up front rather than to
+	// hide it. Counted live rather than guessed, and silent if the count cannot
+	// be read: a failed count must not look like a failed upgrade.
+	if n := countApplications(ctx, kubeClient, platform.Namespace); n > 0 {
+		fmt.Printf("● Upgrade applied — ArgoCD is re-comparing all %d applications.\n", n)
+		fmt.Println("   A push to the shared packages repo flips every app OutOfSync, so expect")
+		fmt.Println("   ~10 min of churn even for a one-file change. That is normal, not a fault.")
+	} else {
+		fmt.Println("● Upgrade applied — ArgoCD is syncing the stack.")
+	}
+	fmt.Println("   Track it with `adhar get status`; a wave-stuck app needs its operation")
+	fmt.Println("   terminated before it will pick up the new revision.")
 	return nil
+}
+
+// countApplications reports how many ArgoCD Applications live in the platform
+// namespace, or 0 when that cannot be determined.
+//
+// Deliberately error-free: this exists only to put a number in a closing
+// message, so an unreadable count degrades the sentence rather than the command.
+func countApplications(ctx context.Context, kubeClient client.Client, namespace string) int {
+	var list unstructured.UnstructuredList
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "argoproj.io", Version: "v1alpha1", Kind: "ApplicationList",
+	})
+	if err := kubeClient.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+		return 0
+	}
+	return len(list.Items)
 }
 
 // diffStack clones the packages and environments repos from the in-cluster

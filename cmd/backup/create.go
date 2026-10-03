@@ -103,14 +103,14 @@ func runCreateBackup(cmd *cobra.Command, args []string) error {
 		"kind":       "Backup",
 		"metadata": map[string]interface{}{
 			"name":        backupName,
-			"namespace":   veleroNamespace,
+			"namespace":   veleroNS(),
 			"labels":      map[string]interface{}{"adhar.io/managed-by": "adhar-cli"},
 			"annotations": annotations,
 		},
 		"spec": spec,
 	}}
 
-	if _, err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if _, err := dyn.Resource(backupGVR).Namespace(veleroNS()).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Backup CRD not installed (velero not present in the cluster)")
 		}

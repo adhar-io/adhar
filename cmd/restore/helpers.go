@@ -15,9 +15,6 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
-// veleroNamespace is where Velero CRs live.
-const veleroNamespace = "velero"
-
 // restoreGVR is the GVR for Velero Restore resources.
 var restoreGVR = schema.GroupVersionResource{
 	Group: "velero.io", Version: "v1", Resource: "restores",
@@ -51,13 +48,13 @@ func createVeleroRestore(name string, spec map[string]interface{}) error {
 		"kind":       "Restore",
 		"metadata": map[string]interface{}{
 			"name":      name,
-			"namespace": veleroNamespace,
+			"namespace": veleroNS(),
 			"labels":    map[string]interface{}{"adhar.io/managed-by": "adhar-cli"},
 		},
 		"spec": spec,
 	}}
 
-	if _, err := dyn.Resource(restoreGVR).Namespace(veleroNamespace).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if _, err := dyn.Resource(restoreGVR).Namespace(veleroNS()).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Restore CRD not installed (velero not present in the cluster)")
 		}
@@ -173,3 +170,13 @@ func phaseIcon(phase string) string {
 		return "▲ " + phase
 	}
 }
+
+// veleroNS is the namespace Velero runs in, discovered rather than assumed.
+//
+// Every subcommand in this package used a `const veleroNamespace = "velero"`,
+// which is Velero's upstream default and NOT where this platform puts it — every
+// package installs into `adhar-system` (ADR-0011). The result was that
+// `adhar backup create` failed with `namespaces "velero" not found` against a
+// cluster whose Velero was healthy the whole time. See k8s.VeleroNamespace for
+// the resolution order and the $ADHAR_VELERO_NAMESPACE override.
+func veleroNS() string { return k8s.VeleroNamespace() }

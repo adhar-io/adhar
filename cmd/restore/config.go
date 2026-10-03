@@ -34,7 +34,7 @@ func runConfigRestore(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	list, err := dyn.Resource(backupStorageLocationGVR).Namespace(veleroNamespace).List(ctx, metav1.ListOptions{})
+	list, err := dyn.Resource(backupStorageLocationGVR).Namespace(veleroNS()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero BackupStorageLocation CRD not installed (velero not present in the cluster)")

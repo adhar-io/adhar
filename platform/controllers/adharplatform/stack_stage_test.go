@@ -59,7 +59,15 @@ func TestStageStackRendersTemplates(t *testing.T) {
 		}
 		defer cleanup()
 		got := read(t, filepath.Join(out, "pkg/manifests/issuer.yaml"))
-		for _, want := range []string{"email: ops@example.io", "issuer: adhar-letsencrypt-dns", "provider: digitalocean", "owner: adhar-prod", "dns01: true"} {
+		// owner is derived from the HOST, not the cluster name, even though a
+		// ClusterName is set above. external-dns refuses to touch a record owned
+		// by someone else, so a cluster-derived owner orphaned the entire zone
+		// every time a cluster was renamed or recreated: on 2026-10-03 a GCP
+		// platform had 42 A records still pointing at the previous cluster's dead
+		// load-balancer IP, owned by `adhar-production` against a live owner of
+		// `adhar-prod`, and external-dns reported "All records are already up to
+		// date" once a minute. See BuildCustomizationSpec.TXTOwnerID.
+		for _, want := range []string{"email: ops@example.io", "issuer: adhar-letsencrypt-dns", "provider: digitalocean", "owner: adhar-platform-example-io", "dns01: true"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("rendered template missing %q:\n%s", want, got)
 			}

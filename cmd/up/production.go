@@ -19,10 +19,18 @@ package up
 import (
 	"context"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	applyconfigcorev1 "k8s.io/client-go/applyconfigurations/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"os"
 	"sort"
+	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/logger"
 	pfactory "adhar-io/adhar/platform/providers"
@@ -140,6 +148,168 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	}
 	printProductionSuccessMsg(environment, cfg.GlobalSettings.DefaultHost, clusterName)
 	return nil
+}
+
+// createEnvironmentNamespaces materialises the namespace-isolated environments
+// on the shared cluster.
+//
+// This is what `isolation: namespace` actually produces: one namespace per
+// environment, labelled so the Console, the namespace views and any policy can
+// tell an environment apart from a platform namespace. Idempotent, because
+// re-running `adhar up` must not fail on its own previous work.
+func createEnvironmentNamespaces(ctx context.Context, result *pfactory.ProvisionResult, envs []string) error {
+	kubeconfigStr, err := result.Provider.GetKubeconfig(ctx, result.Cluster.ID)
+	if err != nil {
+		return fmt.Errorf("retrieving kubeconfig: %w", err)
+	}
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfigStr))
+	if err != nil {
+		return fmt.Errorf("building client config: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("building clientset: %w", err)
+	}
+
+	labels := func(env string) map[string]string {
+		return map[string]string{
+			"adhar.io/environment": env,
+			// `workload`, not `control`: these hold the team's software. The
+			// platform itself lives in adhar-system.
+			"adhar.io/plane":               "workload",
+			"app.kubernetes.io/managed-by": "adhar",
+		}
+	}
+
+	for _, env := range envs {
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: env, Labels: labels(env)},
+		}
+		_, cerr := cs.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+		switch {
+		case cerr == nil:
+			fmt.Printf("  %s environment namespace %q\n", helpers.SuccessStyle.Render(helpers.IconReady), env)
+		case apierrors.IsAlreadyExists(cerr):
+			if _, perr := cs.CoreV1().Namespaces().Apply(ctx,
+				applyconfigcorev1.Namespace(env).WithLabels(labels(env)),
+				metav1.ApplyOptions{FieldManager: "adhar-cli", Force: true}); perr != nil {
+				return fmt.Errorf("relabelling existing namespace %s: %w", env, perr)
+			}
+			fmt.Printf("  %s environment namespace %q (already existed)\n",
+				helpers.SuccessStyle.Render(helpers.IconReady), env)
+		default:
+			return fmt.Errorf("creating namespace %s: %w", env, cerr)
+		}
+	}
+	return nil
+}
+
+// printSharedClusterPlan explains, before any work starts, that the environments
+// are namespaces on one cluster.
+//
+// Silent on the LOCAL provider. A Kind cluster is one cluster by definition —
+// the whole local flow is a single `adhar` cluster on the operator's laptop — so
+// announcing that environments share it states the obvious, and the advice to
+// set `isolation: cluster` is worse than obvious: it offers a second Kind
+// cluster as if that were a sensible local setup. Nothing about the local run
+// is affected by the setting, so nothing about it is worth saying.
+//
+// The earlier wording was
+//
+//	▸ 3 environments share one cluster (dev, prod, test); sizing it from "prod"
+//	     Give an environment `isolation: cluster` in the config to split it out.
+//
+// which read as a warning about a constraint rather than a statement of the
+// plan: "share one cluster" sounds like a compromise, "sizing it from" is jargon
+// for a decision the reader has not been told exists, and "split it out" does
+// not say what is split or where it goes. It says what will be BUILT now.
+func printSharedClusterPlan(cfg *config.Config, nsEnvs []string, sharedEnv string) {
+	if isLocalProviderEnv(cfg, sharedEnv) {
+		return
+	}
+	fmt.Printf("  %s Building ONE cluster; %s become namespaces on it.\n",
+		helpers.InfoStyle.Render("▸"), strings.Join(nsEnvs, ", "))
+	fmt.Printf("     Its size comes from %q, the largest of them, so it can carry that load.\n", sharedEnv)
+	fmt.Printf("     To give an environment its own cluster instead, set `isolation: cluster`\n")
+	fmt.Printf("     on it in the config.\n\n")
+}
+
+// isLocalProviderEnv reports whether the environment runs on the local (Kind)
+// provider.
+func isLocalProviderEnv(cfg *config.Config, envName string) bool {
+	ec, err := resolveEnvironmentConfig(cfg, envName)
+	if err != nil {
+		// Unknown provider: say the thing rather than suppress it. A missing
+		// message is harder to notice than a redundant one.
+		return false
+	}
+	return ec.ResolvedProvider == globals.CloudProviderKind
+}
+
+// partitionEnvironments splits the selected environments by isolation mode.
+func partitionEnvironments(cfg *config.Config, names []string) (clusterEnvs, nsEnvs []string, err error) {
+	for _, n := range names {
+		ec, rerr := resolveEnvironmentConfig(cfg, n)
+		if rerr != nil {
+			return nil, nil, fmt.Errorf("resolving environment %s: %w", n, rerr)
+		}
+		if ec.ResolvedIsolation == config.EnvironmentIsolationCluster {
+			clusterEnvs = append(clusterEnvs, n)
+		} else {
+			nsEnvs = append(nsEnvs, n)
+		}
+	}
+	return clusterEnvs, nsEnvs, nil
+}
+
+// sharedClusterEnvironment picks which namespace environment's shape sizes the
+// one shared cluster.
+//
+// The production-type environment when there is one, because the shared cluster
+// has to carry production's load and sizing it from `dev` would under-provision
+// everything. Otherwise the first in sorted order, which is at least stable
+// between runs — a different choice per run would make two runs of the same file
+// produce differently sized clusters.
+func sharedClusterEnvironment(cfg *config.Config, nsEnvs []string) string {
+	for _, n := range nsEnvs {
+		if ec, err := resolveEnvironmentConfig(cfg, n); err == nil &&
+			ec.ResolvedType == config.EnvironmentTypeProduction {
+			return n
+		}
+	}
+	return nsEnvs[0]
+}
+
+// envClusterName gives each environment of a MULTI-environment run its own
+// cluster, while leaving a single-environment run exactly as it was.
+//
+// `ResolveClusterName` only ever returns --name or the default "adhar", so every
+// environment in one `adhar up` targeted the SAME cluster. Provisioning
+// dev/test/prod from one config therefore built `adhar` for dev and then
+// reported, twice:
+//
+//	INFO: Cluster 'adhar' already exists (gcp/adhar-cloud/adhar, status running)
+//	      — reusing it; pass --recreate to build a fresh one
+//
+// Three environments silently sharing one cluster is worse than a failure: each
+// bootstrap would overwrite the previous one's platform while the summary
+// claimed success. The DigitalOcean example's own comment already stated the
+// intent — "the CLUSTER is named after the environment" — but nothing
+// implemented it.
+//
+// Single environment keeps the plain default, because that is the common case
+// and "default name keep adhar" is the stated preference. Only a multi-
+// environment run suffixes, where a shared name cannot work at all. An explicit
+// --name becomes the PREFIX so the operator's choice is still honoured.
+func envClusterName(override, envName string, total int) string {
+	if total <= 1 {
+		return override
+	}
+	base := override
+	if base == "" {
+		base = globals.DefaultClusterName
+	}
+	return base + "-" + envName
 }
 
 // loadConfigFromFile loads configuration from a specific file path using Viper
@@ -271,6 +441,34 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 	}
 	sort.Strings(environmentsToProvision)
 
+	// Split the environments by what they physically ARE.
+	//
+	// `isolation: namespace` (the default) means the environment is a namespace
+	// on ONE shared platform cluster; `isolation: cluster` means it gets a
+	// cluster and a platform of its own. Declaring dev/test/prod therefore costs
+	// one cluster by default instead of three — three was both unaffordable and
+	//, on a default GCP quota (CPUS_ALL_REGIONS 64 against ~40 for one
+	// production cluster), impossible.
+	clusterEnvs, nsEnvs, partErr := partitionEnvironments(cfg, environmentsToProvision)
+	if partErr != nil {
+		return partErr
+	}
+
+	// The namespace environments need a cluster to live in. If no environment
+	// asked for one of its own, provision exactly ONE — shaped by whichever
+	// namespace environment is the most demanding, because that cluster has to
+	// host all of them.
+	sharedEnv := ""
+	if len(nsEnvs) > 0 && len(clusterEnvs) == 0 {
+		sharedEnv = sharedClusterEnvironment(cfg, nsEnvs)
+		printSharedClusterPlan(cfg, nsEnvs, sharedEnv)
+		clusterEnvs = []string{sharedEnv}
+	}
+
+	// Only the cluster-backed environments are provisioned; the namespace ones
+	// are created on the shared cluster once its platform is up.
+	environmentsToProvision = clusterEnvs
+
 	// Provision each environment
 	successCount := 0
 	// Collected so the summary can say WHICH environment failed and why. The
@@ -296,13 +494,13 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 			DryRun:      dryRun,
 			Force:       force,
 			Recreate:    recreateCluster,
-			ClusterName: clusterName,
+			ClusterName: envClusterName(clusterName, envName, len(environmentsToProvision)),
 		}
 
 		// A checklist per environment: this loop provisions each in turn, so one
 		// block covering all of them would show several clusters' progress on the
 		// same lines.
-		resolvedName := pfactory.ResolveClusterName(clusterName)
+		resolvedName := pfactory.ResolveClusterName(envClusterName(clusterName, envName, len(environmentsToProvision)))
 		tracker, restoreProgress := startCloudProgress(envConfig.Name, resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose)
 		tracker.Activate(0)
 		provisionOpts.OnPhase = trackPhases(tracker,
@@ -321,6 +519,17 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 				fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
 				envFailures = append(envFailures, envFailure{envName, err})
 				continue
+			}
+			// The namespace-isolated environments live on THIS cluster, so make
+			// them now its platform is up. Once, on the shared cluster only.
+			if envName == sharedEnv && len(nsEnvs) > 0 {
+				if nsErr := createEnvironmentNamespaces(ctx, result, nsEnvs); nsErr != nil {
+					// Not fatal. The platform is up and usable, and the namespaces
+					// are a thin, re-creatable layer on top of it — failing the
+					// environment here would discard a working cluster over a label.
+					fmt.Printf("  %s could not create environment namespaces: %v\n",
+						helpers.WarningStyle.Render("▲"), nsErr)
+				}
 			}
 		}
 		// Finalise this environment's block before the next one starts its own.

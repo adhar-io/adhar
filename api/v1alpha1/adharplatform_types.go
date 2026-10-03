@@ -516,12 +516,49 @@ func (s BuildCustomizationSpec) ExternalDNSProvider() string {
 	}
 }
 
-// TXTOwnerID is the external-dns registry owner id for this cluster.
+// TXTOwnerID is the external-dns registry owner id for this platform.
+//
+// Derived from the DNS HOST, deliberately NOT from the cluster name.
+//
+// external-dns writes a TXT record alongside every A record recording who owns
+// it, and refuses to modify a record owned by someone else. While this returned
+// "adhar-"+ClusterName, renaming or recreating a cluster changed the owner and
+// ORPHANED every record in the zone: the new cluster could neither update them
+// (not its records) nor delete them (the package runs `--policy=upsert-only`),
+// so every platform URL kept resolving to the previous cluster's load-balancer
+// IP while external-dns logged "All records are already up to date" once a
+// minute. Seen live on 2026-10-03: records owned by `adhar-production` against
+// a cluster whose owner was `adhar-prod`, every hostname pointing at a dead IP.
+//
+// The host is the right key because it is what the records are FOR. One zone is
+// served by one platform here — two clusters publishing the same hostnames into
+// one zone are in conflict whatever the owner id says, so a per-cluster id
+// bought nothing and cost this. Two platforms on DIFFERENT hosts still get
+// different owners, which is the case the separation actually protects.
 func (s BuildCustomizationSpec) TXTOwnerID() string {
+	if h := sanitizeOwnerID(s.Host); h != "" {
+		return "adhar-" + h
+	}
 	if s.ClusterName != "" {
 		return "adhar-" + s.ClusterName
 	}
 	return "adhar"
+}
+
+// sanitizeOwnerID reduces a hostname to a stable, label-safe owner id.
+func sanitizeOwnerID(host string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(host)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.' || r == '-' || r == '_':
+			// One separator shape, so "cloud.adhar.io" and "cloud-adhar-io"
+			// cannot resolve to two different owners for one platform.
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // PackageCustomization defines how packages are customized

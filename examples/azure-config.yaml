@@ -198,23 +198,31 @@ environmentTemplates:
 
 # Three environments, the same three on every provider: dev, test and prod.
 #
-# Each entry is a SEPARATE CLUSTER, not a namespace. The per-application
-# dev/test/prod promotion chain (Argo Rollouts + Kargo, see
-# packages/application/adhar-supply-chain/manifests/90-app-environments.yaml)
-# runs INSIDE one cluster and needs none of this — these are for running the
-# whole platform more than once.
+# `isolation` decides what an environment physically IS:
 #
-# ⚠️  `adhar up -f <this file>` with NO --env provisions EVERY environment
-#     listed here. That is three clusters and three times the bill, and on a
-#     default cloud quota it will not fit. Name one:
+#   namespace (the default) — a namespace on ONE shared platform cluster.
+#   cluster                 — a cluster of its own, with its own platform.
 #
-#       adhar up -f <this file> --env dev
-#       adhar up -f <this file> --env prod
+# All three are namespaces here, so `adhar up -f <this file>` builds ONE cluster
+# and creates the `dev`, `test` and `prod` namespaces on it. That is the whole
+# point of the default: three clusters meant three platform installs and three
+# bills, and on a default GCP quota (CPUS_ALL_REGIONS 64 against ~40 for one
+# production cluster) it did not even fit.
 #
-# dev and test are deliberately smaller than prod: they exist to exercise the
-# platform and a team's own promotion chain, not to carry production load.
+# To give an environment hard isolation — its own API server, its own etcd, its
+# own blast radius — set `isolation: cluster` on it. That is usually prod and
+# nothing else:
+#
+#   prod:
+#     isolation: cluster
+#
+# The cluster that hosts the namespace environments is sized from the
+# production-type one among them, because it has to carry production's load.
+# `clusterConfig` and `autoscaling` on a namespace environment describe that
+# shared cluster; on a `cluster` environment they describe its own.
 environments:
   dev:
+    isolation: namespace
     type: non-production
     provider: azure
     region: centralindia
@@ -234,6 +242,7 @@ environments:
       maxWorkers: 3
 
   test:
+    isolation: namespace
     type: non-production
     provider: azure
     region: centralindia
@@ -253,6 +262,7 @@ environments:
       maxWorkers: 3
 
   prod:
+    isolation: namespace
     type: production
     provider: azure
     region: centralindia

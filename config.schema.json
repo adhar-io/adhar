@@ -8,16 +8,41 @@
       "type": "object",
       "description": "Global platform settings",
       "properties": {
-        "adharContext": { "type": "string", "minLength": 1 },
-        "defaultHost": { "type": "string" },
-        "defaultHttpPort": { "type": "integer", "minimum": 1 },
-        "defaultHttpsPort": { "type": "integer", "minimum": 1 },
-        "enableHAMode": { "type": "boolean" },
-        "email": { "type": "string", "format": "email" },
+        "adharContext": {
+          "type": "string",
+          "minLength": 1
+        },
+        "defaultHost": {
+          "type": "string"
+        },
+        "defaultHttpPort": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "defaultHttpsPort": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "enableHAMode": {
+          "type": "boolean"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
         "dnsProvider": {
           "type": "string",
           "description": "Edge DNS backend for external-dns records and cert-manager DNS-01 wildcard certificates. Empty = the environment's cloud provider DNS; 'none' disables edge DNS (self-signed TLS); 'cloudflare' for on-prem/custom clusters (CLOUDFLARE_API_TOKEN).",
-          "enum": ["", "none", "digitalocean", "aws", "gcp", "azure", "civo", "cloudflare"]
+          "enum": [
+            "",
+            "none",
+            "digitalocean",
+            "aws",
+            "gcp",
+            "azure",
+            "civo",
+            "cloudflare"
+          ]
         }
       },
       "additionalProperties": false
@@ -25,98 +50,178 @@
     "providers": {
       "type": "object",
       "description": "Provider configurations keyed by provider name (e.g., civo, aws, azure)",
-      "additionalProperties": { "$ref": "#/definitions/providerSpec" },
+      "additionalProperties": {
+        "$ref": "#/definitions/providerSpec"
+      },
       "properties": {
-        "kind": { "$ref": "#/definitions/providerSpec" },
-        "aws": { "$ref": "#/definitions/providerSpec" },
-        "azure": { "$ref": "#/definitions/providerSpec" },
-        "gcp": { "$ref": "#/definitions/providerSpec" },
-        "digitalocean": { "$ref": "#/definitions/providerSpec" },
-        "civo": { "$ref": "#/definitions/providerSpec" },
-        "custom": { "$ref": "#/definitions/providerSpec" }
+        "kind": {
+          "$ref": "#/definitions/providerSpec"
+        },
+        "aws": {
+          "$ref": "#/definitions/providerSpec"
+        },
+        "azure": {
+          "$ref": "#/definitions/providerSpec"
+        },
+        "gcp": {
+          "$ref": "#/definitions/providerSpec"
+        },
+        "digitalocean": {
+          "$ref": "#/definitions/providerSpec"
+        },
+        "civo": {
+          "$ref": "#/definitions/providerSpec"
+        },
+        "custom": {
+          "$ref": "#/definitions/providerSpec"
+        }
       }
     },
     "environmentTemplates": {
       "type": "object",
       "description": "Reusable configuration templates for environments",
-      "additionalProperties": { "$ref": "#/definitions/environmentTemplate" }
+      "additionalProperties": {
+        "$ref": "#/definitions/environmentTemplate"
+      }
     },
     "environments": {
       "type": "object",
       "description": "Environment definitions keyed by environment name (e.g., dev, test, staging, production)",
       "minProperties": 1,
-      "additionalProperties": { "$ref": "#/definitions/environmentConfig" }
+      "additionalProperties": {
+        "$ref": "#/definitions/environmentConfig"
+      }
     }
   },
-  "required": ["providers", "environments"],
+  "required": [
+    "providers",
+    "environments"
+  ],
   "additionalProperties": false,
   "definitions": {
     "keyValue": {
       "type": "object",
       "description": "Key/value entry",
       "properties": {
-        "key": { "type": "string", "minLength": 1 },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
         "value": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "number" },
-            { "type": "integer" },
-            { "type": "boolean" }
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            }
           ]
         }
       },
-      "required": ["key", "value"],
+      "required": [
+        "key",
+        "value"
+      ],
       "additionalProperties": false
     },
     "chartSpec": {
       "type": "object",
       "description": "Helm chart specification",
       "properties": {
-        "repoURL": { "type": "string", "format": "uri", "pattern": "^https?://" },
-        "name": { "type": "string", "minLength": 1 },
-        "version": { "type": "string", "minLength": 1 }
+        "repoURL": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["repoURL", "name", "version"],
+      "required": [
+        "repoURL",
+        "name",
+        "version"
+      ],
       "additionalProperties": false
     },
     "helmChartConfig": {
       "type": "object",
       "description": "Configuration for deploying a Helm chart",
       "properties": {
-        "chart": { "$ref": "#/definitions/chartSpec" },
+        "chart": {
+          "$ref": "#/definitions/chartSpec"
+        },
         "values": {
           "type": "array",
           "description": "Helm values as key/value pairs",
-          "items": { "$ref": "#/definitions/keyValue" }
+          "items": {
+            "$ref": "#/definitions/keyValue"
+          }
         }
       },
-      "required": ["chart"],
+      "required": [
+        "chart"
+      ],
       "additionalProperties": false
     },
     "addonConfig": {
       "type": "object",
       "description": "Configuration for a single addon",
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "chart": { "$ref": "#/definitions/chartSpec" },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chart": {
+          "$ref": "#/definitions/chartSpec"
+        },
         "values": {
           "type": "array",
-          "items": { "$ref": "#/definitions/keyValue" }
+          "items": {
+            "$ref": "#/definitions/keyValue"
+          }
         },
-        "targetNamespace": { "type": "string" },
-        "createNamespace": { "type": "boolean", "default": false }
+        "targetNamespace": {
+          "type": "string"
+        },
+        "createNamespace": {
+          "type": "boolean",
+          "default": false
+        }
       },
-      "required": ["name", "chart"],
+      "required": [
+        "name",
+        "chart"
+      ],
       "additionalProperties": false
     },
     "coreServicesSpec": {
       "type": "object",
       "description": "Core platform services configuration",
       "properties": {
-        "cilium": { "$ref": "#/definitions/helmChartConfig" },
-        "nginx": { "$ref": "#/definitions/helmChartConfig" },
-        "gitea": { "$ref": "#/definitions/helmChartConfig" },
-        "argocd": { "$ref": "#/definitions/helmChartConfig" }
+        "cilium": {
+          "$ref": "#/definitions/helmChartConfig"
+        },
+        "nginx": {
+          "$ref": "#/definitions/helmChartConfig"
+        },
+        "gitea": {
+          "$ref": "#/definitions/helmChartConfig"
+        },
+        "argocd": {
+          "$ref": "#/definitions/helmChartConfig"
+        }
       },
       "additionalProperties": false
     },
@@ -126,14 +231,22 @@
       "properties": {
         "clusterConfig": {
           "type": "array",
-          "items": { "$ref": "#/definitions/keyValue" }
+          "items": {
+            "$ref": "#/definitions/keyValue"
+          }
         },
-        "coreServices": { "$ref": "#/definitions/coreServicesSpec" },
+        "coreServices": {
+          "$ref": "#/definitions/coreServicesSpec"
+        },
         "addons": {
           "type": "array",
-          "items": { "$ref": "#/definitions/addonConfig" }
+          "items": {
+            "$ref": "#/definitions/addonConfig"
+          }
         },
-        "autoscaling": { "$ref": "#/definitions/autoscalingConfig" }
+        "autoscaling": {
+          "$ref": "#/definitions/autoscalingConfig"
+        }
       },
       "additionalProperties": false
     },
@@ -141,18 +254,43 @@
       "type": "object",
       "description": "Configuration for a specific environment",
       "properties": {
-        "type": { "type": "string", "enum": ["production", "non-production"] },
-        "template": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "production",
+            "non-production"
+          ]
+        },
+        "template": {
+          "type": "string"
+        },
         "clusterConfig": {
           "type": "array",
-          "items": { "$ref": "#/definitions/keyValue" }
+          "items": {
+            "$ref": "#/definitions/keyValue"
+          }
         },
-        "coreServices": { "$ref": "#/definitions/coreServicesSpec" },
+        "coreServices": {
+          "$ref": "#/definitions/coreServicesSpec"
+        },
         "addons": {
           "type": "array",
-          "items": { "$ref": "#/definitions/addonConfig" }
+          "items": {
+            "$ref": "#/definitions/addonConfig"
+          }
         },
-        "autoscaling": { "$ref": "#/definitions/autoscalingConfig" }
+        "autoscaling": {
+          "$ref": "#/definitions/autoscalingConfig"
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "namespace",
+            "cluster"
+          ],
+          "default": "namespace",
+          "description": "What the environment physically is: a namespace on the shared platform cluster (default), or a dedicated cluster with its own platform install."
+        }
       },
       "additionalProperties": false
     },
@@ -204,13 +342,28 @@
       "type": "object",
       "description": "Generic provider configuration",
       "properties": {
-        "type": { "type": "string", "minLength": 1 },
-        "region": { "type": "string" },
-        "primary": { "type": "boolean" },
-        "token": { "type": "string" },
-        "credentials_file": { "type": "string" },
-        "useEnvironment": { "type": "boolean" },
-        "useManagedK8s": { "type": "boolean" },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "region": {
+          "type": "string"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "token": {
+          "type": "string"
+        },
+        "credentials_file": {
+          "type": "string"
+        },
+        "useEnvironment": {
+          "type": "boolean"
+        },
+        "useManagedK8s": {
+          "type": "boolean"
+        },
         "clusterMode": {
           "type": "string",
           "description": "How clusters are created: compute (default, kubeadm on raw instances) or the cloud's managed service (eks, aks, gke, doks, k3s). useManagedK8s: true is the same switch."
@@ -220,28 +373,46 @@
           "description": "Provider-specific configuration. Shape varies per provider.",
           "additionalProperties": true,
           "properties": {
-            "network_id": { "type": "string" },
-            "size": { "type": "string" },
-            "disk_image": { "type": "string" },
+            "network_id": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            },
+            "disk_image": {
+              "type": "string"
+            },
             "firewall_rules": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "label": { "type": "string" },
+                  "label": {
+                    "type": "string"
+                  },
                   "rules": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "protocol": { "type": "string" },
-                        "start_port": { "type": "string" },
-                        "end_port": { "type": "string" },
+                        "protocol": {
+                          "type": "string"
+                        },
+                        "start_port": {
+                          "type": "string"
+                        },
+                        "end_port": {
+                          "type": "string"
+                        },
                         "cidr": {
                           "type": "array",
-                          "items": { "type": "string" }
+                          "items": {
+                            "type": "string"
+                          }
                         },
-                        "direction": { "type": "string" }
+                        "direction": {
+                          "type": "string"
+                        }
                       },
                       "additionalProperties": true
                     }
@@ -253,7 +424,9 @@
           }
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false
     }
   }

@@ -55,7 +55,7 @@ func deleteSingleBackup(backupName string) error {
 	defer cancel()
 
 	// Confirm the backup exists so we can give a clear error before prompting.
-	if _, err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Get(ctx, backupName, metav1.GetOptions{}); err != nil {
+	if _, err := dyn.Resource(backupGVR).Namespace(veleroNS()).Get(ctx, backupName, metav1.GetOptions{}); err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Backup CRD not installed (velero not present in the cluster)")
 		}
@@ -67,7 +67,7 @@ func deleteSingleBackup(backupName string) error {
 		return nil
 	}
 
-	if err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Delete(ctx, backupName, metav1.DeleteOptions{}); err != nil {
+	if err := dyn.Resource(backupGVR).Namespace(veleroNS()).Delete(ctx, backupName, metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("failed to delete backup %q: %w", backupName, err)
 	}
 
@@ -83,7 +83,7 @@ func deleteBackupsByPattern(pat string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	list, err := dyn.Resource(backupGVR).Namespace(veleroNamespace).List(ctx, metav1.ListOptions{})
+	list, err := dyn.Resource(backupGVR).Namespace(veleroNS()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if crdMissing(err) {
 			return fmt.Errorf("Velero Backup CRD not installed (velero not present in the cluster)")
@@ -115,7 +115,7 @@ func deleteBackupsByPattern(pat string) error {
 
 	deleted := 0
 	for _, name := range matching {
-		if err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		if err := dyn.Resource(backupGVR).Namespace(veleroNS()).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 			fmt.Printf("▲ Failed to delete %s: %v\n", name, err)
 			continue
 		}
