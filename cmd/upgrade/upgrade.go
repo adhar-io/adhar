@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -45,6 +46,7 @@ import (
 	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -352,11 +354,16 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 	username := string(creds.Data["username"])
 	password := string(creds.Data["password"])
 
+	// Where to actually send the connection. Empty means "trust public DNS",
+	// which is only safe when public DNS is correct — and this command exists
+	// partly to repair platforms where it is not.
+	dialAddr := gatewayDialAddress(ctx, kubeClient)
+
 	var b strings.Builder
 	hasDiff := false
 	for _, repo := range []string{"packages", "environments"} {
 		cloneDir := filepath.Join(tmpDir, "repo-"+repo)
-		if err := cloneGiteaRepo(ctx, cfg, username, password, repo, cloneDir); err != nil {
+		if err := cloneGiteaRepo(ctx, cfg, username, password, repo, cloneDir, dialAddr); err != nil {
 			return "", false, err
 		}
 		// Remove clone metadata so the directory diff sees content only.
@@ -396,7 +403,33 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 // cloneGiteaRepo clones a repo from the in-cluster Gitea over its external URL
 // using the admin credentials. TLS verification is disabled because the
 // platform certificate is self-signed by default.
-func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, username, password, repo, dest string) error {
+// gatewayDialAddress returns the gateway's load-balancer IP, read from the
+// cluster through the kubeconfig — the one path that cannot be broken by a DNS
+// fault. Empty when there is nothing usable, in which case the clone falls back
+// to resolving the hostname normally.
+//
+// Only an IP is useful here: curl's resolve override maps a host:port to an
+// ADDRESS, so a provider that hands out a load-balancer hostname (AWS) is left
+// to DNS, which for that provider is the thing that works.
+func gatewayDialAddress(ctx context.Context, kubeClient client.Client) string {
+	var svcs corev1.ServiceList
+	if err := kubeClient.List(ctx, &svcs, client.InNamespace(globals.AdharSystemNamespace)); err != nil {
+		return ""
+	}
+	for _, svc := range svcs.Items {
+		if svc.Spec.Type != corev1.ServiceTypeLoadBalancer || !strings.HasPrefix(svc.Name, "cilium-gateway-") {
+			continue
+		}
+		for _, ing := range svc.Status.LoadBalancer.Ingress {
+			if ip := net.ParseIP(ing.IP); ip != nil {
+				return ing.IP
+			}
+		}
+	}
+	return ""
+}
+
+func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, username, password, repo, dest string, dialAddr string) error {
 	host := cfg.IngressHost
 	if host == "" {
 		host = cfg.Host
@@ -420,10 +453,27 @@ func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, us
 	//     remote: Access denied … 403
 	// that looks like a platform fault and reproduces on one machine but not another.
 	// GIT_TERMINAL_PROMPT=0 keeps a failure a failure instead of a hung prompt.
-	cmd := exec.CommandContext(ctx, "git",
-		"-c", "credential.helper=",
-		"-c", "http.sslVerify=false",
-		"clone", "--quiet", "--depth", "1", base.String(), dest)
+	args := []string{"-c", "credential.helper=", "-c", "http.sslVerify=false"}
+	// Send the connection straight at the gateway instead of trusting public
+	// DNS for the platform's own hostname.
+	//
+	// `adhar upgrade` is how a broken platform gets repaired, so it must not
+	// depend on the platform being healthy. A stale external-dns record made
+	// this command fail before it could do anything:
+	//
+	//	Error: computing stack diff: cloning gitea repo "packages": fatal: unable
+	//	to access 'https://gitea.cloud.adhar.io:443/adhar/packages.git/': Failed
+	//	to connect to gitea.cloud.adhar.io port 443 after 75088 ms
+	//
+	// The records pointed at a previous cluster's dead load-balancer IP, and the
+	// fix for that lives in the stack this command pushes — so the only way to
+	// apply it was to repair DNS by hand first. TLS verification is already off
+	// above, so the certificate's name is not an obstacle either.
+	if dialAddr != "" && cfg.Port != "" {
+		args = append(args, "-c", fmt.Sprintf("http.curloptResolve=gitea.%s:%s:%s", host, cfg.Port, dialAddr))
+	}
+	args = append(args, "clone", "--quiet", "--depth", "1", base.String(), dest)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Never echo the URL (it embeds credentials).

@@ -520,20 +520,38 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 				envFailures = append(envFailures, envFailure{envName, err})
 				continue
 			}
-			// The namespace-isolated environments live on THIS cluster, so make
-			// them now its platform is up. Once, on the shared cluster only.
-			if envName == sharedEnv && len(nsEnvs) > 0 {
-				if nsErr := createEnvironmentNamespaces(ctx, result, nsEnvs); nsErr != nil {
-					// Not fatal. The platform is up and usable, and the namespaces
-					// are a thin, re-creatable layer on top of it — failing the
-					// environment here would discard a working cluster over a label.
-					fmt.Printf("  %s could not create environment namespaces: %v\n",
-						helpers.WarningStyle.Render("▲"), nsErr)
-				}
+		}
+		// Finalise this environment's block before ANY plain printing below.
+		//
+		// While the tracker runs it owns the cursor: it repositions by moving up
+		// `lastLines` and clearing to the end of the screen. A bare fmt.Printf
+		// underneath it scrolls the block without the tracker knowing, so the next
+		// move-up lands in the wrong place and leaves an orphaned copy of the
+		// checklist on screen — which is exactly what creating the environment
+		// namespaces used to do from inside this block:
+		//
+		//	Provisioning prod  22m53s     <- orphan, truncated where it scrolled
+		//	✓  Preflight  0s
+		//	✓  Cloud cluster  3m56s
+		//	Provisioning prod  22m53s     <- the live block, same elapsed time
+		//	✓  Preflight  0s
+		//	...
+		//
+		// Anything that must print WHILE the tracker is live goes through
+		// tracker.Log, which clears first and redraws after.
+		restoreProgress(false)
+
+		// The namespace-isolated environments live on THIS cluster, so make them
+		// now its platform is up. Once, on the shared cluster only.
+		if result != nil && envName == sharedEnv && len(nsEnvs) > 0 {
+			if nsErr := createEnvironmentNamespaces(ctx, result, nsEnvs); nsErr != nil {
+				// Not fatal. The platform is up and usable, and the namespaces are
+				// a thin, re-creatable layer on top of it — failing the environment
+				// here would discard a working cluster over a label.
+				fmt.Printf("  %s could not create environment namespaces: %v\n",
+					helpers.WarningStyle.Render("▲"), nsErr)
 			}
 		}
-		// Finalise this environment's block before the next one starts its own.
-		restoreProgress(false)
 		fmt.Printf("  %s %s provisioned\n", helpers.SuccessStyle.Render(helpers.IconReady), envName)
 		successCount++
 	}

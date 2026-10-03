@@ -51,6 +51,7 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/domain"
 	"adhar-io/adhar/platform/utils"
 	"adhar-io/adhar/platform/utils/files"
 )
@@ -1016,7 +1017,7 @@ const stackTemplateSuffix = ".tmpl"
 //
 // Returns the staged directory to copy from and a cleanup func.
 func (r *AdharPlatformReconciler) stageStack(srcDir string) (string, func(), error) {
-	return stageStack(srcDir, r.Config)
+	return stageStack(srcDir, r.Config, domain.ResolveTXTOwnerID(r.Config))
 }
 
 // StageStack renders a stack directory for the given platform spec exactly as
@@ -1024,11 +1025,27 @@ func (r *AdharPlatformReconciler) stageStack(srcDir string) (string, func(), err
 // — for callers that need to compare or inspect the seeded content, e.g.
 // `adhar upgrade --diff-only`. The caller must invoke the returned cleanup.
 func StageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, func(), error) {
-	return stageStack(srcDir, spec)
+	return stageStack(srcDir, spec, domain.ResolveTXTOwnerID(spec))
 }
 
-func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, func(), error) {
+// stackTemplateData decorates the platform spec with the values that cannot be
+// derived from it, overriding the promoted method of the same name.
+//
+// The external-dns registry owner is one: the authoritative copy lives in the
+// DNS zone, and a platform that disagrees with it can neither update nor delete
+// a single record. Staging itself stays pure — the owner arrives as an argument
+// so that rendering the stack never depends on name resolution, and only the
+// bootstrap and upgrade entry points above pay for the probe.
+type stackTemplateData struct {
+	v1alpha1.BuildCustomizationSpec
+	txtOwnerID string
+}
+
+func (d stackTemplateData) TXTOwnerID() string { return d.txtOwnerID }
+
+func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec, txtOwnerID string) (string, func(), error) {
 	noop := func() {}
+	data := stackTemplateData{BuildCustomizationSpec: spec, txtOwnerID: txtOwnerID}
 	host := spec.Host
 	rewriteHost := host != "" && host != globals.DefaultHostName
 	tmp, err := os.MkdirTemp("", "adhar-stack-")
@@ -1054,7 +1071,7 @@ func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, fu
 			return err
 		}
 		if strings.HasSuffix(p, stackTemplateSuffix) {
-			if b, err = files.ApplyTemplate(b, spec); err != nil {
+			if b, err = files.ApplyTemplate(b, data); err != nil {
 				return fmt.Errorf("rendering stack template %s: %w", rel, err)
 			}
 			dst = strings.TrimSuffix(dst, stackTemplateSuffix)

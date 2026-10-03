@@ -26,7 +26,7 @@ func TestStageStackRendersTemplates(t *testing.T) {
 	t.Run("local keeps host, renders templates", func(t *testing.T) {
 		spec := v1alpha1.BuildCustomizationSpec{Protocol: "https", Host: globals.DefaultHostName, Port: "8443"}
 		spec.Normalize()
-		out, cleanup, err := stageStack(src, spec)
+		out, cleanup, err := stageStack(src, spec, spec.TXTOwnerID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +53,7 @@ func TestStageStackRendersTemplates(t *testing.T) {
 		spec := v1alpha1.BuildCustomizationSpec{Protocol: "https", Host: "platform.example.io", Port: "443",
 			Email: "ops@example.io", DNSProvider: "digitalocean", ClusterName: "prod"}
 		spec.Normalize()
-		out, cleanup, err := stageStack(src, spec)
+		out, cleanup, err := stageStack(src, spec, spec.TXTOwnerID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +112,7 @@ func TestStackTemplatesRender(t *testing.T) {
 	}
 	for _, spec := range specs {
 		spec.Normalize()
-		out, cleanup, err := stageStack(stack, spec)
+		out, cleanup, err := stageStack(stack, spec, spec.TXTOwnerID())
 		if err != nil {
 			t.Fatalf("staging stack for %+v: %v", spec, err)
 		}

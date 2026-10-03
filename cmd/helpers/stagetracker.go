@@ -216,20 +216,36 @@ func (t *StageTracker) Log(line string) {
 		fmt.Fprintln(t.w, line)
 		return
 	}
+	// ONE critical section for clear -> print -> redraw.
+	//
+	// This used to unlock before redrawing, which left a window the 100ms
+	// animation goroutine could land in: it calls render(false), sees
+	// lastLines == 0 (just zeroed here), skips the cursor move-up because of the
+	// `lastLines > 0` guard, and PRINTS A SECOND BLOCK. The redraw below then
+	// printed a third. That is the duplicate checklist:
+	//
+	//	Provisioning prod  22m53s     <- orphan, never cleared
+	//	✓  Preflight  0s
+	//	✓  Cloud cluster  3m56s
+	//	Provisioning prod  22m53s     <- the live block
+	//	✓  Preflight  0s
+	//	...
+	//
+	// Both copies show the same elapsed time because the two renders are
+	// milliseconds apart, which is the tell that they are concurrent rather
+	// than one being stale.
 	t.mu.Lock()
-	running, lastLines := t.running, t.lastLines
-	if running && lastLines > 0 {
+	defer t.mu.Unlock()
+	if t.running && t.lastLines > 0 {
 		// Erase the live block so the log line lands at its top-left.
-		fmt.Fprintf(t.w, "\x1b[%dA\r\x1b[J", lastLines)
+		fmt.Fprintf(t.w, "\x1b[%dA\r\x1b[J", t.lastLines)
 		t.lastLines = 0
 	}
 	fmt.Fprintln(t.w, line)
-	t.mu.Unlock()
-
-	if running {
+	if t.running {
 		// Redraw as a FIRST render: the block is gone, so there is nothing to
 		// move up over.
-		t.render(true)
+		t.renderLocked(true)
 	}
 }
 
@@ -266,6 +282,19 @@ func (t *StageTracker) render(first bool) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.renderLocked(first)
+}
+
+// renderLocked draws the block. The caller MUST hold t.mu.
+//
+// Split out so Log can clear, print and redraw without ever releasing the lock:
+// every write to the terminal and every update of lastLines has to be atomic
+// with respect to the animation goroutine, or the cursor arithmetic desyncs and
+// a copy of the block is orphaned on screen.
+func (t *StageTracker) renderLocked(first bool) {
+	if !t.isTTY {
+		return
+	}
 
 	var b strings.Builder
 	// Title with overall elapsed.
