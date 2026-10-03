@@ -496,16 +496,16 @@ Workload clusters provisioned this way register themselves with ArgoCD and appea
 
 A connection whose backing package is disabled simply does not appear.
 
-**Two connections need an operator to supply a password**: OpenSearch and ClickHouse hold their credentials as literal env values inside the packages that run them, so there is no Secret for External Secrets to mirror. Create one Secret and both light up:
+**One connection needs an operator to supply a password**: ClickHouse holds its credential as a literal env value inside the package that runs it (PostHog), so there is no Secret for External Secrets to mirror. Create one Secret and it lights up:
 
 ```bash
 kubectl -n adhar-system create secret generic libredb-datasource-extras \
-  --from-literal=OPENSEARCH_PASSWORD="$(kubectl -n adhar-system get statefulset opensearch-cluster-master \
-      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="OPENSEARCH_INITIAL_ADMIN_PASSWORD")].value}')" \
   --from-literal=CLICKHOUSE_USER=admin \
   --from-literal=CLICKHOUSE_PASSWORD="$(kubectl -n adhar-system get deploy posthog-web \
       -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CLICKHOUSE_PASSWORD")].value}')"
 ```
+
+OpenSearch no longer needs this: its package is operator-managed and generates `opensearch-admin-credentials`, which Studio reads directly (`adhar get secrets -p opensearch` shows it).
 
 Studio re-reads its seed file on a 60-second cache, so the connections appear shortly after. Until then it logs one `Seed connection skipped` line per unresolved connection at ERROR level — expected, not a fault.
 

@@ -202,19 +202,21 @@ func resolveEnvironmentConfig(cfg *config.Config, envName string) (*config.Resol
 // and every platform URL derives from the configured base domain (no
 // hardcoded host).
 func printProductionSuccessMsg(envName, host, clusterName string) {
-	fmt.Printf("\n\n########################### Successfully Provisioned Production Cluster! ############################\n\n\n")
-	fmt.Printf("Environment: %s\n", envName)
-	fmt.Printf("Cluster has been provisioned with:\n")
-	fmt.Printf("  ● Cilium CNI with production-ready configuration\n")
-	fmt.Printf("  ● Core platform services (ArgoCD, Gitea, Cilium Gateway)\n")
-	fmt.Printf("  ● Security policies and monitoring\n")
-	fmt.Printf("  ● Auto-scaling and high availability\n\n")
-	fmt.Printf("Next steps:\n")
-	fmt.Printf("  1. kubectl is ready — context %q is current\n", KubeContextName(clusterName))
-	fmt.Printf("     (standalone copy: ~/.adhar/clusters/%s/kubeconfig)\n", clusterName)
-	fmt.Printf("  2. Platform credentials:  adhar get secrets        (e.g. adhar get secrets -p argocd)\n")
-	fmt.Printf("  3. Console: https://console.%s   ArgoCD: https://argocd.%s   Gitea: https://gitea.%s\n", host, host, host)
-	fmt.Printf("  4. Deploy your applications\n\n")
+	// The SAME panel the local path prints, via the same renderer.
+	//
+	// This was a row of 75 '#' characters, a bulleted list of things the platform
+	// installs (which the checklist above has just shown, one line each, with
+	// timings), and four numbered "next steps" with two of the URLs run together on
+	// one line. Local had a bordered, aligned, brand-coloured table. Nothing
+	// justified the difference except that the two were written at different times.
+	//
+	// The bullet list is gone rather than restyled: "Cilium CNI with
+	// production-ready configuration" and friends restate the stage list directly
+	// above them, and one of them ("Auto-scaling and high availability") is not even
+	// true unless the config asked for it.
+	fmt.Println()
+	fmt.Println(renderCloudReadyPanel(host, clusterName))
+	fmt.Println()
 
 	// The one thing that will otherwise surprise them. Printed last, and as its own
 	// block, because a self-signed certificate does not look like a DNS problem from
@@ -335,13 +337,22 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 	// read it. The box was hand-drawn too, with the count followed by a fixed run of
 	// spaces, so the closing │ moved as soon as the numbers were not one digit.
 	total := len(environmentsToProvision)
-	fmt.Println(renderProvisionSummary(successCount, total, func() []string {
-		lines := make([]string, 0, len(envFailures))
-		for _, f := range envFailures {
-			lines = append(lines, fmt.Sprintf("%s — %v", f.env, f.reason))
-		}
-		return lines
-	}()))
+	// The summary box is skipped for the ordinary case — ONE environment, fully
+	// provisioned — because the ready panel below already says so, and the local
+	// path prints only that panel. Stacking "1 of 1 provisioned" above
+	// "Platform ready" says the same thing twice in two different frames.
+	//
+	// It is still printed whenever it carries something the panel cannot: a
+	// failure, a partial result, or several environments to account for.
+	if total > 1 || successCount < total {
+		fmt.Println(renderProvisionSummary(successCount, total, func() []string {
+			lines := make([]string, 0, len(envFailures))
+			for _, f := range envFailures {
+				lines = append(lines, fmt.Sprintf("%s — %v", f.env, f.reason))
+			}
+			return lines
+		}()))
+	}
 
 	// Everything the single-environment path tells the operator, on this path too.
 	// Without it `adhar up -f config.yaml` (no --env) ended at the box above: no
@@ -354,15 +365,8 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 	// reader has already copied the first one.
 	printEdgeDNSBlocker()
 	if successCount > 0 {
-		heading := "Access"
-		if tlsBlocker != nil {
-			heading = "Access — once the DNS fix above is applied"
-		}
-		fmt.Printf("\n  %s\n", helpers.BoldStyle.Render(heading))
-		fmt.Printf("    Console: https://console.%s\n", cfg.GlobalSettings.DefaultHost)
-		fmt.Printf("    ArgoCD:  https://argocd.%s      Gitea: https://gitea.%s\n",
-			cfg.GlobalSettings.DefaultHost, cfg.GlobalSettings.DefaultHost)
-		fmt.Printf("    Secrets: adhar get secrets        (e.g. adhar get secrets -p argocd)\n\n")
+		fmt.Println(renderCloudReadyPanel(cfg.GlobalSettings.DefaultHost, pfactory.ResolveClusterName(clusterName)))
+		fmt.Println()
 	}
 
 	if successCount < total {

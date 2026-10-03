@@ -1,0 +1,36 @@
+# MariaDB operator — controller only.
+#
+# CRDs are deliberately NOT managed here. Upstream's own warning: if this chart
+# owns the CRDs and is later uninstalled, every MariaDB instance on the cluster is
+# DELETED with them. They come from the mariadb-operator-crds chart instead, in an
+# earlier sync wave (see generate-manifests.sh).
+crds:
+  enabled: false
+
+# The platform runs kube-prometheus, so the controller's own metrics are scraped.
+# kube-prometheus here selects ServiceMonitors cluster-wide, so no release label
+# is needed in additionalLabels.
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+# A controller, not a database: small and bounded. Requests keep it schedulable on
+# a node that is already carrying the platform; the limit stops a reconcile storm
+# from starving its neighbours.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# Probes must tolerate a loaded node. No probe on this platform may ship a
+# 1-second timeout (TestNoProbeShipsAOneSecondTimeout): Harbor's database shipped
+# the upstream default, its health check measured 1.675s, and kubelet killed a
+# healthy database 29 times.
+livenessProbe:
+  timeoutSeconds: 5
+readinessProbe:
+  timeoutSeconds: 5

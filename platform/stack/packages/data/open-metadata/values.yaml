@@ -29,18 +29,19 @@
 #                  rejected by OpenMetadata's migrations. See
 #                  manifests/platform-dependencies.yaml.
 #
-#   * search    -> the platform `opensearch` package
-#                  (`opensearch-cluster-master:9200`). That cluster runs with the
-#                  OpenSearch security plugin's DEMO certificates, i.e. HTTPS with
-#                  a self-signed CA whose SANs do not cover the in-cluster
-#                  Service DNS name. OpenMetadata's search client applies default
-#                  JVM trust + hostname verification and exposes no
-#                  "skip verification" switch (only ELASTICSEARCH_TRUST_STORE_PATH,
-#                  which cannot fix the hostname mismatch), so the package ships a
-#                  minimal TLS-terminating bridge Service `openmetadata-opensearch`
-#                  (nginx, `proxy_ssl_verify off`) and OpenMetadata talks plain
-#                  HTTP to it. Credentials still travel end to end: the bridge
-#                  forwards the Authorization header to OpenSearch.
+#   * search    -> the platform `opensearch` package (`opensearch:9200` — the
+#                  operator names the REST Service after the OpenSearchCluster CR;
+#                  it was `opensearch-cluster-master` before 2026-10-03). That
+#                  cluster serves HTTPS with a certificate issued by a CA the
+#                  operator generates, which nothing in the JVM trust store
+#                  signed. OpenMetadata's search client applies default JVM trust
+#                  and exposes no "skip verification" switch (only
+#                  ELASTICSEARCH_TRUST_STORE_PATH, which would mean building and
+#                  mounting a JKS and rebuilding it on every CA rotation), so the
+#                  package ships a minimal TLS-terminating bridge Service
+#                  `openmetadata-opensearch` (nginx, `proxy_ssl_verify off`) and
+#                  OpenMetadata talks plain HTTP to it. Credentials still travel
+#                  end to end: the bridge forwards the Authorization header.
 #
 #   * pipelines -> DISABLED. The chart's pipelineServiceClientConfig defaults to
 #                  an Airflow deployed by the openmetadata-dependencies chart,
@@ -78,7 +79,7 @@ openmetadata:
     elasticsearch:
       enabled: true
       searchType: opensearch
-      # TLS-terminating bridge in front of opensearch-cluster-master:9200
+      # TLS-terminating bridge in front of opensearch:9200
       # (platform-dependencies.yaml). Plain HTTP inside the cluster only.
       host: openmetadata-opensearch.adhar-system.svc.cluster.local
       port: 9200
@@ -88,8 +89,13 @@ openmetadata:
         # OpenSearch security-plugin admin user shipped by the opensearch package.
         username: admin
         password:
-          secretRef: openmetadata-opensearch-secrets
-          secretKey: openmetadata-opensearch-password
+          # The opensearch package's OWN generated Secret, read directly — this
+          # package no longer keeps a plaintext copy of the password beside it
+          # (see platform-dependencies.yaml). Keys are `username` and `password`,
+          # the names the OpenSearch operator requires of
+          # security.config.adminCredentialsSecret.
+          secretRef: opensearch-admin-credentials
+          secretKey: password
     # No Airflow on the platform: do not deploy one, disable the client instead.
     pipelineServiceClientConfig:
       enabled: false

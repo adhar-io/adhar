@@ -1,31 +1,109 @@
-# OpenSearch cluster (single node for local). Ingress disabled -- access is via
-# the OpenSearch Dashboards UI which is exposed through the Cilium Gateway API
-# HTTPRoute (manifests/httproute.yaml). Never enable a nginx Ingress here.
-singleNode: true
-replicas: 1
+# opensearch-operator chart values — the CONTROLLER, not the cluster.
+# The cluster itself is values-cluster.yaml.
+#
+# Everything OpenSearch is an operator-reconciled CR since 2026-10-03. This
+# package used to render the plain `opensearch/opensearch` and
+# `opensearch/opensearch-dashboards` charts into a StatefulSet and a Deployment,
+# which meant every day-2 operation (adding a node, rotating the admin password,
+# taking a snapshot, creating a user) was a manual REST call against a cluster
+# the platform could not describe. The operator turns all of it into CRs that
+# Argo CD owns.
 
-ingress:
+# Only the CURRENT API group. The operator still ships the deprecated
+# `opensearch.opster.io/v1` CRDs behind this flag, and enabling it doubles the
+# CRD count and adds deprecated webhooks, RBAC rules and manager watches for
+# objects that cannot exist here: nothing on this platform ever ran the operator
+# before, so there is no legacy CR to migrate. values-cluster.yaml pins
+# `apiGroup: opensearch.org` to match.
+legacyAPI:
   enabled: false
 
-persistence:
+installCRDs: true
+
+manager:
+  image:
+    # The chart default is Always, which re-pulls the operator image on every
+    # pod start. The tag is pinned by the chart's appVersion, so there is nothing
+    # to re-fetch, and a re-pull defeats the per-registry pull-through cache the
+    # local flow depends on (see the kind image cache note in CLAUDE.md).
+    pullPolicy: IfNotPresent
+
+  # One OpenSearch cluster, one reconcile at a time. Raising this only matters
+  # for a fleet of clusters, and the platform's own kubectl parallelism lesson
+  # applies: more concurrency against the same API server made the GitOps phase
+  # time out, not go faster.
+  maxConcurrentReconciles: 1
+
+  loglevel: info
+
+  # Serve metrics on the pod IP so they can actually be scraped. The chart
+  # default binds 127.0.0.1:8080, which means the `opensearch-operator` Service
+  # on 8443 has nothing behind it and the operator's reconcile counters and
+  # error rates are invisible. controller-runtime protects this endpoint with
+  # TokenReview + SubjectAccessReview, so the scrape needs a bearer token and
+  # the RBAC in manifests/operator-metrics.yaml.
+  metricsBindAddress: ":8443"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      # No CPU limit: reconciling a rolling restart is bursty, and a CFS quota
+      # on a controller buys nothing but throttling (the Gitea lesson).
+      memory: 512Mi
+
+  # timeoutSeconds 5, never the 1s the platform forbids outright
+  # (TestNoProbeShipsAOneSecondTimeout). The chart ships 3s, which is legal but
+  # still tight for a loaded node.
+  livenessProbe:
+    failureThreshold: 3
+    httpGet:
+      path: /healthz
+      port: 8081
+    periodSeconds: 15
+    successThreshold: 1
+    timeoutSeconds: 5
+    initialDelaySeconds: 10
+  readinessProbe:
+    failureThreshold: 3
+    httpGet:
+      path: /readyz
+      port: 8081
+    periodSeconds: 15
+    successThreshold: 1
+    timeoutSeconds: 5
+    initialDelaySeconds: 10
+
+serviceAccount:
+  create: true
+
+# Cluster-wide: the operator watches `adhar-system` today, but a DataPlane
+# cluster or a tenant namespace getting its own OpenSearchCluster should not
+# need a redeploy of the operator. useRoleBindings stays false for the same
+# reason (and because it suppresses the metrics ClusterRole).
+useRoleBindings: false
+
+webhook:
   enabled: true
-  size: 4Gi
+  port: 9443
 
-resources:
-  requests:
-    cpu: 250m
-    memory: 1Gi
-  limits:
-    memory: 2Gi
+  # Ignore, NOT the chart's Fail.
+  #
+  # A Fail-policy webhook makes admission of every OpenSearch CR depend on the
+  # operator pod AND its serving certificate being ready. cert-manager is a
+  # separate Argo CD Application with no ordering relationship to this one, so
+  # on a fresh cluster the Certificate below can sit unissued while the
+  # wave-5 OpenSearchCluster is applied — and with Fail that write is rejected,
+  # the wave never goes healthy, and the package deadlocks waiting for a cert
+  # that is waiting for a controller in another Application. Ignore degrades to
+  # "applied unvalidated" in exactly that window and validates normally
+  # afterwards, which is the right trade for a generated manifest that was
+  # already rendered and schema-checked on the way in.
+  failurePolicy: Ignore
 
-# Disable the demo-config security install bootstrap interactive prompts.
-extraEnvs:
-  - name: DISABLE_INSTALL_DEMO_CONFIG
-    value: "false"
-  # OpenSearch 2.12+ (and 3.x) refuses to bootstrap the security plugin's demo
-  # config without an initial admin password that meets the strength policy
-  # (>=8 chars, upper+lower+digit+special) — without it the node crash-loops with
-  # "No custom admin password found". Local dev default; override + move to a
-  # Secret per environment. Admin user: admin.
-  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
-    value: "Adh@rOpenSearch2026"
+  certManager:
+    # The chart creates its own self-signed Issuer and Certificate, so this
+    # needs cert-manager's CRDs and controller but nothing from the platform's
+    # own issuers — no ACME, no DNS, no dependency on the platform host.
+    enabled: true

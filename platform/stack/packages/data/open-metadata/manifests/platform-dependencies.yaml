@@ -177,43 +177,49 @@ spec:
   cluster:
     name: openmetadata-db
 ---
-# OpenSearch credentials. NOT generated: this mirrors the admin password the
-# opensearch package bakes into its StatefulSet as OPENSEARCH_INITIAL_ADMIN_PASSWORD
-# (platform/stack/packages/data/opensearch/values.yaml). If that value is changed
-# per environment, change it here too.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: openmetadata-opensearch-secrets
-  namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-6"}
-  labels:
-    adhar.io/cli-secret: 'true'
-    adhar.io/package-name: open-metadata
-type: Opaque
-stringData:
-  openmetadata-opensearch-username: admin
-  openmetadata-opensearch-password: "Adh@rOpenSearch2026"
+# NO OpenSearch credential Secret here any more.
+#
+# This file used to carry a copy of the OpenSearch admin password as a literal
+# under `openmetadata-opensearch-password`, because the opensearch package baked
+# the same literal into its StatefulSet as
+# OPENSEARCH_INITIAL_ADMIN_PASSWORD and there was no Secret to point at. Two
+# packages holding one password in plaintext, each a comment telling the reader
+# to remember to change the other.
+#
+# Since 2026-10-03 the opensearch package is operator-managed and GENERATES that
+# password (External Secrets Password generator ->
+# `opensearch-admin-credentials`, keys `username`/`password`), so values.yaml
+# references that Secret directly and there is nothing to mirror. OpenMetadata
+# will not start until it exists, which is correct: it cannot index anything
+# without the search cluster that owns it.
 ---
 # ---------------------------------------------------------------------------
 # OpenSearch TLS bridge
 # ---------------------------------------------------------------------------
-# The platform opensearch package runs the security plugin with the OpenSearch
-# DEMO certificates: HTTPS on 9200, self-signed CA, and a node certificate whose
-# SANs (node-0.example.com / 127.0.0.1) do not cover
-# `opensearch-cluster-master.adhar-system.svc.cluster.local`.
+# The platform opensearch package serves HTTPS on 9200 with a certificate issued
+# by a CA the operator generates for the cluster. Nothing in the JVM's default
+# trust store signed it.
 #
 # OpenMetadata builds its search RestClient with the default TLS strategy and
-# the default hostname verifier and offers no verification-skip option — the
-# chart only exposes elasticsearch.trustStore.path, which can supply the CA but
-# cannot satisfy hostname verification. (OpenSearch Dashboards sidesteps the same
-# problem with `opensearch.ssl.verificationMode: none`.)
+# offers no verification-skip option: the chart exposes only
+# elasticsearch.trustStore.path, which means producing a JKS containing that CA
+# and mounting it — a keytool init container in this package, re-run whenever the
+# operator rotates the CA. (OpenSearch Dashboards sidesteps the whole thing with
+# `opensearch.ssl.verificationMode: none`.)
 #
 # So this Deployment terminates TLS on OpenMetadata's behalf: it listens on plain
 # HTTP 9200 inside the cluster and re-originates HTTPS to OpenSearch with
 # verification off. It carries no credentials — the Authorization header
-# OpenMetadata sends (admin + openmetadata-opensearch-secrets) is proxied through
+# OpenMetadata sends (admin + `opensearch-admin-credentials`) is proxied through
 # unchanged, so OpenSearch still authenticates the caller.
+#
+# One of the two original reasons for this bridge is GONE as of the 2026-10-03
+# move to the operator: the old plain chart used the security plugin's DEMO
+# certificate, whose SANs (node-0.example.com / 127.0.0.1) did not cover the
+# Service DNS name at all, so hostname verification could never pass however the
+# CA was supplied. The operator issues a certificate that does cover
+# `opensearch.adhar-system.svc.cluster.local`, so only the untrusted CA is left —
+# the bridge is now a choice between one nginx and a truststore, not a necessity.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -258,9 +264,12 @@ data:
         }
 
         location / {
-          proxy_pass https://opensearch-cluster-master.adhar-system.svc.cluster.local:9200;
-          # The demo certificate is self-signed AND its SANs do not match the
-          # Service DNS name; this hop never leaves the cluster network.
+          # `opensearch` — the operator names the REST Service after the
+          # OpenSearchCluster CR. It was `opensearch-cluster-master` while this
+          # package rendered the plain chart's StatefulSet.
+          proxy_pass https://opensearch.adhar-system.svc.cluster.local:9200;
+          # The certificate is signed by the operator's generated CA, which nginx
+          # has no copy of; this hop never leaves the cluster network.
           proxy_ssl_verify      off;
           proxy_ssl_server_name on;
           proxy_http_version 1.1;

@@ -7,8 +7,8 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: opensearch
 category: data
-version: "3.8.0"
-description: OpenSearch and OpenSearch Dashboards — the platform's search and analytics store, with a Prometheus exporter.
+version: "3.0.14"
+description: The OpenSearch Kubernetes operator and the platform's shared OpenSearch 3.8 cluster — search and analytics, with Dashboards, generated credentials, Prometheus metrics, index lifecycle policies and daily snapshots to the object store, all as reconciled CRs.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -18,14 +18,32 @@ homepage: https://opensearch.org
 adharCompatibility:
   minVersion: "0.1.0"
 dependencies:
+  # Mints the admin and monitoring passwords (manifests/credentials.yaml). The
+  # operator hashes the admin one into the cluster's security config, so without
+  # this the cluster never finishes bootstrapping — not an optional dependency.
   - name: external-secrets
     category: security
+  # Issues the operator's validating-webhook serving certificate from a
+  # self-signed Issuer the chart creates. The webhook is failurePolicy: Ignore,
+  # so a late cert-manager degrades admission rather than blocking it.
+  - name: cert-manager
+    category: security
+  # The S3 target for the daily snapshot policy (manifests/snapshot-policy.yaml),
+  # and the source of the keystore credentials that reach it. Snapshots are the
+  # only durability story for a cluster on node-local storage.
+  - name: rustfs
+    category: data
+  # Scrapes both the cluster's opensearch_* metrics (via the ServiceMonitor the
+  # operator generates) and the operator's own.
+  - name: kube-prometheus
+    category: observability
+    optional: true
   - name: keycloak
     category: security
     optional: true
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
-  upstreamChart: opensearch/opensearch
+  upstreamChart: opensearch-operator/opensearch-operator
   signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
   cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
   scanned: true
@@ -40,9 +58,13 @@ keywords:
   - analytics
   - opensearch
   - dashboards
+  - operator
 verification:
-  status: verified
-  profile: production
-  verifiedAt: "2026-09-23"
-  platformVersion: "v0.1.23"
-  kubernetesVersion: "v1.37.0"
+  # Reset to unverified by the 2026-10-03 rewrite: the recorded evidence was for
+  # the plain-chart StatefulSet install, which no longer exists. Re-record with
+  # `adhar stack verify --write` from live Argo CD health — never by hand.
+  status: unverified
+  reason: >-
+    Replaced the plain opensearch/opensearch-dashboards charts with the
+    opensearch-k8s-operator 3.0.14 and a 3.8.0 OpenSearchCluster CR on
+    2026-10-03. Not yet brought up live.

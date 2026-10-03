@@ -1,0 +1,80 @@
+# Scheduled snapshots of the whole cluster into the platform's object store.
+#
+# New in operator 3.0: OpensearchSnapshotPolicy is a CRD, so the snapshot
+# schedule is a reconciled object rather than something somebody once typed into
+# Dashboards and nobody can find. Before this there were no OpenSearch backups
+# at all — and on this platform that is not a theoretical gap, because the
+# default StorageClass is node-local `adhar-local` (see "volume attach limit" in
+# CLAUDE.md), so a node loss takes the index with it. OpenSearch has no CNPG-style
+# replication to fall back on at one replica.
+#
+# The repository `adhar-rustfs` is registered by the operator from
+# `general.snapshotRepositories` in values-cluster.yaml: an S3 repository in the
+# `adhar-backups` bucket that data/rustfs already creates, under `base_path:
+# opensearch` so it does not collide with Velero's or CNPG's objects. The S3
+# credentials come from the `root-creds` Secret via the OpenSearch keystore, so
+# there is nothing to configure here.
+#
+# Restore is still a deliberate operator action — there is no CRD for it:
+#   kubectl exec -n adhar-system opensearch-nodes-0 -- \
+#     curl -sk -u "admin:$PASS" -X POST \
+#     "https://localhost:9200/_snapshot/adhar-rustfs/<snapshot>/_restore"
+apiVersion: opensearch.org/v1
+kind: OpensearchSnapshotPolicy
+metadata:
+  name: adhar-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: opensearch
+    app.kubernetes.io/part-of: opensearch
+  # Wave 10, after the cluster (wave 5). The policy is applied through the
+  # cluster's own REST API, and the repository it names is registered during the
+  # cluster's reconcile — a policy that arrives first just fails and retries,
+  # which Argo CD reports as a Degraded app for no reason.
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+spec:
+  policyName: adhar-daily
+  description: Daily full snapshot of the Adhar platform OpenSearch cluster
+  enabled: true
+  opensearchCluster:
+    name: opensearch
+
+  creation:
+    schedule:
+      cron:
+        # 01:30 UTC — inside the same quiet window the platform's other daily
+        # jobs use (the Crossplane CronOperation backup, CNPG base backups).
+        expression: "30 1 * * *"
+        timezone: UTC
+    # A snapshot that has not finished in an hour is abandoned rather than left
+    # holding the repository against the next run.
+    timeLimit: "1h"
+
+  deletion:
+    schedule:
+      cron:
+        expression: "0 3 * * *"
+        timezone: UTC
+    deleteCondition:
+      # 14 days of history, and never fewer than 5 snapshots regardless of age —
+      # so a cluster that was down for a fortnight still has something to restore
+      # from rather than an empty repository.
+      maxAge: "14d"
+      maxCount: 30
+      minCount: 5
+
+  snapshotConfig:
+    repository: adhar-rustfs
+    # Every index. The platform's search cluster holds OpenMetadata's catalogue
+    # and whatever tenants put there; there is no subset worth guessing at.
+    indices: "*"
+    # Include cluster state: index templates, ISM policies and aliases. Without
+    # it a restore brings back documents into a cluster that no longer knows how
+    # to manage them.
+    includeGlobalState: true
+    # Fail the snapshot rather than silently skip a shard that is unavailable —
+    # a partial backup that reports success is worse than a failed one.
+    ignoreUnavailable: false
+    partial: false
+    dateFormat: "yyyy-MM-dd-HH-mm"
+    dateFormatTimezone: UTC

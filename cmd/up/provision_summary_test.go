@@ -80,3 +80,39 @@ func TestSummaryWrapsALongFailureInsideTheFrame(t *testing.T) {
 		t.Error("the actual cause must survive wrapping")
 	}
 }
+
+// A cloud bring-up closes with the SAME panel as a local one, via the same
+// renderer, so the two cannot drift apart. The cloud path used to print a row of
+// '#' characters, a bulleted list restating the checklist, and four numbered steps
+// with URLs run together — for the more expensive cluster of the two.
+func TestCloudReadyPanelMatchesTheLocalShape(t *testing.T) {
+	out := renderCloudReadyPanel("platform.adhar.io", "adhar")
+
+	// Same header the local panel uses.
+	if !strings.Contains(out, "Platform ready") {
+		t.Errorf("cloud panel is missing the shared header:\n%s", out)
+	}
+	// Every app, one per row, on the configured host.
+	for _, app := range cloudPlatformApps {
+		want := "https://" + strings.ToLower(app) + ".platform.adhar.io"
+		if !strings.Contains(out, want) {
+			t.Errorf("cloud panel is missing %s", want)
+		}
+	}
+	// No port suffix: a cloud platform is behind the Gateway's load balancer on 443,
+	// unlike the local Kind flow's high port.
+	if strings.Contains(out, ".platform.adhar.io:") {
+		t.Errorf("cloud URLs must not carry a port:\n%s", out)
+	}
+	// The kube-context hint is cloud-specific, and must not stutter.
+	if !strings.Contains(out, "use-context adhar") {
+		t.Errorf("cloud panel should name the kube-context:\n%s", out)
+	}
+	if strings.Contains(out, "adhar-adhar") {
+		t.Errorf("the context name stutters:\n%s", out)
+	}
+	// The replaced banner must not come back.
+	if strings.Contains(out, "####") {
+		t.Errorf("the '#' banner is gone for good:\n%s", out)
+	}
+}

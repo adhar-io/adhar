@@ -1,0 +1,336 @@
+# opensearch-cluster chart values — the platform's shared OpenSearch cluster,
+# as one OpenSearchCluster CR plus the roles, users and lifecycle policies that
+# go with it.
+#
+# Rendered with release name `opensearch`, which is what every Service name
+# derives from. That is deliberate and load-bearing:
+#
+#   opensearch              ClusterIP  9200  REST API  <- consumers connect here
+#   opensearch-nodes        headless         9300      node discovery
+#   opensearch-dashboards   ClusterIP  5601  UI        <- HTTPRoute + oauth2-proxy
+#
+# `opensearch-dashboards` is byte-identical to the Service the old plain chart
+# produced, so manifests/httproute.yaml and manifests/sso.yaml did not have to
+# change. The REST Service DID: it was `opensearch-cluster-master`, a name the
+# plain chart invented from its StatefulSet, and the operator has no such
+# concept. Consumers were updated with it (data/open-metadata,
+# data/libredb-studio).
+
+# The current group. The operator chart has legacyAPI disabled, so the
+# deprecated `opensearch.opster.io` CRDs are not installed and asking for them
+# here would render CRs with no definition behind them.
+apiGroup: opensearch.org
+
+serviceAccount:
+  create: false
+
+cluster:
+  # Empty = release name = `opensearch`. Spelled out rather than left implicit
+  # because the Service names above, and therefore every consumer's connection
+  # string, are derived from it.
+  name: opensearch
+
+  general:
+    # OpenSearch 3.8.0, the version this package already ran — the operator is
+    # the change here, not the engine.
+    #
+    # 3.9.0 exists and is NOT used on purpose: `monitoring.enable` below makes
+    # the operator download the Prometheus exporter plugin whose release is
+    # version-matched to OpenSearch (prometheus-exporter-<version>.0.zip), and
+    # Aiven-Open/prometheus-exporter-plugin-for-opensearch tops out at 3.8.0.0.
+    # On 3.9.0 the init step fetches a URL that 404s and every node fails to
+    # start. Move both together, never the engine alone.
+    version: "3.8.0"
+    image: docker.io/opensearchproject/opensearch
+    imagePullPolicy: IfNotPresent
+
+    httpPort: 9200
+
+    # OpenSearch refuses to start unless vm.max_map_count >= 262144; the
+    # operator sets it from a privileged init container.
+    setVMMaxMapCount: true
+
+    # Relocate shards off a node before it is restarted or removed, instead of
+    # letting the restart take the replica with it.
+    drainDataNodes: true
+
+    # Prometheus metrics, which this package did not actually have before.
+    #
+    # The old manifests/servicemonitor.yaml scraped http://.../_prometheus/metrics
+    # on a cluster that served HTTPS and ran an image with no exporter plugin
+    # installed, so it collected nothing and said nothing about collecting
+    # nothing. The operator installs the plugin and generates the ServiceMonitor
+    # with credentials and TLS that match the cluster it just built.
+    monitoring:
+      enable: true
+      scrapeInterval: 30s
+      # A dedicated least-privilege user (see `users`/`roles` below) rather than
+      # the admin account the operator would otherwise put in the scrape config.
+      monitoringUserSecret: opensearch-monitoring-credentials
+      tlsConfig:
+        # The HTTP certificate is issued by the operator's own generated CA,
+        # which Prometheus has no reason to trust. The alternative is wiring that
+        # CA into every scrape config; the endpoint is a ClusterIP in one
+        # namespace.
+        insecureSkipVerify: true
+      labels:
+        adhar.io/component: observability
+
+    additionalConfig:
+      # S3 client for the snapshot repository below. RustFS is the platform's
+      # primary S3 store (ADR: data/rustfs), reached in-cluster over plain HTTP
+      # on 9000, and it needs path-style addressing because there is no
+      # per-bucket DNS.
+      s3.client.default.endpoint: "rustfs.adhar-system.svc.cluster.local:9000"
+      s3.client.default.protocol: "http"
+      s3.client.default.path_style_access: "true"
+
+    # The S3 keys for that client, injected into the OpenSearch keystore from the
+    # Secret RustFS already publishes. keyMappings restricts the read to these
+    # two keys, so the rest of root-creds (the console password) never reaches
+    # the OpenSearch pods.
+    keystore:
+      - secret:
+          name: root-creds
+        keyMappings:
+          RUSTFS_ACCESS_KEY: s3.client.default.access_key
+          RUSTFS_SECRET_KEY: s3.client.default.secret_key
+
+    # Registered by the operator over the REST API once the cluster is up.
+    # `adhar-backups` is a bucket data/rustfs already creates, so enabling
+    # snapshots costs nothing in another package; `base_path` keeps OpenSearch's
+    # snapshots out of Velero's and CNPG's way inside it.
+    snapshotRepositories:
+      - name: adhar-rustfs
+        type: s3
+        settings:
+          bucket: adhar-backups
+          base_path: opensearch
+          client: default
+
+  confMgmt:
+    # Drain and exclude a node from the voting configuration before removing it,
+    # so a scale-down cannot lose quorum.
+    smartScaler: true
+
+  bootstrap:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+  initHelper:
+    image: docker.io/busybox
+    version: "1.36"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+  nodePools:
+    # ONE pool holding every role. The platform runs a single shared search
+    # cluster for OpenMetadata's catalogue index, LibreDB Studio's OpenSearch
+    # connection and anything a tenant points at it — not a log-ingest tier, so
+    # splitting masters from data nodes would triple the JVM count to serve the
+    # same index.
+    #
+    # To split it later, replace this with two entries — `masters`
+    # (roles: [master], replicas: 3, small disk) and `data`
+    # (roles: [data, ingest], replicas: >=2) — and the operator will migrate
+    # shards across as it rolls them.
+    - component: nodes
+      replicas: 1
+      roles:
+        - "master"
+        - "data"
+        - "ingest"
+      # 20Gi, up from the 4Gi the plain chart asked for: the default
+      # StorageClass is node-local `adhar-local` on a 256 GiB worker disk
+      # (see "volume attach limit" in CLAUDE.md), so disk here is cheap and
+      # 4Gi left no room for a catalogue to grow into. No storageClass is
+      # named, on purpose — no package pins one, so this follows the cluster
+      # default and lands on the node filesystem.
+      diskSize: "20Gi"
+      resources:
+        requests:
+          cpu: 250m
+          # The operator derives the JVM heap from requests.memory / 2, so this
+          # is -Xms1g -Xmx1g. Stating it through the request keeps the heap and
+          # the cgroup in agreement.
+          memory: 2Gi
+        limits:
+          # Memory only. A CPU limit on a JVM search engine turns a GC pause or
+          # a shard relocation into a throttled stall.
+          memory: 3Gi
+
+  dashboards:
+    enable: true
+    version: "3.8.0"
+    image: docker.io/opensearchproject/opensearch-dashboards
+    imagePullPolicy: IfNotPresent
+    replicas: 1
+
+    # EMPTY, where the plain chart set `/opensearch` with rewriteBasePath.
+    # Dashboards is served on its own hostname (opensearch.<platform host>) at
+    # the root, so a base path only bought an extra redirect on every visit and
+    # a trap for anyone wiring a new route.
+    basePath: ""
+
+    tls:
+      # Plain HTTP inside the cluster: the oauth2-proxy in manifests/sso.yaml is
+      # the only client, TLS terminates at the Cilium Gateway, and the proxy's
+      # upstream is http://opensearch-dashboards:5601.
+      enable: false
+      # Overrides a chart BUG, and it is not cosmetic. opensearch-cluster 3.3.5
+      # ships `secret:` followed by an unclosed comment (`# name: "`), so the
+      # default value is null — and the chart renders dashboards with
+      # `omit | toYaml`, which puts `secret: null` into the CR. The CRD declares
+      # that field `type: object` without `nullable`, so the API server rejects
+      # the whole OpenSearchCluster with "must be of type object". An empty map
+      # is the same intent and passes.
+      secret: {}
+
+    additionalConfig:
+      # One tenant. Multi-tenancy adds a tenant picker and per-tenant index
+      # plumbing for a cluster whose users all arrive through one Keycloak client.
+      opensearch_security.multitenancy.enabled: "false"
+
+    service:
+      type: ClusterIP
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+  security:
+    config:
+      # The admin password is GENERATED, not written down.
+      #
+      # The plain chart shipped `OPENSEARCH_INITIAL_ADMIN_PASSWORD` as a literal
+      # in values.yaml, which put the platform's search admin password in git and
+      # made every consumer hard-code the same string. Here an External Secrets
+      # Password generator mints it (manifests/credentials.yaml) and the operator
+      # hashes it into the security config itself — so nothing has to bcrypt
+      # anything at render time, and `adhar get secrets -p opensearch` is how you
+      # read it.
+      adminCredentialsSecret:
+        name: opensearch-admin-credentials
+      # No securityConfigSecret: the image's security config is used as the base
+      # and the operator overwrites just the admin and kibanaserver hashes. A
+      # custom one would mean owning roles_mapping.yml by hand, including keeping
+      # the Dashboards user mapped to cluster monitoring.
+
+    tls:
+      http:
+        generate: true
+        duration: "8760h"
+        # Reissue 30 days out instead of the operator's historical "recover
+        # after it expires". 3.x loads the new certificate without a restart.
+        rotateDaysBeforeExpiry: 30
+      transport:
+        generate: true
+        perNode: true
+        duration: "8760h"
+        rotateDaysBeforeExpiry: 30
+
+  ingress:
+    # Never. Routing is Gateway API (manifests/httproute.yaml) behind the
+    # Keycloak oauth2-proxy; an Ingress here would publish the UI unauthenticated
+    # and there is no Ingress controller to serve it anyway.
+    opensearch:
+      enabled: false
+    dashboards:
+      enabled: false
+
+# --- Declarative security objects -------------------------------------------
+# These are OpensearchRole / OpensearchUser / OpensearchUserRoleBinding CRs,
+# reconciled over the cluster's REST API by the operator. Before this they were
+# things you clicked in Dashboards and lost on the next reinstall.
+
+roles:
+  - name: adhar-monitoring
+    clusterPermissions:
+      - cluster_monitor
+      # The Prometheus exporter plugin's own endpoint. Granted explicitly
+      # alongside the wildcard because the plugin has registered the action
+      # under both cluster:admin and cluster:monitor across versions, and an
+      # action string OpenSearch does not recognise is simply inert.
+      - "cluster:admin/prometheus/metrics"
+      - "cluster:monitor/*"
+    indexPermissions:
+      - indexPatterns:
+          - "*"
+        allowedActions:
+          - "indices_monitor"
+          - "indices:admin/mappings/get"
+
+users:
+  # The scrape identity for the ServiceMonitor the operator generates. Its
+  # password comes from the same generated Secret the ServiceMonitor reads, so
+  # the two cannot drift.
+  - name: adhar-monitoring
+    secretName: opensearch-monitoring-credentials
+    secretKey: password
+    backendRoles: []
+
+usersRoleBinding:
+  - name: adhar-monitoring
+    users:
+      - adhar-monitoring
+    roles:
+      - adhar-monitoring
+
+# --- Index lifecycle ---------------------------------------------------------
+# An unmanaged OpenSearch grows until the disk runs out, and on node-local
+# storage that takes the node with it. This is the floor: anything written to a
+# dated index under these patterns rolls over and is eventually deleted.
+ismPolicies:
+  - name: adhar-timeseries
+    # One line, no colon. The chart renders this as a bare `description: {{ . }}`
+    # scalar, so a multi-line block or an embedded colon produces invalid YAML
+    # and the whole render fails.
+    description: "Platform default for dated indices - roll over at 20GB or 7 days, drop the replica at 7 days, delete at 30"
+    defaultState: hot
+    states:
+      - name: hot
+        actions:
+          - rollover:
+              minSize: "20gb"
+              minIndexAge: "7d"
+        transitions:
+          - stateName: warm
+            conditions:
+              minIndexAge: "7d"
+      - name: warm
+        actions:
+          - replicaCount:
+              numberOfReplicas: 0
+        transitions:
+          - stateName: delete
+            conditions:
+              minIndexAge: "30d"
+      - name: delete
+        actions:
+          - delete: {}
+        transitions: []
+    ismTemplate:
+      priority: 0
+      indexPatterns:
+        # Deliberately NOT "*": OpenMetadata's catalogue indices are not dated
+        # and must not be rolled over or deleted underneath it.
+        - "logs-*"
+        - "events-*"
+        - "traces-*"
+        - "adhar-*"
+
+tenants: []
+actionGroups: []
+componentTemplates: []
+indexTemplates: []

@@ -1,0 +1,140 @@
+# The platform's shared MariaDB instance.
+#
+# fullnameOverride makes the CR — and therefore the Service consumers connect to —
+# plain `mariadb`, not `mariadb-mariadb-cluster` (release name + chart name). The
+# host an application puts in its config is
+# `mariadb.adhar-system.svc.cluster.local`, so it has to be a name somebody would
+# type.
+fullnameOverride: mariadb
+#
+# One instance, serving the MySQL wire protocol for anything that wants it — the
+# same "platform-provided capability" rule as CNPG, Valkey, Kafka and RustFS: apps
+# consume this, they do not bundle their own.
+mariadb:
+  # ONE replica, Galera off.
+  #
+  # The chart defaults to 3 replicas with Galera, which is the right production
+  # shape and the wrong default here: the platform's StorageClass is node-local, a
+  # replica is a pod plus a PVC, and attach slots and node capacity are the
+  # measured walls on this platform rather than CPU. Turn Galera on when the
+  # cluster has the room — the operator reconciles the change:
+  #
+  #   mariadb: { replicas: 3, galera: { enabled: true } }
+  replicas: 1
+  galera:
+    enabled: false
+
+  # No storageClassName: every package takes the platform default (adhar-local,
+  # node-local). A node-local volume does not survive its node, so durability here
+  # is the operator's scheduled backups below, exactly as CNPG relies on barman
+  # rather than on disk.
+  storage:
+    size: 8Gi
+
+  # The operator mints and owns the root password. Nothing in git ever holds it,
+  # which is the platform rule: git carries pointers, the secrets backend carries
+  # values (ADR-0009).
+  rootPasswordSecretKeyRef:
+    generate: true
+
+  # Scraped by kube-prometheus via the operator's exporter.
+  metrics:
+    enabled: true
+
+  # A database is the one workload where a slow node must not look like a failure.
+  livenessProbe:
+    initialDelaySeconds: 30
+    timeoutSeconds: 5
+    periodSeconds: 10
+  readinessProbe:
+    initialDelaySeconds: 20
+    timeoutSeconds: 5
+    periodSeconds: 10
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+# Declarative schema, users and grants — the reason for an operator rather than a
+# StatefulSet and an init container. Each is a CR the controller reconciles, so a
+# drifted grant is corrected rather than discovered.
+databases:
+  - name: adhar
+    characterSet: utf8mb4
+    collate: utf8mb4_unicode_ci
+    # Keep the data if the CR is deleted: dropping a database because a manifest
+    # was removed is not a recoverable mistake.
+    cleanupPolicy: Skip
+
+users:
+  - name: adhar
+    passwordSecretKeyRef:
+      name: mariadb-adhar-password
+      key: password
+      generate: true
+    host: "%"
+    cleanupPolicy: Skip
+    # 20 is plenty for platform consumers and leaves headroom under the server's
+    # max_connections for the operator's own health checks.
+    maxUserConnections: 20
+
+grants:
+  - name: adhar-all-on-adhar
+    username: adhar
+    host: "%"
+    database: adhar
+    table: "*"
+    privileges:
+      - "ALL PRIVILEGES"
+    grantOption: false
+    cleanupPolicy: Skip
+
+# --- Backups -----------------------------------------------------------------
+# A scheduled logical backup into the platform's object store, which is the only
+# durability this database has: the default StorageClass is node-local
+# `adhar-local` (see "volume attach limit" in CLAUDE.md), so the PVC does not
+# survive its node, and `galera.enabled: false` above means there is no second
+# copy of the data inside the cluster either. Without this, losing a worker loses
+# the database.
+#
+# `adhar-backups` is a bucket data/rustfs already creates, and `prefix: mariadb`
+# keeps these objects out of Velero's, CNPG's and OpenSearch's. The S3 keys are
+# read straight from the Secret RustFS publishes — nothing is copied here.
+backups:
+  - name: daily
+    schedule:
+      cron: "0 2 * * *"   # 02:00 UTC, after the CNPG base backups at 01:30
+      suspend: false
+    compression: gzip
+    maxRetention: 720h     # 30 days
+    storage:
+      s3:
+        bucket: adhar-backups
+        prefix: mariadb
+        endpoint: rustfs.adhar-system.svc.cluster.local:9000
+        # RustFS ignores the region but SigV4 requires one to sign with, and the
+        # rest of the platform signs for us-east-1 (see the rustfs buckets Job).
+        region: us-east-1
+        accessKeyIdSecretKeyRef:
+          name: root-creds
+          key: RUSTFS_ACCESS_KEY
+        secretAccessKeySecretKeyRef:
+          name: root-creds
+          key: RUSTFS_SECRET_KEY
+        tls:
+          # Plain HTTP: this hop is one ClusterIP inside one namespace, and
+          # RustFS serves no TLS of its own. Enabling it here makes the operator
+          # dial https://…:9000 and every backup fails on handshake.
+          enabled: false
+
+# PhysicalBackups (mariabackup / volume snapshots) are deliberately NOT
+# configured. They restore far faster on a large dataset, but they are
+# byte-level and therefore tied to the server version and the storage layout,
+# and on node-local volumes there is no CSI snapshot to take — mariabackup would
+# stream the datadir to S3 alongside the logical dump above for no added safety
+# at this size. Add one here if the `adhar` database grows past the point where a
+# mariadb-dump restore is acceptable.
+physicalBackups: []

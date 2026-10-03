@@ -1,0 +1,152 @@
+# MARIADB SHARED INSTANCE
+# This file is auto-generated with 'platform/stack/packages/data/mariadb-operator/generate-manifests.sh'
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Backup
+metadata:
+  name: mariadb-daily
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: mariadb-cluster-26.10.1
+    app.kubernetes.io/name: mariadb-cluster
+    app.kubernetes.io/instance: mariadb
+    app.kubernetes.io/version: 0.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  mariaDbRef:
+    name: mariadb
+    namespace: adhar-system
+  compression: gzip
+  maxRetention: 720h
+  schedule:
+    cron: 0 2 * * *
+    suspend: false
+  storage:
+    s3:
+      accessKeyIdSecretKeyRef:
+        key: RUSTFS_ACCESS_KEY
+        name: root-creds
+      bucket: adhar-backups
+      endpoint: rustfs.adhar-system.svc.cluster.local:9000
+      prefix: mariadb
+      region: us-east-1
+      secretAccessKeySecretKeyRef:
+        key: RUSTFS_SECRET_KEY
+        name: root-creds
+      tls:
+        enabled: false
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: mariadb-adhar
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: mariadb-cluster-26.10.1
+    app.kubernetes.io/name: mariadb-cluster
+    app.kubernetes.io/instance: mariadb
+    app.kubernetes.io/version: 0.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  mariaDbRef:
+    name: mariadb
+    namespace: adhar-system
+  characterSet: utf8mb4
+  cleanupPolicy: Skip
+  collate: utf8mb4_unicode_ci
+  name: adhar
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: mariadb-adhar-all-on-adhar
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: mariadb-cluster-26.10.1
+    app.kubernetes.io/name: mariadb-cluster
+    app.kubernetes.io/instance: mariadb
+    app.kubernetes.io/version: 0.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  mariaDbRef:
+    name: mariadb
+    namespace: adhar-system
+  cleanupPolicy: Skip
+  database: adhar
+  grantOption: false
+  host: '%'
+  privileges:
+  - ALL PRIVILEGES
+  table: '*'
+  username: adhar
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: mariadb
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: mariadb-cluster-26.10.1
+    app.kubernetes.io/name: mariadb-cluster
+    app.kubernetes.io/instance: mariadb
+    app.kubernetes.io/version: 0.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  galera:
+    enabled: false
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+  metrics:
+    enabled: true
+  readinessProbe:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+  replicas: 1
+  resources:
+    limits:
+      memory: 2Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  rootPasswordSecretKeyRef:
+    generate: true
+    key: root
+    name: mariadb-root
+  storage:
+    size: 8Gi
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: mariadb-adhar
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: mariadb-cluster-26.10.1
+    app.kubernetes.io/name: mariadb-cluster
+    app.kubernetes.io/instance: mariadb
+    app.kubernetes.io/version: 0.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  mariaDbRef:
+    name: mariadb
+    namespace: adhar-system
+  cleanupPolicy: Skip
+  host: '%'
+  maxUserConnections: 20
+  name: adhar
+  passwordSecretKeyRef:
+    generate: true
+    key: password
+    name: mariadb-adhar-password

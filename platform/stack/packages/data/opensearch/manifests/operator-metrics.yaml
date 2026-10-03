@@ -1,0 +1,63 @@
+# Prometheus scrape for the OPERATOR's own metrics.
+#
+# Two different things are monitored in this package and it is worth keeping them
+# apart:
+#
+#   * the CLUSTER (opensearch_* — JVM heap, shard counts, query latency) is
+#     scraped through a ServiceMonitor the OPERATOR generates, because
+#     `general.monitoring.enable: true` in values-cluster.yaml makes it install
+#     the Prometheus exporter plugin and wire the credentials and TLS itself.
+#     Nothing here does that.
+#   * the OPERATOR (controller_runtime_reconcile_errors_total,
+#     workqueue_depth, …) is this file. It is the half that tells you a rolling
+#     restart is stuck or a CR has been failing to reconcile for an hour, which
+#     is exactly the class of problem an operator introduces.
+#
+# This replaces manifests/servicemonitor.yaml, deleted in the same change. That
+# one pointed at `app.kubernetes.io/component: opensearch-cluster-master` — a
+# label only the old plain chart produced — and scraped
+# http://…/_prometheus/metrics on a cluster that served HTTPS, with an image that
+# had no exporter plugin in it. It had collected nothing since it was added, and
+# said nothing about collecting nothing.
+#
+# The endpoint is controller-runtime's built-in authenticated metrics server
+# (`--metrics-bind-address=:8443`, set in values.yaml): TLS with a self-signed
+# serving cert, authn by TokenReview and authz by SubjectAccessReview. So the
+# scrape skips cert verification and presents the Prometheus ServiceAccount
+# token — whose ClusterRole (prometheus-kube-prometheus-prometheus) already
+# grants `get` on the `/metrics` nonResourceURL, so no extra RoleBinding is
+# needed. Same pattern as observability/metrics-server.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: opensearch-operator
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    app.kubernetes.io/name: opensearch-operator
+    app.kubernetes.io/managed-by: adhar
+    adhar.io/component: observability
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opensearch-operator
+      app.kubernetes.io/instance: opensearch-operator
+  endpoints:
+    # `https` is also the discriminator. The chart gives the webhook Service the
+    # same two labels as the metrics Service, so the selector above matches both;
+    # only this one has a port named `https` (the webhook's is `webhook`), so the
+    # webhook Service contributes no targets. Renaming the port upstream would
+    # silently drop this scrape, which is why it is spelled out here.
+    - port: https
+      path: /metrics
+      scheme: https
+      interval: 30s
+      scrapeTimeout: 20s
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true

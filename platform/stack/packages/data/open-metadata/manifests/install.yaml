@@ -293,8 +293,8 @@ spec:
         - name: ELASTICSEARCH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: openmetadata-opensearch-secrets
-              key: openmetadata-opensearch-password
+              name: opensearch-admin-credentials
+              key: password
         - name: DB_USER_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -341,8 +341,8 @@ spec:
           - name: ELASTICSEARCH_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: openmetadata-opensearch-secrets
-                key: openmetadata-opensearch-password
+                name: opensearch-admin-credentials
+                key: password
           - name: DB_USER_PASSWORD
             valueFrom:
               secretKeyRef:
@@ -428,8 +428,8 @@ spec:
             - name: ELASTICSEARCH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: openmetadata-opensearch-secrets
-                  key: openmetadata-opensearch-password
+                  name: opensearch-admin-credentials
+                  key: password
             - name: DB_USER_PASSWORD
               valueFrom:
                 secretKeyRef:

@@ -244,8 +244,24 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mongodb/manifests"
-          - name: "mysql-operator"
+          # MariaDB — the platform's MySQL-protocol database, replacing the
+          # disabled `mysql-operator` below (2026-10-03). The operator's CRDs are
+          # a SEPARATE chart in an earlier sync wave: a chart that owns both the
+          # CRDs and the controller deletes every MariaDB instance if it is ever
+          # uninstalled, which is upstream's own warning.
+          - name: "mariadb-operator"
             enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/mariadb-operator/manifests"
+          # Off since 2026-10-03, replaced by `mariadb-operator` above. MariaDB is
+          # the platform's MySQL-protocol database now: one operator, actively
+          # released (26.10.1), with declarative users/grants/databases, backups
+          # and Galera built into the CRDs. Nothing depended on this one — no
+          # package declares it, and chaos-mesh and kubeflow bundle their own
+          # MySQL rather than consuming a shared instance.
+          - name: "mysql-operator"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mysql-operator/manifests"

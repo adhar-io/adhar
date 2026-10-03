@@ -79,7 +79,7 @@ happens on a local cluster that runs the curated core.
 | Adhar AI RAG | postgres | `adhar-ai-rag-rw:5432/adhar_ai_rag` | `adhar-ai-rag-app` (CNPG-generated) | all |
 | Adhar Cache (Valkey) | redis | `adhar-cache:6379` | none — `anonymousAuth` | all |
 | Redis | redis | `redis:6379` | none | all |
-| OpenSearch | opensearch | `opensearch-cluster-master:9200` (TLS, self-signed) | `libredb-datasource-extras` (see below) | all |
+| OpenSearch | opensearch | `opensearch:9200` (TLS, operator-generated CA) | `opensearch-admin-credentials` (generated) | all |
 | ClickHouse | clickhouse | `clickhouse-posthog:8123/posthog` | `libredb-datasource-extras` (see below) | all |
 | Trino | trino | `trino:8080`, catalog `tpch`, schema `tiny` | none — auth disabled | all |
 
@@ -100,28 +100,32 @@ stack, so there is no server to connect to. Add a connection to
 Valkey is deliberately omitted too: it is a private cache whose shape differs
 between the HA and non-HA foundation renders.
 
-### OpenSearch and ClickHouse
+### ClickHouse
 
-These two are the only platform datasources whose password exists solely as a
-literal env value in the package that runs them — the opensearch chart's
-`OPENSEARCH_INITIAL_ADMIN_PASSWORD` and PostHog's `CLICKHOUSE_PASSWORD`. There
-is no Secret for External Secrets to mirror, and copying a password into a
-platform manifest is not something this package will do. Both connections are
+ClickHouse is now the only platform datasource whose password exists solely as a
+literal env value in the package that runs it — PostHog's `CLICKHOUSE_PASSWORD`.
+There is no Secret for External Secrets to mirror, and copying a password into a
+platform manifest is not something this package will do, so the connection is
 wired to an optional Secret an operator creates once:
 
 ```bash
 kubectl -n adhar-system create secret generic libredb-datasource-extras \
-  --from-literal=OPENSEARCH_PASSWORD="$(kubectl -n adhar-system get statefulset opensearch-cluster-master \
-      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="OPENSEARCH_INITIAL_ADMIN_PASSWORD")].value}')" \
   --from-literal=CLICKHOUSE_USER=admin \
   --from-literal=CLICKHOUSE_PASSWORD="$(kubectl -n adhar-system get deploy posthog-web \
       -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CLICKHOUSE_PASSWORD")].value}')"
 ```
 
-Until it exists, those two connections are simply not listed. Nothing else is
-affected. The right long-term fix is for those two packages to move their
-credentials into Secrets; this package is ready for that day — point its
-ExternalSecret at the new Secret and drop the manual one.
+Until it exists, that connection is simply not listed. Nothing else is affected.
+
+**OpenSearch used to be here and no longer is.** The `data/opensearch` package
+became operator-managed on 2026-10-03 and now generates its admin password into
+`opensearch-admin-credentials` (keys `username`/`password`) instead of baking a
+literal into a StatefulSet env var. `values.yaml` reads `password` from it
+through `extraEnv` with `optional: true`, so the connection is wired with no
+manual step and a profile that runs this package without `opensearch` still
+starts — it just drops that one connection, exactly like ClickHouse above. That
+is the fix this section has been asking for; PostHog is the one package left to
+do it.
 
 ## Metrics
 

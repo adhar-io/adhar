@@ -1,7 +1,17 @@
 # OpenSearch Dashboards UI routed through the Cilium Gateway (adhar-gateway).
-# TLS terminates at the Gateway (adhar-cert). Replaces any nginx Ingress. The
-# dashboard's server.basePath is /opensearch, so the prefix is forwarded as-is
-# to the opensearch-dashboards service:5601.
+# TLS terminates at the Gateway (adhar-cert). Replaces any nginx Ingress.
+#
+# Dashboards is served at the ROOT of its own hostname: this route forwards `/`
+# unchanged to opensearch-dashboards:5601 and the app's basePath is empty
+# (values-cluster.yaml). It used to run under a `/opensearch` basePath with
+# rewriteBasePath, which bought an extra redirect on every visit and a trap for
+# anyone adding a second route — the host is already dedicated to it.
+#
+# The backend Service name survived the move to the operator unchanged. The
+# operator derives Service names from the OpenSearchCluster's name, and the
+# cluster is named `opensearch`, so its dashboards Service is
+# `opensearch-dashboards` — exactly what the old plain chart produced. Rename the
+# cluster and this file breaks.
 #
 # SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
 # forwards to the original upstream(s): opensearch-dashboards:5601.

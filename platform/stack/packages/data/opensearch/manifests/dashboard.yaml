@@ -4,8 +4,13 @@
 # for a disabled package would otherwise be left orphaned. kube-prometheus selects
 # every ConfigMap labelled grafana_dashboard, so ownership costs nothing.
 #
-# Requires the OpenSearch prometheus-exporter plugin (opensearch_* metrics at
-# /_prometheus/metrics), fed by servicemonitor.yaml. Datasource is variable-driven.
+# Reads opensearch_* metrics from the OpenSearch prometheus-exporter plugin at
+# /_prometheus/metrics. Since 2026-10-03 the OPERATOR installs that plugin and
+# generates the ServiceMonitor that scrapes it (`general.monitoring.enable` in
+# values-cluster.yaml), which is the first time these panels have had any data:
+# the hand-written servicemonitor.yaml this replaced scraped plain HTTP on a
+# TLS endpoint, against an image with no exporter in it.
+# Datasource is variable-driven.
 apiVersion: v1
 kind: ConfigMap
 metadata:

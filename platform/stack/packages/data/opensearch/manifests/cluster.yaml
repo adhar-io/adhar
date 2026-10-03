@@ -1,0 +1,257 @@
+# OPENSEARCH SHARED CLUSTER
+# This file is auto-generated with 'platform/stack/packages/data/opensearch/generate-manifests.sh'
+# Do not hand-edit: re-run the script and commit the result.
+apiVersion: opensearch.org/v1
+kind: OpenSearchCluster
+metadata:
+  name: opensearch
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  bootstrap:
+    affinity: {}
+    annotations: {}
+    env: []
+    jvm: ''
+    nodeSelector: {}
+    resources:
+      limits:
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    tolerations: []
+  confMgmt:
+    smartScaler: true
+  dashboards:
+    additionalConfig:
+      opensearch_security.multitenancy.enabled: 'false'
+    affinity: {}
+    annotations: {}
+    basePath: ''
+    enable: true
+    env: []
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    labels: {}
+    nodeSelector: {}
+    opensearchCredentialsSecret: {}
+    pluginsList: []
+    podSecurityContext: {}
+    replicas: 1
+    resources:
+      limits:
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    securityContext: {}
+    service:
+      loadBalancerSourceRanges: []
+      type: ClusterIP
+    tls:
+      caSecret: {}
+      duration: 8760h
+      enable: false
+      generate: true
+      secret: {}
+    tolerations: []
+    topologySpreadConstraints: []
+    image: docker.io/opensearchproject/opensearch-dashboards:3.8.0
+    version: 3.8.0
+  general:
+    additionalConfig:
+      s3.client.default.endpoint: rustfs.adhar-system.svc.cluster.local:9000
+      s3.client.default.path_style_access: 'true'
+      s3.client.default.protocol: http
+    additionalVolumes: []
+    drainDataNodes: true
+    hostNetwork: false
+    httpPort: 9200
+    imagePullPolicy: IfNotPresent
+    keystore:
+    - keyMappings:
+        RUSTFS_ACCESS_KEY: s3.client.default.access_key
+        RUSTFS_SECRET_KEY: s3.client.default.secret_key
+      secret:
+        name: root-creds
+    monitoring:
+      enable: true
+      labels:
+        adhar.io/component: observability
+      monitoringUserSecret: opensearch-monitoring-credentials
+      pluginUrl: ''
+      scrapeInterval: 30s
+      tlsConfig:
+        insecureSkipVerify: true
+    operatorClusterURL: ''
+    pluginsList: []
+    podSecurityContext: {}
+    securityContext: {}
+    serviceAccount: ''
+    setVMMaxMapCount: true
+    snapshotRepositories:
+    - name: adhar-rustfs
+      settings:
+        base_path: opensearch
+        bucket: adhar-backups
+        client: default
+      type: s3
+    vendor: Opensearch
+    image: docker.io/opensearchproject/opensearch:3.8.0
+    serviceName: opensearch
+    version: 3.8.0
+  initHelper:
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    resources:
+      limits:
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    version: '1.36'
+    image: docker.io/busybox:1.36
+  nodePools:
+  - component: nodes
+    diskSize: 20Gi
+    replicas: 1
+    resources:
+      limits:
+        memory: 3Gi
+      requests:
+        cpu: 250m
+        memory: 2Gi
+    roles:
+    - master
+    - data
+    - ingest
+  security:
+    tls:
+      transport:
+        generate: true
+        perNode: true
+        rotateDaysBeforeExpiry: 30
+        duration: 8760h
+      http:
+        generate: true
+        rotateDaysBeforeExpiry: 30
+        duration: 8760h
+    config:
+      adminCredentialsSecret:
+        name: opensearch-admin-credentials
+      adminSecret: {}
+      securityConfigSecret: {}
+---
+apiVersion: opensearch.org/v1
+kind: OpenSearchISMPolicy
+metadata:
+  name: adhar-timeseries
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  defaultState: hot
+  description: Platform default for dated indices - roll over at 20GB or 7 days, drop the replica at 7 days, delete at 30
+  states:
+  - actions:
+    - rollover:
+        minIndexAge: 7d
+        minSize: 20gb
+    name: hot
+    transitions:
+    - conditions:
+        minIndexAge: 7d
+      stateName: warm
+  - actions:
+    - replicaCount:
+        numberOfReplicas: 0
+    name: warm
+    transitions:
+    - conditions:
+        minIndexAge: 30d
+      stateName: delete
+  - actions:
+    - delete: {}
+    name: delete
+    transitions: []
+  ismTemplate:
+    indexPatterns:
+    - logs-*
+    - events-*
+    - traces-*
+    - adhar-*
+    priority: 0
+  opensearchCluster:
+    name: opensearch
+---
+apiVersion: opensearch.org/v1
+kind: OpensearchRole
+metadata:
+  name: adhar-monitoring
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  clusterPermissions:
+  - cluster_monitor
+  - cluster:admin/prometheus/metrics
+  - cluster:monitor/*
+  indexPermissions:
+  - allowedActions:
+    - indices_monitor
+    - indices:admin/mappings/get
+    indexPatterns:
+    - '*'
+---
+apiVersion: opensearch.org/v1
+kind: OpensearchUser
+metadata:
+  name: adhar-monitoring
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  passwordFrom:
+    name: opensearch-monitoring-credentials
+    key: password
+---
+apiVersion: opensearch.org/v1
+kind: OpensearchUserRoleBinding
+metadata:
+  name: adhar-monitoring
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  users:
+  - adhar-monitoring
+  roles:
+  - adhar-monitoring

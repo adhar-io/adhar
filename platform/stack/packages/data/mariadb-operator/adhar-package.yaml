@@ -1,0 +1,48 @@
+# Adhar marketplace contract for the mariadb-operator package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: mariadb-operator
+category: data
+version: "26.10.1"
+description: MariaDB operator and the platform's shared MariaDB instance — the MySQL-protocol database, with databases, users, grants and backups as CRDs.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://github.com/mariadb-operator/mariadb-operator
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: kube-prometheus
+    category: observability   # scrapes the operator and the instance exporter
+  # The S3 target for the daily logical backup, and the source of its keys
+  # (`root-creds`). On node-local storage that backup is the database's only
+  # durability, so this is not optional.
+  - name: rustfs
+    category: data
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true
+  cosignKeyless: true
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases
+planeAffinity: control-plane
+stability: stable
+resources:
+  # One controller trio (operator, webhook, cert-controller) plus a single-replica
+  # instance: ~150m CPU and ~640Mi requested in total, one 8Gi PVC. Galera is off
+  # by default precisely so this fits a local cluster; see values-cluster.yaml.
+  localSafe: true
+keywords:
+  - mariadb
+  - mysql
+  - database
+  - operator
+  - galera
+verification:
+  status: unverified
+  reason: Replaces the disabled mysql-operator on 2026-10-03; manifests render and validate but no live cluster has run it yet.

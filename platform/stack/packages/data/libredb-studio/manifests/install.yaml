@@ -163,7 +163,7 @@ data:
       - '*'
       type: redis
     - group: Platform search
-      host: opensearch-cluster-master.adhar-system.svc.cluster.local
+      host: opensearch.adhar-system.svc.cluster.local
       id: platform-opensearch
       name: OpenSearch
       password: ${OPENSEARCH_PASSWORD}
@@ -376,6 +376,12 @@ spec:
               value: "60000"
             - name: WORKFLOW_LOCAL_DATA_DIR
               value: /app/data/workflow
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: opensearch-admin-credentials
+                  optional: true
           startupProbe:
             failureThreshold: 30
             httpGet:

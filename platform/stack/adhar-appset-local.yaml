@@ -220,6 +220,16 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mongodb/manifests"
+          # MariaDB — the platform's MySQL-protocol database, replacing the
+          # disabled `mysql-operator` (2026-10-03). The operator's CRDs are a
+          # SEPARATE chart in an earlier sync wave: a chart that owns both the CRDs
+          # and the controller deletes every MariaDB instance if it is ever
+          # uninstalled, which is upstream's own warning.
+          - name: "mariadb-operator"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/mariadb-operator/manifests"
           - name: "mysql-operator"
             enabled: "false"
             namespace: "adhar-system"
