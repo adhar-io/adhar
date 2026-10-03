@@ -107,6 +107,9 @@ spec:
       seccompProfile: {type: RuntimeDefault}
   params:
     - {name: failOnCritical, type: string, default: "false"}
+    # Generous on purpose — see the --timeout note in the script. This bounds the
+    # DB download plus the walk, not the walk alone.
+    - {name: scanTimeout, type: string, default: "20m"}
   workspaces:
     - {name: source}
   results:
@@ -148,12 +151,38 @@ spec:
         # suppress it — the step exits 1 and fails the release. Build output has
         # no business being scanned anyway: the artefacts that matter are scanned
         # as images later in the chain.
-        SKIP='node_modules,**/node_modules,target,**/target,dist,**/dist,.git,**/.git'
-        # Human-readable report in the log; JSON alongside for the count.
+        #
+        # `generated` is in the list because of a real failure: trivy died on
+        # packages/svelte/src/generated/src/components/breadcrumb/Breadcrumb.lite.tsx
+        # while the build was still writing that tree. Generated code is not
+        # source anybody can fix a CVE in, and scanning it only races the build.
+        SKIP='node_modules,**/node_modules,target,**/target,dist,**/dist,.git,**/.git,generated,**/generated'
+
+        # ONE scan, not two.
+        #
+        # This used to run `trivy fs` twice — once for the table in the log, once
+        # for JSON to count CRITICALs — which walked the whole tree twice and
+        # spent two separate 5-minute default timeouts. Scan once to JSON and
+        # render the table FROM that JSON with `trivy convert`: same two outputs,
+        # one walk, one timeout, and the two can no longer disagree with each
+        # other (they were separate scans of a tree the build was still touching).
+        #
+        # --timeout is explicit and generous because the default is 5m TOTAL and
+        # trivy spends the first minutes of it downloading the 120 MiB
+        # vulnerability DB. On 2026-10-03 that download took 4m20s, leaving ~40s
+        # to scan, and the release died with
+        #   FATAL fs scan error: ... semaphore acquire: context deadline exceeded
+        # — then passed on a rerun, which is what flakiness looks like. The budget
+        # now covers a slow DB fetch AND the scan.
+        #
+        # --no-progress: the progress bar wrote 120 MiB of carriage returns into
+        # the task log, so the one FATAL line at the end was buried in a 124 KB
+        # wall of `17.12 MiB / 120.83 MiB [---->` frames.
         trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 0 \
-          --skip-dirs "$SKIP" --format table .
-        trivy fs --scanners vuln --severity CRITICAL --exit-code 0 \
-          --skip-dirs "$SKIP" --format json -o /tmp/trivy.json . >/dev/null
+          --skip-dirs "$SKIP" --timeout "$(params.scanTimeout)" --no-progress \
+          --format json -o /tmp/trivy.json .
+        # Render the human-readable report from the scan we already did.
+        trivy convert --format table --severity HIGH,CRITICAL /tmp/trivy.json
         n=$(grep -o '"Severity":"CRITICAL"' /tmp/trivy.json | wc -l | tr -d ' ')
         printf '%s' "$n" | tee "$(results.critical.path)"
         echo
@@ -258,12 +287,14 @@ spec:
     - {name: critical-vulnerabilities, value: $(tasks.scan.results.critical)}
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone-gitea}
       params:
         - {name: repo, value: adhar-kit}
         - {name: revision, value: $(params.revision)}
       workspaces: [{name: source, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: maven}
       params:
@@ -297,12 +328,14 @@ spec:
         - {name: args, value: "-Dtest=!**/*TestContainerTest -Dsurefire.failIfNoSpecifiedTests=false -Dsurefire.rerunFailingTestsCount=2"}
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-fs-scan}
       params:
         - {name: failOnCritical, value: $(params.failOnCritical)}
       workspaces: [{name: source, workspace: shared}]
     - name: publish
+      retries: 2
       runAfter: [test, scan]
       taskRef: {name: maven}
       params:

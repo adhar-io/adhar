@@ -146,6 +146,7 @@ spec:
     - {name: shared}
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params:
         - {name: url, value: "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/$(params.repo-name)"}
@@ -154,6 +155,7 @@ spec:
 
     # ── build first: the image is the artifact everything else judges ──────
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: buildpacks-build}
       params:
@@ -176,14 +178,17 @@ spec:
       taskRef: {name: gitleaks-scan}
       workspaces: [{name: source, workspace: shared}]
     - name: source-scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: source-scan}
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}]
     - name: sbom
+      retries: 2
       runAfter: [build]
       taskRef: {name: syft-sbom}
       params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}]
@@ -195,12 +200,14 @@ spec:
     # key never gets one, and Kyverno's verify-supply-chain-images policy
     # never admits it.
     - name: sign
+      retries: 2
       runAfter: [test, secrets, source-scan, scan, sbom]
       taskRef: {name: cosign-sign}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
         - {name: tag, value: "$(params.revision)"}
     - name: attest
+      retries: 2
       runAfter: [sign]
       taskRef: {name: cosign-attest-sbom}
       params:
@@ -211,12 +218,14 @@ spec:
     # Verify with the same key admission uses. If this fails the deploy never
     # runs; if it passes, what Argo CD rolls out is exactly what was proven.
     - name: verify
+      retries: 2
       runAfter: [attest]
       taskRef: {name: cosign-verify-attested}
       params:
         - {name: image-ref, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}
         - {name: type, value: cyclonedx}
     - name: deploy
+      retries: 2
       runAfter: [verify]
       when:
         - {input: "$(params.writeback)", operator: in, values: ["true"]}

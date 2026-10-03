@@ -84,6 +84,9 @@ spec:
     # <image>:<PR head sha>, which only exists because of this. Defaults to
     # "latest" so a bare PipelineRun behaves exactly as before.
     - {name: extra-tag, type: string, default: "latest"}
+    # npm scopes that resolve from the PLATFORM's registry rather than npmjs.
+    # Space-separated. See the .npmrc injection in the prepare step below.
+    - {name: platformNpmScopes, type: string, default: "@adhar-ui @adhar-kit"}
   workspaces:
     - {name: source}
   steps:
@@ -101,11 +104,73 @@ spec:
     - name: prepare
       image: docker.io/library/bash:5.2
       securityContext: {runAsUser: 0}
+      # optional: true throughout — a profile without the `nexus` package still
+      # builds, it just does not rewrite .npmrc (the step says so in the log).
+      env:
+        - {name: NEXUS_NPM, valueFrom: {secretKeyRef: {name: nexus-credentials, key: npm-hosted, optional: true}}}
+        - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username, optional: true}}}
+        - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password, optional: true}}}
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         chown -R 1001:1000 "$(workspaces.source.path)"
         echo "workspace handed to 1001:1000 for the CNB lifecycle"
+
+        # ── Platform npm registry ────────────────────────────────────────────
+        # Point the platform's own npm scopes at the platform's own registry, so
+        # an application never has to hardcode infrastructure URLs.
+        #
+        # WHY THIS EXISTS. `app-ci` for a scaffolded Angular app failed with
+        #   npm error 404 Not Found - GET
+        #   http://gitea-http…:3000/api/packages/adhar/npm/@adhar-ui%2fangular
+        # because the app's own .npmrc routed @adhar-ui at GITEA's package
+        # registry, while the library release pipeline publishes to NEXUS
+        # (`pnpm-publish-nexus` → repository/npm-hosted/, where both
+        # @adhar-ui/angular and @adhar-ui/tokens were verified present). The
+        # app's .npmrc even carried a comment asserting the pipeline published to
+        # Gitea, which was never true. No amount of retrying fixes a build that
+        # is asking the wrong host, and every app scaffolded from that template
+        # inherited the same dead pointer.
+        #
+        # Injecting it here rather than fixing the template is deliberate: the
+        # template lives in a separate mirrored repo, templates already in the
+        # wild cannot be retro-fixed, and a registry hostname is a property of
+        # the PLATFORM, not of anybody's application. Apps that pin nothing get
+        # the right answer automatically.
+        #
+        # Existing lines for the managed scopes are REMOVED before ours are
+        # appended, so the result does not depend on npm's last-key-wins
+        # behaviour. Unmanaged scopes and the app's default registry are left
+        # exactly as the app set them — this redirects the platform's scopes, not
+        # the app's dependency resolution.
+        APPDIR_NPM="$(workspaces.source.path)/$(params.subdirectory)"
+        APPDIR_NPM="${APPDIR_NPM%/}"
+        if [ -z "${NEXUS_NPM:-}" ]; then
+          echo "no nexus-credentials secret — leaving .npmrc untouched"
+        elif [ ! -f "${APPDIR_NPM}/package.json" ]; then
+          echo "no package.json in ${APPDIR_NPM} — no npm registry to configure"
+        else
+          NPMRC="${APPDIR_NPM}/.npmrc"
+          touch "$NPMRC"
+          NEXUS_HOST="${NEXUS_NPM#*://}"
+          for scope in $(params.platformNpmScopes); do
+            # Drop any existing mapping for this scope, whatever it pointed at.
+            sed -i "\|^${scope}:registry=|d" "$NPMRC"
+            printf '%s:registry=%s\n' "$scope" "$NEXUS_NPM" >> "$NPMRC"
+            echo "  ${scope} -> ${NEXUS_NPM}"
+          done
+          # Credentials scoped to the Nexus path only. `always-auth` is NOT set:
+          # that would send these to npmjs for every public package too.
+          if [ -n "${NEXUS_USER:-}" ] && [ -n "${NEXUS_PASS:-}" ]; then
+            AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
+            sed -i "\|^//${NEXUS_HOST}:_auth=|d" "$NPMRC"
+            printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH" >> "$NPMRC"
+          fi
+          # Written as root after the chown above, so hand it to the lifecycle.
+          chown 1001:1000 "$NPMRC"
+          echo "platform npm scopes configured in ${NPMRC}"
+        fi
+        # ─────────────────────────────────────────────────────────────────────
 
         # project.toml is a CNB *platform* descriptor: `pack` reads its
         # [[build.env]] table and hands the values to the lifecycle. This task
@@ -304,12 +369,14 @@ spec:
     - {name: shared}
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params:
         - {name: url, value: "$(params.git-url)"}
         - {name: revision, value: "$(params.revision)"}
       workspaces: [{name: output, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: buildpacks-build}
       params:
@@ -319,10 +386,12 @@ spec:
     # Scan BEFORE signing — only a clean image gets a signature (and only a
     # signed image is admitted by kyverno). Build → Harbor → scan → sign.
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]
@@ -345,12 +414,14 @@ spec:
     - {name: shared}
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params:
         - {name: url, value: "$(params.git-url)"}
         - {name: revision, value: "$(params.revision)"}
       workspaces: [{name: output, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: kaniko-build}
       params:
@@ -360,10 +431,12 @@ spec:
       workspaces: [{name: source, workspace: shared}]
     # Scan before signing (only clean images get signed → admitted by kyverno).
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]

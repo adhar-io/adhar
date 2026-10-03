@@ -56,13 +56,35 @@ spec:
         #!/bin/sh
         set -eu
         deno --version
-        # Materialise node_modules from deno.lock first. The per-package builds
-        # run `deno run -A npm:tsup …`, and tsup's config loader imports the
-        # bare specifier "tsup", which only resolves once `deno install` has
-        # laid out node_modules (a bare `deno task build` on a fresh clone
-        # fails with "Import 'tsup' not a dependency"). Idempotent, so every
-        # stage may run it; later stages hit the cache on the workspace.
-        deno install
+
+        # Retry the DEPENDENCY FETCH, and only that.
+        #
+        # `deno install` pulls several hundred packages over the network and a
+        # single transient read is fatal to the whole release:
+        #   error: Failed caching npm package '@esbuild/linux-x64@0.27.7'
+        #   Caused by: error reading a body from connection
+        # That killed release-adhar-ui on 2026-10-03 — nothing was published, and
+        # the next app build then 404ed on @adhar-ui/angular, so one dropped TCP
+        # read took out an unrelated application pipeline.
+        #
+        # This sits BENEATH the Tekton `retries: 2` on the task: a task retry
+        # starts the whole stage again, while this recovers in seconds. DENO_DIR
+        # lives on the workspace, so each attempt resumes from what the previous
+        # one already cached rather than re-downloading everything.
+        #
+        # The build itself is deliberately NOT wrapped: a compile error is a
+        # verdict about the code and must fail on the first attempt.
+        attempt=1
+        until deno install; do
+          if [ "$attempt" -ge 3 ]; then
+            echo "deno install failed after $attempt attempts" >&2
+            exit 1
+          fi
+          echo "deno install failed (attempt $attempt) — retrying in $((attempt * 10))s"
+          sleep "$((attempt * 10))"
+          attempt=$((attempt + 1))
+        done
+
         deno $(params.command)
 ---
 apiVersion: tekton.dev/v1
@@ -158,12 +180,14 @@ spec:
     - {name: critical-vulnerabilities, value: $(tasks.scan.results.critical)}
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone-gitea}
       params:
         - {name: repo, value: adhar-ui}
         - {name: revision, value: $(params.revision)}
       workspaces: [{name: source, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: deno-task}
       params: [{name: command, value: "task build"}]
@@ -184,12 +208,14 @@ spec:
       params: [{name: command, value: "lint || true"}]
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-fs-scan}
       params:
         - {name: failOnCritical, value: $(params.failOnCritical)}
       workspaces: [{name: source, workspace: shared}]
     - name: publish
+      retries: 2
       runAfter: [test, lint, scan]
       taskRef: {name: pnpm-publish-nexus}
       params: [{name: scope, value: "@adhar-ui"}]

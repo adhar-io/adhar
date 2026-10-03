@@ -196,61 +196,77 @@ environmentTemplates:
           name: cilium
           version: 1.15.7
 
+# Three environments, the same three on every provider: dev, test and prod.
+#
+# Each entry is a SEPARATE CLUSTER, not a namespace. The per-application
+# dev/test/prod promotion chain (Argo Rollouts + Kargo, see
+# packages/application/adhar-supply-chain/manifests/90-app-environments.yaml)
+# runs INSIDE one cluster and needs none of this — these are for running the
+# whole platform more than once.
+#
+# ⚠️  `adhar up -f <this file>` with NO --env provisions EVERY environment
+#     listed here. That is three clusters and three times the bill, and on a
+#     default cloud quota it will not fit. Name one:
+#
+#       adhar up -f <this file> --env dev
+#       adhar up -f <this file> --env prod
+#
+# dev and test are deliberately smaller than prod: they exist to exercise the
+# platform and a team's own promotion chain, not to carry production load.
 environments:
   dev:
-    # The schema allows only `production` or `non-production`.
     type: non-production
     provider: azure
     region: centralindia
     template: dev-defaults
-
     clusterConfig:
       - key: name
-        value: adhar-mgmt
-      # Keys match ignoring case and separators.
-      # WORKER size. 4 vCPU / 32 GiB each.
+        value: adhar-dev
       - key: machineType
         value: Standard_E4bds_v5
-      # Two workers is the platform default and the smallest shape that is really a
-      # cluster: one worker leaves evictions and drains nowhere to go, and it hits
-      # the kubelet's 110-pod ceiling before it runs out of CPU (measured here —
-      # "Too many pods" with 105 pods Pending on a single 4-vCPU worker).
-      #
-      # 1 control plane + 2 workers at 4 vCPU each = 12 vCPU, so this needs the
-      # quota above 10. At exactly 10, drop to "1" and expect a partial catalogue.
       - key: nodeCount
-        value: "2"
+        value: '2'
       - key: diskSizeGb
-        value: "100"
-      # - key: kubeVersion
-      #   value: v1.37.0
-      # - key: podCIDR
-      #   value: 10.244.0.0/16      # must not overlap vnetCidr
-
-    # On-demand autoscaling: hold a small floor, buy capacity when pods are
-    # actually Pending, give it back when utilisation drops.
-    #
-    # maxWorkers is a quota ceiling as much as a spend ceiling: 1 control plane +
-    # 6 workers at 8 vCPU each is 56 vCPU, which must fit inside BOTH the regional
-    # total and the DSv3 family quota.
-    # Grow BEFORE anything is stuck, shrink slowly.
-    #
-    # scaleUpUtilizationThreshold adds a worker at 90% requested CPU or memory,
-    # rather than waiting for pods to go Pending — by then work has already stopped
-    # and the pod must wait out a node create. The Pending-pod path remains as the
-    # backstop for a burst too large to anticipate.
+        value: '100'
     autoscaling:
       enabled: true
       minWorkers: 2
-      # 4 is what the quota allows: control plane 2 + 4 workers × 4 = 18 of 20 vCPU
-      # (both "Total Regional vCPUs" and "Standard EBDSv5 Family vCPUs" are 20).
-      # Starting at 2 and growing to 4 keeps the 1-control-plane + 2-worker default
-      # while using the headroom only when utilisation actually asks for it.
+      maxWorkers: 3
+
+  test:
+    type: non-production
+    provider: azure
+    region: centralindia
+    template: dev-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-test
+      - key: machineType
+        value: Standard_E4bds_v5
+      - key: nodeCount
+        value: '2'
+      - key: diskSizeGb
+        value: '100'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 3
+
+  prod:
+    type: production
+    provider: azure
+    region: centralindia
+    template: dev-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-prod
+      - key: machineType
+        value: Standard_E4bds_v5
+      - key: nodeCount
+        value: '2'
+      - key: diskSizeGb
+        value: '100'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
       maxWorkers: 4
-      nodeGroup: workers
-      # Add a worker at 90% of allocatable CPU or memory.
-      scaleUpUtilizationThreshold: "90%"
-      # Remove one only when BOTH stay under 50% for scaleDownDelay.
-      scaleDownUtilizationThreshold: "50%"
-      scaleDownDelay: 10m
-      scaleUpCooldown: 3m

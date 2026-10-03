@@ -66,6 +66,23 @@ environmentTemplates:
 # `adhar up -f <file>` with no --env provisions EVERY environment listed here,
 # so keep this list to environments you actually want. A leftover sample block
 # sized for another cloud will create an orphan droplet and then fail.
+# Three environments, the same three on every provider: dev, test and prod.
+#
+# Each entry is a SEPARATE CLUSTER, not a namespace. The per-application
+# dev/test/prod promotion chain (Argo Rollouts + Kargo, see
+# packages/application/adhar-supply-chain/manifests/90-app-environments.yaml)
+# runs INSIDE one cluster and needs none of this — these are for running the
+# whole platform more than once.
+#
+# ⚠️  `adhar up -f <this file>` with NO --env provisions EVERY environment
+#     listed here. That is three clusters and three times the bill, and on a
+#     default cloud quota it will not fit. Name one:
+#
+#       adhar up -f <this file> --env dev
+#       adhar up -f <this file> --env prod
+#
+# dev and test are deliberately smaller than prod: they exist to exercise the
+# platform and a team's own promotion chain, not to carry production load.
 environments:
   dev:
     type: non-production
@@ -73,37 +90,47 @@ environments:
     template: nonprod-defaults
     clusterConfig:
       - key: name
-        value: adhar-mgmt               # platform/tag name; the CLUSTER is named after the environment ("dev")
+        value: adhar-dev
       - key: nodeSize
-        value: s-8vcpu-16gb             # overrides the provider's droplet_size for this environment
+        value: s-8vcpu-16gb
       - key: nodeCount
-        value: '2'                      # workers at creation; the autoscaler grows from here
-      # - key: kubeVersion
-      #   value: v1.37.0                # pin Kubernetes for this environment
-      # - key: podCIDR
-      #   value: 10.244.0.0/16          # must differ per cluster if you mesh them
-      # - key: clusterMeshId
-      #   value: "1"                    # Cilium cluster ID (1-255), unique per meshed cluster
-      # NOTE: there is deliberately no `oidcAuth` key here. Letting
-      # `adhar auth login` produce a token kubectl accepts requires --oidc-* flags
-      # on the kube-apiserver, and those CANNOT be set while `kubeadm init` runs:
-      # the issuer (this platform's own Keycloak) does not exist yet, so the
-      # apiserver fails to start and provisioning aborts. Setting the key is
-      # rejected with that explanation. Enable it as a day-2 step —
-      # docs/DIGITALOCEAN_PROVIDER.md, "kubectl with your platform identity".
-
+        value: '2'
     autoscaling:
       enabled: true
       minWorkers: 2
-      # The full catalogue needs >= 9 workers: DigitalOcean attaches at most 7
-      # block volumes per droplet, and the platform creates ~55 PersistentVolumes.
-      # That attach limit, not CPU or memory, is what bounds the cluster.
+      maxWorkers: 3
+
+  test:
+    type: non-production
+    provider: digitalocean
+    template: nonprod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-test
+      - key: nodeSize
+        value: s-8vcpu-16gb
+      - key: nodeCount
+        value: '2'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 3
+
+  prod:
+    type: production
+    provider: digitalocean
+    template: nonprod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-prod
+      - key: nodeSize
+        value: s-8vcpu-16gb
+      - key: nodeCount
+        value: '2'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
       maxWorkers: 4
-      # Everything below is optional; these are the defaults.
-      nodeGroup: workers
-      scaleDownUtilizationThreshold: "50%"
-      scaleDownDelay: 10m
-      scaleUpCooldown: 3m
 
 # ---------------------------------------------------------------------------
 # Agentic capabilities (Adhar AI)

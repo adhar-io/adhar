@@ -111,58 +111,74 @@ environmentTemplates:
           name: cilium
           version: 1.15.7
 
+# Three environments, the same three on every provider: dev, test and prod.
+#
+# Each entry is a SEPARATE CLUSTER, not a namespace. The per-application
+# dev/test/prod promotion chain (Argo Rollouts + Kargo, see
+# packages/application/adhar-supply-chain/manifests/90-app-environments.yaml)
+# runs INSIDE one cluster and needs none of this — these are for running the
+# whole platform more than once.
+#
+# ⚠️  `adhar up -f <this file>` with NO --env provisions EVERY environment
+#     listed here. That is three clusters and three times the bill, and on a
+#     default cloud quota it will not fit. Name one:
+#
+#       adhar up -f <this file> --env dev
+#       adhar up -f <this file> --env prod
+#
+# dev and test are deliberately smaller than prod: they exist to exercise the
+# platform and a team's own promotion chain, not to carry production load.
 environments:
-  production:
+  dev:
+    type: non-production
+    provider: gcp
+    region: asia-southeast1
+    template: prod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-dev
+      - key: machineType
+        value: e2-standard-8
+      - key: nodeCount
+        value: '2'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 3
+
+  test:
+    type: non-production
+    provider: gcp
+    region: asia-southeast1
+    template: prod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-test
+      - key: machineType
+        value: e2-standard-8
+      - key: nodeCount
+        value: '2'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 3
+
+  prod:
     type: production
     provider: gcp
     region: asia-southeast1
     template: prod-defaults
-
     clusterConfig:
       - key: name
-        value: adhar-mgmt
-      # Keys are matched ignoring case and separators, so machineType,
-      # machine_type and MACHINE_TYPE are the same key.
+        value: adhar-prod
       - key: machineType
-        value: e2-standard-8      # 8 vCPU — the size the sizing below was measured on
+        value: e2-standard-8
       - key: nodeCount
-        value: "4"
-      # - key: kubeVersion
-      #   value: v1.37.0
-      # - key: podCIDR
-      #   value: 10.244.0.0/16      # must not overlap subnet_cidr
-
-    # Sized from MEASUREMENT on a live GCP bring-up, not guesswork. The full
-    # production catalogue is ~80 applications and 340+ pods. Observed with
-    # e2-standard-8 workers (8 vCPU each):
-    #
-    #   2 workers (16 vCPU) — 58 pods unschedulable, platform unusable
-    #   4 workers (32 vCPU) — one node at 88% CPU, a kubelet went NotReady and
-    #                         106 pods lost Ready, so Services lost endpoints
-    #   6 workers (48 vCPU) — stable
-    #
-    # So the floor is 3 and the start is 4: enough to bootstrap without a node
-    # falling over, and the autoscaler adds more when pods actually go Pending,
-    # then reclaims down to 3 once utilisation drops below the threshold.
-    #
-    # maxWorkers is bounded by QUOTA, not by preference. CPUS_ALL_REGIONS is
-    # project-wide and commonly 64 on a new project: 1 control plane + 7 workers
-    # of e2-standard-8 is 64 vCPU exactly. Raise the quota before raising this,
-    # or a scale-up fails halfway and leaves a half-built node.
-    #
-    # If you shrink machineType, scale these counts up to match: the platform is
-    # CPU-bound here, and 3 x e2-standard-4 is 12 vCPU — below the 16 vCPU that
-    # measured as unusable.
+        value: '4'
     autoscaling:
       enabled: true
       minWorkers: 3
       maxWorkers: 7
-      nodeGroup: workers
-      scaleDownUtilizationThreshold: "50%"
-      # A node takes ~10 minutes to join, so removals are deliberately slow:
-      # losing one to a gap between batch waves costs more than it saves.
-      scaleDownDelay: 10m
-      scaleUpCooldown: 3m
 
 # ---------------------------------------------------------------------------
 # Agentic capabilities (Adhar AI)

@@ -84,6 +84,23 @@ environmentTemplates:
 # `adhar up -f <file>` with no --env provisions EVERY environment listed here,
 # so keep this list to environments you actually want. A leftover sample block
 # sized for another cloud will create an orphan instance and then fail.
+# Three environments, the same three on every provider: dev, test and prod.
+#
+# Each entry is a SEPARATE CLUSTER, not a namespace. The per-application
+# dev/test/prod promotion chain (Argo Rollouts + Kargo, see
+# packages/application/adhar-supply-chain/manifests/90-app-environments.yaml)
+# runs INSIDE one cluster and needs none of this — these are for running the
+# whole platform more than once.
+#
+# ⚠️  `adhar up -f <this file>` with NO --env provisions EVERY environment
+#     listed here. That is three clusters and three times the bill, and on a
+#     default cloud quota it will not fit. Name one:
+#
+#       adhar up -f <this file> --env dev
+#       adhar up -f <this file> --env prod
+#
+# dev and test are deliberately smaller than prod: they exist to exercise the
+# platform and a team's own promotion chain, not to carry production load.
 environments:
   dev:
     type: non-production
@@ -91,38 +108,53 @@ environments:
     template: nonprod-defaults
     clusterConfig:
       - key: name
-        value: adhar-mgmt               # platform/tag name; the CLUSTER is named after the environment ("dev")
-      # The control plane does not need a worker-sized instance, and on a small
-      # quota the cores saved are a large share of the worker capacity.
+        value: adhar-dev
       - key: controlPlaneMachineType
-        value: g3.medium                # 2 vCPU / 4 GB / 50 GB
+        value: g3.medium
       - key: nodeSize
-        value: g3.xlarge                # overrides the provider's `size` for this environment
+        value: g3.xlarge
       - key: nodeCount
-        value: "3"                      # workers at creation; the autoscaler grows from here
-      # - key: kubeVersion
-      #   value: v1.37.0                # pin Kubernetes for this environment
-      # - key: podCIDR
-      #   value: 10.244.0.0/16          # must differ per cluster if you mesh them
-      # - key: clusterMeshId
-      #   value: "1"                    # Cilium cluster ID (1-255), unique per meshed cluster
-      # NOTE: there is deliberately no `oidcAuth` key here. Letting
-      # `adhar auth login` produce a token kubectl accepts requires --oidc-* flags
-      # on the kube-apiserver, and those CANNOT be set while `kubeadm init` runs:
-      # the issuer (this platform's own Keycloak) does not exist yet, so the
-      # apiserver fails to start and provisioning aborts. Setting the key is
-      # rejected with that explanation. Enable it as a day-2 step —
-      # docs/CIVO_PROVIDER.md, "kubectl with your platform identity".
+        value: '2'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 3
 
+  test:
+    type: non-production
+    provider: civo
+    template: nonprod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-test
+      - key: controlPlaneMachineType
+        value: g3.medium
+      - key: nodeSize
+        value: g3.xlarge
+      - key: nodeCount
+        value: '2'
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 3
+
+  prod:
+    type: production
+    provider: civo
+    template: nonprod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-prod
+      - key: controlPlaneMachineType
+        value: g3.medium
+      - key: nodeSize
+        value: g3.xlarge
+      - key: nodeCount
+        value: '3'
     autoscaling:
       enabled: true
       minWorkers: 3
       maxWorkers: 6
-      # Everything below is optional; these are the defaults.
-      nodeGroup: workers
-      scaleDownUtilizationThreshold: "50%"
-      scaleDownDelay: 10m
-      scaleUpCooldown: 3m
 
 # ---------------------------------------------------------------------------
 # A note on storage, because it decides how many workers you need

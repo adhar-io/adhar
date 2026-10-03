@@ -65,22 +65,28 @@ spec:
         NAME="$(params.name)"
         IMG="harbor-core.adhar-system.svc.cluster.local/library/${NAME}"
         echo "Scaffolding service ${NAME} from $(params.git-url) [$(params.subpath)]"
+        # NO kpack Image here.
+        #
+        # This used to create one, and it was a SECOND, competing build system.
+        # `app-ci` (the paved road in 70-app-ci.yaml) already builds on every
+        # push via the `app-push` trigger, and a kpack Image polls the same repo
+        # and builds the same commit independently — so one `git push` produced
+        # two builds racing to push the SAME Harbor tag. Observed live on
+        # 2026-10-03: `build.kpack.io/angular-app-build-1` and
+        # `app-ci-angular-app-d5bwb` building the same revision at once.
+        #
+        # They are not equivalent, which is what makes the duplicate dangerous
+        # rather than merely wasteful: app-ci is a gated graph (test, gitleaks,
+        # trivy source + image scan, SBOM, cosign sign, attestation, cosign
+        # verify, then GitOps writeback), while a kpack Image builds and pushes
+        # with none of it. Whichever finished last won the tag, so the image the
+        # cluster ran was a coin toss between a fully attested artifact and an
+        # unscanned, unsigned one.
+        #
+        # kpack stays in the platform for what it is good at — the `buildpack`
+        # package's own builder and store, which app-ci's buildpacks-build uses.
+        # It just does not get its own trigger per application.
         kubectl apply -f - <<YAML
-        apiVersion: kpack.io/v1alpha2
-        kind: Image
-        metadata:
-          name: ${NAME}
-          namespace: adhar-system
-          labels: {adhar.io/supply-chain: "true"}
-        spec:
-          tag: ${IMG}
-          serviceAccountName: adhar-pipeline
-          builder: {name: adhar-builder, kind: ClusterBuilder}
-          cache: {volume: {size: "1Gi"}}
-          source:
-            git: {url: "$(params.git-url)", revision: main}
-            subPath: "$(params.subpath)"
-        ---
         apiVersion: apps/v1
         kind: Deployment
         metadata:
@@ -109,8 +115,9 @@ spec:
           selector: {app: ${NAME}}
           ports: [{port: 80, targetPort: 8080}]
         YAML
-        echo "Service ${NAME} scaffolded. kpack is building + signing the image;"
-        echo "the Deployment starts once a signed image is available (kyverno-gated)."
+        echo "Service ${NAME} scaffolded."
+        echo "app-ci builds, scans, signs and attests the image on the next push to"
+        echo "${NAME}; the workload starts once a SIGNED image exists (kyverno-gated)."
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -125,6 +132,7 @@ spec:
     - {name: subpath, type: string, default: ""}
   tasks:
     - name: scaffold
+      retries: 2
       taskRef: {name: scaffold-service}
       params:
         - {name: name, value: "$(params.name)"}

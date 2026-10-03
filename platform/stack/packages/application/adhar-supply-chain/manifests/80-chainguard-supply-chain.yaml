@@ -226,12 +226,14 @@ spec:
     - {name: digest, value: "$(tasks.assemble.results.digest)"}
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params:
         - {name: url, value: "$(params.git-url)"}
         - {name: revision, value: "$(params.revision)"}
       workspaces: [{name: output, workspace: shared}]
     - name: assemble
+      retries: 2
       runAfter: [clone]
       taskRef: {name: apko-publish}
       params:
@@ -241,21 +243,25 @@ spec:
         - {name: subdirectory, value: "$(params.subdirectory)"}
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [assemble]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(tasks.assemble.results.image-ref)"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params:
         - {name: image, value: "$(params.image)"}
         - {name: tag, value: "$(params.tag)"}
     - name: attest
+      retries: 2
       runAfter: [sign]
       taskRef: {name: cosign-attest-sbom}
       params: [{name: image-ref, value: "$(tasks.assemble.results.image-ref)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: verify
+      retries: 2
       runAfter: [attest]
       taskRef: {name: cosign-verify-attested}
       params: [{name: image-ref, value: "$(tasks.assemble.results.image-ref)"}]

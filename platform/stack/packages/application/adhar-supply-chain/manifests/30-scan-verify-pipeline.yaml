@@ -19,9 +19,13 @@ spec:
   params:
     - {name: image, type: string, description: "fully qualified image ref (with digest)"}
     - {name: severity, type: string, default: "HIGH,CRITICAL"}
+    # 20m, matching source-scan and the library release: this budget has to cover
+    # the 120 MiB vulnerability-DB download as well as the scan, and a DB fetch
+    # measured at 4m20s on a live cluster.
+    - {name: scanTimeout, type: string, default: "20m"}
   steps:
     - name: scan
-      image: aquasec/trivy:0.58.0
+      image: docker.io/aquasec/trivy:0.58.1
       env:
         # Harbor serves HTTPS with its own internal CA. TRIVY_NON_SSL=true used
         # to be set here, which forced plaintext against a TLS-only registry and
@@ -29,12 +33,18 @@ spec:
         - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
         - {name: TRIVY_USERNAME, value: "admin"}
         - {name: TRIVY_PASSWORD, value: "Harbor12345"}
+        # Trivy derives its cache dir from $HOME, which is `/` in this image.
+        # Without these the DB downloads and THEN fails on
+        # "mkdir /.cache: permission denied", which reads like a network fault.
+        # The other two scan tasks already set them; this one was the outlier.
+        - {name: HOME, value: /tmp}
+        - {name: TRIVY_CACHE_DIR, value: /tmp/trivy-cache}
       script: |
         #!/bin/sh
         set -e
         echo "Scanning $(params.image) for $(params.severity) vulnerabilities…"
         trivy image --scanners vuln --severity "$(params.severity)" \
-          --exit-code 1 --no-progress --timeout 10m "$(params.image)"
+          --exit-code 1 --no-progress --timeout "$(params.scanTimeout)" "$(params.image)"
         echo "No $(params.severity) vulnerabilities — gate passed."
       volumeMounts:
         - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
@@ -85,9 +95,11 @@ spec:
     - {name: image, type: string, description: "signed image ref to scan + verify"}
   tasks:
     - name: scan
+      retries: 2
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image)"}]
     - name: verify
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-verify}
       params: [{name: image, value: "$(params.image)"}]

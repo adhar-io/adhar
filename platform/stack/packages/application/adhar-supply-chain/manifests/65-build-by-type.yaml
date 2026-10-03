@@ -87,6 +87,7 @@ spec:
   workspaces: [{name: shared}]
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
       workspaces: [{name: output, workspace: shared}]
@@ -96,15 +97,18 @@ spec:
       params: [{name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [test]
       taskRef: {name: buildpacks-build}
       params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]
@@ -124,6 +128,7 @@ spec:
   workspaces: [{name: shared}]
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
       workspaces: [{name: output, workspace: shared}]
@@ -133,15 +138,18 @@ spec:
       params: [{name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [test]
       taskRef: {name: buildpacks-build}
       params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]
@@ -161,6 +169,7 @@ spec:
   workspaces: [{name: shared}]
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
       workspaces: [{name: output, workspace: shared}]
@@ -170,15 +179,18 @@ spec:
       params: [{name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [test]
       taskRef: {name: buildpacks-build}
       params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]
@@ -199,19 +211,23 @@ spec:
   workspaces: [{name: shared}]
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
       workspaces: [{name: output, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: buildpacks-build}
       params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]
@@ -232,19 +248,23 @@ spec:
   workspaces: [{name: shared}]
   tasks:
     - name: clone
+      retries: 2
       taskRef: {name: git-clone}
       params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
       workspaces: [{name: output, workspace: shared}]
     - name: build
+      retries: 2
       runAfter: [clone]
       taskRef: {name: buildpacks-build}
       params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
       workspaces: [{name: source, workspace: shared}]
     - name: scan
+      retries: 2
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "$(params.image):latest"}]
     - name: sign
+      retries: 2
       runAfter: [scan]
       taskRef: {name: cosign-sign}
       params: [{name: image, value: "$(params.image)"}]

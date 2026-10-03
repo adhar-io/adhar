@@ -134,19 +134,50 @@ spec:
   description: Trivy filesystem scan — dependency vulnerabilities and Kubernetes manifest misconfiguration.
   params:
     - {name: severity, type: string, default: "HIGH,CRITICAL"}
+    # Bounds the vulnerability-DB download AND the scan. The trivy default is 5m
+    # TOTAL, and the DB alone is 120 MiB — measured at 4m20s on a live cluster,
+    # which left 40s to scan and killed a release with
+    # "semaphore acquire: context deadline exceeded".
+    - {name: scanTimeout, type: string, default: "20m"}
   workspaces:
     - {name: source}
+  # ONE vulnerability DB for the whole task.
+  #
+  # Both steps below run trivy, and Tekton steps are separate containers: with
+  # the cache under each container's own /tmp they downloaded the 120 MiB DB
+  # TWICE per run, each inside its own 5-minute default budget — two independent
+  # chances to flake per scan. A volume shared by both steps means the second
+  # reuses what the first fetched.
+  volumes:
+    - name: trivy-cache
+      emptyDir: {}
+  stepTemplate:
+    env:
+      # Trivy derives its cache dir from $HOME, which is `/` in this image, and
+      # the step runs non-root: without these it fails with
+      # "failed to download vulnerability DB: mkdir /.cache: permission denied"
+      # AFTER the download appears to succeed, which reads like a network fault.
+      - {name: HOME, value: /tmp}
+      - {name: TRIVY_CACHE_DIR, value: /mnt/trivy-cache}
+    volumeMounts:
+      - {name: trivy-cache, mountPath: /mnt/trivy-cache}
   steps:
     - name: deps
-      image: aquasec/trivy:0.58.0
+      image: docker.io/aquasec/trivy:0.58.1
       workingDir: $(workspaces.source.path)
       script: |
         #!/bin/sh
         set -e
-        trivy fs --scanners vuln --severity "$(params.severity)" --exit-code 1 --no-progress --format table .
+        # Build output and generated trees are skipped: they are not source
+        # anybody can fix a CVE in, and walking them races whatever is still
+        # writing them. `**/` matters — a bare `dist` matches only ./dist, not
+        # <package>/dist, which is how a monorepo slips through.
+        SKIP='node_modules,**/node_modules,dist,**/dist,target,**/target,.git,**/.git,generated,**/generated'
+        trivy fs --scanners vuln --severity "$(params.severity)" --exit-code 1 \
+          --skip-dirs "$SKIP" --timeout "$(params.scanTimeout)" --no-progress --format table .
         echo "no $(params.severity) dependency vulnerabilities"
     - name: manifests
-      image: aquasec/trivy:0.58.0
+      image: docker.io/aquasec/trivy:0.58.1
       workingDir: $(workspaces.source.path)
       script: |
         #!/bin/sh
@@ -154,7 +185,8 @@ spec:
         found=""
         for d in deploy manifests k8s kubernetes; do [ -d "$d" ] && found="$found $d"; done
         [ -n "$found" ] || { echo "no Kubernetes manifests in the repository; nothing to check"; exit 0; }
-        trivy config -q --severity "$(params.severity)" --exit-code 1 $found
+        trivy config -q --severity "$(params.severity)" --exit-code 1 \
+          --timeout "$(params.scanTimeout)" $found
         echo "manifests pass $(params.severity) misconfiguration checks"
 ---
 # The SBOM of the image that was actually built, as CycloneDX, written into the

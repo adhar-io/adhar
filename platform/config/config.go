@@ -257,9 +257,13 @@ func LoadConfig(configFile string) (*Config, error) {
 		config = getDefaultKindConfig()
 	}
 
-	// Validate configuration using schema validator
-	validator := NewSchemaValidator()
-	if err := validator.ValidateConfig(&config); err != nil {
+	// Validate through the package-level ValidateConfig, NOT the SchemaValidator
+	// directly: that wrapper adds the structural checks the JSON schema cannot
+	// express, and calling past it meant `adhar config validate` (which loads the
+	// file) applied weaker rules than `adhar config create`/`set` (which call the
+	// wrapper). A config with no environments passed validation on the one path
+	// that operators actually use to check a file.
+	if err := ValidateConfig(&config); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
@@ -414,7 +418,29 @@ func validateProviderConfig(config *Config) error {
 func ValidateConfig(config *Config) error {
 	// Use the new schema validator
 	validator := NewSchemaValidator()
-	return validator.ValidateConfig(config)
+	if err := validator.ValidateConfig(config); err != nil {
+		return err
+	}
+
+	// A configuration with no environments is not a configuration: there is
+	// nothing for `adhar up` to provision and nothing for `--env` to name.
+	//
+	// This is a STRUCTURAL check rather than a schema one because the schema
+	// cannot see the failure that motivated it. Viper stops reading at a YAML
+	// document-end marker (`...`) and returns what it had so far, silently — so a
+	// file whose `environments:` block sat after a stray marker loaded as a config
+	// with zero environments, and `adhar config validate` reported
+	// "Configuration is valid" for a file that Go's and Python's YAML parsers both
+	// refuse outright. Caught on 2026-10-03 while generating dev/test/prod blocks:
+	// the generator emitted `...` after each value, and nothing noticed.
+	//
+	// Any truncation severe enough to lose the environments now fails here.
+	if len(config.Environments) == 0 {
+		return fmt.Errorf("no environments are defined: declare at least one under `environments:` " +
+			"(a stray YAML document-end marker `...` earlier in the file will also cause this, " +
+			"because the parser stops reading there and returns only what preceded it)")
+	}
+	return nil
 }
 
 // getDefaultKindConfig returns a default configuration with Kind provider for local development

@@ -1,0 +1,426 @@
+# Per-application dev → test → prod promotion: Argo Rollouts + Kargo + Argo CD.
+#
+# This is the half of the paved road that was missing. `app-ci` ended at "a
+# signed, scanned, attested image is in Harbor and the app repo's manifest was
+# pinned to it" — ONE environment, a plain Deployment, and no promotion. The
+# chain now continues:
+#
+#   git push
+#     └─> app-ci            build → test → gitleaks → trivy(source+image)
+#                           → SBOM → cosign sign → attest → verify
+#                           → image + digest in Harbor
+#           └─> Kargo Warehouse  (subscribes to the Harbor repo) → Freight
+#                 ├─> Stage dev    AUTO   → sets the digest in deploy/envs/dev
+#                 │                        → git push → Argo CD syncs → Rollout
+#                 ├─> Stage test   AUTO   (once dev's Rollout is Healthy)
+#                 └─> Stage prod   MANUAL approval in the Kargo UI/CLI
+#
+# WHY KARGO IS THE ONLY WRITER PAST dev. Two systems committing to the same
+# files is a conflict generator, so app-ci's `gitops-writeback` pins ONLY the
+# dev overlay; every promotion after that is a Kargo commit. Git stays the only
+# write path (ADR-0004) — a promotion is a commit Argo CD then syncs, never a
+# `kubectl` call against a cluster.
+#
+# WHY THE OVERLAYS LIVE IN THE APP'S OWN REPO. A team owns its deployment
+# config next to its code, and `gitops-writeback` already looks under `deploy/`.
+# The trade is that Kargo needs write access to each app repo, which it gets from
+# the same `gitea-credential` the platform already projects.
+#
+# NAMESPACES: each environment is `<app>-<env>`, which is a deliberate exception
+# to the one-namespace rule of ADR-0011 — environments that share a namespace are
+# not environments. They cannot share quotas, NetworkPolicies or RBAC, and a
+# `prod` Rollout must not be able to resolve a `dev` Service by short name. Kargo
+# additionally requires a namespace named after its Project, so an onboarded app
+# owns `<app>` plus `<app>-{dev,test,prod}`.
+---
+# ---------------------------------------------------------------------------
+# 1. Materialise the three-environment overlay into the app's repository.
+# ---------------------------------------------------------------------------
+# Idempotent: an app that already has deploy/envs is left completely alone, so
+# this is safe to run on every onboard and safe to re-run on an existing app.
+#
+# It writes a kustomize base plus three overlays. The overlay is the unit Kargo
+# edits — `kustomize-set-image` rewrites the `images:` block of ONE
+# kustomization.yaml, so a promotion touches exactly one file in one directory
+# and can never disturb another environment's replica count or hostname.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: app-env-scaffold
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Write the dev/test/prod kustomize overlays into an application repository.
+  params:
+    - {name: repo-name, type: string}
+    - {name: port, type: string, default: "8080"}
+  steps:
+    - name: scaffold
+      image: alpine/git:2.45.2
+      env:
+        - {name: GIT_USER, valueFrom: {secretKeyRef: {name: gitea-ci-creds, key: username}}}
+        - {name: GIT_PASS, valueFrom: {secretKeyRef: {name: gitea-ci-creds, key: password}}}
+      script: |
+        #!/bin/sh
+        set -eu
+        APP="$(params.repo-name)"
+        PORT="$(params.port)"
+        REGISTRY="harbor-core.adhar-system.svc.cluster.local/library"
+        # Basic auth as a header, not in the URL: a rotated password can hold any
+        # byte and alpine/git has nothing to URL-encode it with. Same reasoning as
+        # gitops-writeback.
+        AUTH=$(printf '%s:%s' "$GIT_USER" "$GIT_PASS" | base64 | tr -d '\n')
+        git config --global http.extraHeader "Authorization: Basic ${AUTH}"
+        cd /tmp && rm -rf work
+        git clone --depth 1 "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/${APP}.git" work
+        cd work
+
+        if [ -d deploy/envs ]; then
+          echo "deploy/envs already exists — leaving this repository's overlays alone"
+          exit 0
+        fi
+
+        mkdir -p deploy/base deploy/envs/dev deploy/envs/test deploy/envs/prod
+
+        # The workload is an Argo Rollout, not a Deployment: a progressive
+        # delivery strategy is the entire point of having a test and a prod
+        # environment, and a Deployment can only roll all-or-nothing.
+        cat > deploy/base/rollout.yaml <<EOF
+        apiVersion: argoproj.io/v1alpha1
+        kind: Rollout
+        metadata:
+          name: ${APP}
+          labels: {app: ${APP}, adhar.io/supply-chain: "true"}
+        spec:
+          replicas: 1
+          revisionHistoryLimit: 3
+          selector:
+            matchLabels: {app: ${APP}}
+          template:
+            metadata:
+              labels: {app: ${APP}}
+            spec:
+              enableServiceLinks: false
+              imagePullSecrets: [{name: harbor-push}]
+              containers:
+                - name: app
+                  # The tag here is a PLACEHOLDER. Every overlay pins a digest,
+                  # and nothing is ever deployed from this base directly.
+                  image: ${REGISTRY}/${APP}:latest
+                  ports: [{containerPort: ${PORT}}]
+                  resources:
+                    requests: {cpu: 50m, memory: 128Mi}
+                    limits: {memory: 512Mi}
+                  readinessProbe:
+                    httpGet: {path: /, port: ${PORT}}
+                    initialDelaySeconds: 10
+                    periodSeconds: 10
+                    # Never 1s — a loaded node fails a healthy probe and the
+                    # platform forbids it outright (TestNoProbeShipsAOneSecondTimeout).
+                    timeoutSeconds: 5
+          strategy:
+            canary:
+              steps:
+                - setWeight: 25
+                - pause: {duration: 30s}
+                - setWeight: 50
+                - pause: {duration: 30s}
+        EOF
+
+        cat > deploy/base/service.yaml <<EOF
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${APP}
+          labels: {app: ${APP}}
+        spec:
+          selector: {app: ${APP}}
+          ports: [{name: http, port: 80, targetPort: ${PORT}}]
+        EOF
+
+        cat > deploy/base/kustomization.yaml <<EOF
+        apiVersion: kustomize.config.k8s.io/v1beta1
+        kind: Kustomization
+        resources:
+          - rollout.yaml
+          - service.yaml
+        EOF
+
+        # One overlay per environment. The `images:` block is what Kargo rewrites.
+        # dev starts on :latest only until the first promotion replaces it with a
+        # digest; after that no environment ever references a mutable tag.
+        for env in dev test prod; do
+          case "$env" in
+            dev)  replicas=1; weight_pause=10s ;;
+            test) replicas=1; weight_pause=30s ;;
+            prod) replicas=2; weight_pause=120s ;;
+          esac
+          cat > "deploy/envs/${env}/kustomization.yaml" <<EOF
+        apiVersion: kustomize.config.k8s.io/v1beta1
+        kind: Kustomization
+        namespace: ${APP}-${env}
+        resources:
+          - ../../base
+        images:
+          - name: ${REGISTRY}/${APP}
+            newTag: latest
+        patches:
+          - target: {kind: Rollout, name: ${APP}}
+            patch: |-
+              - op: replace
+                path: /spec/replicas
+                value: ${replicas}
+              - op: replace
+                path: /spec/strategy/canary/steps/1/pause/duration
+                value: ${weight_pause}
+              - op: replace
+                path: /spec/strategy/canary/steps/3/pause/duration
+                value: ${weight_pause}
+        EOF
+        done
+
+        git config user.name  "adhar-ci"
+        git config user.email "ci@adhar.io"
+        git add deploy
+        git commit -m "chore(adhar): add dev/test/prod overlays with Argo Rollouts
+
+        Generated by the Adhar paved road (app-env-scaffold). Kargo promotes a
+        digest into deploy/envs/<env>/kustomization.yaml; Argo CD syncs each
+        environment into the <app>-<env> namespace."
+        git push origin HEAD:main
+        echo "wrote deploy/base + deploy/envs/{dev,test,prod} to adhar/${APP}"
+---
+# ---------------------------------------------------------------------------
+# 2. Register the application's environments in the cluster.
+# ---------------------------------------------------------------------------
+# Creates, for one app: the three environment namespaces, a Kargo Project with a
+# Warehouse subscribed to the app's Harbor repository, three Stages wired
+# dev → test → prod, and three Argo CD Applications pointed at the overlays.
+#
+# Applied with kubectl rather than committed, matching how `scaffold-service`
+# already onboards an app: the objects are derived entirely from the app name, so
+# there is nothing a human would review in a diff.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: app-env-register
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Create the namespaces, Kargo Project/Warehouse/Stages and Argo CD Applications for an app's three environments.
+  params:
+    - {name: repo-name, type: string}
+  steps:
+    - name: register
+      image: alpine/k8s:1.31.1
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        APP="$(params.repo-name)"
+        GITEA="http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/${APP}"
+        IMAGE="harbor-core.adhar-system.svc.cluster.local/library/${APP}"
+
+        for env in dev test prod; do
+          kubectl apply -f - <<YAML
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${APP}-${env}
+          labels:
+            adhar.io/app: ${APP}
+            adhar.io/environment: ${env}
+            # Marks this as an application environment rather than a platform
+            # namespace, so the Console's Service Catalog and the namespace views
+            # can tell the two apart.
+            adhar.io/plane: workload
+        YAML
+        done
+
+        # Kargo requires a Project to own a namespace of its own name.
+        kubectl apply -f - <<YAML
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${APP}
+          labels:
+            kargo.akuity.io/project: "true"
+            adhar.io/app: ${APP}
+        ---
+        apiVersion: kargo.akuity.io/v1alpha1
+        kind: Project
+        metadata:
+          name: ${APP}
+        ---
+        apiVersion: kargo.akuity.io/v1alpha1
+        kind: ProjectConfig
+        metadata:
+          name: ${APP}
+          namespace: ${APP}
+        spec:
+          promotionPolicies:
+            # dev and test promote themselves; prod never does. The gate is here
+            # rather than in the Stage so that "who may ship to production" is one
+            # object to read and one object to audit.
+            - stageSelector: {name: dev}
+              autoPromotionEnabled: true
+            - stageSelector: {name: test}
+              autoPromotionEnabled: true
+            - stageSelector: {name: prod}
+              autoPromotionEnabled: false
+        YAML
+
+        # Credentials. Kargo discovers these by label in the Project namespace:
+        # `git` for cloning/pushing the app repo, `image` for listing Harbor tags.
+        kubectl -n "${APP}" create secret generic gitea-repo \
+          --from-literal=repoURL="${GITEA}" \
+          --from-literal=username="$(kubectl -n adhar-system get secret gitea-ci-creds -o jsonpath='{.data.username}' | base64 -d)" \
+          --from-literal=password="$(kubectl -n adhar-system get secret gitea-ci-creds -o jsonpath='{.data.password}' | base64 -d)" \
+          --dry-run=client -o yaml | kubectl label -f - --local -o yaml \
+            kargo.akuity.io/cred-type=git | kubectl apply -f -
+
+        kubectl -n "${APP}" create secret generic harbor-image \
+          --from-literal=repoURL="${IMAGE}" \
+          --from-literal=username=admin \
+          --from-literal=password=Harbor12345 \
+          --dry-run=client -o yaml | kubectl label -f - --local -o yaml \
+            kargo.akuity.io/cred-type=image | kubectl apply -f -
+
+        kubectl apply -f - <<YAML
+        apiVersion: kargo.akuity.io/v1alpha1
+        kind: Warehouse
+        metadata:
+          name: ${APP}
+          namespace: ${APP}
+        spec:
+          subscriptions:
+            - image:
+                repoURL: ${IMAGE}
+                # NewestBuild, not SemVer or Lexical: app-ci tags images with the
+                # commit SHA, which has no order. Kargo then ranks by the image's
+                # own creation time, which is the only meaningful ordering here.
+                imageSelectionStrategy: NewestBuild
+                # Harbor serves HTTPS with its OWN internal CA, which Kargo has no
+                # copy of. This hop never leaves the cluster network.
+                insecureSkipTLSVerify: true
+                discoveryLimit: 10
+        YAML
+
+        # The three Stages. Each one sets the digest in its own overlay and pushes;
+        # Argo CD does the deploying.
+        prev=""
+        for env in dev test prod; do
+          if [ -z "$prev" ]; then
+            SOURCES="direct: true"
+          else
+            SOURCES="stages: [${prev}]"
+          fi
+          kubectl apply -f - <<YAML
+        apiVersion: kargo.akuity.io/v1alpha1
+        kind: Stage
+        metadata:
+          name: ${env}
+          namespace: ${APP}
+          labels: {adhar.io/app: ${APP}, adhar.io/environment: ${env}}
+        spec:
+          requestedFreight:
+            - origin: {kind: Warehouse, name: ${APP}}
+              sources: {${SOURCES}}
+          promotionTemplate:
+            spec:
+              steps:
+                - uses: git-clone
+                  config:
+                    repoURL: ${GITEA}
+                    checkout: [{branch: main, path: ./src}]
+                - uses: kustomize-set-image
+                  config:
+                    path: ./src/deploy/envs/${env}
+                    images:
+                      # By DIGEST, not tag. The digest is what cosign signed, so
+                      # deploying it is what makes the Enforce-mode policy
+                      # verify-supply-chain-images satisfiable — and it is immutable,
+                      # unlike a tag another build could move.
+                      - image: ${IMAGE}
+                        digest: \${{ imageFrom("${IMAGE}").Digest }}
+                - uses: git-commit
+                  config:
+                    path: ./src
+                    message: "promote(${env}): \${{ imageFrom(\"${IMAGE}\").Digest }}"
+                - uses: git-push
+                  config:
+                    path: ./src
+                    targetBranch: main
+                # Wait for Argo CD to actually apply it and for the Rollout to go
+                # Healthy. Without this the Stage reports success the moment the
+                # commit lands, and `test` would promote off a `dev` that had not
+                # finished rolling out — the gate would be decorative.
+                - uses: argocd-update
+                  config:
+                    apps:
+                      - name: ${APP}-${env}
+                        sources:
+                          - repoURL: ${GITEA}
+                            desiredRevision: \${{ outputs['git-push'].commit }}
+        YAML
+          prev="$env"
+        done
+
+        # One Argo CD Application per environment, each watching its own overlay.
+        for env in dev test prod; do
+          kubectl apply -f - <<YAML
+        apiVersion: argoproj.io/v1alpha1
+        kind: Application
+        metadata:
+          name: ${APP}-${env}
+          namespace: adhar-system
+          labels: {adhar.io/app: ${APP}, adhar.io/environment: ${env}}
+          finalizers: [resources-finalizer.argocd.argoproj.io]
+        spec:
+          project: default
+          source:
+            repoURL: ${GITEA}
+            targetRevision: main
+            path: deploy/envs/${env}
+          destination:
+            server: https://kubernetes.default.svc
+            namespace: ${APP}-${env}
+          syncPolicy:
+            automated: {prune: true, selfHeal: true}
+            syncOptions: [CreateNamespace=true, ServerSideApply=true]
+            retry:
+              limit: -1
+              backoff: {duration: 5s, factor: 2, maxDuration: 3m}
+        YAML
+        done
+
+        echo "registered ${APP}: namespaces ${APP}-{dev,test,prod}, Kargo Project ${APP}, 3 Argo CD Applications"
+        echo "dev and test promote automatically; prod needs approval:"
+        echo "  kargo promote --project ${APP} --stage prod --freight-alias <alias>"
+---
+# ---------------------------------------------------------------------------
+# 3. Onboarding pipeline: overlays in Git, then environments in the cluster.
+# ---------------------------------------------------------------------------
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: app-onboard-environments
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Give an existing application the full dev → test → prod promotion chain.
+  params:
+    - {name: repo-name, type: string}
+    - {name: port, type: string, default: "8080"}
+  tasks:
+    - name: scaffold
+      retries: 2
+      taskRef: {name: app-env-scaffold}
+      params:
+        - {name: repo-name, value: "$(params.repo-name)"}
+        - {name: port, value: "$(params.port)"}
+    - name: register
+      retries: 2
+      runAfter: [scaffold]
+      taskRef: {name: app-env-register}
+      params:
+        - {name: repo-name, value: "$(params.repo-name)"}
