@@ -1,7 +1,7 @@
 # Adhar Keycloak Login Theme
 
 A production-quality, self-contained login theme with Adhar branding for
-**Keycloak 26.x** (tested target: 26.7.1). It restyles the sign-in, register,
+**Keycloak 26.x** (tested target: 26.8.0). It restyles the sign-in, register,
 reset-password, OTP, and update-profile pages with the Adhar design system — a
 centered card on the Adhar Console page surface, the gradient hexagon logo,
 refined inputs, and the console's solid brand primary button.
@@ -292,7 +292,7 @@ Workflow:
 - The base login theme in Keycloak 24–26 is **keycloak.v2** (PatternFly v5). We
   inherit it via `parent=keycloak.v2` and its `styles=css/styles.css` bundle. If a
   future patch renames that bundle, update the first entry in `theme.properties`.
-- `install.yaml.tmpl` pins **Keycloak 26.7.1** (an earlier revision of this note
+- `install.yaml.tmpl` pins **Keycloak 26.8.0** (an earlier revision of this note
   claimed 22.0.3, which stopped being true). That is PatternFly v5, so the
   `.pf-v5-c-*` selectors are the live ones; a few `.pf-c-*` (v4) selectors remain
   for graceful degradation only.

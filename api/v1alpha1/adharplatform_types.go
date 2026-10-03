@@ -655,6 +655,22 @@ type GitOpsSyncStatus struct {
 	// Pending names the Applications not yet Synced + Healthy (capped).
 	// +optional
 	Pending []string `json:"pending,omitempty"`
+	// GateApp is the Application whose readiness means the platform is usable
+	// (the console). Recorded so a reader does not have to know which one it is.
+	// +optional
+	GateApp string `json:"gateApp,omitempty"`
+	// GateReady is true once GateApp is Synced + Healthy — i.e. the console is
+	// actually serving.
+	//
+	// Published because the HEALTHY/TOTAL counts cannot answer the one question
+	// an operator asks at the end of `adhar up`: can I open the URL? A platform
+	// at 39/75 might be a console that is up with a long tail still syncing, or
+	// a console that never started. On the first GCP bring-up (2026-10-03) it was
+	// the second, and the CLI printed the full green "Platform ready" panel with
+	// a console URL that refused connections, because nothing it printed was
+	// derived from this fact.
+	// +optional
+	GateReady bool `json:"gateReady,omitempty"`
 }
 
 type GatewayStatus struct {

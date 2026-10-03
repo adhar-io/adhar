@@ -26,7 +26,26 @@ import (
 var cloudPlatformApps = []string{"Console", "ArgoCD", "Gitea", "Keycloak", "Grafana", "Headlamp", "Hubble"}
 
 // renderCloudReadyPanel is the closing panel for a provisioned cloud environment.
-func renderCloudReadyPanel(host, clusterName string) string {
+//
+// `conv` is what the bootstrap last saw of GitOps convergence, and it decides
+// whether this panel may say "ready". Pass nil only where convergence was never
+// attempted.
+//
+// WHY THE PANEL IS CONDITIONAL. It used to be printed on every successful
+// provision, unconditionally — a green "Platform ready" box listing seven URLs,
+// the console first. On the first GCP bring-up (2026-10-03) every one of those
+// URLs refused connections: Keycloak was in a startup-probe restart loop, so
+// `keycloak-clients` was never written, so the console's own ExternalSecret
+// never synced, so the console Deployment at sync-wave 20 was never created.
+// The controller had logged the truth ("still converging at the timeout") and
+// then this panel overrode that impression with a list of links. An operator
+// reads the box, not the log line above it.
+//
+// The platform genuinely does keep converging in the background, and that is
+// worth handing over — but handing it over as "ready" when the entry point is
+// not serving is the same failure as `adhar down` green-ticking a cluster that
+// was still running.
+func renderCloudReadyPanel(host, clusterName string, conv *convergenceSnapshot) string {
 	access := make([][2]string, 0, len(cloudPlatformApps))
 	for _, name := range cloudPlatformApps {
 		// No port: a cloud platform is served by the Gateway's load balancer on
@@ -42,7 +61,31 @@ func renderCloudReadyPanel(host, clusterName string) string {
 	}
 	// Leading newline so the panel is not flush against whatever printed above it
 	// (a summary box, or the blocker warning).
-	return "\n" + helpers.RenderReadyPanel(access, hints)
+	if conv.serving() {
+		return "\n" + helpers.RenderReadyPanel(access, hints)
+	}
+	return "\n" + helpers.RenderConvergingPanel(convergingHeadline(conv), access, hints)
+}
+
+// convergingHeadline says, in one line, why the URLs above are not promised yet.
+//
+// It names the count rather than a duration: "39/75" is checkable against
+// `adhar get status`, whereas "a few more minutes" is a guess that is wrong
+// exactly when it matters — a console stuck behind a crash-looping dependency
+// never arrives, and the operator needs to go looking rather than wait.
+func convergingHeadline(conv *convergenceSnapshot) string {
+	if conv == nil || !conv.Known {
+		return "Platform convergence could not be read — check `adhar get status` before using the URLs below"
+	}
+	gate := conv.GateApp
+	if gate == "" {
+		gate = "the console"
+	}
+	if conv.Total > 0 {
+		return fmt.Sprintf("Cluster is up; %s is NOT serving yet (%d/%d apps Synced + Healthy). ArgoCD keeps converging.",
+			gate, conv.Healthy, conv.Total)
+	}
+	return fmt.Sprintf("Cluster is up; %s is NOT serving yet. ArgoCD keeps converging.", gate)
 }
 
 // lower is ASCII-only on purpose: these are fixed app names, and

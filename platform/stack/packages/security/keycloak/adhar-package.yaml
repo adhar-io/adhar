@@ -7,8 +7,8 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: keycloak
 category: security
-version: "26.7.1"
-appVersion: "26.7.1"
+version: "26.8.0"
+appVersion: "26.8.0"
 description: Keycloak identity provider — the platform's OIDC issuer, realm, groups and per-application clients for SSO.
 maintainer:
   name: Adhar Platform Team

@@ -86,7 +86,9 @@ func TestSummaryWrapsALongFailureInsideTheFrame(t *testing.T) {
 // '#' characters, a bulleted list restating the checklist, and four numbered steps
 // with URLs run together — for the more expensive cluster of the two.
 func TestCloudReadyPanelMatchesTheLocalShape(t *testing.T) {
-	out := renderCloudReadyPanel("platform.adhar.io", "adhar")
+	// A SERVING platform: the gate application is Synced + Healthy.
+	out := renderCloudReadyPanel("platform.adhar.io", "adhar",
+		&convergenceSnapshot{Known: true, GateReady: true, GateApp: "adhar-console", Healthy: 75, Total: 75})
 
 	// Same header the local panel uses.
 	if !strings.Contains(out, "Platform ready") {
@@ -114,5 +116,57 @@ func TestCloudReadyPanelMatchesTheLocalShape(t *testing.T) {
 	// The replaced banner must not come back.
 	if strings.Contains(out, "####") {
 		t.Errorf("the '#' banner is gone for good:\n%s", out)
+	}
+}
+
+
+// The panel must NOT claim readiness when the console is not serving.
+//
+// This is the regression that shipped: on the first GCP bring-up `adhar up`
+// printed the green "Platform ready" box with seven URLs while Keycloak sat in a
+// startup-probe restart loop, so the console Deployment had never been created
+// and every one of those URLs refused connections. The counts and the log line
+// above the box said otherwise; nobody reads those once a box of links appears.
+func TestCloudPanelDoesNotClaimReadyWhileTheConsoleIsDown(t *testing.T) {
+	notServing := []struct {
+		name string
+		conv *convergenceSnapshot
+	}{
+		{"gate app degraded", &convergenceSnapshot{Known: true, GateReady: false, GateApp: "adhar-console", Healthy: 39, Total: 75}},
+		// An unreadable status is NOT a working console. Defaulting the other way
+		// is how a tool ends up asserting readiness it never established.
+		{"status unreadable", &convergenceSnapshot{}},
+		{"no snapshot at all", nil},
+	}
+	for _, tc := range notServing {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderCloudReadyPanel("platform.adhar.io", "adhar", tc.conv)
+			if strings.Contains(out, "Platform ready") {
+				t.Errorf("panel claims readiness with a console that is not serving:\n%s", out)
+			}
+			if !strings.Contains(out, "Platform converging") {
+				t.Errorf("panel does not say the platform is still converging:\n%s", out)
+			}
+			// The URLs still belong here — they are correct, and the operator wants
+			// them shortly. What must not survive is the claim that they work.
+			if !strings.Contains(out, "https://console.platform.adhar.io") {
+				t.Errorf("panel dropped the URLs it should still hand over:\n%s", out)
+			}
+		})
+	}
+}
+
+// The headline has to be checkable, not reassuring: it names the gate and the
+// counts so the reader can confirm them with `adhar get status`.
+func TestConvergingHeadlineNamesTheGateAndTheCounts(t *testing.T) {
+	got := convergingHeadline(&convergenceSnapshot{Known: true, GateApp: "adhar-console", Healthy: 39, Total: 75})
+	for _, want := range []string{"adhar-console", "39/75", "NOT serving"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("headline %q is missing %q", got, want)
+		}
+	}
+	// An unknown state must not be reported as a specific count.
+	if h := convergingHeadline(&convergenceSnapshot{}); strings.Contains(h, "0/0") {
+		t.Errorf("unreadable status reported as a count: %q", h)
 	}
 }

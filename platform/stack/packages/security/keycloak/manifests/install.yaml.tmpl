@@ -67,7 +67,7 @@ spec:
         envFrom:
         - secretRef:
             name: keycloak-config
-        image: quay.io/keycloak/keycloak:26.7.1
+        image: quay.io/keycloak/keycloak:26.8.0
         imagePullPolicy: IfNotPresent
         name: keycloak
         ports:
@@ -75,9 +75,23 @@ spec:
           name: http
         - containerPort: 9000
           name: management
-        # Boot can take 2-3 min (JVM + realm init). A startupProbe covers the slow
-        # first boot so the livenessProbe never kills the pod mid-init; readiness
-        # gates SSO traffic on the real health endpoints (management port 9000).
+        # A startupProbe is a DEADLINE, not just a shield: when its budget runs
+        # out kubelet kills the container. The budget was 30s + 30x10s = 5m30s
+        # against a comment that assumed "2-3 min", and on the first GCP bring-up
+        # (2026-10-03) Keycloak needed longer than that, so kubelet killed
+        # it at 5m58s with exit 137 ("failed startup probe, will be restarted")
+        # and it re-entered the same doomed build on every restart. Nothing
+        # downstream recovers from that: Keycloak's wave-20 config Job never runs,
+        # `keycloak-clients` is never written, and every consumer ExternalSecret
+        # plus the whole adhar-console app sits Degraded behind it — the platform
+        # looked like 39/75 apps converging when it was really one pod in a loop.
+        #
+        # 30s + 90x10s = 15m30s. A generous budget costs NOTHING when boot is
+        # fast: the probe stops the moment /health/started answers 200. It only
+        # ever spends the time a genuinely slow first boot needs — a cold image
+        # pull (56s measured), the `kc.sh build` augmentation for the custom theme,
+        # and first-time DB schema creation, all while ~70 other apps sync.
+        # readiness still gates SSO traffic on the real health endpoints (9000).
         startupProbe:
           httpGet:
             path: /health/started
@@ -85,7 +99,7 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
-          failureThreshold: 30
+          failureThreshold: 90
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -105,7 +119,19 @@ spec:
             cpu: 200m
             memory: 512Mi
           limits:
-            cpu: '1'
+            # NO CPU limit. `cpu: '1'` was measured holding this container at
+            # exactly 1001m for the entire `kc.sh build` while the cluster's
+            # workers sat at 28-66% — the boot was throttled against idle cores,
+            # which is what pushed it past the startup budget above. Keycloak's
+            # first boot is the platform's critical path (CNPG -> keycloak-db ->
+            # this JVM -> the client Job -> ~12 ExternalSecrets -> 9 oauth2-proxy
+            # rollouts), so a CFS quota here delays everything and protects
+            # nothing: the burst is a few minutes long and ends by itself. Same
+            # reasoning that gave Gitea its own limit relief.
+            #
+            # Memory stays 1Gi: measured 513Mi in steady state, so this is real
+            # headroom rather than a guess, and an OOM here would be a crash
+            # rather than a slow start.
             memory: 1Gi
         # Hardening: non-root (the image runs as uid 1000), no privilege
         # escalation, drop all Linux capabilities, default seccomp profile.

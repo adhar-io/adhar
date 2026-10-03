@@ -105,7 +105,32 @@ func providerNameToEnvironmentProvider(name string) v1alpha1.EnvironmentProvider
 // tracker is the caller's checklist. It owns stages 0-1 (preflight, cluster); this
 // function owns stage 2 (kubeconfig/TLS) and hands the rest to pollPlatformStages,
 // exactly as the local path does.
-func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionResult, envConfig *config.ResolvedEnvironmentConfig, cfg *config.Config, tracker *helpers.StageTracker) error {
+// convergenceSnapshot is what the bootstrap SAW at the moment it handed over.
+//
+// It exists so the closing panel can describe the platform instead of asserting
+// it is ready. `adhar up` used to print the green panel and the console URL on
+// every successful provision, whatever the apps were doing — which on the first
+// GCP bring-up meant handing over a console URL that refused connections while
+// Keycloak sat in a restart loop.
+type convergenceSnapshot struct {
+	Healthy   int
+	Total     int
+	GateApp   string
+	GateReady bool
+	// Known is false when the status could not be read at all (the controller
+	// exited before publishing, or the API server went away). The panel then
+	// says nothing about readiness rather than guessing either way.
+	Known   bool
+	Pending []string
+}
+
+// serving reports whether the entry-point application is actually up. A snapshot
+// that was never read is NOT serving: an unknown console is not a working one.
+func (c *convergenceSnapshot) serving() bool {
+	return c != nil && c.Known && c.GateReady
+}
+
+func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionResult, envConfig *config.ResolvedEnvironmentConfig, cfg *config.Config, tracker *helpers.StageTracker) (*convergenceSnapshot, error) {
 	// The checklist is titled with the environment and every stage below belongs to
 	// this bootstrap, so announcing it is a duplicate of the whole display.
 	logger.Debugf("Bootstrapping Adhar platform on cluster %s", result.Cluster.ID)
@@ -115,7 +140,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// for the duration of the bootstrap.
 	kubeconfigStr, err := result.Provider.GetKubeconfig(ctx, result.Cluster.ID)
 	if err != nil {
-		return fmt.Errorf("retrieving kubeconfig for cluster %s: %w", result.Cluster.ID, err)
+		return nil, fmt.Errorf("retrieving kubeconfig for cluster %s: %w", result.Cluster.ID, err)
 	}
 
 	// Persist the kubeconfig next to the cluster's SSH key and merge it into the
@@ -140,14 +165,14 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	kubeconfigFile, err := os.CreateTemp("", "adhar-kubeconfig-")
 	if err != nil {
-		return fmt.Errorf("creating kubeconfig temp file: %w", err)
+		return nil, fmt.Errorf("creating kubeconfig temp file: %w", err)
 	}
 	defer os.Remove(kubeconfigFile.Name())
 	if _, err := kubeconfigFile.WriteString(kubeconfigStr); err != nil {
-		return fmt.Errorf("writing kubeconfig: %w", err)
+		return nil, fmt.Errorf("writing kubeconfig: %w", err)
 	}
 	if err := kubeconfigFile.Close(); err != nil {
-		return fmt.Errorf("closing kubeconfig file: %w", err)
+		return nil, fmt.Errorf("closing kubeconfig file: %w", err)
 	}
 	prevKubeconfig, hadPrev := os.LookupEnv("KUBECONFIG")
 	os.Setenv("KUBECONFIG", kubeconfigFile.Name())
@@ -161,13 +186,13 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfigStr))
 	if err != nil {
-		return fmt.Errorf("building REST config from kubeconfig: %w", err)
+		return nil, fmt.Errorf("building REST config from kubeconfig: %w", err)
 	}
 
 	scheme := k8s.GetScheme()
 	kubeClient, err := k8sClientFromConfig(restConfig, scheme)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// controller-runtime/klog loggers, as in the local path: verbose shows the
@@ -250,14 +275,14 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	// Install platform CRDs.
 	if err := controllers.EnsureCRDs(ctx, scheme, kubeClient, templateData); err != nil {
-		return fmt.Errorf("installing platform CRDs: %w", err)
+		return nil, fmt.Errorf("installing platform CRDs: %w", err)
 	}
 
 	// Self-signed certificate as the initial Gateway TLS material; the
 	// production edge (cert-manager ClusterIssuer) replaces it when configured.
 	cert, err := kind.SetupSelfSignedCertificate(ctx, kubeClient, templateData)
 	if err != nil {
-		return fmt.Errorf("setting up TLS certificate: %w", err)
+		return nil, fmt.Errorf("setting up TLS certificate: %w", err)
 	}
 	templateData.SelfSignedCert = string(cert)
 
@@ -271,7 +296,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			}
 		}
 		if err := ensureEdgeDNSSecret(ctx, kubeClient, dnsProvider, pc); err != nil {
-			return fmt.Errorf("configuring edge DNS (%s): %w", dnsProvider, err)
+			return nil, fmt.Errorf("configuring edge DNS (%s): %w", dnsProvider, err)
 		}
 		// The zone came from the config the operator just passed, and a FAILURE to
 		// configure edge DNS is reported separately (tlsBlocker, printed with the
@@ -346,15 +371,15 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// The stack directory is required for GitOps repo seeding.
 	stackDir, err := filepath.Abs("platform/stack")
 	if err != nil {
-		return fmt.Errorf("resolving stack directory: %w", err)
+		return nil, fmt.Errorf("resolving stack directory: %w", err)
 	}
 	if _, err := os.Stat(stackDir); err != nil {
-		return fmt.Errorf("platform stack directory not found at %s (run from the adhar repository root or provide -p): %w", stackDir, err)
+		return nil, fmt.Errorf("platform stack directory not found at %s (run from the adhar repository root or provide -p): %w", stackDir, err)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "adhar-bootstrap-")
 	if err != nil {
-		return fmt.Errorf("creating temp dir: %w", err)
+		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -367,7 +392,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		}(),
 	})
 	if err != nil {
-		return fmt.Errorf("creating controller manager: %w", err)
+		return nil, fmt.Errorf("creating controller manager: %w", err)
 	}
 
 	bootstrapCtx, cancel := context.WithCancel(ctx)
@@ -375,7 +400,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	exitCh := make(chan error)
 	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsTimeout, templateData, tmpDir, stackDir); err != nil {
-		return fmt.Errorf("starting controllers: %w", err)
+		return nil, fmt.Errorf("starting controllers: %w", err)
 	}
 
 	// Node autoscaling (environments[].autoscaling): the cluster is created at
@@ -385,7 +410,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	if envConfig != nil {
 		autoscaling, err = autoscalingSpecFromConfig(envConfig.Autoscaling)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -418,7 +443,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("creating AdharPlatform resource: %w", err)
+		return nil, fmt.Errorf("creating AdharPlatform resource: %w", err)
 	}
 
 	// Wait for the bootstrap controller to converge and shut down (ExitOnSync).
@@ -452,12 +477,12 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	case mgrErr := <-exitCh:
 		close(stopProgress)
 		if mgrErr != nil && !isShutdownError(mgrErr) {
-			return mgrErr
+			return nil, mgrErr
 		}
 	case <-bootstrapCtx.Done():
 		close(stopProgress)
 		if mgrErr := <-exitCh; mgrErr != nil && !isShutdownError(mgrErr) {
-			return mgrErr
+			return nil, mgrErr
 		}
 	}
 	// Production posture: continuous reconciliation via the in-cluster manager.
@@ -472,14 +497,48 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		Namespace:    globals.AdharSystemNamespace,
 		PlatformName: platformName,
 	}); err != nil {
-		return fmt.Errorf("installing in-cluster controller manager: %w", err)
+		return nil, fmt.Errorf("installing in-cluster controller manager: %w", err)
 	}
 
 	// The checklist's completed stages and the success panel both say this, and it
 	// said it with the provider's internal ID ("adhar-cluster-adhar") rather than
 	// the name the operator uses.
 	logger.Debugf("● Platform bootstrapped on cluster %s (HA mode: %t)", result.Cluster.ID, enableHA)
-	return nil
+
+	// Read what the convergence driver last published, so the caller's closing
+	// panel can describe the platform rather than assert it is ready. A failure
+	// here is not a bootstrap failure: the cluster is up either way, and an
+	// unreadable status simply means the panel stays silent about readiness.
+	return readConvergenceSnapshot(context.Background(), kubeClient, platformName), nil
+}
+
+// readConvergenceSnapshot fetches the last convergence state the controller
+// published onto the AdharPlatform.
+//
+// Deliberately uses its own short timeout and a background context: it runs
+// after the bootstrap context may already be cancelled, and it must never be
+// the reason `adhar up` reports a failure.
+func readConvergenceSnapshot(ctx context.Context, c client.Client, name string) *convergenceSnapshot {
+	readCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	var pl v1alpha1.AdharPlatform
+	if err := c.Get(readCtx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &pl); err != nil {
+		logger.Debugf("could not read convergence status for the closing panel: %v", err)
+		return &convergenceSnapshot{}
+	}
+	g := pl.Status.GitOps
+	if g == nil {
+		return &convergenceSnapshot{}
+	}
+	return &convergenceSnapshot{
+		Healthy:   g.ApplicationsHealthy,
+		Total:     g.ApplicationsTotal,
+		GateApp:   g.GateApp,
+		GateReady: g.GateReady,
+		Pending:   g.Pending,
+		Known:     true,
+	}
 }
 
 // logAppConvergence reports how far the platform Applications have converged

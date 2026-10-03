@@ -220,6 +220,11 @@ func (r *AdharPlatformReconciler) publishConvergence(ctx context.Context, resour
 		ApplicationsTotal:   report.Total,
 		ApplicationsHealthy: report.Healthy,
 		Pending:             pending,
+		// Carried so the CLI's closing panel can say whether the console is
+		// serving instead of inferring "ready" from a bring-up that merely
+		// finished. See GitOpsSyncStatus.GateReady.
+		GateApp:   readyGateApp,
+		GateReady: report.GateReady,
 	}
 	if err := r.Status().Update(ctx, resource); err != nil {
 		log.FromContext(ctx).V(1).Info("could not publish GitOps convergence status", "error", err)
