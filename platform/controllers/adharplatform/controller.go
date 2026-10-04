@@ -554,6 +554,9 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	// are booting, so a local cluster either had no templates or paid for two
 	// library builds to get them. Best effort — see mirrorGiteaRepository.
 	r.mirrorGiteaRepository(ctx, globals.GitOpsRepoTemplates, globals.TemplatesUpstreamURL)
+	// The platform's own source, for the AI knowledge base: docs/ and cmd/
+	// are not in the packages or environments repos. Same best-effort rules.
+	r.mirrorGiteaRepository(ctx, globals.GitOpsRepoSource, globals.SourceUpstreamURL)
 
 	// Populate repositories with content
 	if err := r.populateRepositories(ctx); err != nil {

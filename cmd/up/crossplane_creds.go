@@ -132,9 +132,35 @@ func crossplaneCredentialData(ctx context.Context, provider string, pc *config.C
 		}
 		return map[string][]byte{"credentials": []byte(key)}, nil
 	case dnsAzure:
+		// The client secret comes from the SHARED resolver, not a local rule.
+		//
+		// This Secret is what the in-cluster controllers authenticate with — the
+		// node autoscaler among them. While this read only AZURE_CLIENT_SECRET it
+		// could not see clientSecretFile, so `adhar up` built the cluster from the
+		// file and then wrote a STALE environment value here. The autoscaler then
+		// decided correctly that it needed another worker, failed on
+		// AADSTS7000215 every three minutes for an hour, and the cluster stayed
+		// CPU-starved with 52 pods Pending — including keycloak-db, which blocks
+		// every SSO consumer on the platform (2026-10-04).
+		//
+		// This was the THIRD independent resolution of one credential. Any new
+		// source belongs in config.ResolveSecret, never here.
+		clientSecret, secretSource, serr := config.ResolveSecret(
+			pcv.ClientSecret, pcv.ClientSecretFile, "AZURE_CLIENT_SECRET", "AZURE_CLIENT_SECRET_FILE")
+		if serr != nil {
+			return nil, fmt.Errorf("Azure: %w", serr)
+		}
+		if clientSecret == "" {
+			// ARM_* is Terraform's spelling and is still accepted.
+			clientSecret = get("", "ARM_CLIENT_SECRET")
+			secretSource = "$ARM_CLIENT_SECRET"
+		}
+		if secretSource != "" {
+			logger.Debugf("Azure credentials Secret: client secret from %s", secretSource)
+		}
 		creds := map[string]string{
 			"clientId":       get(pcv.ClientID, "AZURE_CLIENT_ID", "ARM_CLIENT_ID"),
-			"clientSecret":   get(pcv.ClientSecret, "AZURE_CLIENT_SECRET", "ARM_CLIENT_SECRET"),
+			"clientSecret":   clientSecret,
 			"tenantId":       get(pcv.TenantID, "AZURE_TENANT_ID", "ARM_TENANT_ID"),
 			"subscriptionId": get(extra("subscriptionId"), "AZURE_SUBSCRIPTION_ID", "ARM_SUBSCRIPTION_ID"),
 		}

@@ -208,6 +208,21 @@ func getEnvironments(clientset *kubernetes.Clientset, envNames []string) ([]Envi
 		if len(envNames) > 0 && !contains(envNames, ns.Name) {
 			continue
 		}
+		// An ENVIRONMENT is a namespace `adhar up` created for one — labelled
+		// adhar.io/plane=workload. Without this the command listed every
+		// namespace in the cluster, kube-system and Kargo's three internals
+		// included, so the operator saw twelve rows and could not find the
+		// three they had declared (2026-10-04). --all-namespaces restores the
+		// old behaviour for anyone who wanted the namespace dump.
+		if !allNamespaces && len(envNames) == 0 && ns.Labels["adhar.io/plane"] != "workload" {
+			continue
+		}
+		// An agent's namespace is a workload too, but it is one tenant OF an
+		// environment, not an environment: `adhar get agents` lists those.
+		// Mixing them here would show "payments-prod" beside "prod" as peers.
+		if !allNamespaces && len(envNames) == 0 && ns.Labels["adhar.io/agent"] != "" {
+			continue
+		}
 
 		env := EnvironmentInfo{
 			Name:         ns.Name,

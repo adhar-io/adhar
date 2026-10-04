@@ -5,6 +5,15 @@
 # a dedicated path and PostHog should ideally have its own hostname in production.
 cloud: "local"
 
+# The chart's default is the floating `posthog/posthog:latest`, which the repo's
+# "never a floating tag" rule forbids: every pod restart could silently take a
+# different build, and the migrate Job's schema would no longer match the pods.
+# PostHog publishes no semver tags, so the pin is the digest of the build this
+# platform was verified against (2026-10-04). Bump it deliberately, together
+# with the chart version, after a verified run.
+image:
+  sha: "sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c"
+
 ingress:
   enabled: false
   nginx:
@@ -168,6 +177,14 @@ clickhouse:
 # cluster 'posthog_migrations' not found". With a single-shard ClickHouse the
 # two are the same set of nodes.
 env:
+  # PostHog's OpenTelemetry SDK is on by default and exports to localhost:4317,
+  # which nothing listens on — every web/worker pod logged a "Failed to export
+  # traces" error every 20 s. Point it at the platform collector so PostHog's
+  # own traces land in Tempo like every other service's.
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: http://alloy.adhar-system.svc.cluster.local:4317
+  - name: OTEL_SERVICE_NAME
+    value: posthog
   - name: CLICKHOUSE_MIGRATIONS_CLUSTER
     value: posthog
   # NOTE: DEPLOYMENT is NOT set here. The chart already emits it
@@ -252,19 +269,18 @@ web:
     requests: {cpu: 250m, memory: 2Gi}
     limits: {memory: 6Gi}
 events:
-  # Same shape as web: Django+gunicorn, one full app set per worker. A 1536Mi
-  # limit OOM-killed it nine times in a row, and 3Gi still did.
+  # The events role is PostHog's ingestion HTTP endpoint (/e, /capture, /decide).
+  # The same Django image as web, so each gunicorn worker is ~2.2 GiB resident
+  # once the full app is imported — with WEB_CONCURRENCY=2 the pod sat at 4.4 GiB
+  # against a 4 GiB limit and was OOMKilled 44 times in 4 h while the startup
+  # probe saw nothing bind :8000 (2026-10-04). One worker is plenty for the
+  # platform's own event volume; the limit leaves headroom for an import spike.
   env:
     - name: WEB_CONCURRENCY
-      value: "2"
+      value: "1"
   resources:
-    requests: {cpu: 200m, memory: 1536Mi}
-    limits: {memory: 4Gi}
-# The plugin server is DISABLED: posthog/posthog:latest no longer ships
-# ./bin/plugin-server (the chart's command for it), so the Deployment could only
-# ever CrashLoop with "no such file or directory". Ingestion still works — the
-# events tier consumes Kafka — but app transformations/destinations are off until
-# the chart and the image agree on an entrypoint again.
+    requests: {cpu: 200m, memory: 2Gi}
+    limits: {memory: 5Gi}
 plugins:
   enabled: false
 

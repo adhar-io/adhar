@@ -76,6 +76,10 @@ cluster:
       labels:
         adhar.io/component: observability
 
+    # repository-s3 is not bundled in OpenSearch 3.x, and the s3.client.*
+    # settings below belong to it — the node refuses to start without it.
+    pluginsList:
+      - repository-s3
     additionalConfig:
       # S3 client for the snapshot repository below. RustFS is the platform's
       # primary S3 store (ADR: data/rustfs), reached in-cluster over plain HTTP

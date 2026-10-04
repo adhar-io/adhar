@@ -1,0 +1,174 @@
+# Agent workload guardrails — admission-side backstop for AgentWorkload
+# namespaces (Agentic Adhar, pillar 1).
+#
+# The PRIMARY isolation is structural and composed by the control plane
+# (controlplane/compositions/agent): a dedicated namespace, a default-deny
+# NetworkPolicy, a ServiceAccount whose token is the agent's gateway identity,
+# and an Allow rule at the gateway naming its models and tools. This policy is
+# the second layer: what a pod inside such a namespace must look like, checked at
+# admission so a misconfigured agent is reported before it runs.
+#
+# Scope: namespaces labelled `adhar.io/agent-isolation: "true"`, which only the
+# composition sets. Nothing here touches platform pods.
+#
+# Mode: Audit, per the platform convention (ADR-0019 and adhar-ai-guardrails):
+# visible first, enforcing once a week of PolicyReports shows what fires. The
+# mutate rule is the exception — it adds, it never blocks, and it is what gives
+# every agent's telemetry its identity without each team wiring it by hand.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: agent-workload-guardrails
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    policies.kyverno.io/title: Agent Workload Guardrails
+    policies.kyverno.io/category: Agentic AI
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Pods in an AgentWorkload namespace must be attributable (adhar.io/agent
+      label), run as non-root without host namespaces, must not mount the default
+      ServiceAccount token (the agent's gateway credential is a projected token),
+      and must export telemetry over OTLP. Agent and environment identity is
+      injected into every container's environment from the namespace labels.
+spec:
+  validationFailureAction: Audit
+  # The mutate rule reads request.namespace and the rules below use the
+  # namespace selector; neither is available in a background scan.
+  background: false
+  emitWarning: true
+  rules:
+    # ------------------------------------------------------------------ 1
+    - name: require-agent-label
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/agent-isolation: "true"
+      validate:
+        message: >-
+          Pods in an agent namespace must carry the adhar.io/agent label so every
+          action, span and cost line is attributable to the agent that caused it.
+        pattern:
+          metadata:
+            labels:
+              adhar.io/agent: "?*"
+    # ------------------------------------------------------------------ 2
+    - name: run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/agent-isolation: "true"
+      validate:
+        message: >-
+          An agent executes instructions chosen at runtime by a model. It runs as
+          non-root: set runAsNonRoot: true on the pod or on every container.
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true
+    # ------------------------------------------------------------------ 3
+    - name: no-host-namespaces
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/agent-isolation: "true"
+      validate:
+        message: An agent pod may not share the node's network, PID or IPC namespace.
+        pattern:
+          spec:
+            =(hostNetwork): false
+            =(hostPID): false
+            =(hostIPC): false
+    # ------------------------------------------------------------------ 4
+    - name: no-default-serviceaccount-token
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/agent-isolation: "true"
+      validate:
+        message: >-
+          The default ServiceAccount token has the Kubernetes API as its audience
+          and must not be mounted into an agent. The gateway credential is a
+          PROJECTED token with audience `agentgateway`; the composed ServiceAccount
+          already sets automountServiceAccountToken: false, so do not override it.
+        pattern:
+          spec:
+            =(automountServiceAccountToken): false
+    # ------------------------------------------------------------------ 5
+    - name: require-otlp-export
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/agent-isolation: "true"
+      validate:
+        message: >-
+          Every agent container must export telemetry: set
+          OTEL_EXPORTER_OTLP_ENDPOINT (the golden path sets it to the platform
+          collector, http://alloy.adhar-system.svc.cluster.local:4318). An agent
+          that cannot be traced cannot be trusted with a budget.
+        # `^(env)` is Kyverno's existence anchor: AT LEAST ONE env entry must
+        # match. Without it a pattern list element has to match EVERY element
+        # of the resource list, so any second variable — including the two
+        # `inject-agent-identity` adds below — failed the rule.
+        pattern:
+          spec:
+            containers:
+              - ^(env):
+                  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                    value: "?*"
+    # ------------------------------------------------------------------ 6
+    # Identity for telemetry, injected rather than typed. The composition labels
+    # the namespace; this copies those labels into every container's environment
+    # so the OpenTelemetry SDK can stamp `adhar.agent` / `adhar.environment` on
+    # each span and metric with no per-agent configuration. `+(...)` adds the
+    # variable only when the container does not already set it.
+    - name: inject-agent-identity
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE]
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/agent-isolation: "true"
+      context:
+        - name: ns
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ request.namespace }}"
+            jmesPath: "metadata.labels"
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+              - (name): "?*"
+                env:
+                  - name: ADHAR_AGENT
+                    value: '{{ ns."adhar.io/agent" }}'
+                  - name: ADHAR_ENVIRONMENT
+                    value: '{{ ns."adhar.io/environment" }}'

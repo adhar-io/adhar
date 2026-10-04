@@ -707,6 +707,27 @@ data:
       if kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
         if [ "${MODE}" = "full" ]; then
           tok=$(argocd_session_token)
+          # The KEY must exist even when the token could not be fetched.
+          #
+          # The creation path below writes it empty for exactly this reason, but
+          # this branch used to write nothing at all unless the token was
+          # non-empty — so a secret that already existed when ArgoCD happened to
+          # be unreachable never got the key, and never would: the 5-minute
+          # reconcile CronJob runs MODE=clients and skips this block entirely.
+          #
+          # The console's `console-oidc` ExternalSecret lists ARGOCD_SESSION_TOKEN
+          # as a required key, and External Secrets fails the WHOLE secret when one
+          # key is missing. So a best-effort value became a permanent hard failure:
+          # `could not get secret data from provider`, the console Deployment was
+          # never created, and https://console.<host> returned 503 indefinitely
+          # (2026-10-04, after an argocd-application-controller restart).
+          if [ -z "${tok}" ] && \
+             [ -z "$(kubectl -n adhar-system get secret keycloak-clients \
+                      -o jsonpath='{.data.ARGOCD_SESSION_TOKEN}' 2>/dev/null)" ]; then
+            echo "ArgoCD unreachable; creating an empty ARGOCD_SESSION_TOKEN so consumers resolve"
+            { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
+                -p '{"stringData":{"ARGOCD_SESSION_TOKEN":""}}' >/dev/null; set -x; } 2>/dev/null
+          fi
           if [ -n "${tok}" ]; then
             { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
                 -p "{\"stringData\":{\"ARGOCD_SESSION_TOKEN\":\"${tok}\"}}" >/dev/null; set -x; } 2>/dev/null

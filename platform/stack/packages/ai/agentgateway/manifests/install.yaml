@@ -34771,6 +34771,8 @@ spec:
               value: "9978"
             - name: AGW_DISCOVERY_NAMESPACE_SELECTORS
               value: "[]"
+            - name: SSL_CERT_DIR
+              value: "/etc/ssl/certs:/etc/pki/tls/certs:/var/run/adhar/cluster-ca"
             - name: AGW_XDS_MODE
               value: "tls"
             - name: AGW_GATEWAY_CLASS_PARAMETERS_REFS
@@ -34783,3 +34785,11 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+          volumeMounts:
+            - mountPath: /var/run/adhar/cluster-ca
+              name: cluster-ca
+              readOnly: true
+      volumes:
+        - configMap:
+            name: kube-root-ca.crt
+          name: cluster-ca

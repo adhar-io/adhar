@@ -63,6 +63,9 @@ spec:
               env:
                 # Embeddings go through the AI data plane, exactly as the
                 # runtime's do, so the provider key stays server-side.
+                # Same repositories the runtime reads; see agent-runtime.yaml.
+                - name: GITEA_API_URL
+                  value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
                 - name: LLM_GATEWAY_URL
                   value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
                 - name: RAG_DB_HOST

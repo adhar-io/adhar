@@ -41,12 +41,21 @@ metadata:
     argocd.argoproj.io/sync-wave: "12"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
+  # The SAME three environments, in the same order, with the same policy as
+  # every application's own pipeline (adhar-supply-chain/90-app-environments):
+  # dev and test promote on their own, prod waits for a person. This pipeline
+  # used to say staging -> production while `adhar up` created the namespaces
+  # dev/test/prod and the per-app pipelines used dev/test/prod, so the Kargo UI
+  # and the console showed environments that existed nowhere else (2026-10-04).
   promotionPolicies:
     - stageSelector:
-        name: staging
+        name: dev
       autoPromotionEnabled: true
     - stageSelector:
-        name: production
+        name: test
+      autoPromotionEnabled: true
+    - stageSelector:
+        name: prod
       autoPromotionEnabled: false
 ---
 # Git credentials for Kargo, projected from the platform's gitea-credential.
@@ -98,17 +107,22 @@ spec:
         # patterns); "development/**" matched nothing and the Warehouse sat at
         # "No commits discovered".
         includePaths:
-          - glob:development/**
+          - glob:dev/**
 ---
 apiVersion: kargo.akuity.io/v1alpha1
 kind: Stage
 metadata:
-  name: staging
+  name: dev
   namespace: adhar-environments
+  labels: {adhar.io/environment: dev}
   annotations:
     argocd.argoproj.io/sync-wave: "14"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
+  # dev is the SOURCE: a commit to dev/ in the environments repo is the freight.
+  # Its promotion has nothing to write — the change is already in dev — so a
+  # single clone step completes it and marks the freight current, which is what
+  # makes dev visible as an environment and lets test promote from it.
   requestedFreight:
     - origin:
         kind: Warehouse
@@ -124,24 +138,13 @@ spec:
             checkout:
               - branch: main
                 path: ./src
-        - uses: copy
-          config:
-            inPath: ./src/development/config.yaml
-            outPath: ./src/staging/config.yaml
-        - uses: git-commit
-          config:
-            path: ./src
-            message: "promote: development -> staging"
-        - uses: git-push
-          config:
-            path: ./src
-            targetBranch: main
 ---
 apiVersion: kargo.akuity.io/v1alpha1
 kind: Stage
 metadata:
-  name: production
+  name: test
   namespace: adhar-environments
+  labels: {adhar.io/environment: test}
   annotations:
     argocd.argoproj.io/sync-wave: "14"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
@@ -152,7 +155,7 @@ spec:
         name: environments
       sources:
         stages:
-          - staging
+          - dev
   promotionTemplate:
     spec:
       steps:
@@ -164,12 +167,51 @@ spec:
                 path: ./src
         - uses: copy
           config:
-            inPath: ./src/staging/config.yaml
-            outPath: ./src/production/config.yaml
+            inPath: ./src/dev/config.yaml
+            outPath: ./src/test/config.yaml
         - uses: git-commit
           config:
             path: ./src
-            message: "promote: staging -> production"
+            message: "promote: dev -> test"
+        - uses: git-push
+          config:
+            path: ./src
+            targetBranch: main
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: prod
+  namespace: adhar-environments
+  labels: {adhar.io/environment: prod}
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: environments
+      sources:
+        stages:
+          - test
+  promotionTemplate:
+    spec:
+      steps:
+        - uses: git-clone
+          config:
+            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/environments
+            checkout:
+              - branch: main
+                path: ./src
+        - uses: copy
+          config:
+            inPath: ./src/test/config.yaml
+            outPath: ./src/prod/config.yaml
+        - uses: git-commit
+          config:
+            path: ./src
+            message: "promote: test -> prod"
         - uses: git-push
           config:
             path: ./src

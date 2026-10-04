@@ -1,0 +1,152 @@
+# Tetragon TracingPolicies — the platform's runtime-security baseline.
+#
+# These are OBSERVE-ONLY (no Sigkill/Override actions): each match becomes an
+# exported event and a `tetragon_policy_events_total{policy=…}` increment that
+# manifests/rules.yaml alerts on. Enforcement is a per-environment decision an
+# operator makes by adding `matchActions: [{action: Sigkill}]` to a selector;
+# the baseline must never kill a platform process on a false positive.
+#
+# `matchNamespaces: Pid NotIn host_ns` scopes every hook to containers: the
+# node's own agents (kubelet, containerd, the CNI) legitimately do all of this.
+#
+# Cluster-scoped kind, so no namespace. Rendered after the CRDs install.yaml
+# carries (wave 0) and before the alert rules (wave 10).
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: adhar-privilege-escalation
+  labels:
+    app.kubernetes.io/part-of: tetragon
+    adhar.io/component: runtime-security
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  kprobes:
+    # A container process becoming root: setuid(0). Entrypoints that drop
+    # privileges call setuid(non-zero); the other direction is the signal.
+    #
+    # Only setuid. The first version also hooked setgid(0), and in 15 minutes
+    # on the live cluster that matched 1 863 calls from runc (every container
+    # start sets gid 0 inside the new pid namespace before exec, so the
+    # "not host namespace" selector does not exclude it) and 60 from a
+    # BusyBox wget probe that resets its gid — none of them an escalation.
+    # runc is excluded by binary for the same reason.
+    - call: "sys_setuid"
+      syscall: true
+      args:
+        - index: 0
+          type: "int"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "Equal"
+              values: ["0"]
+          matchBinaries:
+            - operator: "NotIn"
+              values:
+                - "/usr/sbin/runc"
+                - "/usr/bin/runc"
+                - "/usr/local/sbin/runc"
+                - "/usr/local/bin/runc"
+                - "/usr/bin/containerd-shim-runc-v2"
+          matchNamespaces:
+            - namespace: Pid
+              operator: NotIn
+              values: ["host_ns"]
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: adhar-sensitive-files
+  labels:
+    app.kubernetes.io/part-of: tetragon
+    adhar.io/component: runtime-security
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  kprobes:
+    # security_file_permission(file, mask) runs on every read/write; the
+    # selectors narrow it to the handful of files whose modification means
+    # account or trust tampering. mask 2 = MAY_WRITE, 4 = MAY_READ.
+    # No `return`/`returnArgAction`: tetragon 1.7 only accepts TrackSock/
+    # UntrackSock there (a load_error on 2026-10-04 left this policy silently
+    # off). The attempt is the signal; whether the kernel then refused it is
+    # in the exported event's process credentials.
+    - call: "security_file_permission"
+      syscall: false
+      args:
+        - index: 0
+          type: "file"
+        - index: 1
+          type: "int"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "Prefix"
+              values:
+                - "/etc/passwd"
+                - "/etc/shadow"
+                - "/etc/group"
+                - "/etc/sudoers"
+                - "/etc/ssh/"
+                - "/root/.ssh/"
+                - "/etc/ld.so.preload"
+            - index: 1
+              operator: "Equal"
+              values: ["2"]
+          matchNamespaces:
+            - namespace: Pid
+              operator: NotIn
+              values: ["host_ns"]
+        # Reading the shadow file is never part of serving traffic.
+        - matchArgs:
+            - index: 0
+              operator: "Equal"
+              values: ["/etc/shadow"]
+            - index: 1
+              operator: "Equal"
+              values: ["4"]
+          matchNamespaces:
+            - namespace: Pid
+              operator: NotIn
+              values: ["host_ns"]
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: adhar-agent-egress
+  labels:
+    app.kubernetes.io/part-of: tetragon
+    adhar.io/component: runtime-security
+    adhar.io/agent-isolation: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Only pods of AgentWorkloads (the Kyverno pack requires the label on every
+  # pod in an agent namespace). An agent's NetworkPolicy allows DNS, the AI
+  # gateway and the telemetry collector — all cluster addresses — so a connect()
+  # to anything outside the private ranges is a tool call bypassing the gateway
+  # or exfiltration. The policy drops the packets; this records who tried.
+  podSelector:
+    matchExpressions:
+      - key: adhar.io/agent
+        operator: Exists
+  kprobes:
+    - call: "tcp_connect"
+      syscall: false
+      args:
+        - index: 0
+          type: "sock"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "NotDAddr"
+              values:
+                - "10.0.0.0/8"
+                - "172.16.0.0/12"
+                - "192.168.0.0/16"
+                - "127.0.0.0/8"

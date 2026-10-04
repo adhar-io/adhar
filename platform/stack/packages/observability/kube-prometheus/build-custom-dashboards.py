@@ -226,28 +226,69 @@ write("spark-operator", dashboard("adhar-spark-operator", "Adhar / Spark Operato
                                   "controller_runtime_reconcile_total"))
 
 # ---------------------------------------------------------------- tetragon
+# Metric names are tetragon 1.7.x's (verified against a live agent 2026-10-04):
+# the ringbuf_* / missed_events_total family the first version of this panel set
+# used does not exist there, so every panel read "No data".
 l = Layout()
 l.row("Overview — Tetragon (eBPF runtime security)")
 l.stat("Events/s", "sum(rate(tetragon_events_total[5m]))", "ops")
-l.stat("Policy events/s", "sum(rate(tetragon_policy_events_total[5m]))", "ops")
-l.stat("Ringbuf lost/s", "sum(rate(tetragon_ringbuf_events_lost_total[5m]))", "ops",
+l.stat("Policy events/s", "sum(rate(tetragon_policy_events_total[5m]))", "ops",
+       desc="Matches of the platform's TracingPolicies (adhar-privilege-escalation, adhar-sensitive-files, adhar-agent-egress)")
+l.stat("Policies loaded", 'sum(tetragon_tracingpolicy_loaded{state="enabled"})', "short",
+       thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 3}],
+       desc="TracingPolicies attached and enabled; the platform baseline is 3")
+l.stat("Export drops/s", "sum(rate(tetragon_export_ratelimit_events_dropped_total[5m]))", "ops",
        thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 0.001}],
-       desc="Lost ringbuffer events = observability blind spots; should be 0")
-l.stat("Process cache size", "sum(tetragon_process_cache_size)", "short")
+       desc="Events the export rate limit discarded before Loki = audit-trail gaps; should be 0")
 l.row("Process & policy events")
 l.ts("Events by type", [('sum(rate(tetragon_events_total[5m])) by (type)', "{{type}}")], "ops", stacking=True)
 l.ts("Policy events by policy", [('sum(rate(tetragon_policy_events_total[5m])) by (policy)', "{{policy}}")], "ops", stacking=True)
-l.row("eBPF ringbuffer health")
-l.ts("Ringbuffer throughput",
-     [("sum(rate(tetragon_ringbuf_events_received_total[5m]))", "received/s"),
-      ("sum(rate(tetragon_ringbuf_events_lost_total[5m]))", "lost/s"),
-      ("sum(rate(tetragon_missed_events_total[5m]))", "missed/s")], "ops")
+l.ts("Policy events by workload", [('sum(rate(tetragon_policy_events_total[5m])) by (namespace, workload)', "{{namespace}}/{{workload}}")], "ops")
+l.ts("Exported to stdout/Loki", [("sum(rate(tetragon_events_exported_total[5m]))", "events/s"),
+                                 ("sum(rate(tetragon_events_exported_bytes_total[5m]))", "bytes/s")], "short")
+l.row("Agent health")
+l.ts("Probe failures",
+     [("sum(rate(tetragon_missed_link_probes_total[5m]))", "missed link probes/s"),
+      ("sum(rate(tetragon_missed_prog_probes_total[5m]))", "missed prog probes/s"),
+      ("sum(rate(tetragon_errors_total[5m]))", "errors/s")], "ops")
 l.ts("Process cache",
      [("sum(tetragon_process_cache_size)", "size"),
-      ("sum(rate(tetragon_process_cache_evicted_total[5m]))", "evicted/s")], "short")
-l.logs("Tetragon logs", '{namespace=~"$namespace", pod=~"tetragon.*"}')
+      ("sum(rate(tetragon_process_cache_evictions_total[5m]))", "evicted/s"),
+      ("sum(rate(tetragon_process_cache_misses_total[5m]))", "misses/s")], "short")
+l.logs("Policy matches (exported events)", '{namespace=~"$namespace", app="tetragon", container="export-stdout"} |= "process_kprobe"',
+       desc="Each line is one kernel-hook match with the process tree; filter further with |= \"adhar-agent-egress\" etc.")
 write("tetragon", dashboard("adhar-tetragon", "Adhar / Tetragon — Runtime Security", ["tetragon", "security"], l,
                             "tetragon_events_total"))
+
+# ---------------------------------------------------------------- falco
+# Replaces grafana.com 11914, which reads `falco_events` from the retired
+# falco-exporter. The platform's events come through Falcosidekick
+# (falcosecurity_falcosidekick_falco_events_total) and the agent's own health
+# counters (falcosecurity_falco_* / _scap_*) come from the DaemonSet's :8765.
+l = Layout()
+l.row("Overview — Falco (runtime threat detection)")
+l.stat("Events/h", "sum(increase(falcosecurity_falcosidekick_falco_events_total[1h]))", "short")
+l.stat("Critical+ events/24h", 'sum(increase(falcosecurity_falcosidekick_falco_events_total{priority_raw=~"critical|alert|emergency"}[24h]))', "short",
+       thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}])
+l.stat("Agent-workload events/24h", 'sum(increase(falcosecurity_falcosidekick_falco_events_total{rule=~"Shell spawned in agent workload|Agent workload connected outside the cluster"}[24h]))', "short",
+       thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}],
+       desc="The two adhar.io/agent rules in security/falco values.yaml")
+l.stat("Falco nodes reporting", 'count(up{job="falco"} == 1)', "short",
+       thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}])
+l.row("What fired")
+l.ts("Events by rule", [('sum(rate(falcosecurity_falcosidekick_falco_events_total[5m])) by (rule)', "{{rule}}")], "ops", stacking=True)
+l.ts("Events by priority", [('sum(rate(falcosecurity_falcosidekick_falco_events_total[5m])) by (priority_raw)', "{{priority_raw}}")], "ops", stacking=True)
+l.ts("Events by namespace", [('sum(rate(falcosecurity_falcosidekick_falco_events_total[5m])) by (k8s_ns_name)', "{{k8s_ns_name}}")], "ops")
+l.ts("Fan-out (Falcosidekick outputs)", [('sum(rate(falcosecurity_falcosidekick_outputs_total[5m])) by (destination, status)', "{{destination}} {{status}}")], "ops",
+     desc="Deliveries to Loki, Alertmanager and the UI; any status=error series means evidence is being lost")
+l.row("Falco agent health")
+l.ts("Kernel event drops", [('sum(rate(falcosecurity_scap_n_drops_total[5m])) by (hostname)', "{{hostname}}")], "ops",
+     desc="Ring-buffer overflow = syscalls unobserved; should be flat at 0")
+l.ts("Syscalls observed", [('sum(rate(falcosecurity_scap_n_evts_total[5m])) by (hostname)', "{{hostname}}")], "ops")
+l.logs("Events (Loki, via Falcosidekick)", '{rule=~".+"} | json',
+       desc="Every Falco event as JSON; labels rule / priority / source / k8s_ns_name / k8s_pod_name are indexed")
+write("falco", dashboard("adhar-falco", "Adhar / Falco — Runtime Threats", ["falco", "security"], l,
+                         "falcosecurity_falcosidekick_falco_events_total"))
 
 # ---------------------------------------------------------------- kubescape
 l = Layout()
@@ -292,4 +333,4 @@ l.ts("CPU (cores)", [('sum(rate(process_cpu_seconds_total{job=~".*pyroscope.*"}[
 write("pyroscope", dashboard("adhar-pyroscope", "Adhar / Pyroscope — Continuous Profiling", ["pyroscope", "profiling"], l,
                              "go_goroutines"))
 
-print("done: 7 custom dashboards built")
+print("done: 8 custom dashboards built")

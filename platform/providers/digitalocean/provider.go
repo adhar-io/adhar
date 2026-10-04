@@ -797,9 +797,14 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 
 		select {
 		case <-waitCtx.Done():
+			// Timing out is not deletion. Forgetting the cluster here reported
+			// success for a cluster that may still be running, and removed the
+			// only record of it — so neither the operator nor a later
+			// `adhar down` could find what was left. Keep it and say so.
 			log.Printf("Warning: timed out waiting for DOKS cluster %s deletion to finish", clusterID)
-			delete(p.clusters, clusterID)
-			return nil
+			return fmt.Errorf("timed out waiting for DOKS cluster %s to finish deleting; its record "+
+				"has been kept so `adhar down` can be retried — check the DigitalOcean console, "+
+				"the cluster may still be billing", clusterID)
 		case <-ticker.C:
 		}
 	}

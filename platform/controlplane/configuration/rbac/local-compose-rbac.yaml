@@ -43,9 +43,22 @@ rules:
     resources: ["valkeys", "valkeys/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # ServiceMonitor/PodMonitor so compositions can wire their own observability
-  # (e.g. the Redis exporter ServiceMonitor) into kube-prometheus.
+  # (e.g. the Redis exporter ServiceMonitor) into kube-prometheus. PrometheusRule
+  # so an AgentWorkload can alert on its own declared budget.
   - apiGroups: ["monitoring.coreos.com"]
-    resources: ["servicemonitors", "podmonitors"]
+    resources: ["servicemonitors", "podmonitors", "prometheusrules"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # LimitRange was never granted, so a composition that emits one fails at
+  # apply with a 403 that the XR reports as a generic sync error.
+  - apiGroups: [""]
+    resources: ["limitranges"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # An AgentWorkload composes the gateway policy that is its identity's ONLY
+  # grant (compositions/agent/kubernetes.yaml): which models it may name and
+  # which MCP targets it may call. Without this the agent exists but can reach
+  # nothing, which is the intended default but not a useful end state.
+  - apiGroups: ["agentgateway.dev"]
+    resources: ["agentgatewaypolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 # Cluster-wide role the composed `secret-rotation` ServiceAccount is bound to by

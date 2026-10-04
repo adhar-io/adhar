@@ -123,7 +123,7 @@ DASHBOARDS = [
     # Security / policy / secrets
     # ---------------------------------------------------------------------
     ("trivy-operator", 17813, "Platform"),
-    ("falco", 11914, "Platform"),
+    ("falco", "local:falco.json", "Platform"),  # 11914 reads falco_events from the retired falco-exporter
     ("external-secrets", "https://raw.githubusercontent.com/external-secrets/external-secrets/main/docs/snippets/dashboard.json", "Platform"),
 
     # ---------------------------------------------------------------------

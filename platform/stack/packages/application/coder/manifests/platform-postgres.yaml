@@ -88,6 +88,10 @@ metadata:
     argocd.argoproj.io/sync-wave: "-5"
     argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
 spec:
+  # Node-bound: this instance's volume pins it to one node (node-local default
+  # StorageClass), so it has no alternative placement and must be able to preempt
+  # pods that do. See data/cnpg/manifests/priorityclass.yaml.
+  priorityClassName: adhar-node-bound
   instances: 1
   monitoring:
     enablePodMonitor: true

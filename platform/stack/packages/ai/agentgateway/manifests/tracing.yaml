@@ -97,3 +97,9 @@ spec:
           # than the platform's audit log.
           - name: enduser.id
             expression: 'default(jwt.sub, "")'
+          # ---- Agent attribution. The same split as the metrics label in
+          # security.yaml, so a span and the series it contributed to agree on
+          # who the caller was: an AgentWorkload's identity, or "user".
+          - name: adhar.agent
+            expression: >-
+              default(jwt.sub, "").startsWith("system:serviceaccount:") ? jwt.sub : "user"

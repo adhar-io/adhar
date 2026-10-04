@@ -145,6 +145,127 @@ metadata:
 data:
   admin.enabled: "true"
   application.instanceLabelKey: argocd.argoproj.io/instance
+
+  # Health for resource kinds ArgoCD cannot assess on its own.
+  #
+  # A sync wave does not complete until every resource in it reports Healthy, and
+  # for a custom resource with no built-in check ArgoCD reports Unknown — which
+  # never becomes Healthy. The wave then blocks FOREVER, and every later wave with
+  # it, on a resource that is perfectly fine.
+  #
+  # Measured on Azure, 2026-10-04: the keycloak Application sat at
+  #   waiting for healthy state of gateway.networking.k8s.io/HTTPRoute/keycloak
+  # while that route was Accepted=True, ResolvedRefs=True, resolving to the live
+  # gateway and answering HTTP 302 over a valid certificate. Because the wave never
+  # completed, Keycloak's wave-20 config Job was never created, so the
+  # `keycloak-clients` Secret was never written — and that Secret gates ~12
+  # consumer ExternalSecrets and 9 oauth2-proxy rollouts. One unassessable route
+  # held the platform's entire SSO estate Degraded.
+  #
+  # Each check below asserts what the resource itself considers correct, never a
+  # blanket "Healthy": a real failure must still surface.
+
+  # HTTPRoute is healthy once the gateway has Accepted it and its backendRefs
+  # resolve. Both are reported per parent gateway, so every parent must agree.
+  resource.customizations.health.gateway.networking.k8s.io_HTTPRoute: |
+    local hs = {}
+    if obj.status == nil or obj.status.parents == nil or #obj.status.parents == 0 then
+      hs.status = "Progressing"
+      hs.message = "Waiting for a gateway to report on this route"
+      return hs
+    end
+    for _, parent in ipairs(obj.status.parents) do
+      if parent.conditions == nil then
+        hs.status = "Progressing"
+        hs.message = "Waiting for parent conditions"
+        return hs
+      end
+      local accepted, resolved = false, false
+      for _, c in ipairs(parent.conditions) do
+        if c.type == "Accepted" then
+          if c.status == "False" then
+            hs.status = "Degraded"
+            hs.message = "Not accepted: " .. (c.message or c.reason or "")
+            return hs
+          end
+          accepted = c.status == "True"
+        end
+        if c.type == "ResolvedRefs" then
+          if c.status == "False" then
+            hs.status = "Degraded"
+            hs.message = "Unresolved backendRefs: " .. (c.message or c.reason or "")
+            return hs
+          end
+          resolved = c.status == "True"
+        end
+      end
+      if not (accepted and resolved) then
+        hs.status = "Progressing"
+        hs.message = "Waiting to be accepted and resolved"
+        return hs
+      end
+    end
+    hs.status = "Healthy"
+    hs.message = "Accepted and backendRefs resolved"
+    return hs
+
+  # Grant/GRPCRoute/TLSRoute/TCPRoute share HTTPRoute's status shape; Gateway
+  # itself reports Programmed rather than Accepted (see the separate check).
+  resource.customizations.health.gateway.networking.k8s.io_Gateway: |
+    local hs = {}
+    if obj.status == nil or obj.status.conditions == nil then
+      hs.status = "Progressing"
+      hs.message = "Waiting for the gateway controller"
+      return hs
+    end
+    for _, c in ipairs(obj.status.conditions) do
+      if c.type == "Programmed" then
+        if c.status == "True" then
+          hs.status = "Healthy"
+          hs.message = "Programmed"
+          return hs
+        end
+        hs.status = "Progressing"
+        hs.message = c.message or c.reason or "Not programmed"
+        return hs
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "No Programmed condition yet"
+    return hs
+
+  # External Secrets generators are declarative inputs, not workloads: they have
+  # no status subresource at all and nothing about them ever becomes ready. A
+  # generator that is malformed fails at the ExternalSecret that references it,
+  # which IS assessed, so reporting Healthy here loses no signal.
+  resource.customizations.health.generators.external-secrets.io_Password: |
+    local hs = {}
+    hs.status = "Healthy"
+    hs.message = "Generator configuration (no runtime state)"
+    return hs
+  resource.customizations.health.generators.external-secrets.io_UUID: |
+    local hs = {}
+    hs.status = "Healthy"
+    hs.message = "Generator configuration (no runtime state)"
+    return hs
+  resource.customizations.health.generators.external-secrets.io_Webhook: |
+    local hs = {}
+    hs.status = "Healthy"
+    hs.message = "Generator configuration (no runtime state)"
+    return hs
+  resource.customizations.health.generators.external-secrets.io_Grafana: |
+    local hs = {}
+    hs.status = "Healthy"
+    hs.message = "Generator configuration (no runtime state)"
+    return hs
+
+  # A ScheduledBackup is a schedule. It reports lastScheduleTime once it has
+  # fired, which may be a day away, so waiting for that is waiting for the clock.
+  resource.customizations.health.postgresql.cnpg.io_ScheduledBackup: |
+    local hs = {}
+    hs.status = "Healthy"
+    hs.message = "Backup schedule registered"
+    return hs
   application.sync.impersonation.enabled: "false"
   exec.enabled: "false"
   oidc.config: |

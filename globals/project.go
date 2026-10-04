@@ -127,6 +127,17 @@ const (
 	// creates it as a Gitea pull mirror of this address, so the templates a platform
 	// offers are the upstream ones and stay current without a platform release.
 	TemplatesUpstreamURL = "https://github.com/adhar-io/adhar-templates.git"
+
+	// GitOpsRepoSource is a Gitea PULL MIRROR of the adhar repository itself.
+	// Bootstrap creates it (best effort, like the templates mirror) so the AI
+	// knowledge base inside the cluster can read the platform's documentation
+	// and the CLI's own source — neither of which is in the `packages` or
+	// `environments` repos it already reads. Without this the in-cluster agent
+	// knows the manifests but not the ADRs that explain them, nor a single
+	// `adhar` command. Read-only; nothing in the platform writes to it.
+	GitOpsRepoSource = "adhar"
+	// SourceUpstreamURL is where GitOpsRepoSource is mirrored FROM.
+	SourceUpstreamURL = "https://github.com/adhar-io/adhar.git"
 )
 
 var (

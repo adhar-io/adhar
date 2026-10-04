@@ -4860,7 +4860,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: d6c78cba55df6207d7427f04ad6015b96ffc52ea1323e72614db899200faa4e6
+        checksum/secrets.yaml: ca2cb137377a7af37d0a3a4993e0b9bea77dd358fefe687f271056a89513cbc1
       labels:
         app: posthog
         release: posthog
@@ -4870,7 +4870,7 @@ spec:
       serviceAccountName: posthog
       containers:
       - name: posthog-events
-        image: posthog/posthog:latest
+        image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
         command:
         - ./bin/docker-server
         imagePullPolicy: Always
@@ -4959,6 +4959,10 @@ spec:
           value: 'false'
         - name: DEFAULT_FROM_EMAIL
           value: null
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4317
+        - name: OTEL_SERVICE_NAME
+          value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
         - name: ADHAR_PERSONS_DB_PASSWORD
@@ -4971,7 +4975,7 @@ spec:
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: WEB_CONCURRENCY
-          value: '2'
+          value: '1'
         lifecycle:
           preStop:
             exec:
@@ -5012,10 +5016,10 @@ spec:
           timeoutSeconds: 15
         resources:
           limits:
-            memory: 4Gi
+            memory: 5Gi
           requests:
             cpu: 200m
-            memory: 1536Mi
+            memory: 2Gi
       initContainers:
       - name: wait-for-service-dependencies
         image: busybox:1.34
@@ -5070,7 +5074,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 58e13c04c626af5e40687efc59c6817a9044fdbf09ab500ca1b25c2a1a28a25f
+        checksum/secrets.yaml: d6acfb558695808b79a67f16625d773081e6f112bf5af000e45c31a6497d4f29
       labels:
         app: posthog
         release: posthog
@@ -5161,7 +5165,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: ecb9b812647b35d28409aa062fc552d7d722280a466513c7239e05df5dd1c34d
+        checksum/secrets.yaml: b12171f17995730825bc878748a6d74e59fc10ca14650f3db633954c566a4491
       labels:
         app: posthog
         release: posthog
@@ -5171,7 +5175,7 @@ spec:
       serviceAccountName: posthog
       containers:
       - name: posthog-web
-        image: posthog/posthog:latest
+        image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
         command:
         - ./bin/docker-server
         imagePullPolicy: Always
@@ -5276,6 +5280,10 @@ spec:
           value: 'false'
         - name: DEFAULT_FROM_EMAIL
           value: null
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4317
+        - name: OTEL_SERVICE_NAME
+          value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
         - name: ADHAR_PERSONS_DB_PASSWORD
@@ -5366,7 +5374,7 @@ spec:
           \ \"6379\"); do\n    echo \"waiting for Redis\"; sleep 1;\ndone\n\n\n  \
           \      \n"
       - name: wait-for-migrations
-        image: posthog/posthog:latest
+        image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
         imagePullPolicy: IfNotPresent
         command:
         - /bin/sh
@@ -5426,6 +5434,10 @@ spec:
           value: json
         - name: SENTRY_DSN
           value: null
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4317
+        - name: OTEL_SERVICE_NAME
+          value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
         - name: ADHAR_PERSONS_DB_PASSWORD
@@ -5466,7 +5478,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 5b9ce254010f1e306accf935f34a64763fdd2ba6b4ebfc033ec25424023acbfb
+        checksum/secrets.yaml: d1424a9bbe89b03008590319a3dcfb7e641180c05b9e1a6fd212b7c4f1e93686
       labels:
         app: posthog
         release: posthog
@@ -5475,7 +5487,7 @@ spec:
       serviceAccountName: posthog
       containers:
       - name: posthog-workers
-        image: posthog/posthog:latest
+        image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
         imagePullPolicy: Always
         command:
         - ./bin/docker-worker-celery
@@ -5559,6 +5571,10 @@ spec:
           value: 'false'
         - name: DEFAULT_FROM_EMAIL
           value: null
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4317
+        - name: OTEL_SERVICE_NAME
+          value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
         - name: ADHAR_PERSONS_DB_PASSWORD
@@ -5604,7 +5620,7 @@ spec:
           \ \"6379\"); do\n    echo \"waiting for Redis\"; sleep 1;\ndone\n\n\n  \
           \      \n"
       - name: wait-for-migrations
-        image: posthog/posthog:latest
+        image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
         imagePullPolicy: IfNotPresent
         command:
         - /bin/sh
@@ -5664,6 +5680,10 @@ spec:
           value: json
         - name: SENTRY_DSN
           value: null
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4317
+        - name: OTEL_SERVICE_NAME
+          value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
         - name: ADHAR_PERSONS_DB_PASSWORD
@@ -5828,7 +5848,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-09-23-14-59-43
+  name: posthog-migrate-2026-10-04-17-59-57
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog
@@ -5841,9 +5861,9 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-09-23-14-59-43
+      name: posthog-migrate-2026-10-04-17-59-57
       annotations:
-        checksum/secrets.yaml: 89ca735f43c525771381d0ff6cae7cea3617cd6bdd3358f14304adabee4861cc
+        checksum/secrets.yaml: 0a71546fcb83445e5e8575177fe8629fb1f47b5dbb276ecaee32708921e33281
       labels:
         app: posthog
         release: posthog
@@ -5851,7 +5871,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: migrate-job
-        image: posthog/posthog:latest
+        image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
         imagePullPolicy: Always
         command:
         - /bin/sh
@@ -5874,6 +5894,10 @@ spec:
           value: posthog-posthog-redis-master
         - name: POSTHOG_REDIS_PORT
           value: '6379'
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4317
+        - name: OTEL_SERVICE_NAME
+          value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
         - name: ADHAR_PERSONS_DB_PASSWORD
@@ -6141,7 +6165,7 @@ spec:
             subPath: user_defined_function.xml
         initContainers:
         - name: install-udfs
-          image: posthog/posthog:latest
+          image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c
           command:
           - /bin/sh
           - -ec
@@ -6188,7 +6212,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-09-23-14-59-43
+  name: posthog-grafana-annotation-job-post-2026-10-04-17-59-57
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog
@@ -6202,7 +6226,7 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-09-23-14-59-43
+      name: posthog-grafana-annotation-job-post-2026-10-04-17-59-57
     spec:
       restartPolicy: Never
       containers:

@@ -255,7 +255,7 @@ func TestProfileResolutionNamesBothFilesThatMustAgree(t *testing.T) {
 	if !strings.HasSuffix(p.appsetFile, "adhar-appset-production.yaml") {
 		t.Errorf("appset file = %q", p.appsetFile)
 	}
-	if !strings.HasSuffix(p.envFile, filepath.Join("environments", "production", "config.yaml")) {
+	if !strings.HasSuffix(p.envFile, filepath.Join("environments", "prod", "config.yaml")) {
 		t.Errorf("environment file = %q", p.envFile)
 	}
 	if _, err := profileFor("staging", "platform/stack"); err == nil {

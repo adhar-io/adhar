@@ -2461,6 +2461,23 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		}
 	}
 
+	// A cluster is forgotten only once its resources are actually gone.
+	//
+	// The error was already reported correctly here, but the record was dropped
+	// before the check — so a partial teardown told the operator it had failed
+	// and then threw away the only list of what was left. The next `adhar down`
+	// had nothing to work from and the leftovers kept billing unseen. Keeping the
+	// record is what makes the operation retryable; see the Azure equivalent,
+	// where the same shape also returned success (2026-10-04).
+	if len(errors) > 0 {
+		if err := p.saveState(); err != nil {
+			log.Printf("Warning: Failed to save provider state after deletion: %v", err)
+		}
+		log.Printf("Cluster deletion completed with some errors: %v", errors)
+		return fmt.Errorf("cluster %s was NOT fully deleted and its record has been kept so "+
+			"`adhar down` can be retried: %s", clusterID, strings.Join(errors, "; "))
+	}
+
 	// Remove from tracking
 	delete(p.resourceTrackers, clusterID)
 	delete(p.clusters, clusterID)
@@ -2468,11 +2485,6 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// Save state to persist the deletion
 	if err := p.saveState(); err != nil {
 		log.Printf("Warning: Failed to save provider state after deletion: %v", err)
-	}
-
-	if len(errors) > 0 {
-		log.Printf("Cluster deletion completed with some errors: %v", errors)
-		return fmt.Errorf("cluster deletion completed with errors: %s", strings.Join(errors, "; "))
 	}
 
 	log.Printf("Successfully deleted cluster: %s", clusterID)

@@ -11,11 +11,17 @@
 #
 # Two policies, because an AgentgatewayPolicy carries exactly one authorization
 # rule and rules from separate policies MERGE (any matching Allow rule admits the
-# request). The composition is deliberately simple:
+# request). Within a rule, too, the expressions are OR'd — so every rule below is
+# a single `&&`-joined expression. The composition is deliberately simple:
 #
 #   platform-developer  ->  LLM completions + READ tools
 #   platform-admin      ->  everything, including the PR-opening tools
 #   anyone else         ->  nothing (an Allow-only rule set denies by default)
+#
+# Each tier is TWO policy objects: one on the Gateway (HTTP phase: who may
+# reach the LLM and MCP routes at all) and one on the MCP backend (per tool:
+# which tools that caller may list and call). Tool names are only known at the
+# backend — see the MCP section below.
 #
 # Group names come from the platform realm (security/keycloak: `platform-admin`,
 # `platform-developer`, `platform-viewer` — keycloak-config.yaml) and are the same
@@ -76,6 +82,54 @@ spec:
               # Long enough to survive a Keycloak restart, short enough that a
               # rotated signing key is picked up without an operator.
               cacheDuration: 5m
+        # ---- Agents: Kubernetes ServiceAccount tokens ---------------------
+        # An AgentWorkload (platform.adhar.io, pillar 1 of Agentic Adhar)
+        # authenticates as ITSELF — the ServiceAccount in its own isolated
+        # namespace — not as a human and not with a shared platform credential.
+        # kubelet projects the token with audience `agentgateway` and rotates
+        # it; nothing is seeded, stored or rotated by hand.
+        #
+        # WHY A SECOND PROVIDER RATHER THAN A KEYCLOAK CLIENT PER AGENT. A
+        # Keycloak client is another credential to mint, project and rotate per
+        # agent, and the platform already has one of those stories
+        # (keycloak-config) that gates the whole SSO estate. The apiserver is
+        # already an OIDC issuer for every pod; using it means an agent's
+        # identity exists the moment its namespace does and disappears with it.
+        #
+        # WHY IT IS IN THIS POLICY AND NOT ITS OWN. agentgateway applies ONE
+        # jwtAuthentication policy per target: a second policy object on the
+        # same Gateway shows Accepted/Attached, the proxy even receives its
+        # keys, and every agent token is still rejected with `token uses the
+        # unknown key` because only the first object's providers are consulted
+        # (measured 2026-10-04). Authorization rules merge across objects;
+        # authentication providers merge only within one.
+        #
+        # WHAT AN AGENT CAN DO WITH THIS TOKEN: nothing, by default. The
+        # authorization rules below are Allow-only and keyed on Keycloak GROUPS,
+        # which a ServiceAccount token does not carry — so an agent is denied
+        # everything until its own AgentWorkload composes the one Allow rule
+        # that names its `sub` and lists the models and MCP targets it may use
+        # (controlplane compositions/agent).
+        - issuer: https://kubernetes.default.svc.cluster.local
+          # Only tokens minted FOR this gateway. A pod's default mounted token
+          # has the apiserver as its audience and must not double as a gateway
+          # credential: that would let any pod on the cluster call the LLM.
+          audiences: [agentgateway]
+          # The apiserver's own JWKS, over the cluster network. `url`, not
+          # `backendRef`: the apiserver is not a Service this gateway
+          # load-balances. The scheme turns TLS on, and the apiserver's
+          # certificate is signed by the CLUSTER CA, which the controller's
+          # fetcher does not trust out of the box (a BackendTLSPolicy on the
+          # Service does not reach it either — the controller, not the proxy,
+          # fetches keysets). values.yaml therefore mounts `kube-root-ca.crt`
+          # into the controller and adds it to SSL_CERT_DIR. The endpoint is
+          # served anonymously only because of the ClusterRoleBinding below.
+          jwks:
+            remote:
+              url: https://kubernetes.default.svc.cluster.local/openid/v1/jwks
+              # The apiserver rotates its signing key rarely; refetch often
+              # enough that a rotation never locks the agents out for long.
+              cacheDuration: 10m
       # Do NOT strip the token: the MCP servers and the adhar-ai runtime still
       # exchange the caller's token for a short-lived RBAC-scoped Kubernetes
       # token so reads run as the USER, never as the agent (ADR-0024 §7). That
@@ -109,26 +163,30 @@ spec:
       # anyone in.
       action: Allow
       policy:
-        # matchExpressions are ANDed: both must hold.
+        # ONE expression, never a list. Upstream's CRD text says the entries
+        # "must all evaluate to true", but the proxy's rule set evaluates an
+        # Allow policy's expressions with `.any()` — they are OR'd — and the
+        # authorization docs say the same. Written as two entries, clause (2)
+        # alone admitted EVERY authenticated token to every LLM call and every
+        # non-PR tool, groups or not (measured 2026-10-04 with a ServiceAccount
+        # token that matched no rule). Combine clauses with `&&` inside a
+        # single expression; TestEveryAllowRuleIsOneExpression enforces it.
         matchExpressions:
-          # (1) caller is a developer or an admin.
-          # `default(jwt.groups, [])` because referencing an absent CEL variable
-          # is an evaluation ERROR, and a token issued before the groups mapper
-          # was attached would otherwise blow up rather than be denied cleanly.
-          # Both the bare and the path-prefixed form are accepted: the adhar-ai
-          # client's group mapper sets full.path=false (`platform-admin`), while
-          # Keycloak default-group assignment writes `/platform-admin`.
+          # Caller is a developer or an admin. `default(jwt.groups, [])` because
+          # referencing an absent CEL variable is an evaluation ERROR, and a
+          # token issued before the groups mapper was attached would otherwise
+          # blow up rather than be denied cleanly. Both the bare and the
+          # path-prefixed form are accepted: the adhar-ai client's group mapper
+          # sets full.path=false (`platform-admin`), while Keycloak default-group
+          # assignment writes `/platform-admin`.
+          #
+          # No tool clause HERE. This rule runs at the HTTP route phase, before
+          # the MCP body is parsed, so `mcp.tool.*` is always absent at this
+          # point and a clause on it is dead code that reads as protection. The
+          # PR-opening targets are withheld by agentgateway-mcp-tools-read below.
           - >-
             ["platform-developer", "platform-admin", "/platform-developer", "/platform-admin"]
             .exists(g, g in default(jwt.groups, []))
-          # (2) this is NOT a call to one of the PR-opening MCP targets.
-          # `mcp.tool.target` is only populated on an MCP tools/call, and it is
-          # the target name AFTER multiplexing resolution — i.e. exactly the
-          # `targets[].name` values in mcp-federation.yaml. On an LLM request, on
-          # `initialize`, and on `tools/list` it is absent, so the default of ""
-          # makes those fall through as allowed.
-          - >-
-            !(default(mcp.tool.target, "") in ["gitops", "provision", "security", "catalog"])
 ---
 # ------------------ Authorization rule 2: write tier ------------------------
 apiVersion: agentgateway.dev/v1alpha1
@@ -162,3 +220,146 @@ spec:
           - >-
             ["platform-admin", "/platform-admin"]
             .exists(g, g in default(jwt.groups, []))
+---
+# ------------------- MCP tool access: per tool, on the backend ---------------
+#
+# `traffic.authorization` is evaluated at the HTTP route phase, BEFORE the MCP
+# body is parsed. `mcp.tool.name` does not exist there, so a Gateway-attached
+# rule written against it sees "" and admits everything — measured 2026-10-04:
+# an agent allowed only `cluster` tools called `gitops_app_status` and got 200.
+# Tool rules live here, on the federated MCP backend, where the proxy evaluates
+# them PER ITEM: `tools/list` is filtered to what the caller may use and a
+# `tools/call` outside that set is rejected. Federated tool names are
+# `<target>_<tool>` (mcp-federation.yaml `targets[].name`), so a target is a
+# name prefix. Same two tiers as above; the per-agent grants the AgentWorkload
+# composition mints attach to this same backend and merge with these.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-mcp-tools-read
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: adhar-mcp
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            # Developers and admins: every tool except the PR-opening targets,
+            # whose tools open Gitea PRs against the repos ArgoCD reconciles.
+            - >-
+              ["platform-developer", "platform-admin", "/platform-developer", "/platform-admin"]
+              .exists(g, g in default(jwt.groups, []))
+              && !(["gitops_", "provision_", "security_", "catalog_"]
+                   .exists(p, default(mcp.tool.name, "").startsWith(p)))
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-mcp-tools-write
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: adhar-mcp
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            # Admins: everything, including the PR-opening tools. Opening a PR
+            # is not a cluster mutation — ADR-0024 grants no kubectl_apply tool
+            # anywhere — but it is a privileged act against the platform repos.
+            - >-
+              ["platform-admin", "/platform-admin"]
+              .exists(g, g in default(jwt.groups, []))
+---
+# ------------------- Agent identity: anonymous JWKS discovery ----------------
+# The apiserver serves /.well-known/openid-configuration and /openid/v1/jwks
+# anonymously only when `system:service-account-issuer-discovery` is bound to
+# unauthenticated callers. It exposes PUBLIC key material and the issuer URL,
+# nothing else, which is why upstream documents exactly this binding for
+# external relying parties. The agent provider in agentgateway-jwt above reads
+# the keyset through it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentgateway-issuer-discovery
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  # The built-in role for exactly two paths: /.well-known/openid-configuration
+  # and /openid/v1/jwks. Public keys only.
+  name: system:service-account-issuer-discovery
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: system:unauthenticated
+---
+# ------------------- Per-agent attribution on every metric ------------------
+#
+# Every AI metric the gateway emits gets an `adhar_agent` label: the agent's
+# ServiceAccount subject for agent traffic, the literal "user" for people. This
+# is what turns "the platform spent $40 on tokens today" into "the payments
+# agent in prod spent $31 of it", and it is what each AgentWorkload's budget
+# alert selects on. Cardinality is one series per agent plus one — not per
+# request and not per user, because a human's `sub` is a UUID that would make
+# the label unbounded and would put a personal identifier in Mimir.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-metrics-attribution
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  frontend:
+    metrics:
+      attributes:
+        add:
+          - name: adhar_agent
+            expression: >-
+              default(jwt.sub, "").startsWith("system:serviceaccount:") ? jwt.sub : "user"
+          # The environment, read off the agent's namespace (`<agent>-<env>`),
+          # so one panel can compare dev against prod without a join.
+          - name: adhar_environment
+            expression: >-
+              default(jwt.sub, "").endsWith("-prod:agent") ? "prod" :
+              (default(jwt.sub, "").endsWith("-test:agent") ? "test" :
+              (default(jwt.sub, "").endsWith("-dev:agent") ? "dev" : "none"))

@@ -88,17 +88,27 @@ providers:
     useAzureCLI: true
 
     # The in-cluster DNS components cannot use a CLI session, so they need a service
-    # principal. Its id and tenant are safe to record; the SECRET is read from the
-    # environment and never written here:
+    # principal. Its id and tenant are safe to record; the SECRET never belongs in
+    # this file. Point `clientSecretFile` at a file holding it instead:
     #
-    #   export AZURE_CLIENT_SECRET='...'
+    #   az ad sp credential reset --id <clientId> --query password -o tsv \
+    #     > ~/.adhar/azure-client-secret
+    #   chmod 600 ~/.adhar/azure-client-secret
     #   adhar up -f examples/azure-config.yaml --env dev
+    #
+    # Prefer the file over `export AZURE_CLIENT_SECRET=...`, which still works but
+    # fails silently in three ways: double quotes let the shell expand an
+    # unescaped `$` and truncate the value, an export in one terminal is invisible
+    # in the next, and a STALE export is indistinguishable from a correct one
+    # because both are about 40 characters. A path has none of those problems, and
+    # is the only one of the two that is safe to keep here.
     #
     # Created with DNS Zone Contributor on the zone ALONE, not on the subscription:
     #   az ad sp create-for-rbac --name adhar-dns-test --role "DNS Zone Contributor" \
     #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/platform.example.com
     clientId: 00000000-0000-0000-0000-000000000000
     tenantId: 11111111-1111-1111-1111-111111111111
+    clientSecretFile: /path/to/azure-client-secret
 
     # Managed AKS instead of kubeadm on VMs. Everything else — packages, GitOps,
     # SSO, autoscaling, teardown — behaves the same either way. Left off because

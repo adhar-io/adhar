@@ -1,0 +1,63 @@
+# Alerts from Tetragon's TracingPolicies (manifests/tracing-policies.yaml).
+# Each policy increments tetragon_policy_events_total{policy, namespace,
+# workload, pod, binary} per match; these turn the baseline's three policies
+# into pages and watch Tetragon's own health. Routed, like everything else, to
+# the Console's Notification Center through the platform Alertmanager.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: tetragon
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+  labels:
+    adhar.io/component: runtime-security
+    app.kubernetes.io/name: tetragon
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: adhar.runtime-security.tetragon
+      rules:
+        - alert: TetragonPrivilegeEscalation
+          expr: >-
+            sum by (namespace, workload, binary) (
+              increase(tetragon_policy_events_total{policy="adhar-privilege-escalation"}[10m])
+            ) > 0
+          for: 0m
+          labels: {severity: critical, source: tetragon}
+          annotations:
+            summary: "Process became root in {{ $labels.namespace }}/{{ $labels.workload }} ({{ $labels.binary }})"
+            description: "A container process called setuid(0)/setgid(0). Entrypoints drop privileges, they do not acquire them. Inspect the exported event in Loki ({app=\"tetragon\"} |= \"adhar-privilege-escalation\") for the parent chain, then decide whether this workload's policy should enforce (Sigkill) rather than observe."
+        - alert: TetragonSensitiveFileAccess
+          expr: >-
+            sum by (namespace, workload, binary) (
+              increase(tetragon_policy_events_total{policy="adhar-sensitive-files"}[10m])
+            ) > 0
+          for: 0m
+          labels: {severity: critical, source: tetragon}
+          annotations:
+            summary: "Account/trust file touched in {{ $labels.namespace }}/{{ $labels.workload }} ({{ $labels.binary }})"
+            description: "A write to /etc/passwd, shadow, group, sudoers, ssh/ or ld.so.preload — or a read of /etc/shadow — from inside a container. Credential or persistence tampering; the Tetragon event in Loki names the path and the process."
+        - alert: TetragonAgentExternalEgress
+          expr: >-
+            sum by (namespace, workload, binary) (
+              increase(tetragon_policy_events_total{policy="adhar-agent-egress"}[10m])
+            ) > 0
+          for: 0m
+          labels: {severity: critical, source: tetragon, adhar_plane: agent}
+          annotations:
+            summary: "AI agent {{ $labels.namespace }}/{{ $labels.workload }} connected outside the cluster"
+            description: "tcp_connect() from an AgentWorkload pod to a non-private address, seen at the kernel. The agent's NetworkPolicy drops it, but an agent that tries is an agent whose tool calls are bypassing the gateway. Cross-check FalcoAgentWorkloadEgress and the gateway's adhar_agent metrics."
+        - alert: TetragonPolicyNotLoaded
+          expr: tetragon_tracingpolicy_loaded{state!="enabled"} > 0
+          for: 10m
+          labels: {severity: warning, source: tetragon}
+          annotations:
+            summary: "A Tetragon TracingPolicy is {{ $labels.state }}"
+            description: "{{ $value }} policy(ies) are in state {{ $labels.state }} instead of enabled — the hook failed to attach (kernel symbol missing, BTF absent) and that detection is silently off. `kubectl get tracingpolicy` and the tetragon agent logs name the policy."
+        - alert: TetragonExportDropping
+          expr: sum(increase(tetragon_export_ratelimit_events_dropped_total[15m])) > 0
+          for: 15m
+          labels: {severity: warning, source: tetragon}
+          annotations:
+            summary: "Tetragon is dropping exported events"
+            description: "The export rate limit is discarding events before they reach stdout/Loki, so the process audit trail has gaps. Raise export-rate-limit or narrow export-allowlist in the tetragon values."

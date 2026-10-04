@@ -40,7 +40,7 @@ Each entry carries an `enabled` gate:
 | Profile | ApplicationSet | Mirrored environment config |
 | --- | --- | --- |
 | Local (Kind) | `platform/stack/adhar-appset-local.yaml` | `platform/stack/environments/local/config.yaml` |
-| Production (any cloud / on-prem) | `platform/stack/adhar-appset-production.yaml` | `platform/stack/environments/production/config.yaml` |
+| Production (any cloud / on-prem) | `platform/stack/adhar-appset-production.yaml` | `platform/stack/environments/prod/config.yaml` |
 | Full-enablement reference | `platform/stack/adhar-appset-gitops.yaml` | — |
 
 **Or let the CLI do it.** `adhar stack` performs exactly this edit — both files,

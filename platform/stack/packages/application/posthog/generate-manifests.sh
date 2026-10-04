@@ -205,3 +205,115 @@ with open(path, "w") as fh:
     yaml.safe_dump_all(docs, fh, default_flow_style=False, sort_keys=False)
 print(f"stable: SECRET_KEY carried forward from git ({carried} secret), {raised} probe timeout(s) raised")
 PYEOF_STABLE
+
+# ---------------------------------------------------------------------------
+# First-run bootstrap: organisation, project, owner account, Console API key.
+#
+# PostHog has no declarative first-run — a fresh instance is a sign-up page, and
+# nothing can read its API until a person creates a project and a personal API
+# key by hand (which is why the Console's analytics panel sat on "backend
+# responded but isn't ready"). The Job below does it with the app's own Django
+# models, idempotently, from the Secret in manifests/bootstrap-credentials.yaml.
+#
+# It is GENERATED rather than hand-written because it must run with exactly
+# the environment of the posthog-web pods (database, ClickHouse, Kafka, Redis,
+# SECRET_KEY, DEPLOYMENT=hobby …) — fifty-odd entries the chart owns and
+# renames at will. Copying them here at render time keeps the Job in step with
+# the chart on every regeneration; a hand-maintained copy would drift.
+#
+# Sync hook at wave 3 (after the migration at wave 2, alongside the app
+# Deployments): re-runs on every sync, so a rotated Secret is applied by the
+# next `adhar upgrade`.
+python3 - ${INSTALL_YAML} manifests/bootstrap-job.yaml <<'PYEOF_BOOTSTRAP'
+import sys, yaml
+src, dst = sys.argv[1], sys.argv[2]
+docs = [d for d in yaml.safe_load_all(open(src)) if d]
+web = next((d for d in docs if d.get("kind") == "Deployment" and d["metadata"]["name"] == "posthog-web"), None)
+if not web:
+    sys.exit("ERROR: no posthog-web Deployment in install.yaml — did the chart rename it?")
+pod = web["spec"]["template"]["spec"]
+app = next(c for c in pod["containers"] if c["name"] == "posthog-web")
+env = [e for e in app["env"] if e["name"] != "WEB_CONCURRENCY"]
+env += [
+    {"name": "ADHAR_ADMIN_EMAIL", "valueFrom": {"secretKeyRef": {"name": "posthog-console-credentials", "key": "admin-email"}}},
+    {"name": "ADHAR_ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "posthog-console-credentials", "key": "admin-password"}}},
+    {"name": "ADHAR_CONSOLE_API_KEY", "valueFrom": {"secretKeyRef": {"name": "posthog-console-credentials", "key": "api-key"}}},
+]
+script = r'''
+import os
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+try:
+    from posthog.models.personal_api_key import mask_key_value
+except ImportError:  # older/newer layouts
+    mask_key_value = lambda v: v[:4] + "..." + v[-4:]
+
+email = os.environ["ADHAR_ADMIN_EMAIL"]
+password = os.environ["ADHAR_ADMIN_PASSWORD"]
+api_key = os.environ["ADHAR_CONSOLE_API_KEY"]
+
+org = Organization.objects.filter(name="Adhar").order_by("id").first()
+if org is None:
+    org, _membership, team = Organization.objects.bootstrap(None, name="Adhar", team_fields={"name": "Adhar Platform"})
+    print("created organisation", org.name)
+team = org.teams.order_by("id").first()
+if team is None:
+    team = Team.objects.create_with_data(initiating_user=None, organization=org, name="Adhar Platform")
+    print("created project", team.name)
+
+user = User.objects.filter(email=email).first()
+if user is None:
+    user = User.objects.create_and_join(org, email, password, first_name="Adhar", level=OrganizationMembership.Level.OWNER)
+    print("created owner", email)
+else:
+    user.set_password(password)  # the Secret is the source of truth
+    if not OrganizationMembership.objects.filter(organization=org, user=user).exists():
+        OrganizationMembership.objects.create(organization=org, user=user, level=OrganizationMembership.Level.OWNER)
+user.is_staff = True
+user.current_organization = org
+user.current_team = team
+user.save()
+
+key = PersonalAPIKey.objects.filter(user=user, label="adhar-console").first() or PersonalAPIKey(user=user, label="adhar-console")
+key.secure_value = hash_key_value(api_key)
+key.mask_value = mask_key_value(api_key)
+key.scopes = ["*"]
+key.save()
+print("posthog bootstrap complete: org=%s project=%s owner=%s key=%s" % (org.name, team.name, user.email, key.label))
+'''
+job = {
+    "apiVersion": "batch/v1", "kind": "Job",
+    "metadata": {
+        "name": "posthog-bootstrap", "namespace": "adhar-system",
+        "labels": {"app.kubernetes.io/name": "posthog", "app.kubernetes.io/instance": "posthog",
+                   "app.kubernetes.io/component": "bootstrap", "app.kubernetes.io/managed-by": "adhar"},
+        "annotations": {"argocd.argoproj.io/hook": "Sync",
+                        "argocd.argoproj.io/hook-delete-policy": "BeforeHookCreation",
+                        "argocd.argoproj.io/sync-wave": "3"},
+    },
+    "spec": {
+        "backoffLimit": 6, "ttlSecondsAfterFinished": 86400,
+        "template": {
+            "metadata": {"labels": {"app": "posthog", "release": "posthog", "app.kubernetes.io/component": "bootstrap"}},
+            "spec": {
+                "restartPolicy": "OnFailure",
+                "serviceAccountName": pod.get("serviceAccountName", "default"),
+                "containers": [{
+                    "name": "bootstrap", "image": app["image"], "imagePullPolicy": app.get("imagePullPolicy", "IfNotPresent"),
+                    "command": ["/bin/sh", "-ec", "cd /code && python manage.py shell -c \"$ADHAR_BOOTSTRAP_SCRIPT\""],
+                    "env": env + [{"name": "ADHAR_BOOTSTRAP_SCRIPT", "value": script}],
+                    "resources": {"requests": {"cpu": "200m", "memory": "1536Mi"}, "limits": {"memory": "3Gi"}},
+                }],
+            },
+        },
+    },
+}
+header = ("# GENERATED by generate-manifests.sh — do not edit by hand.\n"
+          "# PostHog first-run bootstrap: organisation, project, owner, Console API key.\n"
+          "# Env is a verbatim copy of the posthog-web container's (minus WEB_CONCURRENCY),\n"
+          "# plus the three bootstrap credentials from manifests/bootstrap-credentials.yaml.\n")
+with open(dst, "w") as fh:
+    fh.write(header)
+    yaml.safe_dump(job, fh, default_flow_style=False, sort_keys=False, width=1000)
+print(f"bootstrap: wrote {dst} with {len(env)} env entries from posthog-web")
+PYEOF_BOOTSTRAP

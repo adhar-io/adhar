@@ -1,0 +1,433 @@
+---
+# AgentWorkload → the isolation boundary for one agent in one environment.
+#
+# Every composed resource is wrapped in a provider-kubernetes `Object`, for the
+# same reason the environment composition does it: an AgentWorkload is a
+# NAMESPACED v2 XR, and a namespaced XR can own neither a cluster-scoped
+# Namespace nor an object in a namespace other than its own. Everything here
+# lives in the agent's namespace or in adhar-system (the gateway policy must sit
+# beside the Gateway it targets; the PrometheusRule beside the Prometheus that
+# reads it), so everything goes through the Object wrapper.
+#
+# What one AgentWorkload produces:
+#   namespace       <name>-<env>, labelled so Kyverno (adhar-ai guardrails), the
+#                   CLI and the dashboards all recognise it as an agent's
+#   serviceaccount  `agent` — the agent's identity to the AI gateway; the token is
+#                   PROJECTED by the pod spec (audience agentgateway), never the
+#                   default mounted one, so automount is off
+#   quota, limits   the environment-style guardrails
+#   netpol          default-deny both ways; egress only to DNS, the AI gateway
+#                   and the telemetry collector unless widened explicitly
+#   gateway policy  the agent's ONE Allow rule: its models and its MCP targets.
+#                   The gateway is default-deny for ServiceAccount identities
+#                   (security.yaml), so this rule is the whole of what it can do
+#   alert rules     fire when the agent exceeds the budget it declared, from the
+#                   per-agent metrics the gateway labels (adhar_agent)
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: agentworkload-kubernetes
+  labels:
+    feature: agent
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: AgentWorkload
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $name := dig "name" $xr.metadata.name $p -}}
+            {{- $env := dig "environment" "dev" $p -}}
+            {{- $ns := printf "%s-%s" $name $env -}}
+            {{- $sa := "agent" -}}
+            {{- $sub := printf "system:serviceaccount:%s:%s" $ns $sa -}}
+            {{- $owner := dig "owner" "" $p -}}
+            {{- $models := dig "models" "allow" (list) $p -}}
+            {{- $tools := dig "tools" "allow" (list) $p -}}
+            {{- $tph := dig "budget" "tokensPerHour" 100000 $p -}}
+            {{- $rpm := dig "budget" "requestsPerMinute" 60 $p -}}
+            {{- $cpu := dig "resources" "cpu" "2" $p -}}
+            {{- $mem := dig "resources" "memory" "4Gi" $p -}}
+            {{- $pods := dig "resources" "pods" 10 $p -}}
+            {{- $allowNs := dig "network" "allowNamespaces" (list) $p -}}
+            {{- $allowCidrs := dig "network" "allowCIDRs" (list) $p -}}
+            {{- $ingressFrom := dig "network" "allowIngressFrom" (list) $p -}}
+            {{- $extra := dig "labels" dict $p -}}
+            {{- /* The LLM clause. The gateway's PreRouting policy lifts the request
+                   body's `model` into the x-model header (llm-routes.yaml), so an
+                   authorization rule can see which model is being asked for. An
+                   empty allow-list means NO model: the clause is literally
+                   `false` for /v1/ paths, not a regex that happens to match
+                   nothing. Non-LLM paths (MCP) pass this clause. */ -}}
+            {{- $llmClause := "!request.path.startsWith(\"/v1/\")" -}}
+            {{- if gt (len $models) 0 -}}
+            {{- $llmClause = printf "(!request.path.startsWith(\"/v1/\") || default(request.headers[\"x-model\"], \"\").matches(\"^(%s)$\"))" (join "|" $models) -}}
+            {{- end -}}
+            {{- /* The tool rule, evaluated by the proxy at the MCP BACKEND, per tool.
+                   `traffic.authorization` runs at the HTTP route phase before the
+                   MCP body is parsed, so `mcp.tool.*` is absent there — a tool
+                   clause at the Gateway sees "" and admits everything (measured
+                   2026-10-04). On the backend the rule filters tools/list to what
+                   this agent may use and rejects a tools/call outside it. Federated
+                   tool names are `<target>_<tool>` (mcp-federation.yaml), so an
+                   allowed target is a name prefix. An empty allow-list is the
+                   literal `false`: this agent sees no tools and can call none. */ -}}
+            {{- $toolRule := printf "default(jwt.sub, \"\") == \"%s\" && false" $sub -}}
+            {{- if gt (len $tools) 0 -}}
+            {{- $prefixes := list -}}
+            {{- range $tools }}{{ $prefixes = append $prefixes (printf "\"%s_\"" .) }}{{ end -}}
+            {{- $toolRule = printf "default(jwt.sub, \"\") == \"%s\" && [%s].exists(p, default(mcp.tool.name, \"\").startsWith(p))" $sub (join ", " $prefixes) -}}
+            {{- end -}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: namespace
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: {{ $ns }}
+                    labels:
+                      platform.adhar.io/self-service: "true"
+                      adhar.io/plane: workload
+                      adhar.io/environment: {{ $env | quote }}
+                      adhar.io/agent: {{ $name | quote }}
+                      # The selector every agent guardrail keys on: the Kyverno
+                      # pack in adhar-ai, the dashboards, the CLI.
+                      adhar.io/agent-isolation: "true"
+                      {{- if $owner }}
+                      adhar.io/owner: {{ $owner | quote }}
+                      {{- end }}
+                      {{- range $k, $v := $extra }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: serviceaccount
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata:
+                    name: {{ $sa }}
+                    namespace: {{ $ns }}
+                    labels:
+                      adhar.io/agent: {{ $name | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  # The default token has the apiserver as its audience and would
+                  # grant Kubernetes API access the agent has no business with.
+                  # The agent's pod projects a token FOR the gateway instead
+                  # (audience agentgateway) — see the agent-service golden path.
+                  automountServiceAccountToken: false
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: quota
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ResourceQuota
+                  metadata:
+                    name: {{ $ns }}-quota
+                    namespace: {{ $ns }}
+                  spec:
+                    hard:
+                      requests.cpu: "{{ $cpu }}"
+                      requests.memory: "{{ $mem }}"
+                      limits.cpu: "{{ $cpu }}"
+                      limits.memory: "{{ $mem }}"
+                      pods: "{{ $pods }}"
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: limits
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: LimitRange
+                  metadata:
+                    name: {{ $ns }}-limits
+                    namespace: {{ $ns }}
+                  spec:
+                    limits:
+                      - type: Container
+                        default:
+                          cpu: "500m"
+                          memory: "512Mi"
+                        defaultRequest:
+                          cpu: "100m"
+                          memory: "128Mi"
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: netpol
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: networking.k8s.io/v1
+                  kind: NetworkPolicy
+                  metadata:
+                    name: {{ $ns }}-isolation
+                    namespace: {{ $ns }}
+                  spec:
+                    podSelector: {}
+                    policyTypes: [Ingress, Egress]
+                    ingress:
+                      # The platform plane: the edge gateway's data path (so the
+                      # agent's HTTPRoute works) and Prometheus (so it is scraped).
+                      - from:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: adhar-system
+                      {{- range $ingressFrom }}
+                      - from:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: {{ . }}
+                      {{- end }}
+                    egress:
+                      # DNS.
+                      - to:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: kube-system
+                            podSelector:
+                              matchLabels:
+                                k8s-app: kube-dns
+                        ports:
+                          - port: 53
+                            protocol: UDP
+                          - port: 53
+                            protocol: TCP
+                      # The AI gateway: the ONLY way to a model or a tool.
+                      - to:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: adhar-system
+                            podSelector:
+                              matchLabels:
+                                gateway.networking.k8s.io/gateway-name: adhar-ai-gateway
+                        ports:
+                          - port: 8080
+                            protocol: TCP
+                      # Telemetry: OTLP to the Alloy collector.
+                      - to:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: adhar-system
+                            podSelector:
+                              matchLabels:
+                                app.kubernetes.io/name: alloy
+                        ports:
+                          - port: 4317
+                            protocol: TCP
+                          - port: 4318
+                            protocol: TCP
+                      {{- range $allowNs }}
+                      - to:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: {{ . }}
+                      {{- end }}
+                      {{- range $allowCidrs }}
+                      - to:
+                          - ipBlock:
+                              cidr: {{ . }}
+                      {{- end }}
+            ---
+            # The agent's grant at the HTTP layer: who it is and which MODELS it may
+            # ask for. Allow rules across policies MERGE and the rule set is
+            # default-deny, so this is additive to the human group rules in
+            # security.yaml and is the ONLY rule that can admit this subject.
+            # Tools are granted separately, on the MCP backend (next object).
+            #
+            # ONE expression. The proxy OR's the entries of an Allow rule's
+            # matchExpressions (upstream evaluates them with `.any()`, whatever
+            # the CRD text says), so as two entries the model clause alone would
+            # have admitted any token to any non-/v1/ path. Identity and model
+            # are therefore joined with `&&` in a single string.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: gateway-policy
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: agentgateway.dev/v1alpha1
+                  kind: AgentgatewayPolicy
+                  metadata:
+                    name: agent-{{ $ns }}
+                    namespace: adhar-system
+                    labels:
+                      app.kubernetes.io/part-of: agentgateway
+                      adhar.io/component: ai
+                      adhar.io/agent: {{ $name | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  spec:
+                    targetRefs:
+                      - group: gateway.networking.k8s.io
+                        kind: Gateway
+                        name: adhar-ai-gateway
+                    traffic:
+                      authorization:
+                        action: Allow
+                        policy:
+                          matchExpressions:
+                            - 'default(jwt.sub, "") == "{{ $sub }}" && {{ $llmClause }}'
+            ---
+            # The agent's TOOL grant, on the federated MCP backend (see $toolRule).
+            # Allow rules merge across policies here too; each is identity-bound so
+            # one agent's grant cannot admit another agent or a human.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: gateway-tools-policy
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: agentgateway.dev/v1alpha1
+                  kind: AgentgatewayPolicy
+                  metadata:
+                    name: agent-{{ $ns }}-tools
+                    namespace: adhar-system
+                    labels:
+                      app.kubernetes.io/part-of: agentgateway
+                      adhar.io/component: ai
+                      adhar.io/agent: {{ $name | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  spec:
+                    targetRefs:
+                      - group: agentgateway.dev
+                        kind: AgentgatewayBackend
+                        name: adhar-mcp
+                    backend:
+                      mcp:
+                        authorization:
+                          action: Allow
+                          policy:
+                            matchExpressions:
+                              - '{{ $toolRule }}'
+            ---
+            # Budget alerts, from the gateway's per-agent labelled metrics.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: alerts
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: monitoring.coreos.com/v1
+                  kind: PrometheusRule
+                  metadata:
+                    name: agent-{{ $ns }}
+                    namespace: adhar-system
+                    labels:
+                      app.kubernetes.io/part-of: adhar
+                      adhar.io/component: ai
+                      adhar.io/agent: {{ $name | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  spec:
+                    groups:
+                      - name: adhar.agent.{{ $ns }}
+                        rules:
+                          - alert: AgentTokenBudgetExceeded
+                            expr: >-
+                              sum(increase(agentgateway_gen_ai_client_token_usage_sum{adhar_agent="{{ $sub }}"}[1h])) > {{ $tph }}
+                            for: 5m
+                            labels:
+                              severity: warning
+                              adhar_agent: {{ $name | quote }}
+                              adhar_environment: {{ $env | quote }}
+                            annotations:
+                              summary: "Agent {{ $name }} ({{ $env }}) exceeded its declared token budget"
+                              description: "{{ "{{ $value | humanize }}" }} tokens in the last hour against a declared budget of {{ $tph }}/h (AgentWorkload {{ $xr.metadata.name }})."
+                          - alert: AgentRateLimited
+                            expr: >-
+                              sum(rate(agentgateway_requests_total{adhar_agent="{{ $sub }}",status="429"}[5m])) > 0
+                            for: 10m
+                            labels:
+                              severity: warning
+                              adhar_agent: {{ $name | quote }}
+                              adhar_environment: {{ $env | quote }}
+                            annotations:
+                              summary: "Agent {{ $name }} ({{ $env }}) is being rate-limited by the AI gateway"
+                              description: "The gateway has answered 429 for ten minutes. Either the agent is looping or its environment tier is too small for its workload; its declared rate is {{ $rpm }}/min."
+                          - alert: AgentDenied
+                            expr: >-
+                              sum(rate(agentgateway_requests_total{adhar_agent="{{ $sub }}",status="403"}[5m])) > 0
+                            for: 5m
+                            labels:
+                              severity: warning
+                              adhar_agent: {{ $name | quote }}
+                              adhar_environment: {{ $env | quote }}
+                            annotations:
+                              summary: "Agent {{ $name }} ({{ $env }}) is calling a model or tool it is not allowed"
+                              description: "403s from the gateway mean the agent asked for something outside models.allow / tools.allow on its AgentWorkload. Widen the allow-list deliberately or fix the agent."
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: AgentWorkload
+            status:
+              phase: Available
+              ready: true
+              namespace: {{ $ns }}
+              serviceAccount: {{ $sa }}
+              identity: {{ $sub }}
+              modelsSummary: {{ if gt (len $models) 0 }}{{ join "," $models | quote }}{{ else }}"none"{{ end }}
+              message: "Agent '{{ $name }}' isolated in {{ $ns }}: {{ len $models }} model pattern(s), {{ len $tools }} tool target(s)"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

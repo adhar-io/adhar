@@ -60,8 +60,11 @@ type ConfigProviderConfig struct {
 	UseInstanceRole bool   `mapstructure:"useInstanceRole" json:"useInstanceRole"`
 
 	// Azure authentication
-	ClientID           string `mapstructure:"clientId" json:"clientId"`
-	ClientSecret       string `mapstructure:"clientSecret" json:"clientSecret"`
+	ClientID     string `mapstructure:"clientId" json:"clientId"`
+	ClientSecret string `mapstructure:"clientSecret" json:"clientSecret"`
+	// ClientSecretFile reads the secret from a file instead of this field or the
+	// environment. A path is safe to keep in a config file; a secret is not.
+	ClientSecretFile   string `mapstructure:"clientSecretFile" json:"clientSecretFile"`
 	TenantID           string `mapstructure:"tenantId" json:"tenantId"`
 	CertificatePath    string `mapstructure:"certificatePath" json:"certificatePath"`
 	UseManagedIdentity bool   `mapstructure:"useManagedIdentity" json:"useManagedIdentity"`

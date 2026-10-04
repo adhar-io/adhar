@@ -206,6 +206,10 @@ metadata:
     argocd.argoproj.io/sync-wave: '5'
     argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
+  # Node-bound: this instance's volume pins it to one node (node-local default
+  # StorageClass), so it has no alternative placement and must be able to preempt
+  # pods that do. See data/cnpg/manifests/priorityclass.yaml.
+  priorityClassName: adhar-node-bound
   instances: 1
   monitoring:
     enablePodMonitor: true
@@ -441,7 +445,21 @@ spec:
         - name: AIRBYTE_URL
           value: http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001
         - name: FALCO_URL
-          value: http://falco-falcosidekick.adhar-system.svc.cluster.local:2801
+          value: http://falco-falcosidekick-ui.adhar-system.svc.cluster.local:2802
+        # Analytics: PostHog over the cluster network, authenticated with the
+        # personal API key the posthog package's bootstrap Job mints for the
+        # Console (application/posthog manifests/bootstrap-credentials.yaml).
+        # Optional because posthog is off in the local profile — without the
+        # Secret the registry falls back to `none` auth and the panel reports
+        # PostHog's own answer instead of a synthetic 503.
+        - name: POSTHOG_URL
+          value: http://posthog-web.adhar-system.svc.cluster.local:8000
+        - name: POSTHOG_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: posthog-console-credentials
+              key: api-key
+              optional: true
         envFrom:
         - secretRef:
             name: console-env-vars

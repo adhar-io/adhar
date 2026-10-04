@@ -74,8 +74,8 @@ data:
   cluster-name: ""
   procfs: /procRoot
   debug: "false"
-  enable-process-cred: "false"
-  enable-process-ns: "false"
+  enable-process-cred: "true"
+  enable-process-ns: "true"
   enable-ancestors: ""
   process-cache-size: "65536"
   export-filename: /var/run/cilium/tetragon/tetragon.log
@@ -372,7 +372,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/configmap: b4fc33ae89bf9853d1a89ad2cacd60ba97f7b05b7f4725d4d8f703f1a9d1da8f
+        checksum/configmap: 5717ebafd2ee885c335019f5a30a99cee944647fa7bd062477475a1da5a5c037
       labels:
         app.kubernetes.io/name: tetragon
         app.kubernetes.io/instance: tetragon

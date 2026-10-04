@@ -1,12 +1,16 @@
-# Falco Prometheus ServiceMonitor (via Falcosidekick)
-# Not emitted by the chart (falcosidekick.serviceMonitor left default off).
-# Falcosidekick always serves Prometheus metrics (falco_events, falcosidekick_*
-# outputs) on the "falco-falcosidekick" Service, port 2801 named "http" at
-# /metrics. The Falco DaemonSet itself only serves metrics on its :8765 web
-# port when metrics.enabled=true / webserver.prometheus_metrics_enabled=true
-# in values.yaml (currently false), so only the sidekick is scraped here.
-# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
-# feeds the Falco Grafana dashboard (gnetId 11914, built on falco_events).
+# Prometheus scrape targets for runtime threat detection (sync-wave 10: the
+# monitoring CRDs come from kube-prometheus and may not exist on a first boot).
+#
+# Two monitors, two different questions:
+#   falco-falcosidekick  — WHAT Falco saw: falcosecurity_falcosidekick_falco_events_total
+#                          {rule, priority, priority_raw, source, k8s_ns_name, k8s_pod_name}
+#                          and the fan-out health, falcosecurity_falcosidekick_outputs_total
+#                          {destination, status}. The dashboard and rules.yaml read these.
+#   falco-metrics        — WHETHER Falco is healthy: rules loaded, kernel events
+#                          dropped, probe state (falcosecurity_falco_* / _scap_*),
+#                          from the DaemonSet's :8765 webserver (values.yaml
+#                          metrics.enabled + webserver.prometheus_metrics_enabled).
+# Prometheus' serviceMonitorSelector is {} so both are picked up as-is.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -34,3 +38,31 @@ spec:
       interval: 60s
       scrapeTimeout: 30s
       honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: falco-metrics
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    # The chart labels the falco-metrics Service with only these two; the
+    # sidekick Services carry name=falcosidekick, so this cannot match them.
+    matchLabels:
+      app.kubernetes.io/name: falco
+      app.kubernetes.io/instance: falco
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s

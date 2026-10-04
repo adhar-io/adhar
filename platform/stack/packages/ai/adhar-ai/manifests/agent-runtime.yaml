@@ -218,6 +218,12 @@ spec:
             # loop POSTs an OpenAI-shaped body that NAMES A MODEL; the gateway
             # routes on that name (`claude-*` -> Anthropic, `gpt-*` -> OpenAI,
             # `local/*` -> the in-cluster vLLM) and holds the key server-side.
+            # The platform's own repositories, read anonymously for the
+            # knowledge base: `packages`, `environments` and the `adhar` source
+            # mirror. A URL only — the runtime holds no Gitea credential; the
+            # PR-opening path lives in the gitops MCP server, which does.
+            - name: GITEA_API_URL
+              value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # The model every run names unless the caller asks for another.

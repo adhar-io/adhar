@@ -188,15 +188,15 @@ func createEnvironmentNamespaces(ctx context.Context, result *pfactory.Provision
 		_, cerr := cs.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 		switch {
 		case cerr == nil:
-			fmt.Printf("  %s environment namespace %q\n", helpers.SuccessStyle.Render(helpers.IconReady), env)
+			// Silent on success. A line per namespace restated what the config
+			// already says, three times, directly under a checklist that had just
+			// reported the environment provisioned.
 		case apierrors.IsAlreadyExists(cerr):
 			if _, perr := cs.CoreV1().Namespaces().Apply(ctx,
 				applyconfigcorev1.Namespace(env).WithLabels(labels(env)),
 				metav1.ApplyOptions{FieldManager: "adhar-cli", Force: true}); perr != nil {
 				return fmt.Errorf("relabelling existing namespace %s: %w", env, perr)
 			}
-			fmt.Printf("  %s environment namespace %q (already existed)\n",
-				helpers.SuccessStyle.Render(helpers.IconReady), env)
 		default:
 			return fmt.Errorf("creating namespace %s: %w", env, cerr)
 		}
@@ -229,7 +229,6 @@ func printSharedClusterPlan(cfg *config.Config, nsEnvs []string, sharedEnv strin
 	}
 	fmt.Printf("  %s Building ONE cluster; %s become namespaces on it.\n",
 		helpers.InfoStyle.Render("▸"), strings.Join(nsEnvs, ", "))
-	fmt.Printf("     Its size comes from %q, the largest of them, so it can carry that load.\n", sharedEnv)
 	fmt.Printf("     To give an environment its own cluster instead, set `isolation: cluster`\n")
 	fmt.Printf("     on it in the config.\n\n")
 }
@@ -484,7 +483,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 
 		envConfig, err := resolveEnvironmentConfig(cfg, envName)
 		if err != nil {
-			fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
+			fmt.Printf("  %s %s: %s\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, liveFailureLine(err))
 			envFailures = append(envFailures, envFailure{envName, err})
 			continue
 		}
@@ -509,14 +508,14 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		if err != nil {
 			tracker.Fail(1)
 			restoreProgress(true)
-			fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
+			fmt.Printf("  %s %s: %s\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, liveFailureLine(err))
 			envFailures = append(envFailures, envFailure{envName, err})
 			continue
 		}
 		if result != nil {
 			if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg, tracker); err != nil {
 				restoreProgress(true)
-				fmt.Printf("  %s %s: %v\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, err)
+				fmt.Printf("  %s %s: %s\n", helpers.ErrorStyle.Render(helpers.IconFailed), envName, liveFailureLine(err))
 				envFailures = append(envFailures, envFailure{envName, err})
 				continue
 			}
@@ -665,4 +664,26 @@ func validateEnvironmentExists(configPath, envName string) error {
 	}
 
 	return nil
+}
+
+// liveFailureLine is what the checklist prints the moment an environment fails.
+//
+// It is deliberately the FIRST LINE only. The closing panel renders the same
+// failure a few lines below with the cause condensed and the remedy attached,
+// and the returned error repeats it in full for logs — so printing everything
+// here showed an operator the same cloud SDK dump, and the same multi-line
+// remedy, three times in one screen. On the Azure auth failure of 2026-10-04
+// that was three copies of a 40-line azidentity body.
+//
+// The live line's job is only to say which environment stopped and why, next to
+// its checklist; the panel is where the detail and the fix belong.
+func liveFailureLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	line := err.Error()
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = strings.TrimRight(line[:i], " .") + "…"
+	}
+	return line
 }

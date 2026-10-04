@@ -66,10 +66,20 @@ func TestNothingPrintsWhileTheStageTrackerIsLive(t *testing.T) {
 		t.Fatal("no functions parsed — the guard is not looking at anything")
 	}
 
-	c := &checker{t: t, fset: fset, prints: printingFuncs(funcs), seen: map[string]bool{}}
-	if !c.prints["createEnvironmentNamespaces"] {
-		t.Fatal("createEnvironmentNamespaces is no longer detected as printing — the call-graph " +
-			"step is broken, which would silently disarm this whole test")
+	prints, direct := printingFuncs(funcs)
+	c := &checker{t: t, fset: fset, prints: prints, seen: map[string]bool{}}
+
+	// Self-check: the transitive step must actually do something.
+	//
+	// The culprit this test was written for printed from a CALLEE, so if the
+	// closure silently stopped working the whole test would pass while detecting
+	// nothing. Asserted on the mechanism rather than on a named function: the
+	// first version named createEnvironmentNamespaces, and when that function
+	// legitimately stopped printing the canary failed for no real reason.
+	if len(prints) <= len(direct) {
+		t.Fatalf("the call-graph closure found nothing beyond the %d direct printers — a function "+
+			"that prints only via a callee would go undetected, which is exactly the case this "+
+			"test exists for", len(direct))
 	}
 
 	started := false
@@ -229,9 +239,10 @@ func callTarget(call *ast.CallExpr, prints map[string]bool) (string, bool) {
 	return "", false
 }
 
-// printingFuncs is the set of package functions that write to the terminal,
-// directly or by calling one that does.
-func printingFuncs(funcs map[string]*ast.FuncDecl) map[string]bool {
+// printingFuncs returns the set of package functions that write to the terminal
+// directly or through a callee, plus the subset that print directly. The caller
+// compares the two to prove the transitive step is still working.
+func printingFuncs(funcs map[string]*ast.FuncDecl) (all, direct map[string]bool) {
 	prints := map[string]bool{}
 	callees := map[string]map[string]bool{}
 	for name, fn := range funcs {
@@ -252,6 +263,10 @@ func printingFuncs(funcs map[string]*ast.FuncDecl) map[string]bool {
 			return true
 		})
 	}
+	direct = map[string]bool{}
+	for fn := range prints {
+		direct[fn] = true
+	}
 	for changed := true; changed; {
 		changed = false
 		for fn, cs := range callees {
@@ -266,7 +281,7 @@ func printingFuncs(funcs map[string]*ast.FuncDecl) map[string]bool {
 			}
 		}
 	}
-	return prints
+	return prints, direct
 }
 
 func bodyMentions(fn *ast.FuncDecl, name string) bool {

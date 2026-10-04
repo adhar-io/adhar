@@ -8,7 +8,7 @@ kind: AdharPackage
 name: tetragon
 category: security
 version: "1.7.1"
-description: Cilium Tetragon eBPF runtime security observability and enforcement.
+description: "Cilium Tetragon eBPF runtime security: process audit trail to Loki plus a baseline of TracingPolicies (privilege escalation, sensitive files, AI-agent egress) alerted through Prometheus."
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -17,7 +17,16 @@ license: Apache-2.0
 homepage: https://tetragon.io
 adharCompatibility:
   minVersion: "0.1.0"
-dependencies: []
+dependencies:
+  # Sinks, not prerequisites: the DaemonSet runs without them, but events have
+  # nowhere to go (Loki) and nothing turns them into pages (kube-prometheus owns
+  # the PrometheusRule/ServiceMonitor CRDs and the Alertmanager they reach).
+  - name: loki-stack
+    category: observability
+    optional: true
+  - name: kube-prometheus
+    category: observability
+    optional: true
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   upstreamChart: cilium/tetragon

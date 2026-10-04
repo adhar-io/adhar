@@ -8,7 +8,7 @@ kind: AdharPackage
 name: falco
 category: security
 version: "9.1.0"
-description: Falco runtime threat detection, with Falcosidekick forwarding events and exposing Prometheus metrics.
+description: "Falco runtime threat detection: Falcosidekick fans every event out to Loki, Alertmanager (Warning+ → the Console), Prometheus and a persisted search API the Console's runtime-security feed reads; platform-aware rules watch AI agent workloads."
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -17,7 +17,16 @@ license: Apache-2.0
 homepage: https://falco.org
 adharCompatibility:
   minVersion: "0.1.0"
-dependencies: []
+dependencies:
+  # Sinks, not prerequisites: the DaemonSet runs without them, but events have
+  # nowhere to go (Loki) and nothing turns them into pages (kube-prometheus owns
+  # the PrometheusRule/ServiceMonitor CRDs and the Alertmanager they reach).
+  - name: loki-stack
+    category: observability
+    optional: true
+  - name: kube-prometheus
+    category: observability
+    optional: true
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   upstreamChart: falcosecurity/falco

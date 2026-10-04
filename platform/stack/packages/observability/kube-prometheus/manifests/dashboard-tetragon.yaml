@@ -154,7 +154,7 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Policy events/s",
-          "description": "",
+          "description": "Matches of the platform's TracingPolicies (adhar-privilege-escalation, adhar-sensitive-files, adhar-agent-egress)",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -211,8 +211,8 @@ data:
         {
           "id": 4,
           "type": "stat",
-          "title": "Ringbuf lost/s",
-          "description": "Lost ringbuffer events = observability blind spots; should be 0",
+          "title": "Policies loaded",
+          "description": "TracingPolicies attached and enabled; the platform baseline is 3",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -229,14 +229,14 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(tetragon_ringbuf_events_lost_total[5m]))",
+              "expr": "sum(tetragon_tracingpolicy_loaded{state=\"enabled\"})",
               "legendFormat": "",
               "refId": "A"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "ops",
+              "unit": "short",
               "color": {
                 "mode": "thresholds"
               },
@@ -244,12 +244,12 @@ data:
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
+                    "color": "red",
                     "value": null
                   },
                   {
-                    "color": "red",
-                    "value": 0.001
+                    "color": "green",
+                    "value": 3
                   }
                 ]
               }
@@ -273,8 +273,8 @@ data:
         {
           "id": 5,
           "type": "stat",
-          "title": "Process cache size",
-          "description": "",
+          "title": "Export drops/s",
+          "description": "Events the export rate limit discarded before Loki = audit-trail gaps; should be 0",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -291,14 +291,14 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(tetragon_process_cache_size)",
+              "expr": "sum(rate(tetragon_export_ratelimit_events_dropped_total[5m]))",
               "legendFormat": "",
               "refId": "A"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
+              "unit": "ops",
               "color": {
                 "mode": "thresholds"
               },
@@ -308,6 +308,10 @@ data:
                   {
                     "color": "green",
                     "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
                   }
                 ]
               }
@@ -465,21 +469,8 @@ data:
         },
         {
           "id": 9,
-          "type": "row",
-          "title": "eBPF ringbuffer health",
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 14
-          },
-          "panels": []
-        },
-        {
-          "id": 10,
           "type": "timeseries",
-          "title": "Ringbuffer throughput",
+          "title": "Policy events by workload",
           "description": "",
           "datasource": {
             "type": "prometheus",
@@ -489,7 +480,7 @@ data:
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 15
+            "y": 14
           },
           "targets": [
             {
@@ -497,27 +488,9 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(tetragon_ringbuf_events_received_total[5m]))",
-              "legendFormat": "received/s",
+              "expr": "sum(rate(tetragon_policy_events_total[5m])) by (namespace, workload)",
+              "legendFormat": "{{namespace}}/{{workload}}",
               "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "sum(rate(tetragon_ringbuf_events_lost_total[5m]))",
-              "legendFormat": "lost/s",
-              "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "sum(rate(tetragon_missed_events_total[5m]))",
-              "legendFormat": "missed/s",
-              "refId": "C"
             }
           ],
           "fieldConfig": {
@@ -556,9 +529,9 @@ data:
           }
         },
         {
-          "id": 11,
+          "id": 10,
           "type": "timeseries",
-          "title": "Process cache",
+          "title": "Exported to stdout/Loki",
           "description": "",
           "datasource": {
             "type": "prometheus",
@@ -568,7 +541,7 @@ data:
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 15
+            "y": 14
           },
           "targets": [
             {
@@ -576,8 +549,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(tetragon_process_cache_size)",
-              "legendFormat": "size",
+              "expr": "sum(rate(tetragon_events_exported_total[5m]))",
+              "legendFormat": "events/s",
               "refId": "A"
             },
             {
@@ -585,8 +558,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(tetragon_process_cache_evicted_total[5m]))",
-              "legendFormat": "evicted/s",
+              "expr": "sum(rate(tetragon_events_exported_bytes_total[5m]))",
+              "legendFormat": "bytes/s",
               "refId": "B"
             }
           ],
@@ -626,10 +599,181 @@ data:
           }
         },
         {
+          "id": 11,
+          "type": "row",
+          "title": "Agent health",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 22
+          },
+          "panels": []
+        },
+        {
           "id": 12,
-          "type": "logs",
-          "title": "Tetragon logs",
+          "type": "timeseries",
+          "title": "Probe failures",
           "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 23
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(tetragon_missed_link_probes_total[5m]))",
+              "legendFormat": "missed link probes/s",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(tetragon_missed_prog_probes_total[5m]))",
+              "legendFormat": "missed prog probes/s",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(tetragon_errors_total[5m]))",
+              "legendFormat": "errors/s",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "gradientMode": "opacity"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "placement": "bottom",
+              "displayMode": "table",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Process cache",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 23
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(tetragon_process_cache_size)",
+              "legendFormat": "size",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(tetragon_process_cache_evictions_total[5m]))",
+              "legendFormat": "evicted/s",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(tetragon_process_cache_misses_total[5m]))",
+              "legendFormat": "misses/s",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "gradientMode": "opacity"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "placement": "bottom",
+              "displayMode": "table",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "logs",
+          "title": "Policy matches (exported events)",
+          "description": "Each line is one kernel-hook match with the process tree; filter further with |= \"adhar-agent-egress\" etc.",
           "datasource": {
             "type": "loki",
             "uid": "loki"
@@ -638,7 +782,7 @@ data:
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 23
+            "y": 31
           },
           "targets": [
             {
@@ -646,7 +790,7 @@ data:
                 "type": "loki",
                 "uid": "loki"
               },
-              "expr": "{namespace=~\"$namespace\", pod=~\"tetragon.*\"}",
+              "expr": "{namespace=~\"$namespace\", app=\"tetragon\", container=\"export-stdout\"} |= \"process_kprobe\"",
               "refId": "A"
             }
           ],

@@ -146,8 +146,8 @@ lands with Roadmap Phase 2"):
 |---|---|---|
 | `platform/stack/adhar-appset-local.yaml` (L212) | `"false"` | `core/vcluster/manifests` |
 | `platform/stack/environments/local/config.yaml` (L198) | `"false"` | `core/vcluster/manifests` |
-| `platform/stack/environments/production/config.yaml` (L198) | `"false"` | `core/vcluster/manifests` |
-| `platform/stack/environments/development/config.yaml` (L14) | `true` | `core/vcluster` |
+| `platform/stack/environments/prod/config.yaml` (L198) | `"false"` | `core/vcluster/manifests` |
+| `platform/stack/environments/dev/config.yaml` (L14) | `true` | `core/vcluster` |
 
 All target `namespace: adhar-system`, `category: core`. Flipping `enabled: "true"` on the element
 (a Gitea commit; kubectl edits are reverted by ArgoCD selfHeal) is what turns the package on — the
@@ -226,7 +226,7 @@ chart) is what ships today.
 | `platform/stack/packages/core/vcluster/manifests/install.yaml` | Rendered control plane (SA/RBAC/Services/StatefulSet/config secret). |
 | `platform/stack/adhar-appset-local.yaml` (≈L212) | ApplicationSet generator element (`enabled: "false"`). |
 | `platform/stack/environments/{local,production}/config.yaml` (≈L198) | Env generator elements (`enabled: "false"`). |
-| `platform/stack/environments/development/config.yaml` (≈L14) | Dev generator element (`enabled: true`). |
+| `platform/stack/environments/dev/config.yaml` (≈L14) | Dev generator element (`enabled: true`). |
 | `platform/controlplane/configuration/xrd/cluster.xrd.yaml` | `CompositeCluster` XRD the vcluster Composition will back (ADR-0005). |
 | `platform/controllers/dataplane/infra.go` (planned, design 0023) | `ensureInfra` `mode: vcluster` — renders this chart as the T1 data plane. |
 | `platform/stack/packages/core/Kamaji/` | Hosted-control-plane alternative for node-pool multi-tenancy. |

@@ -117,12 +117,20 @@ func TestLocalProductionAppSetParity(t *testing.T) {
 }
 
 func TestEnvironmentConfigsMatchAppSets(t *testing.T) {
+	// `env` is a directory in the environments repo; `appset` is a PROFILE.
+	// They are different vocabularies: the profile is "local Kind" versus "any
+	// cloud", the environment is where a team's software runs. The cloud
+	// profile deploys the platform that the prod environment lives on, so
+	// those two pair up — but prod is spelled `prod`, like the namespace
+	// `adhar up` creates and the Kargo stage that promotes into it. This read
+	// `production` until the environments repo was brought in line with the
+	// rest of the platform (2026-10-04); see environment_model_test.go.
 	cases := []struct {
 		env    string
 		appset string
 	}{
 		{"local", "adhar-appset-local.yaml"},
-		{"production", "adhar-appset-production.yaml"},
+		{"prod", "adhar-appset-production.yaml"},
 	}
 	for _, tc := range cases {
 		elements := loadAppSetElements(t, tc.appset)

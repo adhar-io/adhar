@@ -39,6 +39,9 @@ func (c *ConfigProviderConfig) ToProviderMap() map[string]interface{} {
 	if c.ClientSecret != "" {
 		result["clientSecret"] = c.ClientSecret
 	}
+	if c.ClientSecretFile != "" {
+		result["clientSecretFile"] = c.ClientSecretFile
+	}
 	if c.TenantID != "" {
 		result["tenantId"] = c.TenantID
 	}

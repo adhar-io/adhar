@@ -44,7 +44,10 @@ func profileFor(name, stackDir string) (profile, error) {
 		return profile{
 			name:       "production",
 			appsetFile: filepath.Join(stackDir, "adhar-appset-production.yaml"),
-			envFile:    filepath.Join(stackDir, "environments", "production", "config.yaml"),
+			// The cloud PROFILE deploys the platform the `prod` ENVIRONMENT lives
+			// on; the directory follows the environment's name, like its namespace
+			// and Kargo stage (see environment_model_test.go in adharplatform).
+			envFile: filepath.Join(stackDir, "environments", "prod", "config.yaml"),
 		}, nil
 	}
 	return profile{}, fmt.Errorf("unknown profile %q — expected local or production", name)

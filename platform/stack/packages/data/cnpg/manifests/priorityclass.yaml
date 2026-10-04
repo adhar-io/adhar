@@ -1,0 +1,49 @@
+# Pods whose volume pins them to ONE node must be able to claim room on it.
+#
+# The default StorageClass is node-local (ADR: a block volume occupies one of a
+# VM's few data-disk attach slots, and the platform asks for ~90 claims), so a
+# local-path PV carries `kubernetes.io/hostname` node affinity. A pod bound to
+# such a volume has exactly one legal placement — if that node is full the pod is
+# unschedulable FOREVER and adding nodes does nothing:
+#
+#   0/5 nodes are available: 1 node(s) didn't match PersistentVolume's node
+#   affinity, 1 node(s) had untolerated taint(s), 3 Insufficient cpu.
+#   preemption: ... No preemption victims found for incoming pod.
+#
+# That last clause is the fixable part. At the default priority of 0 there are no
+# lower-priority victims, so the scheduler cannot make room even though the node
+# is full of work that could run anywhere else.
+#
+# Measured on Azure, 2026-10-04: CNPG's `initdb` Job consumes the PVC FIRST,
+# which is what binds the volume — it landed on a worker that still had room,
+# and by the time the instance pod existed that worker was at 99% CPU. keycloak-db
+# then sat Pending for 70 minutes asking for 100m. Keycloak is the platform's
+# critical path (CNPG → keycloak-db → Keycloak → its client Job writes
+# `keycloak-clients` → ~12 consumer ExternalSecrets → 9 oauth2-proxy rollouts),
+# so the whole SSO estate waited behind a database that could not get a tenth of
+# a core, while 52 pods that could have run anywhere held the node.
+#
+# 900000 is far above kpack's build classes (1–10000): a container build can wait,
+# the identity path cannot. It is far below system-cluster-critical
+# (2000000000), so nothing here can starve the control plane.
+#
+# Apply this to any pod whose volume pins it to a node — not as a general
+# "important" marker. The justification is the absence of an alternative
+# placement, not importance.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-node-bound
+  annotations:
+    # Must exist before any pod references it: Kubernetes REJECTS a pod naming a
+    # PriorityClass that is absent, which would be a worse failure than the one
+    # this fixes. A negative wave puts it ahead of everything in this package,
+    # and nothing can create a CNPG Cluster before this package installs the CRD.
+    argocd.argoproj.io/sync-wave: '-10'
+value: 900000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  For pods whose PersistentVolume pins them to a single node (the node-local
+  default StorageClass). They have no alternative placement, so they must be able
+  to preempt pods that do.

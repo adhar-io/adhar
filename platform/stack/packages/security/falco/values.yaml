@@ -1,12 +1,148 @@
-# Falco Helm Chart Values
-# Runtime security via the modern eBPF probe (no kernel module / driver build).
+# Falco — runtime threat detection for the platform (chart falcosecurity/falco 9.1.0).
+#
+# Every key here is a deliberate deviation from the chart defaults; regenerate
+# manifests/install.yaml with ./generate-manifests.sh after editing.
+#
+# WHAT THIS PACKAGE IS FOR. Falco watches syscalls on every node and raises an
+# event when a rule matches (shell in a container, write below /etc, a pod
+# talking to the apiserver, …). On its own it only LOGS those events to stdout —
+# until 2026-10-04 Falcosidekick ran with `Enabled Outputs: []`, so nothing
+# reached Loki, nothing reached Alertmanager, the Grafana dashboard read a
+# metric that no longer exists, and the Console's runtime-security feed pointed
+# at an endpoint Falcosidekick does not serve. This file wires the four sinks:
+#
+#   Falco ──http──▶ Falcosidekick ──▶ Loki          (every event, searchable)
+#                                ──▶ Alertmanager  (Warning+ → Console Notification Center)
+#                                ──▶ Falcosidekick-UI (the Console's event feed)
+#                                ──▶ Prometheus    (falcosecurity_falcosidekick_falco_events_total)
 
 driver:
   enabled: true
+  # The modern eBPF probe needs no kernel module and no driver build on the
+  # node — the only variant that works on every cloud image the platform uses.
   kind: modern_ebpf
 
-# Falcosidekick forwards events; UI disabled (no ingress, Gateway-API only platform).
+# Falco's own counters (rules loaded, events dropped by the kernel, CPU) on
+# the webserver's /metrics. The sidekick's event counters are the ones
+# dashboards and alerts read; these say whether Falco itself is healthy.
+metrics:
+  enabled: true
+  interval: 15m
+  # Do NOT also emit the snapshot as a rule output: it would be a "Falco
+  # internal: metrics snapshot" event every 15 minutes in the event feed.
+  outputRule: false
+falco:
+  webserver:
+    prometheus_metrics_enabled: true
+
+# The chart's ServiceMonitor renders at sync-wave 0, before kube-prometheus's
+# CRDs exist on a first boot; manifests/servicemonitor.yaml ships both monitors
+# (sidekick + falco) at wave 10 instead, like every other package.
+serviceMonitor:
+  create: false
+
+# --- Platform-aware rules ----------------------------------------------------
+# Loaded after the upstream ruleset (falco_rules.local.yaml position), so the
+# `override` blocks below REPLACE upstream macro conditions. Two purposes:
+#
+#  1. Stop the platform from alerting on itself. Measured over 6 h on the live
+#     cluster: 11 558 "Contact K8S API Server From Container" events, every one
+#     from an operator in adhar-system (Argo CD, Kyverno, the MongoDB agent,
+#     kubectl Jobs, Crossplane providers, …) — the platform plane IS operators,
+#     contacting the apiserver is what they do. The rule stays live for every
+#     other namespace, where a workload reaching the apiserver is exactly what
+#     it exists to catch. Likewise "Run shell untrusted" from CloudNativePG,
+#     whose instance manager runs postgres hooks through `sh` by design.
+#  2. Watch AI agent workloads harder than anything else. An AgentWorkload's
+#     pods carry `adhar.io/agent` (the composition labels the namespace and the
+#     Kyverno pack requires the pod label), so a shell or an off-cluster
+#     connection from one is a dedicated CRITICAL/WARNING rule that the
+#     security/falco PrometheusRule turns into an alert.
+customRules:
+  adhar-platform.yaml: |-
+    - macro: user_known_contact_k8s_api_server_activities
+      condition: (k8s.ns.name = "adhar-system")
+      override:
+        condition: replace
+
+    - macro: user_shell_container_exclusions
+      condition: >
+        (container.image.repository in (ghcr.io/cloudnative-pg/postgresql, ghcr.io/cloudnative-pg/postgis)
+         or container.image.repository startswith "ghcr.io/cloudnative-pg/")
+      override:
+        condition: replace
+
+    # The harbor-node-registry-trust DaemonSet (alpine/k8s) fetches the Harbor
+    # CA with openssl on every node at start-up, which upstream classifies as
+    # "Drop and execute new binary in container" (CRITICAL). Known and intended.
+    - macro: known_drop_and_execute_containers
+      condition: (k8s.ns.name = "adhar-system" and container.image.repository = "docker.io/alpine/k8s")
+      override:
+        condition: replace
+
+    - rule: Shell spawned in agent workload
+      desc: >
+        A shell started inside a pod that carries the adhar.io/agent label. An AI agent
+        workload has no interactive use: it talks to the AI gateway over HTTP and
+        exports telemetry. A shell means either prompt-injected tool execution or a
+        compromised runtime, so this is CRITICAL regardless of the upstream shell rules.
+      condition: >
+        spawned_process and container and k8s.pod.label[adhar.io/agent] exists
+        and proc.name in (shell_binaries)
+      output: >
+        Shell in AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name pod=%k8s.pod.name
+        shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline image=%container.image.repository
+        user=%user.name uid=%user.uid)
+      priority: CRITICAL
+      tags: [adhar, agent, container, shell, mitre_execution, T1059]
+
+    - rule: Agent workload connected outside the cluster
+      desc: >
+        An outbound connection from an adhar.io/agent pod to an address outside the
+        private ranges. The composition's NetworkPolicy allows only DNS, the AI
+        gateway and the telemetry collector, so a connection attempt elsewhere is
+        exfiltration or a tool call bypassing the gateway — the policy drops the
+        packets, this records the attempt.
+      condition: >
+        outbound and container and k8s.pod.label[adhar.io/agent] exists
+        and not fd.sip in (rfc_1918_addresses) and not fd.snet in ("127.0.0.0/8")
+      output: >
+        Off-cluster connection from AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name
+        pod=%k8s.pod.name dest=%fd.sip:%fd.sport proc=%proc.name cmdline=%proc.cmdline)
+      priority: WARNING
+      tags: [adhar, agent, network, mitre_exfiltration, T1041]
+
+# --- Falcosidekick: the fan-out ------------------------------------------------
 falcosidekick:
   enabled: true
+  config:
+    # Every event, as a log line Grafana Explore and the Console can search.
+    # Labels are kept to the low-cardinality fields; the full output and the
+    # output_fields stay in the line body.
+    loki:
+      hostport: http://loki.adhar-system.svc.cluster.local:3100
+      format: json
+      extralabels: "k8s.ns.name,k8s.pod.name"
+    # Warning and above become Alertmanager alerts, which the platform routes to
+    # the Console's Notification Center (kube-prometheus alertmanager-console-webhook).
+    # Notice/Info stay in Loki and the UI — they are telemetry, not pages.
+    alertmanager:
+      hostport: http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093
+      minimumpriority: warning
+      extralabels: "source:falco"
+  # Falcosidekick-UI persists events and serves the search API the Console's
+  # runtime-security feed reads (`/api/v1/event/search`; FALCO_URL on the console
+  # Deployment). It needs Redis WITH the RediSearch module, which the shared
+  # Valkey does not carry — this is the one documented exception to
+  # "no bundled key-value stores" (platform/stack/packages/CONFLICTS.md), scoped
+  # to a 1 GiB node-local volume and a 7-day TTL.
   webui:
-    enabled: false
+    enabled: true
+    replicaCount: 1
+    # In-cluster only: no HTTPRoute, reached through the Console's authenticated
+    # BFF proxy. Basic auth here would be a second credential for a service that
+    # already sits behind Keycloak.
+    disableauth: true
+    ttl: 604800
+    redis:
+      storageSize: 1Gi

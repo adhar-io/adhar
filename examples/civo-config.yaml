@@ -197,7 +197,7 @@ environments:
 #      endpoints, and adhar-ai has no LLM path of its own.
 #
 #        platform/stack/adhar-appset-production.yaml   (and the mirrored
-#        platform/stack/environments/production/config.yaml)
+#        platform/stack/environments/prod/config.yaml)
 #          - name: "adhar-ai"      -> enabled: "true"
 #          - name: "agentgateway"  -> enabled: "true"
 #

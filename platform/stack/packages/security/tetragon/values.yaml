@@ -1,13 +1,29 @@
-# Tetragon Helm Chart Values
-# eBPF-based runtime security observability and enforcement, deployed alongside
-# Cilium in kube-system. Exposes only the gRPC/metrics endpoints (no ingress).
+# Tetragon — eBPF runtime observability and enforcement (chart cilium/tetragon 1.7.1).
+#
+# Every key here is a deliberate deviation from the chart defaults; regenerate
+# manifests/install.yaml with ./generate-manifests.sh after editing.
+#
+# Tetragon has two halves. The agent exports PROCESS_EXEC/EXIT for every pod to
+# stdout, which Alloy ships to Loki — that is the process audit trail. The
+# TracingPolicies in manifests/tracing-policies.yaml are the second half: kernel
+# hooks that fire only on the behaviours the platform cares about (privilege
+# changes, writes to sensitive files, off-cluster connections from AI agents)
+# and that surface as `tetragon_policy_events_total{policy=…}` for alerting.
+# Without policies there are no policy events, and until 2026-10-04 none were
+# deployed, so the dashboard's "Policy events" panel had nothing to show.
 
 tetragon:
   enabled: true
+  # Credentials (uid/gid/capabilities) and namespaces on every process event.
+  # The privilege-escalation policy is only meaningful when the event says who
+  # the process became; both are a few bytes per event.
+  enableProcessCred: true
+  enableProcessNs: true
 
 tetragonOperator:
   enabled: true
 
-# Export events for collection by the platform observability stack.
+# Export events for collection by the platform observability stack: stdout,
+# scraped by Alloy as pod logs (`{app="tetragon", container="export-stdout"}`).
 export:
   mode: stdout

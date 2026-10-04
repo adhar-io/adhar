@@ -53,9 +53,88 @@ func (p *Provider) Preflight(ctx context.Context, spec *types.ClusterSpec) []pro
 	}
 
 	checks = append(checks, p.preflightNamespaces(ctx)...)
+	checks = append(checks, p.preflightCloudCredential())
 	checks = append(checks, p.preflightVMSize(ctx, spec))
 	checks = append(checks, p.preflightQuota(ctx, spec))
 	return checks
+}
+
+// preflightCloudCredential checks that the in-cluster controllers will have a
+// credential, BEFORE anything billable is created.
+//
+// azureCloudConfig refuses to write an azure.json that cannot authenticate, but
+// it runs during cloud integration — after the VNet, the NSG, the public IPs
+// and every VM already exist. A live run on 2026-10-04 failed at 3m50s having
+// created three VMs (one Standard_E2bds_v5, two Standard_E4bds_v5) and three
+// public IPs, all of which kept billing after the command exited with an error.
+// The condition is known from configuration alone and needs no network call, so
+// there is no reason to learn it late.
+//
+// `az login` is the trap: it is enough to CREATE the cluster, which is why
+// everything up to this point succeeds, but a CLI token belongs to the operator
+// and cannot be handed to a controller inside the cluster.
+func (p *Provider) preflightCloudCredential() provider.Check {
+	const name = "cloud-provider credential"
+
+	// AKS gets a system-assigned identity from Azure (see managed.go) and no
+	// azure.json of ours, so none of this applies.
+	if p.isManagedMode() {
+		return provider.Check{
+			Name:   name,
+			Status: provider.CheckPass,
+			Detail: "managed AKS: Azure assigns the cluster identity",
+		}
+	}
+
+	if strings.TrimSpace(p.config.ClientSecret) != "" {
+		detail := "service principal configured"
+		if strings.TrimSpace(p.config.ClientID) == "" || strings.TrimSpace(p.config.TenantID) == "" {
+			return provider.Check{
+				Name:   name,
+				Status: provider.CheckFail,
+				Detail: "clientSecret is set but clientId or tenantId is empty — all three are required",
+				Fix:    credentialFixHint(p.config.SubscriptionID, p.config.ResourceGroup),
+			}
+		}
+		return provider.Check{Name: name, Status: provider.CheckPass, Detail: detail}
+	}
+
+	// useManagedIdentity satisfies azureCloudConfig but cannot work on a cluster
+	// this provider builds: nothing here assigns an identity to the VMs or grants
+	// it a role (only the AKS path does, managed.go). Accepting the flag would
+	// trade a fast, clear failure for a cloud-controller-manager that crash-loops
+	// after the whole bootstrap has run.
+	if p.config.UseManagedIdentity {
+		return provider.Check{
+			Name:   name,
+			Status: provider.CheckFail,
+			Detail: "useManagedIdentity is set, but this provider does not assign a managed identity " +
+				"to the VMs it creates, nor grant it a role — the cloud-controller-manager would get no token",
+			Fix: "Use a service principal instead, or `clusterMode: aks` where Azure assigns the identity. " +
+				credentialFixHint(p.config.SubscriptionID, p.config.ResourceGroup),
+		}
+	}
+
+	return provider.Check{
+		Name:   name,
+		Status: provider.CheckFail,
+		Detail: "no service principal: `az login` can create the cluster, but the in-cluster " +
+			"cloud-controller-manager cannot use an operator's CLI token, so no load balancer is created " +
+			"and every platform hostname stays unreachable",
+		Fix: credentialFixHint(p.config.SubscriptionID, p.config.ResourceGroup),
+	}
+}
+
+// credentialFixHint spells out the one command and the three fields, because
+// the fix is mechanical and the cost of guessing it is a torn-down cluster.
+func credentialFixHint(subscriptionID, resourceGroup string) string {
+	scope := "/subscriptions/" + subscriptionID
+	if resourceGroup != "" {
+		scope += "/resourceGroups/" + resourceGroup
+	}
+	return fmt.Sprintf("az ad sp create-for-rbac --name adhar-platform --role Contributor --scopes %s "+
+		"— then set providers.azure.clientId, clientSecret and tenantId from its output "+
+		"(or export AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)", scope)
 }
 
 // preflightNamespaces reports any resource provider that is not registered.

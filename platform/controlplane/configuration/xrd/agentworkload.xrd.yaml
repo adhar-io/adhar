@@ -1,0 +1,193 @@
+---
+# AgentWorkload — the isolation boundary for an AI agent (Agentic Adhar, pillar 1).
+#
+# An agent is not an ordinary service. It holds a credential that spends money
+# (every LLM call), it calls tools that read and change platform state, and it
+# executes instructions that arrive at runtime from a model rather than from a
+# code review. So an agent gets what a service does not: its own namespace with
+# a default-deny network, an identity the AI gateway recognises, an explicit
+# allow-list of models and tools, and a budget that is measured and alerted on.
+#
+# Declaring one AgentWorkload materialises all of that from a dozen lines. The
+# agent's own code (the `agent-service` golden path) is deployed into the
+# namespace this creates by its ordinary deploy/ tree; this object owns the
+# boundary, not the workload.
+#
+# Identity: the agent authenticates to agentgateway with its Kubernetes
+# ServiceAccount token (projected, audience `agentgateway`). The gateway's
+# authorization is Allow-only and default-deny, and the SA has no Keycloak
+# groups, so an agent can reach exactly what its own AgentWorkload policy grants
+# — nothing else. See compositions/agent/kubernetes.yaml.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: agentworkloads.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: AgentWorkload
+    plural: agentworkloads
+    shortNames: [agent, agents]
+  defaultCompositionRef:
+    name: agentworkload-kubernetes
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: Namespace
+          type: string
+          jsonPath: .status.namespace
+        - name: Environment
+          type: string
+          jsonPath: .spec.parameters.environment
+        - name: Models
+          type: string
+          jsonPath: .status.modelsSummary
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: agent
+                parameters:
+                  type: object
+                  required: [name, environment]
+                  properties:
+                    name:
+                      type: string
+                      description: >-
+                        Agent name. Its namespace is `<name>-<environment>`, like
+                        every other promoted workload on the platform.
+                      pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+                      maxLength: 40
+                    environment:
+                      type: string
+                      description: Which environment this instance of the agent runs in.
+                      enum: [dev, test, prod]
+                    owner:
+                      type: string
+                      description: Owning team, for attribution in audit and dashboards.
+                    models:
+                      type: object
+                      description: >-
+                        Which LLMs the agent may call through the AI gateway. The
+                        gateway routes by model NAME and the agent never sees a
+                        provider or a key; this list is what its identity is
+                        allowed to name.
+                      properties:
+                        allow:
+                          type: array
+                          description: >-
+                            Exact model names or RE2 regexes (e.g. `claude-.*`,
+                            `local/.*`). Empty means the agent may call no model.
+                          items:
+                            type: string
+                          default: []
+                    tools:
+                      type: object
+                      description: >-
+                        Which federated MCP tool TARGETS the agent may call
+                        (mcp-federation.yaml `targets[].name`: cluster,
+                        observability, cost, gitops, provision, security, catalog).
+                      properties:
+                        allow:
+                          type: array
+                          items:
+                            type: string
+                          default: []
+                    budget:
+                      type: object
+                      description: >-
+                        Declared spend. Enforced per environment tier by the
+                        gateway's rate limits; measured per agent from the
+                        gateway's metrics and ALERTED on when exceeded, which is
+                        what the composed PrometheusRule does.
+                      properties:
+                        tokensPerHour:
+                          type: integer
+                          description: Alert when the agent consumes more than this in one hour.
+                          default: 100000
+                        requestsPerMinute:
+                          type: integer
+                          default: 60
+                    resources:
+                      type: object
+                      description: The namespace's ResourceQuota.
+                      properties:
+                        cpu:
+                          type: string
+                          default: "2"
+                        memory:
+                          type: string
+                          default: 4Gi
+                        pods:
+                          type: integer
+                          default: 10
+                    network:
+                      type: object
+                      description: >-
+                        Egress is default-deny. DNS, the AI gateway and the
+                        telemetry collector are always allowed; add anything else
+                        here explicitly.
+                      properties:
+                        allowNamespaces:
+                          type: array
+                          description: Extra namespaces the agent may reach (by name label).
+                          items:
+                            type: string
+                          default: []
+                        allowCIDRs:
+                          type: array
+                          description: Extra IP ranges the agent may reach (e.g. an external API).
+                          items:
+                            type: string
+                          default: []
+                        allowIngressFrom:
+                          type: array
+                          description: >-
+                            Namespaces allowed to call INTO the agent. The platform
+                            gateway namespace is always allowed so the agent's
+                            HTTPRoute works.
+                          items:
+                            type: string
+                          default: []
+                    labels:
+                      type: object
+                      additionalProperties:
+                        type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                ready:
+                  type: boolean
+                namespace:
+                  type: string
+                serviceAccount:
+                  type: string
+                identity:
+                  type: string
+                  description: The `sub` the gateway sees for this agent.
+                modelsSummary:
+                  type: string
+                message:
+                  type: string

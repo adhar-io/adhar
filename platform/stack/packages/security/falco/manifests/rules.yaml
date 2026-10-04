@@ -1,0 +1,72 @@
+# Alerts from Falco's event stream. Falcosidekick already forwards every
+# Warning+ event to Alertmanager one by one; these rules are the AGGREGATE view
+# — "something critical is happening in this namespace", "the agent fleet is
+# misbehaving", "Falco itself has gone quiet" — which is what a page should be.
+# Everything routes through the platform's default receiver (the Console's
+# Notification Center, kube-prometheus alertmanager-console-webhook).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: falco
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+  labels:
+    adhar.io/component: runtime-security
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: adhar.runtime-security.falco
+      rules:
+        - alert: FalcoCriticalEvent
+          expr: >-
+            sum by (rule, k8s_ns_name) (
+              increase(falcosecurity_falcosidekick_falco_events_total{priority_raw=~"critical|alert|emergency"}[10m])
+            ) > 0
+          for: 0m
+          labels: {severity: critical, source: falco}
+          annotations:
+            summary: "Falco: {{ $labels.rule }} in {{ $labels.k8s_ns_name }}"
+            description: "{{ $value | humanize }} critical-priority Falco event(s) matched rule \"{{ $labels.rule }}\" in namespace {{ $labels.k8s_ns_name }} in the last 10 minutes. Open the Runtime Security dashboard or Grafana Explore ({rule=\"{{ $labels.rule }}\"}) for the raw events."
+        - alert: FalcoAgentWorkloadShell
+          expr: >-
+            sum by (k8s_ns_name, k8s_pod_name) (
+              increase(falcosecurity_falcosidekick_falco_events_total{rule="Shell spawned in agent workload"}[10m])
+            ) > 0
+          for: 0m
+          labels: {severity: critical, source: falco, adhar_plane: agent}
+          annotations:
+            summary: "Shell inside AI agent workload {{ $labels.k8s_ns_name }}/{{ $labels.k8s_pod_name }}"
+            description: "An AI agent pod spawned a shell. Agents talk HTTP to the AI gateway and export telemetry — a shell is prompt-injected tool execution or a compromised runtime. Check the AgentWorkload's Kyverno report, the pod's exec history in Tetragon ({app=\"tetragon\"} in Loki) and consider deleting the pod."
+        - alert: FalcoAgentWorkloadEgress
+          expr: >-
+            sum by (k8s_ns_name, k8s_pod_name) (
+              increase(falcosecurity_falcosidekick_falco_events_total{rule="Agent workload connected outside the cluster"}[10m])
+            ) > 0
+          for: 0m
+          labels: {severity: warning, source: falco, adhar_plane: agent}
+          annotations:
+            summary: "AI agent {{ $labels.k8s_ns_name }}/{{ $labels.k8s_pod_name }} tried to reach outside the cluster"
+            description: "The agent's NetworkPolicy allows only DNS, the AI gateway and the telemetry collector; this connection attempt went elsewhere (the policy dropped it). Either a tool is bypassing the gateway or the agent is exfiltrating — see the event's dest= field."
+        - alert: FalcoSidekickOutputFailing
+          expr: >-
+            sum by (destination) (increase(falcosecurity_falcosidekick_outputs_total{status="error"}[15m])) > 0
+          for: 15m
+          labels: {severity: warning, source: falco}
+          annotations:
+            summary: "Falcosidekick cannot deliver to {{ $labels.destination }}"
+            description: "Falco events are being dropped on the way to {{ $labels.destination }} (Loki, Alertmanager or the UI). Runtime-security evidence is being lost; check the falco-falcosidekick logs."
+        - alert: FalcoNotReporting
+          expr: absent(up{job="falcosidekick"} == 1)
+          for: 15m
+          labels: {severity: warning, source: falco}
+          annotations:
+            summary: "Falcosidekick is not being scraped"
+            description: "No falcosidekick target has been up for 15 minutes: either the Deployment is down or the ServiceMonitor no longer matches its Service. Runtime detections are not reaching Loki, Alertmanager or the Console while this fires."
+        - alert: FalcoKernelEventsDropped
+          expr: sum by (hostname) (increase(falcosecurity_scap_n_drops_total[15m])) > 0
+          for: 15m
+          labels: {severity: warning, source: falco}
+          annotations:
+            summary: "Falco is dropping kernel events on {{ $labels.hostname }}"
+            description: "The eBPF ring buffer overflowed on {{ $labels.hostname }}: syscalls went unobserved, so a detection could be missed. Usually a saturated node; check its CPU, or raise falco.syscall_buf_size_preset in values.yaml."

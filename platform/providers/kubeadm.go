@@ -885,3 +885,44 @@ func WorkerScalePlan(prefix string, current []string, desired int) (add, remove 
 	}
 	return add, remove
 }
+
+// ControlPlaneVersion reports the Kubernetes version the control plane is
+// actually running, read from the master over SSH.
+//
+// A node added later must match the running control plane, not a default or a
+// remembered value: install the wrong minor and the new kubelet is skewed from
+// the API server it joins. The CLI knows the version from its own state file,
+// but the in-cluster node autoscaler does not — it has no state file at all —
+// and discovery from the cloud cannot see inside the machines. Asking the master
+// is the only source that is correct by construction.
+//
+// Until this existed, a cluster discovered rather than remembered carried a
+// hardcoded "v1.29.0", which would have prepared a 1.29 worker for a v1.37
+// cluster (2026-10-04).
+func ControlPlaneVersion(signer ssh.Signer, user, masterIP string) (string, error) {
+	// kubeadm is the component that will install the packages, so its own
+	// version is the one to match. `-o short` prints e.g. "v1.37.1".
+	out, err := SSHRun(signer, user, masterIP, "kubeadm version -o short", 2*time.Minute)
+	if err == nil {
+		if v := strings.TrimSpace(out); strings.HasPrefix(v, "v") {
+			return v, nil
+		}
+	}
+	// Fall back to the kubelet: a control plane can be healthy with kubeadm
+	// missing from PATH, and the kubelet version is equally authoritative.
+	out, ferr := SSHRun(signer, user, masterIP, "kubelet --version", 2*time.Minute)
+	if ferr != nil {
+		if err != nil {
+			return "", fmt.Errorf("reading the control-plane version from %s: %w", masterIP, err)
+		}
+		return "", fmt.Errorf("reading the control-plane version from %s: %w", masterIP, ferr)
+	}
+	// "Kubernetes v1.37.1"
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) > 0 {
+		if v := fields[len(fields)-1]; strings.HasPrefix(v, "v") {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("could not parse a Kubernetes version from %q on %s", strings.TrimSpace(out), masterIP)
+}

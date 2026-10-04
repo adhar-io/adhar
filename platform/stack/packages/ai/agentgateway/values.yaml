@@ -46,6 +46,28 @@ controller:
     # Stated explicitly because the tag is immutable — no reason to re-pull.
     pullPolicy: IfNotPresent
 
+  # DEVIATION (default: {} / [] / []). The controller — not the proxy — fetches
+  # every JWT provider's JWKS, with Go's system certificate pool. The agent
+  # identity provider in manifests/security.yaml reads the apiserver's keyset
+  # over https://kubernetes.default.svc.cluster.local, whose certificate is
+  # signed by the CLUSTER CA, so without this the fetch fails with
+  # `x509: certificate signed by unknown authority`, the policy sits at
+  # PartiallyValid and every agent token is a 401 (measured 2026-10-04). A
+  # BackendTLSPolicy does not help — it configures the proxy's data path, not
+  # the controller's fetcher. SSL_CERT_DIR is colon-separated and REPLACES Go's
+  # default directories, so the distro defaults are restated ahead of ours;
+  # `kube-root-ca.crt` is the ConfigMap kubelet publishes in every namespace.
+  extraEnv:
+    SSL_CERT_DIR: /etc/ssl/certs:/etc/pki/tls/certs:/var/run/adhar/cluster-ca
+  extraVolumes:
+    - name: cluster-ca
+      configMap:
+        name: kube-root-ca.crt
+  extraVolumeMounts:
+    - name: cluster-ca
+      mountPath: /var/run/adhar/cluster-ca
+      readOnly: true
+
   # Chart default. Listed so the metrics port is visible next to the
   # ServiceMonitor in manifests/servicemonitor.yaml, which scrapes port 9092.
   service:

@@ -1,6 +1,22 @@
 # FALCO INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/security/falco/generate-manifests.sh'
 ---
+# Source: falco/charts/falcosidekick/templates/rbac-ui.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco-falcosidekick-ui
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+  annotations:
+---
 # Source: falco/charts/falcosidekick/templates/rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -20,6 +36,43 @@ metadata:
     app.kubernetes.io/instance: falco
     app.kubernetes.io/version: "0.44.1"
     app.kubernetes.io/managed-by: Helm
+---
+# Source: falco/charts/falcosidekick/templates/secrets-ui.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: falco-falcosidekick-ui
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+  annotations:
+type: Opaque
+data:
+  FALCOSIDEKICK_UI_USER: "YWRtaW46YWRtaW4="
+---
+# Source: falco/charts/falcosidekick/templates/secrets-ui.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: falco-falcosidekick-ui-redis
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+  annotations:
+type: Opaque
+data:
 ---
 # Source: falco/charts/falcosidekick/templates/secrets.yaml
 apiVersion: v1
@@ -87,12 +140,13 @@ data:
   DATADOGLOGS_MINIMUMPRIORITY: ""
 
   # AlertManager Output
-  ALERTMANAGER_HOSTPORT: ""
+  ALERTMANAGER_HOSTPORT: "aHR0cDovL3Byb21ldGhldXMta3ViZS1wcm9tZXRoZXVzLWFsZXJ0bWFuYWdlci5hZGhhci1zeXN0ZW0uc3ZjLmNsdXN0ZXIubG9jYWw6OTA5Mw=="
   ALERTMANAGER_ENDPOINT: "L2FwaS92MS9hbGVydHM="
   ALERTMANAGER_EXPIRESAFTER: ""
+  ALERTMANAGER_EXTRALABELS: "c291cmNlOmZhbGNv"
   ALERTMANAGER_DROPEVENTDEFAULTPRIORITY: "Y3JpdGljYWw="
   ALERTMANAGER_DROPEVENTTHRESHOLDS: "MTAwMDA6Y3JpdGljYWwsIDEwMDA6Y3JpdGljYWwsIDEwMDpjcml0aWNhbCwgMTA6d2FybmluZywgMTp3YXJuaW5n"
-  ALERTMANAGER_MINIMUMPRIORITY: ""
+  ALERTMANAGER_MINIMUMPRIORITY: "d2FybmluZw=="
   ALERTMANAGER_MUTUALTLS: "ZmFsc2U="
   ALERTMANAGER_CHECKCERT: "dHJ1ZQ=="
 
@@ -209,13 +263,13 @@ data:
   ELASTICSEARCH_MINIMUMPRIORITY: ""
 
   # Loki Output
-  LOKI_HOSTPORT: ""
+  LOKI_HOSTPORT: "aHR0cDovL2xva2kuYWRoYXItc3lzdGVtLnN2Yy5jbHVzdGVyLmxvY2FsOjMxMDA="
   LOKI_ENDPOINT: "L2xva2kvYXBpL3YxL3B1c2g="
   LOKI_USER: ""
   LOKI_APIKEY: ""
   LOKI_TENANT: ""
-  LOKI_FORMAT: "dGV4dA=="
-  LOKI_EXTRALABELS: ""
+  LOKI_FORMAT: "anNvbg=="
+  LOKI_EXTRALABELS: "azhzLm5zLm5hbWUsazhzLnBvZC5uYW1l"
   LOKI_CUSTOMHEADERS: ""
   LOKI_MINIMUMPRIORITY: ""
   LOKI_MUTUALTLS: "ZmFsc2U="
@@ -529,6 +583,7 @@ data:
   TALON_MINIMUMPRIORITY: ""
   
   # WebUI Output
+  WEBUI_URL: "aHR0cDovL2ZhbGNvLWZhbGNvc2lkZWtpY2stdWk6MjgwMg=="
 
   # Splunk Output
   SPLUNK_HOST: ""
@@ -536,6 +591,769 @@ data:
   SPLUNK_CUSTOMHEADERS: ""
   SPLUNK_CHECKCERT: "dHJ1ZQ=="
   SPLUNK_MINIMUMPRIORITY: ""
+---
+# Source: falco/charts/falcosidekick/templates/configmap-ui.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-falcosidekick-ui-redis
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui-redis
+data:
+  ping-redis.sh: |-
+    #!/bin/bash
+    for i in {1..10};
+    do
+      response=$(
+        timeout -s 3 30 \
+        redis-cli \
+          -h falco-falcosidekick-ui-redis -p 6379 \
+          ping
+        )
+      if [ "$response" = "PONG" ]; then
+        exit 0
+      fi
+      sleep 3
+    done
+    exit 1
+---
+# Source: falco/charts/falcosidekick/templates/falcosidekick-loki-dashboard-grafana.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falcosidekick-loki-dashboard-grafana
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    grafana_dashboard: "1"
+data:
+  falcosidekick-loki-dashboard.json: |-
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": 5,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {
+            "default": false,
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "pieType": "pie",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "11.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${datasource}"
+              },
+              "editorMode": "builder",
+              "expr": "count by(priority) (rate({priority=~\".+\"} | logfmt | k8s_ns_name =~ `$namespace` | priority =~ `$priority` [$__auto]))",
+              "legendFormat": "{{priority}}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "Priority counts",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "default": false,
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "id": 2,
+          "options": {
+            "displayLabels": [
+              "value",
+              "percent"
+            ],
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "values": []
+            },
+            "pieType": "pie",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "11.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${datasource}"
+              },
+              "editorMode": "builder",
+              "expr": "count by(rule) (rate({priority=~\".+\", rule!=\"Falco internal: metrics snapshot\"} | logfmt | k8s_ns_name =~ `$namespace` | priority =~ `$priority` [$__auto]))",
+              "legendFormat": "{{priority}}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "Rules counts",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "default": false,
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "left",
+                "cellOptions": {
+                  "type": "auto",
+                  "wrapText": false
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #A"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Number of Messages"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Time"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hidden",
+                    "value": true
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "k8s_ns_name"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 96
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "priority"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 91
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "rule"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 450
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "k8s_pod_name"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 184
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "id": 5,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "enablePagination": false,
+              "fields": "",
+              "reducer": [
+                "last"
+              ],
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "k8s_pod_name"
+              }
+            ]
+          },
+          "pluginVersion": "11.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${datasource}"
+              },
+              "editorMode": "builder",
+              "expr": "count by(k8s_pod_name, rule, priority, k8s_ns_name) (rate({priority=~\".+\"} | logfmt | k8s_ns_name =~ `$namespace` | priority =~ `$priority` [$__auto]))",
+              "legendFormat": "",
+              "queryType": "instant",
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "sortBy",
+              "options": {
+                "fields": {},
+                "sort": [
+                  {
+                    "desc": true,
+                    "field": "Value #A"
+                  }
+                ]
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "default": false,
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 6,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "11.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${datasource}"
+              },
+              "direction": "backward",
+              "editorMode": "builder",
+              "expr": "{priority=~\".+\"} |= `$line_filter` | logfmt | k8s_ns_name =~ `$namespace` | priority =~ `$priority`",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "Realtime logs",
+          "type": "logs"
+        },
+        {
+          "datasource": {
+            "default": false,
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 100,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "stepBefore",
+                "lineStyle": {
+                  "fill": "solid"
+                },
+                "lineWidth": 1,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "fieldMinMax": false,
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 23
+          },
+          "id": 7,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "editorMode": "builder",
+              "expr": "count by(priority) (rate({priority=~\".+\"} | logfmt | k8s_ns_name =~ `$namespace` | priority =~ `$priority` [1m]))",
+              "legendFormat": "{{priority}}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "Priorities Rates",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "default": false,
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 100,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "stepBefore",
+                "lineStyle": {
+                  "fill": "solid"
+                },
+                "lineWidth": 1,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "fieldMinMax": false,
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 23
+          },
+          "id": 8,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "editorMode": "builder",
+              "expr": "count by(rule) (rate({priority=~\".+\"} | logfmt | k8s_ns_name =~ `$namespace` | priority =~ `$priority` [1m]))",
+              "legendFormat": "{{priority}}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "Rules Rates",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "auto",
+      "schemaVersion": 39,
+      "tags": [],
+      "templating": {
+        "list": [
+          {
+            "allValue": "",
+            "current": {
+              "selected": true,
+              "text": [
+                "arr",
+                "core",
+                "falco",
+                "kube-system",
+                "media",
+                "monitoring",
+                "rook",
+                "rook-cluster",
+                "storage",
+                "utilities",
+                "webs"
+              ],
+              "value": [
+                "arr",
+                "core",
+                "falco",
+                "kube-system",
+                "media",
+                "monitoring",
+                "rook",
+                "rook-cluster",
+                "storage",
+                "utilities",
+                "webs"
+              ]
+            },
+            "datasource": {
+              "type": "loki",
+              "uid": "${datasource}"
+            },
+            "definition": "",
+            "description": "",
+            "hide": 0,
+            "includeAll": false,
+            "label": "namespace",
+            "multi": true,
+            "name": "namespace",
+            "options": [],
+            "query": {
+              "label": "namespace",
+              "refId": "LokiVariableQueryEditor-VariableQuery",
+              "stream": "",
+              "type": 1
+            },
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 0,
+            "type": "query"
+          },
+          {
+            "current": {
+              "selected": false,
+              "text": "Loki",
+              "value": "loki"
+            },
+            "hide": 0,
+            "includeAll": false,
+            "label": "datasource",
+            "multi": false,
+            "name": "datasource",
+            "options": [],
+            "query": "loki",
+            "queryValue": "",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          },
+          {
+            "current": {
+              "selected": true,
+              "text": [
+                "Critical"
+              ],
+              "value": [
+                "Critical"
+              ]
+            },
+            "datasource": {
+              "type": "loki",
+              "uid": "${datasource}"
+            },
+            "definition": "",
+            "hide": 0,
+            "includeAll": true,
+            "label": "priority",
+            "multi": true,
+            "name": "priority",
+            "options": [],
+            "query": {
+              "label": "priority",
+              "refId": "LokiVariableQueryEditor-VariableQuery",
+              "stream": "",
+              "type": 1
+            },
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 0,
+            "type": "query"
+          },
+          {
+            "current": {
+              "selected": false,
+              "text": "",
+              "value": ""
+            },
+            "description": "Text to filter lines",
+            "hide": 0,
+            "label": "line_filter",
+            "name": "line_filter",
+            "options": [
+              {
+                "selected": true,
+                "text": "",
+                "value": ""
+              }
+            ],
+            "query": "",
+            "skipUrlSync": false,
+            "type": "textbox"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-24h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Falco logs",
+      "uid": "de6ixj4nl1kowc",
+      "version": 2,
+      "weekStart": ""
+    }
 ---
 # Source: falco/templates/configmap.yaml
 apiVersion: v1
@@ -610,6 +1428,21 @@ data:
     log_level: info
     log_stderr: true
     log_syslog: true
+    metrics:
+      convert_memory_to_mb: true
+      enabled: true
+      include_empty_values: false
+      interval: 15m
+      jemalloc_stats_enabled: false
+      kernel_event_counters_enabled: true
+      kernel_event_counters_per_cpu_enabled: false
+      kernel_iter_event_counters_enabled: true
+      libbpf_stats_enabled: true
+      output_rule: false
+      plugins_metrics_enabled: true
+      resource_utilization_enabled: true
+      rules_counters_enabled: true
+      state_counters_enabled: true
     output_timeout: 2000
     outputs_queue:
       capacity: 0
@@ -679,7 +1512,7 @@ data:
       k8s_healthz_endpoint: /healthz
       listen_address: 0.0.0.0
       listen_port: 8765
-      prometheus_metrics_enabled: false
+      prometheus_metrics_enabled: true
       ssl_certificate: /etc/falco/falco.pem
       ssl_enabled: false
       threadiness: 0
@@ -722,6 +1555,89 @@ data:
     - name: falcosecurity
       url: https://falcosecurity.github.io/falcoctl/index.yaml
 ---
+# Source: falco/templates/rules-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-rules
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falco-9.1.0
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.44.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+  adhar-platform.yaml: |-
+    - macro: user_known_contact_k8s_api_server_activities
+      condition: (k8s.ns.name = "adhar-system")
+      override:
+        condition: replace
+    
+    - macro: user_shell_container_exclusions
+      condition: >
+        (container.image.repository in (ghcr.io/cloudnative-pg/postgresql, ghcr.io/cloudnative-pg/postgis)
+         or container.image.repository startswith "ghcr.io/cloudnative-pg/")
+      override:
+        condition: replace
+    
+    # The harbor-node-registry-trust DaemonSet (alpine/k8s) fetches the Harbor
+    # CA with openssl on every node at start-up, which upstream classifies as
+    # "Drop and execute new binary in container" (CRITICAL). Known and intended.
+    - macro: known_drop_and_execute_containers
+      condition: (k8s.ns.name = "adhar-system" and container.image.repository = "docker.io/alpine/k8s")
+      override:
+        condition: replace
+    
+    - rule: Shell spawned in agent workload
+      desc: >
+        A shell started inside a pod that carries the adhar.io/agent label. An AI agent
+        workload has no interactive use: it talks to the AI gateway over HTTP and
+        exports telemetry. A shell means either prompt-injected tool execution or a
+        compromised runtime, so this is CRITICAL regardless of the upstream shell rules.
+      condition: >
+        spawned_process and container and k8s.pod.label[adhar.io/agent] exists
+        and proc.name in (shell_binaries)
+      output: >
+        Shell in AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name pod=%k8s.pod.name
+        shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline image=%container.image.repository
+        user=%user.name uid=%user.uid)
+      priority: CRITICAL
+      tags: [adhar, agent, container, shell, mitre_execution, T1059]
+    
+    - rule: Agent workload connected outside the cluster
+      desc: >
+        An outbound connection from an adhar.io/agent pod to an address outside the
+        private ranges. The composition's NetworkPolicy allows only DNS, the AI
+        gateway and the telemetry collector, so a connection attempt elsewhere is
+        exfiltration or a tool call bypassing the gateway — the policy drops the
+        packets, this records the attempt.
+      condition: >
+        outbound and container and k8s.pod.label[adhar.io/agent] exists
+        and not fd.sip in (rfc_1918_addresses) and not fd.snet in ("127.0.0.0/8")
+      output: >
+        Off-cluster connection from AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name
+        pod=%k8s.pod.name dest=%fd.sip:%fd.sport proc=%proc.name cmdline=%proc.cmdline)
+      priority: WARNING
+      tags: [adhar, agent, network, mitre_exfiltration, T1041]
+---
+# Source: falco/charts/falcosidekick/templates/rbac-ui.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: falco-falcosidekick-ui
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+  annotations:
+rules: []
+---
 # Source: falco/charts/falcosidekick/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -745,6 +1661,28 @@ rules:
   verbs:
     - get
 ---
+# Source: falco/charts/falcosidekick/templates/rbac-ui.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: falco-falcosidekick-ui
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: falco-falcosidekick-ui
+subjects:
+- kind: ServiceAccount
+  name: falco-falcosidekick-ui
+---
 # Source: falco/charts/falcosidekick/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -766,6 +1704,59 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: falco-falcosidekick
+---
+# Source: falco/charts/falcosidekick/templates/service-ui.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco-falcosidekick-ui
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+  annotations:
+spec:
+  type: ClusterIP
+  ports:
+    - port: 2802   
+      targetPort: 2802
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/component: ui
+---
+# Source: falco/charts/falcosidekick/templates/service-ui.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco-falcosidekick-ui-redis
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/component: ui-redis
 ---
 # Source: falco/charts/falcosidekick/templates/service.yaml
 apiVersion: v1
@@ -799,6 +1790,30 @@ spec:
     app.kubernetes.io/instance: falco
     app.kubernetes.io/component: core
 ---
+# Source: falco/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco-metrics
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falco-9.1.0
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.44.1"
+    app.kubernetes.io/managed-by: Helm
+    type: "falco-metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8765
+      targetPort: 8765
+      protocol: TCP
+      name: "metrics"
+  selector:
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/instance: falco
+---
 # Source: falco/templates/daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
@@ -823,8 +1838,8 @@ spec:
         app.kubernetes.io/name: falco
         app.kubernetes.io/instance: falco
       annotations:
-        checksum/config: a27701cda91b78f517442d8034003233c9a383726581beb0f688e1ea0ca79e25
-        checksum/rules: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        checksum/config: 1ee02a90a0081ab6f9ace7ef473ecdb8e778ba05590adba717bb3b2e2398fcb2
+        checksum/rules: 9996b8c48cecf4026473f84e5f78f83fae34fe3cad644a5074f3959a49cb93c4
         checksum/certs: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     spec:
       serviceAccountName: falco
@@ -918,6 +1933,8 @@ spec:
             - mountPath: /etc/falco/falco.yaml
               name: falco-yaml
               subPath: falco.yaml
+            - mountPath: /etc/falco/rules.d
+              name: rules-volume
         - name: falcoctl-artifact-follow
           image: docker.io/falcosecurity/falcoctl:0.13.0
           imagePullPolicy: IfNotPresent
@@ -1010,8 +2027,104 @@ spec:
             items:
             - key: falco.yaml
               path: falco.yaml
+        - name: rules-volume
+          configMap:
+            name: falco-rules
   updateStrategy:
     type: RollingUpdate
+---
+# Source: falco/charts/falcosidekick/templates/deployment-ui.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: falco-falcosidekick-ui
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui
+  annotations:
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falcosidekick
+      app.kubernetes.io/instance: falco
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: falcosidekick-0.12.1
+        app.kubernetes.io/name: falcosidekick
+        app.kubernetes.io/instance: falco
+        app.kubernetes.io/version: "2.31.1"
+        app.kubernetes.io/part-of: falcosidekick
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: ui
+    spec:
+      serviceAccountName: falco-falcosidekick-ui
+      securityContext:
+        fsGroup: 1234
+        runAsUser: 1234
+      initContainers:
+        - name: wait-redis
+          image: "docker.io/redis/redis-stack:7.2.0-v11"
+          command:
+            - sh
+            - -c
+            - /scripts/ping-redis.sh
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts/ping-redis.sh
+              subPath: ping-redis.sh
+          envFrom:
+            - secretRef:
+                name: falco-falcosidekick-ui
+      containers:
+        - name: falcosidekick-ui
+          image: "docker.io/falcosecurity/falcosidekick-ui:2.2.0"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: falco-falcosidekick-ui
+          args:
+            - "-r"
+            - falco-falcosidekick-ui-redis:6379
+            - "-t"
+            - "604800"
+            - "-l"
+            - info
+            - "-d"
+          ports:
+            - name: http
+              containerPort: 2802
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            {}
+      volumes:
+        - name: scripts
+          configMap:
+            name: falco-falcosidekick-ui-redis
+            defaultMode: 0555
+            items:
+              - key: ping-redis.sh
+                path: ping-redis.sh
 ---
 # Source: falco/charts/falcosidekick/templates/deployment.yaml
 apiVersion: apps/v1
@@ -1046,7 +2159,7 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: core
       annotations:
-        checksum/config: 122b4c4f8053e841023539158188e3b1903851371a8121651fc7f4156326dd6b
+        checksum/config: 39e699b870ed2887c811e98d8a20ca5b96e9d0bff3da5eeda54fc05b58456bd4
     spec:
       serviceAccountName: falco-falcosidekick
       securityContext:
@@ -1100,6 +2213,82 @@ spec:
               value: ""
           resources:
             {}
+---
+# Source: falco/charts/falcosidekick/templates/deployment-ui.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: falco-falcosidekick-ui-redis
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: falcosidekick-0.12.1
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "2.31.1"
+    app.kubernetes.io/part-of: falcosidekick
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ui-redis
+spec:
+  replicas: 1
+  serviceName: falco-falcosidekick-ui-redis
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falcosidekick
+      app.kubernetes.io/instance: falco
+      app.kubernetes.io/component: ui-redis
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: falcosidekick-0.12.1
+        app.kubernetes.io/name: falcosidekick
+        app.kubernetes.io/instance: falco
+        app.kubernetes.io/version: "2.31.1"
+        app.kubernetes.io/part-of: falcosidekick
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: ui-redis
+    spec:
+      serviceAccountName: falco-falcosidekick-ui
+      containers:
+        - name: redis
+          image: "docker.io/redis/redis-stack:7.2.0-v11"
+          imagePullPolicy: IfNotPresent
+          args: []
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+          - name: falco-falcosidekick-ui-redis-data
+            mountPath: /data
+          resources:
+            {}
+      
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: falco-falcosidekick-ui-redis-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
 ---
 # Source: falco/charts/falcosidekick/templates/tests/test-connection.yaml
 apiVersion: v1

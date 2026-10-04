@@ -197,6 +197,39 @@ spec:
                 # focused session spend a third of the daily budget in an hour
                 # and still leaves the day covered.
                 tokens: 250000
+        # Agents, by environment tier. An agent's identity is its ServiceAccount
+        # (`system:serviceaccount:<agent>-<env>:agent`, see security.yaml), so
+        # the environment is readable off the subject with no lookup. Production
+        # agents get the admin tier — an agent running a real workflow cannot
+        # pause for a human when it is 429'd mid-plan — while dev and test
+        # agents, which are being iterated on and may be looping, get a budget
+        # that caps what one bug can spend in an hour.
+        #
+        # These are the ENFORCED limits; each AgentWorkload also declares its own
+        # tokensPerHour, which is alerted on from the per-agent metrics rather
+        # than enforced here. Per-identity enforcement needs an external
+        # rate-limit service (see WHY NOT above) and is the upgrade path.
+        - condition: >-
+            default(jwt.sub, "").startsWith("system:serviceaccount:")
+            && default(jwt.sub, "").endsWith("-prod:agent")
+          policy:
+            local:
+              - unit: Minutes
+                requests: 120
+                burst: 60
+              - unit: Hours
+                tokens: 250000
+        - condition: >-
+            default(jwt.sub, "").startsWith("system:serviceaccount:")
+          policy:
+            local:
+              - unit: Minutes
+                requests: 60
+                burst: 30
+              - unit: Hours
+                # Half the developer tier: a looping dev agent is the most
+                # likely way to burn money by accident on this platform.
+                tokens: 50000
         # Everyone else who got past authorization (platform-developer).
         - condition: "true"
           policy:

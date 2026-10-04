@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v6"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+
+	"golang.org/x/crypto/ssh"
 
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
@@ -172,7 +175,15 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 			// is worse than no warning at all — it sends you looking for a bug in
 			// the setting that works.
 			"diskSizeGb", "diskSizeGB", "diskSize",
-			"dnsResourceGroup", "dnsZone", "dnsSubscriptionId", "dnsTenantId", "dnsClientId"} {
+			"dnsResourceGroup", "dnsZone", "dnsSubscriptionId", "dnsTenantId", "dnsClientId",
+			// Authentication keys. These were parsed below but missing from this
+			// list, so a config that set clientId/tenantId was told they were
+			// "not recognised and ignored" while being acted on — which sends you
+			// looking for a bug in the setting that actually works.
+			"clientId", "clientSecret", "clientSecretFile", "tenantId",
+			"credentials_file", "certificatePath", "useManagedIdentity", "useAzureCLI",
+			"useEnvironment", "clusterMode", "useManagedK8s", "purgeOrphanedVolumes",
+			"type", "primary"} {
 			known[normaliseKey(k)] = true
 		}
 		for k := range norm {
@@ -220,6 +231,9 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	if clientSecret, ok := config["clientSecret"].(string); ok && clientSecret != "" {
 		azureConfig.ClientSecret = clientSecret
 	}
+	if clientSecretFile, ok := config["clientSecretFile"].(string); ok && clientSecretFile != "" {
+		azureConfig.ClientSecretFile = clientSecretFile
+	}
 	if tenantID, ok := config["tenantId"].(string); ok && tenantID != "" {
 		azureConfig.TenantID = tenantID
 	}
@@ -238,6 +252,79 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	if useEnvironment, ok := config["useEnvironment"].(bool); ok {
 		azureConfig.UseEnvironment = useEnvironment
 	}
+
+	// NOTE: this must stay BELOW the config-map parsing above. It reads
+	// azureConfig.ClientSecretFile, which only has a value once clientSecretFile
+	// has been parsed — placed above it, the config key silently did nothing and
+	// only the environment variant worked.
+	// Read the secret from a file when one is named.
+	//
+	// Passing a secret through a shell is the most error-prone step in setting
+	// this up, and it fails silently: `export AZURE_CLIENT_SECRET="…$…"` loses
+	// everything from the `$`, an export in one terminal is invisible in the
+	// next, and a stale export looks identical to a correct one because both are
+	// about 40 characters. On 2026-10-04 that cost four failed runs against a
+	// credential that was provably valid the whole time — the shell held an
+	// earlier secret and nothing could tell the two apart.
+	//
+	// A path has none of those failure modes, so it is also safe to keep in the
+	// config file, which the inline secret is not.
+	// An explicitly configured clientSecretFile outranks AZURE_CLIENT_SECRET.
+	//
+	// Normally an environment variable overrides a config file, but not here: the
+	// variable is the ambient, invisible source and the config key is the
+	// deliberate one. A stale `export AZURE_CLIENT_SECRET=...` left in a shell
+	// silently beating a path the operator just wrote into their config is the
+	// exact trap this option exists to remove — and it is undetectable, because a
+	// stale secret and a correct one are both about 40 characters.
+	//
+	// Live on 2026-10-04: a secret exported hours earlier belonged to a DIFFERENT
+	// app registration in the same tenant, so every run failed with AADSTS7000215
+	// ("invalid client secret") against a configured secret file that was known
+	// good. The override is announced below rather than performed quietly.
+	// Precedence, strongest first:
+	//   1. clientSecret inline in the config  (most specific, and explicit)
+	//   2. clientSecretFile in the config     (explicit, and beats the environment)
+	//   3. AZURE_CLIENT_SECRET                (ambient)
+	//   4. AZURE_CLIENT_SECRET_FILE           (ambient)
+	// Only 2-over-3 is unusual, and it is the whole point: see above.
+	inlineSecret := ""
+	if v, ok := config["clientSecret"].(string); ok {
+		inlineSecret = strings.TrimSpace(v)
+	}
+	fileSource := strings.TrimSpace(azureConfig.ClientSecretFile)
+	if fileSource == "" && azureConfig.ClientSecret == "" {
+		// Ambient file: a fallback only. Between two ambient sources the
+		// long-standing AZURE_CLIENT_SECRET keeps priority, so adding this option
+		// cannot change what an existing environment resolves to.
+		fileSource = strings.TrimSpace(os.Getenv("AZURE_CLIENT_SECRET_FILE"))
+	}
+	if fileSource != "" && inlineSecret == "" {
+		b, err := os.ReadFile(fileSource)
+		if err != nil {
+			// Deliberately loud: silently falling through to "no credential"
+			// would send the operator hunting for a credential problem that is
+			// really a path problem.
+			log.Printf("Warning: could not read the Azure client secret from %s: %v", fileSource, err)
+		} else {
+			secret := strings.TrimSpace(string(b))
+			if azureConfig.ClientSecret != "" && azureConfig.ClientSecret != secret {
+				log.Printf("Azure client secret: using clientSecretFile %s and IGNORING the "+
+					"AZURE_CLIENT_SECRET in the environment, which differs from it", fileSource)
+			} else {
+				log.Printf("Azure client secret read from %s", fileSource)
+			}
+			azureConfig.ClientSecret = secret
+		}
+	}
+
+	// Credentials arrive by copy-paste, and a trailing newline or stray space
+	// produces exactly the same opaque 401 as a wrong secret — with nothing in
+	// the message to suggest the value is merely untrimmed.
+	azureConfig.ClientID = strings.TrimSpace(azureConfig.ClientID)
+	azureConfig.ClientSecret = strings.TrimSpace(azureConfig.ClientSecret)
+	azureConfig.TenantID = strings.TrimSpace(azureConfig.TenantID)
+	azureConfig.SubscriptionID = strings.TrimSpace(azureConfig.SubscriptionID)
 
 	return azureConfig, nil
 }
@@ -306,6 +393,23 @@ func createAzureCredentials(config *Config) (azcore.TokenCredential, error) {
 
 	// Method 1: Client Secret (Direct)
 	if config.ClientID != "" && config.ClientSecret != "" && config.TenantID != "" {
+		// A secret that is a bare GUID is the secret's ID, never its value.
+		//
+		// Azure displays a secret value exactly once, at creation; afterwards the
+		// portal and `az ad app credential list` show only the id, so the id is
+		// what gets copied. Azure's own answer takes a round trip and arrives as
+		// a 40-line azidentity dump with the one useful sentence (AADSTS7000215)
+		// in the middle of a JSON body. Secret VALUES are ~40 characters of
+		// mixed-case base64 with punctuation and are never GUID-shaped, so this
+		// costs nothing and turns a confusing 401 into a sentence.
+		if secretLooksLikeAnID(config.ClientSecret) {
+			return nil, fmt.Errorf("the Azure client secret is a GUID, which is a secret's ID and not its VALUE: "+
+				"Azure shows a secret value once, at creation, and never again — the GUID shown afterwards by the "+
+				"portal and `az ad app credential list` is the id. Issue a fresh value with "+
+				"`az ad sp credential reset --id %s --query password -o tsv` and put it in "+
+				"AZURE_CLIENT_SECRET (or providers.azure.clientSecret). Quote it with SINGLE quotes: secret values "+
+				"routinely contain characters the shell would otherwise expand", config.ClientID)
+		}
 		log.Printf("Using Azure authentication: Client Secret (Direct)")
 		return azidentity.NewClientSecretCredential(
 			config.TenantID,
@@ -484,6 +588,13 @@ type Config struct {
 	SubnetCIDR     string `json:"subnetCIDR"`
 
 	// Authentication options
+
+	// ClientSecretFile reads the client secret from a file instead of an
+	// environment variable. The secret never passes through a shell, so it cannot
+	// be truncated by an unescaped `$`, cannot be lost to the wrong terminal, and
+	// does not have to be re-exported in every new one — and unlike clientSecret
+	// it is a path, so it is safe to keep in a config file.
+	ClientSecretFile   string `json:"clientSecretFile"`
 	CredentialsFile    string `json:"credentialsFile"`
 	CertificatePath    string `json:"certificatePath"`
 	UseManagedIdentity bool   `json:"useManagedIdentity"`
@@ -727,7 +838,37 @@ func (p *Provider) saveState() error {
 		return fmt.Errorf("failed to marshal state data: %w", err)
 	}
 
-	return os.WriteFile(stateFile, data, 0644)
+	// Write through a temporary file and rename.
+	//
+	// This file is the only record of what exists in the cloud, so a partial
+	// write is a lost cluster. os.WriteFile truncates first and then writes: a
+	// crash, a full disk or a killed process between the two leaves the file
+	// empty or half a JSON document, and the next run reads "no clusters" and
+	// cannot find anything to tear down. rename(2) within a directory is atomic,
+	// so a reader sees either the old state or the new one.
+	tmp, err := os.CreateTemp(filepath.Dir(stateFile), ".clusters-*.json")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary state file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op once the rename succeeds
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write state data: %w", err)
+	}
+	// Durability before the rename: a rename can otherwise land ahead of the
+	// data it points at, which on a hard reset reads as an empty state file.
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to flush state data: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary state file: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		return fmt.Errorf("failed to set state file mode: %w", err)
+	}
+	return os.Rename(tmpName, stateFile)
 }
 
 // Name returns the provider name
@@ -748,7 +889,7 @@ func (p *Provider) Authenticate(ctx context.Context, credentials *types.Credenti
 	pager := p.resourceGroupClient.NewListPager(nil)
 	_, err := pager.NextPage(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to authenticate with Azure: %w", err)
+		return fmt.Errorf("failed to authenticate with Azure: %w%s", err, p.credentialShapeNote(err))
 	}
 
 	log.Printf("Successfully authenticated with Azure")
@@ -1599,10 +1740,15 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	log.Printf("Deleting entire resource group: %s", resourceGroupName)
 
 	// Check if the resource group has the managedBy tag indicating it was created by us
+	// Every reason the resources might still be there, collected rather than
+	// logged and forgotten. The cluster's record is only dropped if this is empty.
+	var problems []string
+
 	rg, rgErr := p.resourceGroupClient.Get(ctx, resourceGroupName, nil)
 	err = rgErr
 	if err != nil {
 		log.Printf("Warning: failed to get resource group %s: %v", resourceGroupName, err)
+		problems = append(problems, fmt.Sprintf("could not read resource group %s (%v), so nothing in it was deleted", resourceGroupName, err))
 	} else {
 		managedByAdhar := false
 		if rg.ResourceGroup.Tags != nil {
@@ -1632,6 +1778,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 			log.Printf("Resource group %s was not created by Adhar; deleting only this cluster's resources within it", resourceGroupName)
 			for _, problem := range p.deleteClusterResources(ctx, resourceTracker, clusterName) {
 				log.Printf("Warning: %s", problem)
+				problems = append(problems, problem)
 			}
 		}
 	}
@@ -1641,6 +1788,31 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// cluster, leaves unattached pvc-* disks that keep billing. Opt-in only.
 	for _, problem := range p.sweepSubscriptionOrphanDisks(ctx, resourceTracker.Location) {
 		log.Printf("Warning: %s", problem)
+	}
+
+	// A cluster is forgotten only once its resources are actually gone.
+	//
+	// This used to delete the record and report success unconditionally, which is
+	// how a teardown that deleted NOTHING erased the only list of what it had
+	// built. Live on 2026-10-04: the tracker was read from the state file (so no
+	// Azure call could fail), the resource-group lookup then failed on an expired
+	// credential and was logged as a warning, execution fell through to the lines
+	// below, and `adhar down` exited 0 having printed "Successfully deleted
+	// cluster". Left behind were 3 VMs, 3 OS disks, 3 NICs, 3 public IPs, a VNet
+	// and an NSG — 10 of 20 regional vCPUs — against a state file reading
+	// `{"clusters":{},"resourceTrackers":{}}`. Nothing in the platform could then
+	// find them: the next `adhar down` had no record to work from, and the
+	// resources were only recovered by enumerating the subscription by hand.
+	//
+	// Keeping the record is what makes the operation retryable. An orphaned
+	// resource that is still listed is a nuisance; one that is not is a bill
+	// nobody can see.
+	if len(problems) > 0 {
+		if err := p.saveState(); err != nil {
+			log.Printf("Warning: failed to save state: %v", err)
+		}
+		return fmt.Errorf("cluster %s was NOT fully deleted and its record has been kept so "+
+			"`adhar down` can be retried: %s", clusterID, strings.Join(problems, "; "))
 	}
 
 	// Clean up tracking
@@ -1697,9 +1869,19 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 		clusters = append(clusters, cluster)
 	}
 
-	// Discover existing clusters not in state
+	// Discover existing clusters not in state.
+	//
+	// A discovery failure is only a warning while state already answered the
+	// question. With EMPTY state it is the whole answer, and swallowing it
+	// reported "no clusters" for a subscription that could not be read at all —
+	// an expired credential surfaced downstream as `cluster adhar not found`,
+	// which reads as a missing cluster rather than a 401 and cost an hour of
+	// debugging aimed at the wrong thing (2026-10-04).
 	discoveredClusters, err := p.discoverExistingClusters(ctx)
 	if err != nil {
+		if len(clusters) == 0 {
+			return nil, fmt.Errorf("listing Azure clusters in subscription %s: %w", p.config.SubscriptionID, err)
+		}
 		log.Printf("Warning: failed to discover existing clusters: %v", err)
 	} else {
 		clusters = append(clusters, discoveredClusters...)
@@ -1953,12 +2135,27 @@ func (p *Provider) discoverExistingClusters(ctx context.Context) ([]*types.Clust
 			location = *vms[0].Location
 		}
 
+		// The API endpoint, so a discovered cluster can be scaled and upgraded
+		// and not merely listed. Without it the node autoscaler had nothing to
+		// SSH to and could not add a worker at all.
+		endpoint := ""
+		if ip := p.masterPublicIPFor(ctx, masterVM); ip != "" {
+			endpoint = fmt.Sprintf("https://%s:6443", ip)
+		}
+
 		cluster := &types.Cluster{
-			ID:        clusterID,
-			Name:      clusterName,
-			Provider:  "azure",
-			Region:    location,
-			Version:   "v1.29.0", // Default version for discovered clusters
+			ID:       clusterID,
+			Name:     clusterName,
+			Provider: "azure",
+			Region:   location,
+			Endpoint: endpoint,
+			// DELIBERATELY EMPTY. This was hardcoded "v1.29.0", which is not a
+			// default but a wrong answer: nothing about a VM listing reveals what
+			// Kubernetes is inside it. A caller that needs the version must read
+			// it from the running control plane (provider.ControlPlaneVersion);
+			// preparing a worker from this value would have installed 1.29
+			// packages into a v1.37 cluster (2026-10-04).
+			Version:   "",
 			Status:    status,
 			CreatedAt: createdAt,
 			UpdatedAt: time.Now(),
@@ -2133,13 +2330,24 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	// stub. (This used to log "Successfully scaled" without touching a VM.)
 	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterID, replicas)
 
-	cluster, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster %s not found", clusterID)
+	// Resolved from the CLOUD when local state has no record.
+	//
+	// This read p.clusters[clusterID] and p.resourceTrackers[clusterID] directly,
+	// which are populated from ~/.adhar/state/<cloud>/clusters.json — a file the
+	// CLI has and an in-cluster pod never does. So the node autoscaler, which is
+	// the main caller, could not scale a cloud cluster at all: it decided
+	// correctly that a worker was needed, then failed every cooldown with
+	// "cluster azure-adhar not found" while 52 pods stayed Pending and the
+	// platform's critical path (keycloak-db) never started (2026-10-04). It was
+	// only ever verified by running the controller OUT of cluster, where the file
+	// exists, which is why it looked fine.
+	cluster, err := p.clusterFor(ctx, clusterID)
+	if err != nil {
+		return err
 	}
-	tracker := p.resourceTrackers[clusterID]
-	if tracker == nil {
-		return fmt.Errorf("cluster %s has no resource tracker; cannot scale", clusterID)
+	tracker, err := p.trackerFor(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("cluster %s: %w", clusterID, err)
 	}
 	prefix := fmt.Sprintf("%s-worker-%s-", cluster.Name, nodeGroupName)
 	add, remove := provider.WorkerScalePlan(prefix, tracker.VirtualMachines, replicas)
@@ -2161,7 +2369,13 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		if err != nil {
 			return err
 		}
-		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(cluster.Version))
+		// Match the RUNNING control plane, never a default. A discovered cluster
+		// carries no version, so this reads it from the master over SSH.
+		k8sVersion, verr := scaleKubernetesVersion(cluster, signer, masterIP)
+		if verr != nil {
+			return fmt.Errorf("cluster %s: %w", clusterID, verr)
+		}
+		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(k8sVersion))
 		// The new worker must match the node group it joins, not the
 		// provider-level VMSize — that one describes the CONTROL PLANE, which
 		// is routinely smaller. Reading it here gave every autoscaled worker
@@ -3333,4 +3547,186 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 func (p *Provider) InvestigateCluster(ctx context.Context, clusterID string) error {
 	// TODO: Implement Azure-specific cluster investigation
 	return fmt.Errorf("cluster investigation not yet implemented for Azure provider")
+}
+
+// secretLooksLikeAnID reports whether a client secret is in fact a GUID.
+func secretLooksLikeAnID(secret string) bool {
+	return guidPattern.MatchString(strings.TrimSpace(secret))
+}
+
+// guidPattern matches a GUID with or without the braces some tools add.
+var guidPattern = regexp.MustCompile(`^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$`)
+
+// credentialShapeNote describes the secret that was actually used, without
+// revealing it, when Azure rejects it as invalid.
+//
+// Diagnosing AADSTS7000215 took three round trips on 2026-10-04 because the
+// error says only that the secret is wrong — never what arrived. Everything
+// that distinguishes the likely causes is visible in the LENGTH alone: an Azure
+// secret value is about 40 characters, a secret id is a 36-character GUID, and a
+// value truncated by the shell expanding an unescaped `$` is short and
+// arbitrary. Reporting the length ends the guessing in one run and discloses
+// nothing — a length is not a secret, and no part of the value is printed.
+func (p *Provider) credentialShapeNote(err error) string {
+	if err == nil || !strings.Contains(err.Error(), "invalid_client") {
+		return ""
+	}
+	secret := p.config.ClientSecret
+	if secret == "" {
+		return "\n\n  note: no client secret was set at all — AZURE_CLIENT_SECRET is empty and " +
+			"providers.azure.clientSecret is unset"
+	}
+	n := len([]rune(secret))
+	note := fmt.Sprintf("\n\n  note: the secret adhar used is %d characters long", n)
+	switch {
+	case n == 36 || n == 38:
+		return note + ", which is the length of a GUID — that is a secret's ID, not its value"
+	case n < 30:
+		return note + ", which is shorter than an Azure secret value (~40). A short value usually " +
+			"means the shell expanded part of it: secret values contain characters like `$`, so " +
+			"quote with SINGLE quotes"
+	default:
+		// A right-length value that Azure still rejects is almost always a secret
+		// that was never actually replaced — and the reason the replacement failed
+		// is usually that `az` is pointed at the wrong DIRECTORY. `az ad ...`
+		// against a session with no subscription selected, or one logged into a
+		// different tenant, fails with "No subscription found. Run 'az account
+		// set'" — and with `--query password -o tsv` that prints NOTHING, so a
+		// reset that never happened looks indistinguishable from one that did.
+		// Observed live on 2026-10-04: three consecutive resets appeared to
+		// succeed while the CLI held tenants 36aa1004… and ac59dfa2…, neither of
+		// them the tenant this app lives in.
+		// The 7000215 text insists the secret is "the ID, not the value", which is
+		// one cause of many and sends people checking a value that is already
+		// correct. The cause seen most often here is a VALID secret belonging to a
+		// DIFFERENT app registration in the same tenant — AAD cannot tell you that,
+		// because from its side the secret simply does not match the client_id it
+		// was sent with. Live on 2026-10-04: a 40-character secret that failed
+		// every run was valid for app `adhar` while the config named
+		// `adhar-dns-test`, and the operator was (correctly) certain the secret was
+		// right.
+		return note + fmt.Sprintf(" (an Azure secret value is ~40), so the value is well-formed and "+
+			"either belongs to a DIFFERENT app registration or has been replaced. Check which app it "+
+			"belongs to before reissuing anything — this tenant may have several:\n"+
+			"    az ad app list --all --query \"[].{name:displayName,appId:appId}\" -o tsv\n"+
+			"  Then test the secret against each appId with the token request below, substituting "+
+			"client_id. If it authenticates for a different app, the fix is clientId, not the "+
+			"secret.\n"+
+			"  Otherwise reissue it. `az ad sp credential reset` "+
+			"needs a session in THIS app's directory, and silently prints nothing when it has none, so "+
+			"check the session first:\n"+
+			"    az login --tenant %s\n"+
+			"    az account set --subscription %s\n"+
+			"    az ad sp credential reset --id %s --query password -o tsv\n"+
+			"  If the reset prints nothing, the session is still wrong. Do NOT verify with "+
+			"`az ad app credential list`: Microsoft Graph lags, and it was observed still reporting "+
+			"only the superseded key minutes after a reset whose secret authenticated fine. The "+
+			"authoritative check is a token, which costs one request:\n"+
+			"    curl -s -X POST https://login.microsoftonline.com/%s/oauth2/v2.0/token "+
+			"-d grant_type=client_credentials -d client_id=%s "+
+			"-d scope=https://management.azure.com/.default "+
+			"--data-urlencode client_secret@<file-holding-the-secret>\n"+
+			"  An \"access_token\" in the reply means the credential is good",
+			p.config.TenantID, p.config.SubscriptionID, p.config.ClientID,
+			p.config.TenantID, p.config.ClientID)
+	}
+}
+
+// firstNonEmpty returns the first value that is not empty.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// masterPublicIP returns the public IP attached to a master VM, read from the
+// NIC's public-IP association.
+func (p *Provider) masterPublicIPFor(ctx context.Context, vm *armcompute.VirtualMachine) string {
+	if vm == nil || vm.Properties == nil || vm.Properties.NetworkProfile == nil {
+		return ""
+	}
+	for _, ni := range vm.Properties.NetworkProfile.NetworkInterfaces {
+		if ni == nil || ni.ID == nil {
+			continue
+		}
+		nicName := lastPathSegment(*ni.ID)
+		if nicName == "" || p.networkInterfaceClient == nil {
+			continue
+		}
+		nic, err := p.networkInterfaceClient.Get(ctx, p.config.ResourceGroup, nicName, nil)
+		if err != nil || nic.Properties == nil {
+			continue
+		}
+		for _, cfg := range nic.Properties.IPConfigurations {
+			if cfg == nil || cfg.Properties == nil || cfg.Properties.PublicIPAddress == nil || cfg.Properties.PublicIPAddress.ID == nil {
+				continue
+			}
+			pipName := lastPathSegment(*cfg.Properties.PublicIPAddress.ID)
+			if pipName == "" || p.publicIPClient == nil {
+				continue
+			}
+			pip, err := p.publicIPClient.Get(ctx, p.config.ResourceGroup, pipName, nil)
+			if err != nil || pip.Properties == nil || pip.Properties.IPAddress == nil {
+				continue
+			}
+			return *pip.Properties.IPAddress
+		}
+	}
+	return ""
+}
+
+// lastPathSegment returns the final segment of an Azure resource id.
+func lastPathSegment(id string) string {
+	if i := strings.LastIndex(id, "/"); i >= 0 && i+1 < len(id) {
+		return id[i+1:]
+	}
+	return ""
+}
+
+// clusterFor returns the cluster from local state, or rediscovers it from Azure
+// when state has no record — the in-cluster controllers have no state file.
+//
+// A discovery FAILURE is returned as itself and never flattened into "not
+// found". While ListClusters swallowed the error as a log line, an expired
+// credential surfaced as `cluster adhar not found`, which reads as a missing
+// cluster and sent an hour of debugging at the wrong problem; the actual cause
+// was AADSTS7000215 (2026-10-04).
+func (p *Provider) clusterFor(ctx context.Context, clusterID string) (*types.Cluster, error) {
+	if c, ok := p.clusters[clusterID]; ok && c != nil {
+		return c, nil
+	}
+	name := extractClusterName(clusterID)
+	log.Printf("No local state for cluster %s; rediscovering it from Azure", clusterID)
+	discovered, err := p.discoverExistingClusters(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("cluster %s could not be read from Azure: %w", clusterID, err)
+	}
+	for _, c := range discovered {
+		if c != nil && (c.ID == clusterID || c.Name == name) {
+			return c, nil
+		}
+	}
+	return nil, fmt.Errorf("cluster %s not found in subscription %s", clusterID, p.config.SubscriptionID)
+}
+
+// scaleKubernetesVersion is the version a NEW worker must be prepared with.
+//
+// A remembered version is used when there is one; otherwise it is read from the
+// running control plane. It is never defaulted: installing the wrong minor skews
+// the new kubelet from the API server it joins, and a discovered cluster carries
+// no version at all precisely so that this cannot be guessed.
+func scaleKubernetesVersion(cluster *types.Cluster, signer ssh.Signer, masterIP string) (string, error) {
+	if cluster != nil && strings.TrimSpace(cluster.Version) != "" {
+		return cluster.Version, nil
+	}
+	v, err := provider.ControlPlaneVersion(signer, azureSSHUser, masterIP)
+	if err != nil {
+		return "", fmt.Errorf("the cluster's Kubernetes version is unknown and could not be read "+
+			"from the control plane, so a new worker cannot be prepared safely: %w", err)
+	}
+	log.Printf("Control plane reports Kubernetes %s; preparing the new worker to match", v)
+	return v, nil
 }

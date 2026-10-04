@@ -294,7 +294,26 @@ func edgeDNSSecretData(ctx context.Context, dnsProvider string, pc *config.Confi
 		data["project"] = []byte(project)
 	case dnsAzure:
 		clientID := get(pcv.ClientID, "AZURE_CLIENT_ID")
-		clientSecret := get(pcv.ClientSecret, "AZURE_CLIENT_SECRET")
+		// Resolved through the SHARED resolver, not with a local rule.
+		//
+		// This line used to be `get(pcv.ClientSecret, "AZURE_CLIENT_SECRET")`,
+		// which knew nothing about clientSecretFile. So `adhar up` built the
+		// cluster from the secret file while this wrote a stale environment value
+		// into the in-cluster Secret: the cluster came up perfectly and then
+		// external-dns crash-looped on AADSTS7000215, leaving every platform
+		// hostname pointing at the previous cluster's dead load-balancer IP
+		// (2026-10-04). Two resolvers for one credential is the bug; any new
+		// credential source must be added to config.ResolveSecret, never here.
+		clientSecret, secretSource, serr := config.ResolveSecret(
+			pcv.ClientSecret, pcv.ClientSecretFile, "AZURE_CLIENT_SECRET", "AZURE_CLIENT_SECRET_FILE")
+		if serr != nil {
+			return nil, fmt.Errorf("Azure DNS: %w", serr)
+		}
+		if secretSource != "" {
+			// Which source was used is the one fact that distinguishes a wrong
+			// secret from a wrong SOURCE, and it was never reported.
+			logger.Debugf("Azure DNS: client secret from %s", secretSource)
+		}
 		tenant := get(pcv.TenantID, "AZURE_TENANT_ID")
 		subscription := get(extra("subscriptionId"), "AZURE_SUBSCRIPTION_ID")
 		rg := get(extra("dnsResourceGroup"), "AZURE_DNS_RESOURCE_GROUP")

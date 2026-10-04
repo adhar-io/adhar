@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"adhar-io/adhar/platform/types"
@@ -113,6 +114,29 @@ func ExplainAccessError(err error) string {
 	}
 	msg := err.Error()
 	switch {
+	// Azure AAD codes come first: they are specific, and the generic AWS cases
+	// below match substrings ("AccessDenied") that can appear in an AAD body.
+	case strings.Contains(msg, "AADSTS7000215"):
+		return "The value in AZURE_CLIENT_SECRET (or providers.azure.clientSecret) is the " +
+			"secret's ID, not the secret's VALUE. Azure shows a secret value once, at " +
+			"creation, and never again — the GUID the portal and `az ad app credential list` " +
+			"display afterwards is the id. Issue a fresh value:\n    " +
+			azureCredentialResetHint(msg) +
+			"\n    This invalidates the previous secret, so update anything else using it."
+	case strings.Contains(msg, "AADSTS7000222"):
+		return "The client secret has EXPIRED. Issue a new one:\n    " +
+			azureCredentialResetHint(msg) +
+			"\n    Azure's default expiry is 1 year (and 3 months via some portal paths)."
+	case strings.Contains(msg, "AADSTS700016"), strings.Contains(msg, "AADSTS700215"):
+		return "The application id was not found in this tenant: clientId and tenantId " +
+			"disagree, or the service principal lives in another directory. Confirm both " +
+			"with `az ad sp show --id <clientId> --query '{app:appId,tenant:appOwnerOrganizationId}'`."
+	case strings.Contains(msg, "AADSTS90002"):
+		return "The tenant id does not exist. Read it from the signed-in session: " +
+			"`az account show --query tenantId -o tsv`."
+	case strings.Contains(msg, "AADSTS7000112"):
+		return "The service principal is DISABLED in the directory. Re-enable it, or create " +
+			"a replacement with `az ad sp create-for-rbac`."
 	case strings.Contains(msg, "explicit deny in a service control policy"):
 		return "An AWS Organizations SCP denies this, which no IAM policy in this " +
 			"account can override — attaching AdministratorAccess will not help. " +
@@ -162,3 +186,23 @@ func QuotaCheck(name string, limit, need float64, unit, raiseWith string) Check 
 		}
 	}
 }
+
+// azureCredentialResetHint builds the exact command to issue a new secret.
+//
+// AAD states the offending application id inside the error body ("for a secret
+// added to app '<guid>'"), so the remedy can name it instead of leaving the
+// operator to find which of several principals is at fault.
+func azureCredentialResetHint(msg string) string {
+	appID := "<clientId>"
+	if m := azureAppIDPattern.FindStringSubmatch(msg); len(m) == 2 {
+		appID = m[1]
+	}
+	return "az ad sp credential reset --id " + appID + " --query password -o tsv"
+}
+
+// azureAppIDPattern matches the app id AAD quotes in its error body.
+//
+// The wording differs per code — 7000215 says "for a secret added to app 'x'"
+// while 7000222 says "client secret keys for app 'x' are expired" — so match on
+// the quoted guid after "app" rather than on either sentence.
+var azureAppIDPattern = regexp.MustCompile(`app '([0-9a-fA-F-]{36})'`)

@@ -90,7 +90,17 @@ spec:
       tlsConfig:
         insecureSkipVerify: true
     operatorClusterURL: ''
-    pluginsList: []
+    # repository-s3 is NOT bundled in the OpenSearch 3.x distribution, and the
+    # s3.client.* settings in additionalConfig above belong to it. Without the
+    # plugin the node rejects every one of them and refuses to start:
+    #   unknown setting [s3.client.default.endpoint]
+    #   unknown secure setting [s3.client.default.secret_key]
+    #   ... please check that any required plugins are installed
+    # It crash-looped 21 times on the 2026-10-04 Azure cluster, so OpenSearch
+    # never served and opensearch-dashboards sat in CrashLoopBackOff behind it.
+    # The snapshot repository below is the only reason these settings exist.
+    pluginsList:
+    - repository-s3
     podSecurityContext: {}
     securityContext: {}
     serviceAccount: ''
