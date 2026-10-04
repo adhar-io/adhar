@@ -20,64 +20,125 @@ spec:
         source: Inline
         inline:
           template: |
+            {{- /* A deployable inside a PROJECT (ADR-0026).
+                   Organisation → Team → Project → APPLICATION → Environment → Release
+
+                   The application never decides where an environment lives: it
+                   OBSERVES its CompositeProject (an observe-only provider-kubernetes
+                   Object — managementPolicies: [Observe]) and reads
+                   status.environments[] from it. Until the project has published
+                   that list, this renders only the observation and reports Pending.
+
+                   Per environment it then emits:
+                     • an Argo CD Application `<project>-<app>-<env>` in the project's
+                       AppProject, deploying `<path>/envs/<env>` into the environment's
+                       namespace — every environment is Git-driven, so every one is
+                       auto-synced; WHICH revision an environment runs is Kargo's call;
+                     • a Kargo Stage `<app>-<env>`, chained in the project's environment
+                       order (the first takes freight straight from the Warehouse, the
+                       rest from their upstream Stage), whose promotion sets the image
+                       DIGEST in the environment's overlay, pushes, and waits for Argo CD
+                       to make the Rollout healthy before the Stage counts as done.
+                   Plus one Kargo Warehouse watching the application's image repository.
+                   This is what the imperative `app-env-register` Task used to apply by
+                   hand, made declarative; the Task now applies a CompositeApplication.
+
+                   Kargo expressions are `${{ … }}`; `{{` starts a Go template action,
+                   so they are spelled through $ex below. */ -}}
             {{- $xr := .observed.composite.resource -}}
-            {{- $params := $xr.spec.parameters -}}
+            {{- $params := default (dict) $xr.spec.parameters -}}
             {{- $name := $xr.metadata.name -}}
+            {{- $xrns := $xr.metadata.namespace -}}
             {{- $source := default (dict) $params.source -}}
-            {{- $sync := default (dict) $params.syncPolicy -}}
-            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
-            {{- /* sprig's generic map has no Helm-only `required`; `fail` is the
-                   supported equivalent in function-go-templating. */ -}}
             {{- $repoURL := get $source "repoURL" -}}
             {{- if not $repoURL }}{{ fail "source.repoURL must be provided" }}{{ end -}}
             {{- $path := default "deploy" (get $source "path") -}}
             {{- $revision := default "main" (get $source "targetRevision") -}}
-            {{- $project := default "default" $params.project -}}
-            {{- /* Default the environment set here too so the composition is safe
-                   even if the XRD default did not apply (older CRD). */ -}}
-            {{- $envs := $params.environments -}}
-            {{- if not $envs }}
-            {{-   $envs = list (dict "name" "dev" "autoSync" true "order" 0) (dict "name" "test" "autoSync" false "order" 1) (dict "name" "prod" "autoSync" false "order" 2) -}}
-            {{- end }}
+            {{- $project := default "adhar" $params.project -}}
+            {{- if eq $project "default" }}{{ $project = "adhar" }}{{ end -}}
+            {{- $promo := default (dict) $params.promotion -}}
+            {{- $promote := ternary (get $promo "enabled") true (hasKey $promo "enabled") -}}
+            {{- $soak := default "0s" (get $promo "soakTime") -}}
+            {{- $imageCfg := default (dict) $params.image -}}
+            {{- $strategy := default "NewestBuild" (get $imageCfg "selectionStrategy") -}}
+            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
             {{- $observed := default (dict) .observed.resources -}}
+            {{- $projObj := dig "project" "resource" dict $observed -}}
+            {{- $projStatus := dig "status" "atProvider" "manifest" "status" dict $projObj -}}
+            {{- $projEnvs := dig "environments" (list) $projStatus -}}
+            {{- $registry := dig "imageRegistry" "harbor-core.adhar-system.svc.cluster.local/library" $projStatus -}}
+            {{- $image := default (printf "%s/%s" $registry $name) (get $imageCfg "repository") -}}
+            {{- $wanted := list -}}
+            {{- range (default (list) $params.environments) }}{{ $wanted = append $wanted .name }}{{ end -}}
+            {{- $envs := list -}}
+            {{- range $projEnvs }}{{ if or (not $wanted) (has .name $wanted) }}{{ $envs = append $envs . }}{{ end }}{{ end -}}
+            {{- $ex := "${{" -}}
             {{- $ready := 0 -}}
-            {{- $total := len $envs -}}
-            {{- range $envs }}
-            {{- $env := . -}}
-            {{- $envName := $env.name -}}
-            {{- $ns := default (printf "%s-%s" $name $envName) (get $env "namespace") -}}
-            {{- $appName := printf "%s-%s" $name $envName -}}
-            {{- $auto := default false (get $env "autoSync") -}}
-            {{- $obsApp := default (dict) (get $observed (printf "app-%s" $envName)) -}}
-            {{- $obsRes := default (dict) (get $obsApp "resource") -}}
-            {{- $obsStatus := default (dict) (get (default (dict) (get $obsRes "status")) "health") -}}
-            {{- if eq (default "" (get $obsStatus "status")) "Healthy" }}{{- $ready = add1 $ready -}}{{- end }}
+            {{- $labels := dict "adhar.io/organisation" (dig "organisation" "adhar" $projStatus) "adhar.io/team" (dig "team" "platform" $projStatus) "adhar.io/project" $project "adhar.io/application" $name -}}
             ---
-            # Per-env Harbor pull secret so <app>-<env> can pull the built image.
+            # Observe the project (read-only): where do its environments live?
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
               annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: pull-secret-{{ $envName }}
-              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
+                gotemplating.fn.crossplane.io/composition-resource-name: project
             spec:
+              managementPolicies: ["Observe"]
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
-                  apiVersion: v1
-                  kind: Secret
+                  apiVersion: platform.adhar.io/v1alpha1
+                  kind: CompositeProject
                   metadata:
-                    name: harbor-pull
-                    namespace: {{ quote $ns }}
-                  type: kubernetes.io/dockerconfigjson
-                  stringData:
-                    .dockerconfigjson: |
-                      {"auths":{"harbor-core.adhar-system.svc.cluster.local":{"username":"admin","password":"Harbor12345","auth":"YWRtaW46SGFyYm9yMTIzNDU="}}}
-              {{- if $providerConfig }}
-              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
-              {{- end }}
+                    name: {{ quote $project }}
+                    namespace: {{ quote $xrns }}
+            {{- if $envs }}
+            {{- if $promote }}
             ---
-            # Per-env ArgoCD Application. Only autoSync envs (dev) deploy on
-            # their own; higher envs are created but wait to be promoted into.
+            # The Warehouse: new freight whenever the paved-road CI publishes an image.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: warehouse
+              labels: {feature: apps, managed-by: adhar}
+            spec:
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: kargo.akuity.io/v1alpha1
+                  kind: Warehouse
+                  metadata:
+                    name: {{ quote $name }}
+                    namespace: {{ quote $project }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    subscriptions:
+                      - image:
+                          repoURL: {{ quote $image }}
+                          # NewestBuild by default: CI tags images with the commit
+                          # SHA, which has no order; Kargo ranks by creation time.
+                          imageSelectionStrategy: {{ $strategy }}
+                          # Harbor serves its own internal CA; this hop never leaves
+                          # the cluster network.
+                          insecureSkipTLSVerify: true
+                          discoveryLimit: 10
+            {{- end }}
+            {{- $prev := "" -}}
+            {{- range $envs }}
+            {{- $env := . -}}
+            {{- $envName := $env.name -}}
+            {{- $ns := $env.namespace -}}
+            {{- $appName := printf "%s-%s-%s" $project $name $envName -}}
+            {{- $stage := printf "%s-%s" $name $envName -}}
+            {{- $obsApp := default (dict) (get $observed (printf "app-%s" $envName)) -}}
+            {{- $obsHealth := dig "resource" "status" "atProvider" "manifest" "status" "health" "status" "" $obsApp -}}
+            {{- if eq $obsHealth "Healthy" }}{{- $ready = add1 $ready -}}{{- end }}
+            ---
+            # Argo CD Application for one environment, under the project's AppProject.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -85,6 +146,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: app-{{ $envName }}
               labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
             spec:
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
                   apiVersion: argoproj.io/v1alpha1
@@ -93,42 +155,114 @@ spec:
                     name: {{ quote $appName }}
                     namespace: adhar-system
                     labels:
-                      project: {{ quote $project }}
-                      adhar.io/application: {{ quote $name }}
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
                       adhar.io/environment: {{ quote $envName }}
                     finalizers: [resources-finalizer.argocd.argoproj.io]
                   spec:
                     project: {{ quote $project }}
                     source:
                       repoURL: {{ quote $repoURL }}
-                      path: {{ quote $path }}
+                      path: {{ quote (printf "%s/envs/%s" $path $envName) }}
                       targetRevision: {{ quote $revision }}
                     destination:
                       server: https://kubernetes.default.svc
                       namespace: {{ quote $ns }}
                     syncPolicy:
-                      syncOptions:
-                        - CreateNamespace=true
-                        - RespectIgnoreDifferences=true
-                      {{- if $auto }}
                       automated: {prune: true, selfHeal: true}
-                      retry: {limit: 10, backoff: {duration: 10s, factor: 2, maxDuration: 3m}}
-                      {{- end }}
+                      syncOptions:
+                        - ServerSideApply=true
+                        - RespectIgnoreDifferences=true
+                      retry: {limit: -1, backoff: {duration: 5s, factor: 2, maxDuration: 3m}}
                     ignoreDifferences:
-                      - group: argoproj.io
-                        kind: Rollout
-                        jqPathExpressions: ['.spec.template.spec.containers[]?.image']
                       - group: gateway.networking.k8s.io
                         kind: HTTPRoute
                         jsonPointers: ['/status']
-              {{- if $providerConfig }}
+            {{- if $promote }}
+            ---
+            # Kargo Stage for this environment. Its label is what the project's
+            # ProjectConfig promotion policy selects on (dev/test auto, prod manual).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: stage-{{ $envName }}
+              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
+            spec:
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
-              {{- end }}
+              forProvider:
+                manifest:
+                  apiVersion: kargo.akuity.io/v1alpha1
+                  kind: Stage
+                  metadata:
+                    name: {{ quote $stage }}
+                    namespace: {{ quote $project }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                      adhar.io/environment: {{ quote $envName }}
+                  spec:
+                    requestedFreight:
+                      - origin: {kind: Warehouse, name: {{ quote $name }}}
+                        sources:
+                          {{- if $prev }}
+                          stages: [{{ quote $prev }}]
+                          {{- if ne $soak "0s" }}
+                          requiredSoakTime: {{ $soak }}
+                          {{- end }}
+                          {{- else }}
+                          direct: true
+                          {{- end }}
+                    promotionTemplate:
+                      spec:
+                        steps:
+                          - uses: git-clone
+                            config:
+                              repoURL: {{ quote $repoURL }}
+                              checkout: [{branch: {{ quote $revision }}, path: ./src}]
+                          - uses: kustomize-set-image
+                            config:
+                              path: {{ quote (printf "./src/%s/envs/%s" $path $envName) }}
+                              images:
+                                # By DIGEST, not tag: the digest is what cosign signed
+                                # and it cannot be moved by another build.
+                                - image: {{ quote $image }}
+                                  digest: {{ $ex }} imageFrom({{ $image | quote }}).Digest }}
+                          - uses: git-commit
+                            config:
+                              path: ./src
+                              message: {{ printf "promote(%s): %s imageFrom(%q).Digest }}" $envName $ex $image | quote }}
+                          - uses: git-push
+                            config:
+                              path: ./src
+                              targetBranch: {{ quote $revision }}
+                          # Wait for Argo CD to apply it and the Rollout to go Healthy;
+                          # otherwise the downstream Stage promotes off an environment
+                          # that has not finished rolling out.
+                          - uses: argocd-update
+                            config:
+                              apps:
+                                - name: {{ quote $appName }}
+                                  sources:
+                                    - repoURL: {{ quote $repoURL }}
+                                      desiredRevision: {{ $ex }} outputs['git-push'].commit }}
+            {{- end }}
+            {{- $prev = $stage -}}
+            {{- end }}
             {{- end }}
             ---
-            # Roll the per-environment health up onto the XR status.
             apiVersion: platform.adhar.io/v1alpha1
             kind: CompositeApplication
             status:
-              phase: {{ if eq $ready $total }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
-              message: {{ quote (printf "%d/%d environments healthy" $ready $total) }}
+              {{- if not $envs }}
+              phase: Pending
+              message: {{ quote (printf "waiting for project %q to publish its environments" $project) }}
+              {{- else }}
+              phase: {{ if eq $ready (len $envs) }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
+              message: {{ quote (printf "%d/%d environments healthy" $ready (len $envs)) }}
+              {{- end }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

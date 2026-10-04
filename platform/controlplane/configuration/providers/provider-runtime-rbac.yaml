@@ -58,6 +58,26 @@ rules:
   # agent's grant, and the PrometheusRule that alerts on its declared budget.
   # This is the identity that actually applies composed Objects, so the grant
   # has to be here as well as on Crossplane's own aggregate role.
+  # ADR-0026 concept hierarchy: a project owns a Kargo project (promotion
+  # pipeline per application) and materialises its credentials with ESO; an
+  # organisation and an environment bind their groups with RoleBindings.
+  - apiGroups: ["kargo.akuity.io"]
+    resources: ["projects", "projectconfigs", "warehouses", "stages", "promotions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Kargo's admission webhook lets a Promotion be CREATED only by a subject that
+  # may `promote` to its Stage (a Kargo-specific verb); a CompositeRelease is
+  # created by the provider, so the provider needs it.
+  - apiGroups: ["kargo.akuity.io"]
+    resources: ["stages"]
+    verbs: ["promote"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # An application OBSERVES its project (managementPolicies: [Observe]) to learn
+  # where the environments live; read-only on the XR kinds it looks up.
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["compositeprojects", "compositeenvironments", "compositeapplications"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["agentgateway.dev"]
     resources: ["agentgatewaypolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

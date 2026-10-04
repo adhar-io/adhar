@@ -65,6 +65,16 @@ packages:
   # (shared surface + one Deployment per profile). Enable "vllm" plus EXACTLY
   # ONE of vllm-cpu / vllm-gpu; all three are off by default because vLLM is
   # heavy and nothing in the platform depends on it. Mirrors adhar-appset-local.yaml.
+
+  - name: "k8sgpt"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/k8sgpt/manifests"
+  # Self-hosted vLLM inference — three elements from one package directory
+  # (shared surface + one Deployment per profile). Enable "vllm" plus EXACTLY
+  # ONE of vllm-cpu / vllm-gpu; all three are off by default because vLLM is
+  # heavy and nothing in the platform depends on it. Mirrors adhar-appset-local.yaml.
   - name: "vllm"
     enabled: "false"
     namespace: "adhar-system"

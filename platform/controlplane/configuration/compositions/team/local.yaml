@@ -1,0 +1,93 @@
+---
+# CompositeTeam — people who own projects (ADR-0026).
+#
+# Composes the Gitea team inside the organisation (so repositories can be
+# granted to the team as a unit) and publishes the Keycloak group the team IS —
+# `ws-team-<name>`, created and populated by the Console — on its status. The
+# project composition binds that group in every namespace the team owns; a
+# team therefore has no namespace and no quota of its own.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeteam-local
+  labels:
+    feature: team
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeTeam
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $name := dig "name" $xr.metadata.name $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $perm := dig "giteaPermission" "write" $p -}}
+            {{- $group := printf "ws-team-%s" $name -}}
+            {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            ---
+            # Gitea team in the organisation (idempotent: 422 = already there).
+            # Units are the repository features the team may use; `includes_all_
+            # repositories` stays false so a repository is granted explicitly.
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: team-{{ $org }}-{{ $name }}-gitea
+              namespace: adhar-system
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: gitea-team
+              labels:
+                adhar.io/organisation: {{ $org | quote }}
+                adhar.io/team: {{ $name | quote }}
+            spec:
+              backoffLimit: 4
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: create-team
+                      image: curlimages/curl:8.10.1
+                      env:
+                        - name: GITEA_USER
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
+                        - name: GITEA_PASSWORD
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                      command: ["/bin/sh", "-c"]
+                      args:
+                        - |
+                          set -e
+                          AUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
+                          API="http://{{ $giteaHost }}/api/v1"
+                          # The organisation must exist first; CompositeOrganisation creates it.
+                          ocode=$(curl -s -o /dev/null -w "%{http_code}" $AUTH "$API/orgs/{{ $org }}")
+                          [ "$ocode" = "200" ] || { echo "organisation {{ $org }} not in Gitea yet ($ocode)"; exit 1; }
+                          code=$(curl -s -o /tmp/team -w "%{http_code}" $AUTH -X POST "$API/orgs/{{ $org }}/teams" \
+                            -d '{"name":"{{ $name }}","description":{{ dig "description" "" $p | quote }},"permission":"{{ $perm }}","includes_all_repositories":false,"can_create_org_repo":true,"units":["repo.code","repo.issues","repo.pulls","repo.releases","repo.wiki","repo.actions"]}')
+                          echo "team create -> $code"; cat /tmp/team 2>/dev/null || true; echo
+                          case "$code" in 201|409|422) echo "gitea team {{ $org }}/{{ $name }} ready"; exit 0 ;; esac
+                          echo "unexpected status $code"; exit 1
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 64Mi }
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeTeam
+            status:
+              group: {{ $group }}
+              organisation: {{ $org }}
+              giteaTeam: {{ printf "%s/%s" $org $name }}
+              phase: Provisioned
+    - step: ready
+      functionRef:
+        name: function-auto-ready

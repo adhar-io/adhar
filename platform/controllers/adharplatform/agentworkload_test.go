@@ -284,6 +284,7 @@ func TestEveryAllowRuleIsOneExpression(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := 0
+	var expressions []string
 	for _, doc := range strings.Split(string(sb), "\n---\n") {
 		var p struct {
 			Kind     string
@@ -312,6 +313,7 @@ func TestEveryAllowRuleIsOneExpression(t *testing.T) {
 			continue
 		}
 		rules++
+		expressions = append(expressions, a.Policy.MatchExpressions...)
 		if a.Action != "Allow" {
 			t.Errorf("%s uses action %q; the rule set is Allow-only so an erroring expression can "+
 				"lock people out but never let anyone in", p.Metadata.Name, a.Action)
@@ -353,9 +355,19 @@ func TestEveryAllowRuleIsOneExpression(t *testing.T) {
 	}
 	// The tool grant must bind to the subject too — a tool rule without an
 	// identity clause would grant every caller the union of all agents' tools.
-	if !strings.Contains(string(cb), `$toolRule = printf "default(jwt.sub, \"\") == \"%s\" && [%s].exists(p, default(mcp.tool.name, \"\").startsWith(p))" $sub`) {
-		t.Error("the tool rule must be `<identity> && <tool-name prefix match>` on mcp.tool.name — the only " +
-			"variable the backend-phase evaluation has for the tool")
+	if !strings.Contains(string(cb), `$toolRule = printf "default(jwt.sub, \"\") == \"%s\" && default(mcp.tool.target, \"\") in [%s]" $sub`) {
+		t.Error("the tool rule must be `<identity> && mcp.tool.target in <allow-list>` — mcp.tool.name on the " +
+			"backend is the UNPREFIXED tool name, so a `<target>_` prefix match on it matches nothing")
+	}
+	// Comments may explain the trap; expressions must not fall into it.
+	for _, e := range expressions {
+		if strings.Contains(e, "mcp.tool.name") {
+			t.Errorf("rule %q keys on mcp.tool.name: on the federated backend that is the unprefixed tool name, "+
+				"so no target prefix ever matches", e)
+		}
+	}
+	if strings.Contains(joined, "mcp.tool.name") {
+		t.Error("the agent grant keys on mcp.tool.name: on the federated backend that is the unprefixed tool name")
 	}
 	if !strings.Contains(string(cb), "kind: AgentgatewayBackend\n                        name: adhar-mcp") {
 		t.Error("the tool grant must target the federated MCP backend `adhar-mcp`; attached to the Gateway, " +

@@ -2,6 +2,8 @@ package adharplatform
 
 import (
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -92,4 +94,40 @@ func argocdConfigMap(t *testing.T) string {
 		rest = rest[:j]
 	}
 	return rest
+}
+
+// The Argo CD SSO proxy forwards the Keycloak ID token upstream, and Argo CD
+// verifies that token on every request in preference to its own session cookie.
+// The proxy must therefore refresh it before Keycloak's accessTokenLifespan
+// (1800 s) runs out, or every SSO session breaks 30 minutes after login while
+// the proxy's own cookie is still perfectly valid (2026-10-04).
+func TestArgoCDSSOProxyRefreshesTheTokenItForwards(t *testing.T) {
+	b, err := argoCDFS.ReadFile("resources/argocd/sso-proxy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "--pass-authorization-header=true") {
+		t.Skip("the proxy no longer forwards the token; nothing to refresh")
+	}
+	m := regexp.MustCompile(`--cookie-refresh=(\d+)m`).FindStringSubmatch(s)
+	if m == nil {
+		t.Fatal("sso-proxy.yaml forwards the ID token but never refreshes it (--cookie-refresh missing): " +
+			"Argo CD rejects the dead token 30 minutes after login")
+	}
+	mins, _ := strconv.Atoi(m[1])
+	if mins <= 0 || mins*60 >= 1800 {
+		t.Errorf("--cookie-refresh=%dm must be shorter than Keycloak's 1800 s accessTokenLifespan", mins)
+	}
+	if !regexp.MustCompile(`--cookie-expire=\d+h`).MatchString(s) {
+		t.Error("--cookie-expire must cap the proxy session (the realm's SSO idle timeout is 8 h); the default is 168 h")
+	}
+	// The env form, for a cluster whose controller image predates the args: the
+	// ExternalSecret is CreatedOnce, so these two keys are the one place a live
+	// fix survives the controller re-applying the Deployment.
+	for _, want := range []string{`OAUTH2_PROXY_COOKIE_REFRESH: "25m"`, `OAUTH2_PROXY_COOKIE_EXPIRE: "8h0m0s"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the proxy's ExternalSecret template must carry %s", want)
+		}
+	}
 }

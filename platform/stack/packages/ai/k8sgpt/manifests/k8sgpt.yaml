@@ -1,0 +1,253 @@
+# K8sGPT — an SRE assistant that explains what is broken, through the
+# platform's governed AI data plane.
+#
+# ---------------------------------------------------------------------------
+# HOW IT TALKS TO A MODEL
+# ---------------------------------------------------------------------------
+# k8sgpt's `openai` backend speaks the OpenAI API with a static bearer token.
+# It is pointed at agentgateway (ADR-0025) — never at a provider directly — so
+# the same JWT policy, authorization rules, guardrails, token budgets and
+# per-identity metrics that govern every other AI request govern this one.
+#
+# The gateway accepts two token kinds: Keycloak tokens (people) and Kubernetes
+# ServiceAccount tokens with audience `agentgateway` (agents, ADR-0024 pillar 1).
+# k8sgpt cannot refresh a token and cannot mount a projected one (the operator
+# owns its Deployment), so it gets the second kind as a LONG-LIVED bound token:
+# a Sync-hook Job asks the apiserver for a one-year token for the ServiceAccount
+# `k8sgpt-gateway` (TokenRequest API — revocable by deleting the SA, never
+# written to Git) and stores it in the Secret the K8sGPT CR reads. Every sync
+# re-mints it, so rotation is one `adhar upgrade`.
+#
+# The gateway's own API-key authentication was tried first (2026-10-04) and does
+# not compose: apiKeyAuthentication and jwtAuthentication on one Gateway are
+# both enforced, so an API-key request fails JWT validation and vice versa.
+#
+# WHAT IT MAY DO: one model, no tools. The Allow rule below is identity-bound
+# (its `sub` is this ServiceAccount) and names the single model; it composes
+# with the human and agent rules in ai/agentgateway (Allow rules merge,
+# default-deny). There is no MCP grant, so tools/list for this identity is empty.
+# The model is the platform default (`MODEL` in the adhar-ai-llm Secret); the
+# CR and the rule below must agree — TestK8sGPTUsesOneModelThroughTheGateway.
+#
+# `anonymized: true`: names, namespaces and labels are masked before the prompt
+# leaves the cluster for a hosted model; k8sgpt un-masks them in the Result.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8sgpt-gateway
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+---
+# The hook's own identity: may mint tokens for k8sgpt-gateway and write the one
+# Secret that holds them, nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8sgpt-token-minter
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k8sgpt-token-minter
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [k8sgpt-gateway]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [k8sgpt-gateway-token]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8sgpt-token-minter
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+subjects: [{kind: ServiceAccount, name: k8sgpt-token-minter, namespace: adhar-system}]
+roleRef: {kind: Role, name: k8sgpt-token-minter, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8sgpt-gateway-token
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: k8sgpt-token-minter
+      enableServiceLinks: false
+      containers:
+        - name: mint
+          image: alpine/k8s:1.31.1
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              # One year: the apiserver's bound-token maximum here. Re-minted on
+              # every sync, so the live token is never older than the last upgrade.
+              TOKEN=$(kubectl create token k8sgpt-gateway -n adhar-system --audience agentgateway --duration 8760h)
+              kubectl create secret generic k8sgpt-gateway-token -n adhar-system \
+                --from-literal=api-key="$TOKEN" --dry-run=client -o yaml \
+                | kubectl label --local -f - -o yaml app.kubernetes.io/part-of=k8sgpt adhar.io/component=ai \
+                | kubectl apply -f -
+              echo "minted a gateway token for system:serviceaccount:adhar-system:k8sgpt-gateway"
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+---
+# This identity's grant on the AI gateway: the one model, nothing else.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: k8sgpt-llm
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    authorization:
+      action: Allow
+      policy:
+        # ONE expression — the gateway OR's the entries of an Allow rule.
+        matchExpressions:
+          - >-
+            default(jwt.sub, "") == "system:serviceaccount:adhar-system:k8sgpt-gateway"
+            && request.path.startsWith("/v1/")
+            && default(request.headers["x-model"], "") == "openai/gpt-4o-mini"
+---
+# What the scanner may READ. The operator's dynamicRBAC binds the scanner's
+# ServiceAccount (`k8sgpt-<namespace>`) to a role that misses the cluster-scoped
+# kinds its analyzers walk — on the first run it logged `cannot list
+# serviceaccounts / persistentvolumes at the cluster scope` and produced no
+# Result for them. `view` covers namespaced workloads; this adds the
+# cluster-scoped and non-`view` kinds k8sgpt's 22 analyzers look at. Read-only:
+# k8sgpt has no write path to the cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8sgpt-analyzers
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, persistentvolumes, serviceaccounts, namespaces, events, pods, pods/log, services, endpoints, persistentvolumeclaims, configmaps, replicationcontrollers, limitranges, resourcequotas]
+    verbs: [get, list, watch]
+  - apiGroups: [apps, batch, autoscaling, networking.k8s.io, policy, storage.k8s.io, admissionregistration.k8s.io, gateway.networking.k8s.io, discovery.k8s.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  - apiGroups: [aquasecurity.github.io]
+    resources: [vulnerabilityreports, configauditreports]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8sgpt-analyzers
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: k8sgpt-analyzers}
+subjects:
+  # The ServiceAccount the operator creates for the scanner, named after the
+  # K8sGPT CR's namespace.
+  - {kind: ServiceAccount, name: k8sgpt-adhar-system, namespace: adhar-system}
+---
+apiVersion: core.k8sgpt.ai/v1alpha1
+kind: K8sGPT
+metadata:
+  name: k8sgpt
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: k8sgpt, adhar.io/component: ai}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  repository: ghcr.io/k8sgpt-ai/k8sgpt
+  # Pinned: the scanner's analyzers and the operator's Result schema move
+  # together. Bump with the operator chart after a verified run.
+  version: v0.4.39
+  ai:
+    enabled: true
+    backend: openai
+    baseUrl: http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
+    model: openai/gpt-4o-mini
+    secret:
+      name: k8sgpt-gateway-token
+      key: api-key
+    anonymized: true
+    language: english
+    # Retry a failed explanation with backoff instead of hammering the gateway
+    # (and the budget) when a model is briefly unavailable.
+    backOff:
+      enabled: true
+      maxRetries: 5
+  # Every analyzer that applies here. Without this list k8sgpt runs ONLY the
+  # Pod analyzer — the schema's default — and a cluster whose pods are fine
+  # but whose Services select nothing, whose PVCs are Pending or whose
+  # HTTPRoutes are unattached reports no problems at all. `Log` is left out:
+  # it copies pod log lines into Results, which adhar-ai fetches on demand
+  # through its `logs` tool instead — fresher, scoped, not stored forever.
+  filters:
+    - Pod
+    - Deployment
+    - ReplicaSet
+    - StatefulSet
+    - DaemonSet
+    - Job
+    - CronJob
+    - Service
+    - Ingress
+    - PersistentVolumeClaim
+    - Node
+    - ConfigMap
+    - HorizontalPodAutoscaler
+    - PodDisruptionBudget
+    - NetworkPolicy
+    - ValidatingWebhookConfiguration
+    - MutatingWebhookConfiguration
+    - GatewayClass
+    - Gateway
+    - HTTPRoute
+    - Storage
+    - Security
+  analysis:
+    interval: 10m
+  # NO `integrations:` block at all. The operator (0.2.29) runs AddIntegration
+  # for the block's mere presence — `trivy.enabled: false` included — and
+  # dereferences nil when no trivy-operator Deployment exists in the named
+  # namespace: a panic on every reconcile and no analysis ever runs (seen
+  # 2026-10-04). On a platform with security/trivy enabled, add
+  # `integrations: {trivy: {enabled: true, skipInstall: true, namespace: adhar-system}}`
+  # and k8sgpt reads its VulnerabilityReports instead of installing a scanner.
+  noCache: false
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}

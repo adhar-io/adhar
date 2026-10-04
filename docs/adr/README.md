@@ -29,6 +29,7 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0023](0023-control-dataplane-separation.md) | Control-plane / data-plane separation with a first-class DataPlane API | Accepted |
 | [0024](0024-agentic-ai-platform.md) | Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime | Accepted |
 | [0025](0025-ai-gateway-agentgateway.md) | agentgateway as the platform’s AI data plane (LLM routing, federated MCP, guardrails) | Accepted |
+| [0026](0026-concept-hierarchy.md) | Organisation → Team → Project → Application → Environment → Release as one declarative control plane (XRDs, one label vocabulary, Kargo-backed releases) | Accepted |
 
 ## Proposing an ADR
 

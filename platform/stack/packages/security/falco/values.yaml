@@ -22,6 +22,16 @@ driver:
   # node — the only variant that works on every cloud image the platform uses.
   kind: modern_ebpf
 
+# Pod LABELS come from the k8s-metacollector, not from the container runtime:
+# the runtime gives Falco a pod's namespace and name (k8s.ns.name, k8s.pod.name)
+# but not its labels. The collector is one small Deployment the chart ships; the
+# agents load the k8smeta plugin, whose fields are `k8smeta.pod.label[<key>]` —
+# the legacy `k8s.pod.label[...]` field is never populated on this platform
+# (checked 2026-10-04), so the agent rules below use the plugin's.
+collectors:
+  kubernetes:
+    enabled: true
+
 # Falco's own counters (rules loaded, events dropped by the kernel, CPU) on
 # the webserver's /metrics. The sidekick's event counters are the ones
 # dashboards and alerts read; these say whether Falco itself is healthy.
@@ -68,15 +78,29 @@ customRules:
     - macro: user_shell_container_exclusions
       condition: >
         (container.image.repository in (ghcr.io/cloudnative-pg/postgresql, ghcr.io/cloudnative-pg/postgis)
-         or container.image.repository startswith "ghcr.io/cloudnative-pg/")
+         or container.image.repository startswith "ghcr.io/cloudnative-pg/"
+         or (container.image.repository in (docker.io/bitnamilegacy/redis, docker.io/bitnami/redis) and proc.pname = "redis-server"))
       override:
         condition: replace
 
     # The harbor-node-registry-trust DaemonSet (alpine/k8s) fetches the Harbor
     # CA with openssl on every node at start-up, which upstream classifies as
     # "Drop and execute new binary in container" (CRITICAL). Known and intended.
-    - macro: known_drop_and_execute_containers
-      condition: (k8s.ns.name = "adhar-system" and container.image.repository = "docker.io/alpine/k8s")
+    - list: known_drop_and_execute_containers
+      items: [docker.io/alpine/k8s]
+      override:
+        items: replace
+
+    # Coder workspaces (application/coder) download the Coder agent into the
+    # pod at start-up and execute it from /tmp/coder.*/ — by design, on every
+    # workspace image. 173 CRITICAL "Drop and execute new binary" events in
+    # 20 minutes on one workspace (2026-10-04); known, intended, and not a
+    # fixed image list, so matched on the binary path and image publisher.
+    - macro: known_drop_and_execute_activities
+      condition: >
+        ((proc.exepath startswith "/tmp/coder." and proc.name = "coder")
+         or container.image.repository startswith "docker.io/codercom/"
+         or container.image.repository startswith "ghcr.io/coder/")
       override:
         condition: replace
 
@@ -87,10 +111,10 @@ customRules:
         exports telemetry. A shell means either prompt-injected tool execution or a
         compromised runtime, so this is CRITICAL regardless of the upstream shell rules.
       condition: >
-        spawned_process and container and k8s.pod.label[adhar.io/agent] exists
+        spawned_process and container and k8smeta.pod.label[adhar.io/agent] exists
         and proc.name in (shell_binaries)
       output: >
-        Shell in AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name pod=%k8s.pod.name
+        Shell in AI agent workload (agent=%k8smeta.pod.label[adhar.io/agent] ns=%k8s.ns.name pod=%k8s.pod.name
         shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline image=%container.image.repository
         user=%user.name uid=%user.uid)
       priority: CRITICAL
@@ -103,11 +127,15 @@ customRules:
         gateway and the telemetry collector, so a connection attempt elsewhere is
         exfiltration or a tool call bypassing the gateway — the policy drops the
         packets, this records the attempt.
+      # fd.snet, not fd.sip: a CIDR list only compares against the network
+      # field. `fd.sip in (<cidrs>)` fails rule COMPILATION ("unrecognized IPv4
+      # address 10.0.0.0/8") and Falco refuses to start — every node's agent
+      # crash-looped on 2026-10-04 until this was corrected.
       condition: >
-        outbound and container and k8s.pod.label[adhar.io/agent] exists
-        and not fd.sip in (rfc_1918_addresses) and not fd.snet in ("127.0.0.0/8")
+        outbound and container and k8smeta.pod.label[adhar.io/agent] exists
+        and not fd.snet in (rfc_1918_addresses) and not fd.snet in ("127.0.0.0/8")
       output: >
-        Off-cluster connection from AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name
+        Off-cluster connection from AI agent workload (agent=%k8smeta.pod.label[adhar.io/agent] ns=%k8s.ns.name
         pod=%k8s.pod.name dest=%fd.sip:%fd.sport proc=%proc.name cmdline=%proc.cmdline)
       priority: WARNING
       tags: [adhar, agent, network, mitre_exfiltration, T1041]

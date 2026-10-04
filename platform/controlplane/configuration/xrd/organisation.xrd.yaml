@@ -1,0 +1,89 @@
+# CompositeOrganisation — the tenant, top of the Adhar hierarchy (ADR-0026).
+#
+#   Organisation → Team → Project → Application → Environment → Release
+#
+# An organisation is the unit of isolation between customers of the platform.
+# The Console creates one when a tenant signs up (and owns the Keycloak groups
+# `org-<slug>` / `org-<slug>-admin` and their membership — identity stays with
+# the Console); everything the organisation is GRANTED is composed from this
+# object: its home namespace and quota, RBAC for those two groups, and its
+# Gitea organisation. Teams and projects reference it by `name`.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeorganisations.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositeOrganisation
+    plural: compositeorganisations
+    shortNames: [org, orgs]
+  defaultCompositionRef:
+    name: compositeorganisation-local
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: Namespace
+          type: string
+          jsonPath: .status.namespace
+        - name: Ready
+          type: string
+          jsonPath: .status.ready
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      description: Organisation slug. Also the home namespace, the Gitea organisation and the Keycloak group suffix (`org-<name>`).
+                      pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+                      maxLength: 40
+                    displayName:
+                      type: string
+                      default: ""
+                    description:
+                      type: string
+                      default: ""
+                    cpuQuota:
+                      type: string
+                      default: "8"
+                      description: CPU the organisation's HOME namespace may request (projects carry their own quotas).
+                    memoryQuota:
+                      type: string
+                      default: 16Gi
+                    podQuota:
+                      type: integer
+                      default: 50
+                    createGiteaOrganisation:
+                      type: boolean
+                      default: true
+                      description: Create the Gitea organisation that will hold the tenant's repositories.
+                    labels:
+                      type: object
+                      additionalProperties: {type: string}
+                      description: Extra labels stamped on the home namespace.
+            status:
+              type: object
+              properties:
+                namespace: {type: string}
+                giteaOrganisation: {type: string}
+                adminGroup:
+                  type: string
+                  description: The Keycloak group granted admin on every namespace of this organisation (`org-<name>-admin`).
+                memberGroup:
+                  type: string
+                  description: The Keycloak group every member of the organisation belongs to (`org-<name>`).
+                ready: {type: boolean}
+                phase: {type: string}
+                message: {type: string}

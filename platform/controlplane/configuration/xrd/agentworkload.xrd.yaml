@@ -28,166 +28,176 @@ spec:
   names:
     kind: AgentWorkload
     plural: agentworkloads
-    shortNames: [agent, agents]
+    shortNames:
+    - agent
+    - agents
   defaultCompositionRef:
     name: agentworkload-kubernetes
   versions:
-    - name: v1alpha1
-      served: true
-      referenceable: true
-      additionalPrinterColumns:
-        - name: Namespace
-          type: string
-          jsonPath: .status.namespace
-        - name: Environment
-          type: string
-          jsonPath: .spec.parameters.environment
-        - name: Models
-          type: string
-          jsonPath: .status.modelsSummary
-        - name: Ready
-          type: boolean
-          jsonPath: .status.ready
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: [spec]
-          properties:
-            spec:
-              type: object
-              required: [parameters]
-              properties:
-                compositionSelector:
-                  type: object
-                  properties:
-                    matchLabels:
-                      type: object
-                      additionalProperties:
-                        type: string
-                  default:
-                    matchLabels:
-                      feature: agent
-                parameters:
-                  type: object
-                  required: [name, environment]
-                  properties:
-                    name:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    additionalPrinterColumns:
+    - name: Namespace
+      type: string
+      jsonPath: .status.namespace
+    - name: Environment
+      type: string
+      jsonPath: .spec.parameters.environment
+    - name: Models
+      type: string
+      jsonPath: .status.modelsSummary
+    - name: Ready
+      type: boolean
+      jsonPath: .status.ready
+    schema:
+      openAPIV3Schema:
+        type: object
+        required:
+        - spec
+        properties:
+          spec:
+            type: object
+            required:
+            - parameters
+            properties:
+              compositionSelector:
+                type: object
+                properties:
+                  matchLabels:
+                    type: object
+                    additionalProperties:
                       type: string
-                      description: >-
-                        Agent name. Its namespace is `<name>-<environment>`, like
-                        every other promoted workload on the platform.
-                      pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
-                      maxLength: 40
-                    environment:
-                      type: string
-                      description: Which environment this instance of the agent runs in.
-                      enum: [dev, test, prod]
-                    owner:
-                      type: string
-                      description: Owning team, for attribution in audit and dashboards.
-                    models:
-                      type: object
-                      description: >-
-                        Which LLMs the agent may call through the AI gateway. The
-                        gateway routes by model NAME and the agent never sees a
-                        provider or a key; this list is what its identity is
-                        allowed to name.
-                      properties:
-                        allow:
-                          type: array
-                          description: >-
-                            Exact model names or RE2 regexes (e.g. `claude-.*`,
-                            `local/.*`). Empty means the agent may call no model.
-                          items:
-                            type: string
-                          default: []
-                    tools:
-                      type: object
-                      description: >-
-                        Which federated MCP tool TARGETS the agent may call
-                        (mcp-federation.yaml `targets[].name`: cluster,
-                        observability, cost, gitops, provision, security, catalog).
-                      properties:
-                        allow:
-                          type: array
-                          items:
-                            type: string
-                          default: []
-                    budget:
-                      type: object
-                      description: >-
-                        Declared spend. Enforced per environment tier by the
-                        gateway's rate limits; measured per agent from the
-                        gateway's metrics and ALERTED on when exceeded, which is
-                        what the composed PrometheusRule does.
-                      properties:
-                        tokensPerHour:
-                          type: integer
-                          description: Alert when the agent consumes more than this in one hour.
-                          default: 100000
-                        requestsPerMinute:
-                          type: integer
-                          default: 60
-                    resources:
-                      type: object
-                      description: The namespace's ResourceQuota.
-                      properties:
-                        cpu:
+                default:
+                  matchLabels:
+                    feature: agent
+              parameters:
+                type: object
+                required:
+                - name
+                - environment
+                properties:
+                  name:
+                    type: string
+                    description: Agent name. Its namespace is `<name>-<environment>`, like every other promoted
+                      workload on the platform.
+                    pattern: ^[a-z]([-a-z0-9]*[a-z0-9])?$
+                    maxLength: 40
+                  environment:
+                    type: string
+                    description: Which environment this instance of the agent runs in.
+                    enum:
+                    - dev
+                    - test
+                    - prod
+                  owner:
+                    type: string
+                    description: Owning team, for attribution in audit and dashboards.
+                  models:
+                    type: object
+                    description: Which LLMs the agent may call through the AI gateway. The gateway routes by model
+                      NAME and the agent never sees a provider or a key; this list is what its identity is allowed
+                      to name.
+                    properties:
+                      allow:
+                        type: array
+                        description: Exact model names or RE2 regexes (e.g. `claude-.*`, `local/.*`). Empty means
+                          the agent may call no model.
+                        items:
                           type: string
-                          default: "2"
-                        memory:
+                        default: []
+                  tools:
+                    type: object
+                    description: 'Which federated MCP tool TARGETS the agent may call (mcp-federation.yaml `targets[].name`:
+                      cluster, observability, cost, gitops, provision, security, catalog).'
+                    properties:
+                      allow:
+                        type: array
+                        items:
                           type: string
-                          default: 4Gi
-                        pods:
-                          type: integer
-                          default: 10
-                    network:
-                      type: object
-                      description: >-
-                        Egress is default-deny. DNS, the AI gateway and the
-                        telemetry collector are always allowed; add anything else
-                        here explicitly.
-                      properties:
-                        allowNamespaces:
-                          type: array
-                          description: Extra namespaces the agent may reach (by name label).
-                          items:
-                            type: string
-                          default: []
-                        allowCIDRs:
-                          type: array
-                          description: Extra IP ranges the agent may reach (e.g. an external API).
-                          items:
-                            type: string
-                          default: []
-                        allowIngressFrom:
-                          type: array
-                          description: >-
-                            Namespaces allowed to call INTO the agent. The platform
-                            gateway namespace is always allowed so the agent's
-                            HTTPRoute works.
-                          items:
-                            type: string
-                          default: []
-                    labels:
-                      type: object
-                      additionalProperties:
+                        default: []
+                  budget:
+                    type: object
+                    description: Declared spend. Enforced per environment tier by the gateway's rate limits; measured
+                      per agent from the gateway's metrics and ALERTED on when exceeded, which is what the composed
+                      PrometheusRule does.
+                    properties:
+                      tokensPerHour:
+                        type: integer
+                        description: Alert when the agent consumes more than this in one hour.
+                        default: 100000
+                      requestsPerMinute:
+                        type: integer
+                        default: 60
+                  resources:
+                    type: object
+                    description: The namespace's ResourceQuota.
+                    properties:
+                      cpu:
                         type: string
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                ready:
-                  type: boolean
-                namespace:
-                  type: string
-                serviceAccount:
-                  type: string
-                identity:
-                  type: string
-                  description: The `sub` the gateway sees for this agent.
-                modelsSummary:
-                  type: string
-                message:
-                  type: string
+                        default: '2'
+                      memory:
+                        type: string
+                        default: 4Gi
+                      pods:
+                        type: integer
+                        default: 10
+                  network:
+                    type: object
+                    description: Egress is default-deny. DNS, the AI gateway and the telemetry collector are always
+                      allowed; add anything else here explicitly.
+                    properties:
+                      allowNamespaces:
+                        type: array
+                        description: Extra namespaces the agent may reach (by name label).
+                        items:
+                          type: string
+                        default: []
+                      allowCIDRs:
+                        type: array
+                        description: Extra IP ranges the agent may reach (e.g. an external API).
+                        items:
+                          type: string
+                        default: []
+                      allowIngressFrom:
+                        type: array
+                        description: Namespaces allowed to call INTO the agent. The platform gateway namespace is
+                          always allowed so the agent's HTTPRoute works.
+                        items:
+                          type: string
+                        default: []
+                  labels:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  project:
+                    type: string
+                    default: adhar
+                    description: Owning CompositeProject (label adhar.io/project). The agent keeps its own isolated
+                      namespace; this is attribution and policy scope, not placement.
+                  team:
+                    type: string
+                    default: platform
+                    description: Owning CompositeTeam (label adhar.io/team).
+                  organisation:
+                    type: string
+                    default: adhar
+                    description: Owning CompositeOrganisation (label adhar.io/organisation).
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+              ready:
+                type: boolean
+              namespace:
+                type: string
+              serviceAccount:
+                type: string
+              identity:
+                type: string
+                description: The `sub` the gateway sees for this agent.
+              modelsSummary:
+                type: string
+              message:
+                type: string

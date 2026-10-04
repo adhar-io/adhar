@@ -8,256 +8,289 @@ spec:
   names:
     kind: CompositeApplication
     plural: compositeapplications
-  # Default to the multi-environment fan-out: a new CompositeApplication provisions
-  # dev/test/prod ArgoCD apps (dev auto-deploys; test/prod are promotion targets).
-  # For a single-namespace app, select compositeapplication-argocd instead.
   defaultCompositionRef:
     name: compositeapplication-multienv
   versions:
-    - name: v1alpha1
-      served: true
-      referenceable: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          required:
-            - spec
-          properties:
-            spec:
-              type: object
-              required:
-                - compositionSelector
-                - parameters
-              properties:
-                compositionSelector:
-                  type: object
-                  properties:
-                    matchLabels:
-                      type: object
-                      additionalProperties:
-                        type: string
-                  default:
-                    matchLabels:
-                      feature: apps
-                providerConfigRef:
-                  type: object
-                  properties:
-                    name:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        required:
+        - spec
+        properties:
+          spec:
+            type: object
+            required:
+            - compositionSelector
+            - parameters
+            properties:
+              compositionSelector:
+                type: object
+                properties:
+                  matchLabels:
+                    type: object
+                    additionalProperties:
                       type: string
-                parameters:
-                  type: object
-                  required:
-                    - source
-                    - project
-                  # destination is optional: when `environments` is set, each env
-                  # derives its own destination namespace (<app>-<env>).
-                  properties:
-                    displayName:
-                      type: string
-                    project:
-                      type: string
-                    description:
-                      type: string
-                    # Multi-environment fan-out. Each entry becomes its own ArgoCD
-                    # Application deploying the same source into namespace
-                    # "<app>-<env>". Only environments with autoSync:true deploy
-                    # automatically (dev by default); the rest are created but
-                    # gated — Kargo (or a manual sync) promotes an image into them
-                    # dev → test → prod. Leave empty for a single-namespace app
-                    # (uses destination.namespace as-is).
-                    environments:
-                      type: array
-                      default:
-                        - {name: dev, autoSync: true, order: 0}
-                        - {name: test, autoSync: false, order: 1}
-                        - {name: prod, autoSync: false, order: 2}
-                      items:
-                        type: object
-                        required: [name]
-                        properties:
-                          name:
-                            type: string
-                            description: "Environment name (dev, test, prod, …)."
-                          namespace:
-                            type: string
-                            description: "Target namespace (defaults to <app>-<env>)."
-                          autoSync:
-                            type: boolean
-                            default: false
-                            description: "Deploy automatically. Typically true only for dev; higher envs are promoted into."
-                          order:
-                            type: integer
-                            description: "Promotion order (0=first). Used to wire the Kargo dev→test→prod stage chain."
-                    source:
+                default:
+                  matchLabels:
+                    feature: apps
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+              parameters:
+                type: object
+                required:
+                - source
+                - project
+                properties:
+                  displayName:
+                    type: string
+                  project:
+                    type: string
+                    description: The CompositeProject this application belongs to. Its environments, AppProject
+                      and Kargo project are read from that object; `default` means the platform project `adhar`.
+                  description:
+                    type: string
+                  environments:
+                    type: array
+                    default:
+                    - name: dev
+                      autoSync: true
+                      order: 0
+                    - name: test
+                      autoSync: false
+                      order: 1
+                    - name: prod
+                      autoSync: false
+                      order: 2
+                    items:
                       type: object
                       required:
-                        - repoURL
+                      - name
                       properties:
-                        repoURL:
+                        name:
                           type: string
-                        path:
-                          type: string
-                        chart:
-                          type: string
-                        targetRevision:
-                          type: string
-                        helm:
-                          type: object
-                          properties:
-                            releaseName:
-                              type: string
-                            valueFiles:
-                              type: array
-                              items:
-                                type: string
-                            values:
-                              type: string
-                        directory:
-                          type: object
-                          properties:
-                            recurse:
-                              type: boolean
-                        kustomize:
-                          type: object
-                          properties:
-                            images:
-                              type: array
-                              items:
-                                type: string
-                    destination:
-                      type: object
-                      properties:
-                        server:
-                          type: string
+                          description: "Environment name (dev, test, prod, \u2026)."
                         namespace:
                           type: string
-                        clusterRef:
-                          type: object
-                          properties:
-                            name:
-                              type: string
-                        clusterSelector:
-                          type: object
-                          properties:
-                            matchLabels:
-                              type: object
-                              additionalProperties:
-                                type: string
-                    syncPolicy:
-                      type: object
-                      properties:
-                        automated:
-                          type: object
-                          properties:
-                            prune:
-                              type: boolean
-                            selfHeal:
-                              type: boolean
-                            allowEmpty:
-                              type: boolean
-                        retry:
-                          type: object
-                          properties:
-                            limit:
-                              type: integer
-                        syncOptions:
-                          type: array
-                          items:
-                            type: string
-                    ignoreDifferences:
-                      type: array
-                      items:
+                          description: Target namespace (defaults to <app>-<env>).
+                        autoSync:
+                          type: boolean
+                          default: false
+                          description: Deploy automatically. Typically true only for dev; higher envs are promoted
+                            into.
+                        order:
+                          type: integer
+                          description: "Promotion order (0=first). Used to wire the Kargo dev\u2192test\u2192prod\
+                            \ stage chain."
+                    description: 'Optional subset/override of the project''s environments for this application (by
+                      `name`). Omitted: every environment of the project. Namespaces always come from the project.'
+                  source:
+                    type: object
+                    required:
+                    - repoURL
+                    properties:
+                      repoURL:
+                        type: string
+                      path:
+                        type: string
+                      chart:
+                        type: string
+                      targetRevision:
+                        type: string
+                      helm:
                         type: object
                         properties:
-                          kind:
+                          releaseName:
                             type: string
-                          name:
-                            type: string
-                          jsonPointers:
+                          valueFiles:
                             type: array
                             items:
                               type: string
-                writeConnectionSecretToRef:
-                  type: object
-                  properties:
-                    namespace:
-                      type: string
-                      default: adhar-system
-                    name:
-                      type: string
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                  description: "Overall phase of the application (Pending, Syncing, Healthy, Degraded, Failed)"
-                message:
-                  type: string
-                  description: "Human-readable message describing current status"
-                healthStatus:
-                  type: string
-                  description: "ArgoCD health status (Healthy, Progressing, Degraded, Suspended, Missing, Unknown)"
-                syncStatus:
-                  type: string
-                  description: "ArgoCD sync status (Synced, OutOfSync, Unknown)"
-                lastSynced:
-                  type: string
-                  format: date-time
-                  description: "Timestamp of last successful sync"
-                revision:
-                  type: string
-                  description: "Git revision or chart version currently deployed"
-                operationState:
-                  type: object
-                  description: "Details of the current or most recent sync operation"
-                  properties:
-                    phase:
-                      type: string
-                      description: "Operation phase (Running, Succeeded, Failed, Error, Terminating)"
-                    message:
-                      type: string
-                    startedAt:
-                      type: string
-                      format: date-time
-                    finishedAt:
-                      type: string
-                      format: date-time
-                conditions:
-                  type: array
-                  description: "Structured conditions from ArgoCD"
-                  items:
+                          values:
+                            type: string
+                      directory:
+                        type: object
+                        properties:
+                          recurse:
+                            type: boolean
+                      kustomize:
+                        type: object
+                        properties:
+                          images:
+                            type: array
+                            items:
+                              type: string
+                  destination:
                     type: object
                     properties:
-                      type:
-                        type: string
-                        description: "Condition type (e.g., InvalidSpec, ComparisonError, SyncError)"
-                      status:
-                        type: string
-                        description: "Status of condition (True, False, Unknown)"
-                      reason:
-                        type: string
-                        description: "Machine-readable reason for condition"
-                      message:
-                        type: string
-                        description: "Human-readable message"
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                resources:
-                  type: array
-                  description: "Summary of managed resources"
-                  items:
-                    type: object
-                    properties:
-                      group:
-                        type: string
-                      kind:
-                        type: string
-                      name:
+                      server:
                         type: string
                       namespace:
                         type: string
-                      status:
+                      clusterRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                      clusterSelector:
+                        type: object
+                        properties:
+                          matchLabels:
+                            type: object
+                            additionalProperties:
+                              type: string
+                  syncPolicy:
+                    type: object
+                    properties:
+                      automated:
+                        type: object
+                        properties:
+                          prune:
+                            type: boolean
+                          selfHeal:
+                            type: boolean
+                          allowEmpty:
+                            type: boolean
+                      retry:
+                        type: object
+                        properties:
+                          limit:
+                            type: integer
+                      syncOptions:
+                        type: array
+                        items:
+                          type: string
+                  ignoreDifferences:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                        jsonPointers:
+                          type: array
+                          items:
+                            type: string
+                  image:
+                    type: object
+                    description: The image Kargo watches and promotes. Defaults to `<project.imageRegistry>/<application>`,
+                      which is where the paved-road CI publishes.
+                    properties:
+                      repository:
                         type: string
-                      health:
+                      selectionStrategy:
                         type: string
+                        enum:
+                        - NewestBuild
+                        - SemVer
+                        - Lexical
+                        - Digest
+                        default: NewestBuild
+                        description: 'NewestBuild: CI tags images with the commit SHA, which has no order; Kargo
+                          ranks by the image''s creation time.'
+                  promotion:
+                    type: object
+                    description: How environments are chained. Defaults to the project's environment order with
+                      the project's autoPromote flags.
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
+                        description: Create the Kargo Warehouse and Stages. Off for applications that are deployed
+                          by something other than the paved road.
+                      soakTime:
+                        type: string
+                        default: 0s
+                        description: Minimum time freight must be healthy in an upstream environment before it may
+                          be promoted (Kargo requiredSoakTime).
+              writeConnectionSecretToRef:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    default: adhar-system
+                  name:
+                    type: string
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                description: Overall phase of the application (Pending, Syncing, Healthy, Degraded, Failed)
+              message:
+                type: string
+                description: Human-readable message describing current status
+              healthStatus:
+                type: string
+                description: ArgoCD health status (Healthy, Progressing, Degraded, Suspended, Missing, Unknown)
+              syncStatus:
+                type: string
+                description: ArgoCD sync status (Synced, OutOfSync, Unknown)
+              lastSynced:
+                type: string
+                format: date-time
+                description: Timestamp of last successful sync
+              revision:
+                type: string
+                description: Git revision or chart version currently deployed
+              operationState:
+                type: object
+                description: Details of the current or most recent sync operation
+                properties:
+                  phase:
+                    type: string
+                    description: Operation phase (Running, Succeeded, Failed, Error, Terminating)
+                  message:
+                    type: string
+                  startedAt:
+                    type: string
+                    format: date-time
+                  finishedAt:
+                    type: string
+                    format: date-time
+              conditions:
+                type: array
+                description: Structured conditions from ArgoCD
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      description: Condition type (e.g., InvalidSpec, ComparisonError, SyncError)
+                    status:
+                      type: string
+                      description: Status of condition (True, False, Unknown)
+                    reason:
+                      type: string
+                      description: Machine-readable reason for condition
+                    message:
+                      type: string
+                      description: Human-readable message
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+              resources:
+                type: array
+                description: Summary of managed resources
+                items:
+                  type: object
+                  properties:
+                    group:
+                      type: string
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    status:
+                      type: string
+                    health:
+                      type: string

@@ -117,18 +117,62 @@ func TestPlatformKargoPipelineMatchesTheModel(t *testing.T) {
 }
 
 // The platform pipeline and the per-application pipeline must agree.
+//
+// Since ADR-0026 the per-application pipeline is composed: the CompositeProject
+// XRD's default `environments` is the environment list, and the project
+// composition's ProjectConfig carries the promotion policy, keyed on the Stage's
+// environment label. The paved-road Task no longer iterates a fixed list — it
+// reads the project — so the agreement is checked where it is now written.
 func TestPlatformAndAppPipelinesAgreeOnTheModel(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join(stackPackagesDir(t), "application/adhar-supply-chain/manifests/90-app-environments.yaml"))
+	xb, err := os.ReadFile(filepath.Join(controlPlaneDir(t), "xrd/project.xrd.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(b)
-	if !strings.Contains(s, "for env in "+strings.Join(environmentModel, " ")+"; do") {
-		t.Errorf("the per-app pipeline iterates a different environment list than %v", environmentModel)
-	}
-	for env, auto := range map[string]string{"dev": "true", "test": "true", "prod": "false"} {
-		if !strings.Contains(s, "{name: "+env+"}\n              autoPromotionEnabled: "+auto) {
-			t.Errorf("per-app policy for %s is not autoPromotionEnabled: %s", env, auto)
+	var xrd struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema map[string]interface{} `json:"openAPIV3Schema"`
+				}
+			}
 		}
+	}
+	if err := yaml.Unmarshal(xb, &xrd); err != nil {
+		t.Fatal(err)
+	}
+	envsField := xrd.Spec.Versions[0].Schema.OpenAPIV3Schema["properties"].(map[string]interface{})["spec"].(map[string]interface{})["properties"].(map[string]interface{})["parameters"].(map[string]interface{})["properties"].(map[string]interface{})["environments"].(map[string]interface{})
+	defaults, _ := envsField["default"].([]interface{})
+	var names []string
+	auto := map[string]bool{}
+	for _, d := range defaults {
+		m := d.(map[string]interface{})
+		names = append(names, m["name"].(string))
+		auto[m["name"].(string)], _ = m["autoPromote"].(bool)
+	}
+	if strings.Join(names, ",") != strings.Join(environmentModel, ",") {
+		t.Errorf("CompositeProject's default environments are %v, want %v in that order", names, environmentModel)
+	}
+	for env, want := range map[string]bool{"dev": true, "test": true, "prod": false} {
+		if auto[env] != want {
+			t.Errorf("default autoPromote for %s is %v, want %v — the platform pipeline promotes dev and test "+
+				"automatically and never prod", env, auto[env], want)
+		}
+	}
+	cb, err := os.ReadFile(filepath.Join(controlPlaneDir(t), "compositions/project/local.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cb), `(ne $en "prod")`) {
+		t.Error("the project composition's fallback autoPromote is no longer `environment != prod`")
+	}
+	tb, err := os.ReadFile(filepath.Join(stackPackagesDir(t), "application/adhar-supply-chain/manifests/90-app-environments.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(tb), "for env in dev test prod; do") {
+		t.Error("the paved-road Task hardcodes the environment list again; it must read the project's status.environments")
+	}
+	if !strings.Contains(string(tb), "kind: CompositeApplication") {
+		t.Error("the paved-road Task must register an application by applying a CompositeApplication")
 	}
 }

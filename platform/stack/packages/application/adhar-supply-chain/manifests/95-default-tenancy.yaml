@@ -1,0 +1,74 @@
+# The platform's own tenancy, as the same objects every tenant gets (ADR-0026).
+#
+#   CompositeOrganisation adhar → CompositeTeam platform → CompositeProject adhar
+#
+# `adhar up` creates the namespaces dev, test and prod; this project adopts them
+# as its environments (each entry pins `namespace:` to the existing name) and
+# adds what a project owns: the home/Kargo namespace `adhar`, the promotion
+# policy (dev and test auto, prod manual), the Kargo credentials, the Argo CD
+# AppProject `adhar` whose destinations are exactly those namespaces, and team
+# access (platform team admin in dev/test, view in prod). Every application the
+# paved road onboards without naming a project lands here, and the platform's
+# own golden-path services are its applications.
+#
+# No Gitea repository for the project itself: `adhar` the Gitea organisation
+# already exists (bootstrap creates it with the environments/packages repos),
+# and applications bring their own repositories.
+#
+# Wave 5 with SkipDryRunOnMissingResource: the XRDs are installed by the
+# AdharPlatform controller before the stack is seeded, but a first sync may
+# still race the CRD becoming established.
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeOrganisation
+metadata:
+  name: adhar
+  namespace: adhar-system
+  labels: {adhar.io/organisation: adhar, app.kubernetes.io/part-of: adhar}
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  parameters:
+    name: adhar
+    displayName: Adhar
+    description: The platform's own organisation.
+    createGiteaOrganisation: true
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeTeam
+metadata:
+  name: platform
+  namespace: adhar-system
+  labels: {adhar.io/organisation: adhar, adhar.io/team: platform, app.kubernetes.io/part-of: adhar}
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  parameters:
+    name: platform
+    organisation: adhar
+    displayName: Platform team
+    description: Operates the platform; owns the adhar project.
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeProject
+metadata:
+  name: adhar
+  namespace: adhar-system
+  labels: {adhar.io/organisation: adhar, adhar.io/team: platform, adhar.io/project: adhar, app.kubernetes.io/part-of: adhar}
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  parameters:
+    name: adhar
+    organisation: adhar
+    team: platform
+    description: The platform's default project — the home of applications onboarded without naming one.
+    tier: prod
+    createRepository: false
+    environments:
+      - {name: dev, tier: dev, namespace: dev, autoPromote: true, access: admin}
+      - {name: test, tier: test, namespace: test, autoPromote: true, access: admin}
+      - {name: prod, tier: prod, namespace: prod, autoPromote: false, access: view}

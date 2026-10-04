@@ -1,0 +1,48 @@
+# Adhar marketplace contract for the k8sgpt package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: k8sgpt
+category: ai
+version: "0.2.29"
+description: "K8sGPT SRE assistant: the k8sgpt-operator scans the cluster on an interval, explains every unhealthy object with the platform's default model through agentgateway (governed, budgeted, attributed) and writes one Result CR per finding for adhar-ai and the Console to read."
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://k8sgpt.ai
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # Every explanation is an LLM call through the AI data plane.
+  - name: agentgateway
+    category: ai
+  # Reads Trivy's VulnerabilityReports instead of installing its own scanner.
+  - name: trivy
+    category: security
+    optional: true
+  - name: kube-prometheus
+    category: observability
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: k8sgpt/k8sgpt-operator
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta   # enabled exactly where adhar-ai is
+resources:
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - ai
+  - sre
+  - k8sgpt
+  - diagnostics
+  - agentgateway
+verification:
+  status: unverified

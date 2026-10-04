@@ -1,0 +1,81 @@
+# CompositeTeam — the people who own projects (ADR-0026).
+#
+# A team composes nothing that costs money. It exists as an object so that
+# projects can reference it, selectors can find everything the team owns
+# (`adhar.io/team=<name>`), and the one convention every other level relies on —
+# the Keycloak group `ws-team-<name>` that the Console creates and the project
+# composition binds — is published on a status field rather than spelled in
+# five places. It also creates the Gitea team inside the organisation so
+# repositories can be granted to the team as a unit.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeteams.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositeTeam
+    plural: compositeteams
+    shortNames: [team, teams]
+  defaultCompositionRef:
+    name: compositeteam-local
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: Organisation
+          type: string
+          jsonPath: .spec.parameters.organisation
+        - name: Group
+          type: string
+          jsonPath: .status.group
+        - name: Ready
+          type: string
+          jsonPath: .status.ready
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, organisation]
+                  properties:
+                    name:
+                      type: string
+                      description: Team slug; the Keycloak group is `ws-team-<name>`, the Gitea team `<name>`.
+                      pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+                      maxLength: 40
+                    organisation:
+                      type: string
+                      description: Name of the CompositeOrganisation this team belongs to.
+                    displayName:
+                      type: string
+                      default: ""
+                    description:
+                      type: string
+                      default: ""
+                    giteaPermission:
+                      type: string
+                      description: Permission the Gitea team receives on repositories granted to it.
+                      enum: [read, write, admin]
+                      default: write
+                    labels:
+                      type: object
+                      additionalProperties: {type: string}
+            status:
+              type: object
+              properties:
+                group:
+                  type: string
+                  description: Keycloak group that is this team (`ws-team-<name>`), bound by every project the team owns.
+                organisation: {type: string}
+                giteaTeam: {type: string}
+                ready: {type: boolean}
+                phase: {type: string}
+                message: {type: string}

@@ -1,0 +1,87 @@
+# CompositeRelease — putting a freight into an environment (ADR-0026).
+#
+# The last level of the hierarchy and the only one that describes an ACT rather
+# than a place: "promote freight F of application A into environment E". It
+# composes a Kargo Promotion against the application's `<app>-<env>` Stage (the
+# CompositeApplication composition creates those); Kargo's webhook fills the
+# promotion steps from the Stage's template, so a release carries no pipeline
+# of its own. Being an object makes a production promotion something that can
+# sit in a pull request, be listed (`adhar get releases`), be diffed by Argo CD
+# and be audited — instead of a CLI invocation or a Console button.
+#
+# One CompositeRelease is one promotion attempt; its status mirrors the
+# Promotion's phase. Promote again by creating another release, never by editing
+# this one (a Promotion is immutable once accepted).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositereleases.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositeRelease
+    plural: compositereleases
+    shortNames: [release, releases, rel]
+  defaultCompositionRef:
+    name: compositerelease-kargo
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: Project
+          type: string
+          jsonPath: .spec.parameters.project
+        - name: Application
+          type: string
+          jsonPath: .spec.parameters.application
+        - name: Environment
+          type: string
+          jsonPath: .spec.parameters.environment
+        - name: Freight
+          type: string
+          jsonPath: .spec.parameters.freight
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [project, application, environment, freight]
+                  properties:
+                    project:
+                      type: string
+                      description: The CompositeProject (also the Kargo project namespace the Stage lives in).
+                    application:
+                      type: string
+                      description: The CompositeApplication whose Stage receives the freight.
+                    environment:
+                      type: string
+                      description: Target environment; the Kargo Stage is `<application>-<environment>`.
+                      enum: [dev, test, prod]
+                    freight:
+                      type: string
+                      description: Kargo Freight NAME (the content hash shown by `kargo get freight`), not its alias. Aliases are mutable labels; a release pins exactly one artefact set.
+                    reason:
+                      type: string
+                      default: ""
+                      description: Free text recorded on the Promotion's annotations — the change ticket, the approver, the why.
+            status:
+              type: object
+              properties:
+                promotion: {type: string}
+                stage: {type: string}
+                phase:
+                  type: string
+                  description: Mirrors the Kargo Promotion phase — Pending, Running, Succeeded, Failed, Errored, Aborted.
+                message: {type: string}
+                finishedAt: {type: string}
+                ready: {type: boolean}

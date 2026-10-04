@@ -229,10 +229,12 @@ spec:
 # an agent allowed only `cluster` tools called `gitops_app_status` and got 200.
 # Tool rules live here, on the federated MCP backend, where the proxy evaluates
 # them PER ITEM: `tools/list` is filtered to what the caller may use and a
-# `tools/call` outside that set is rejected. Federated tool names are
-# `<target>_<tool>` (mcp-federation.yaml `targets[].name`), so a target is a
-# name prefix. Same two tiers as above; the per-agent grants the AgentWorkload
-# composition mints attach to this same backend and merge with these.
+# `tools/call` outside that set is rejected. `mcp.tool.target` is the federated
+# target (mcp-federation.yaml `targets[].name`); `mcp.tool.name` here is the
+# UNPREFIXED tool name (`app_status`, not `gitops_app_status`), so a prefix match
+# on it matches nothing — measured 2026-10-04. Same two tiers as above; the
+# per-agent grants the AgentWorkload composition mints attach to this same
+# backend and merge with these.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
@@ -256,13 +258,12 @@ spec:
         action: Allow
         policy:
           matchExpressions:
-            # Developers and admins: every tool except the PR-opening targets,
+            # Developers and admins: every target except the PR-opening ones,
             # whose tools open Gitea PRs against the repos ArgoCD reconciles.
             - >-
               ["platform-developer", "platform-admin", "/platform-developer", "/platform-admin"]
               .exists(g, g in default(jwt.groups, []))
-              && !(["gitops_", "provision_", "security_", "catalog_"]
-                   .exists(p, default(mcp.tool.name, "").startsWith(p)))
+              && !(default(mcp.tool.target, "") in ["gitops", "provision", "security", "catalog"])
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy

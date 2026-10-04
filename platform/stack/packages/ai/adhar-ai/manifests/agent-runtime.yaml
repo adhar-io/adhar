@@ -103,6 +103,16 @@ data:
     rag:
       enabled: true
       table: kb_chunk
+      # Grounding blocks per question, and how many candidates are retrieved
+      # before the rerank narrows them. Raising `k` lengthens every prompt;
+      # raising `candidates` lengthens only the rerank call.
+      k: 6
+      candidates: 24
+      # Both of these cost one extra, small completion per question and are the
+      # two cheapest retrieval-quality gains available. Each degrades to a no-op
+      # without a gateway, so a keyless platform is unaffected either way.
+      rerank: true
+      rewrite: true
     # Findings survive a restart in this table, on the same database as the RAG
     # index. With no database configured they stay in memory only, and /healthz
     # says so rather than pretending they are durable.
@@ -150,7 +160,8 @@ data:
     # A name that is not in the shipped catalogue is IGNORED with a warning rather
     # than created, so a typo cannot bring unreviewed automation into existence.
     # Shipped: certificate-expiry, drift-reconciliation, orphaned-resources,
-    # failing-scorecards, cost-outliers, security-findings, runbook-rot.
+    # failing-scorecards, cost-outliers, security-findings, cluster-insights,
+    # runbook-rot.
     #
     #   chores:
     #     certificate-expiry:

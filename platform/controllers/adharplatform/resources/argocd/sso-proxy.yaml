@@ -25,16 +25,23 @@ spec:
     kind: ClusterSecretStore
   target:
     name: argocd-oauth2-proxy
-  # Remote keys are mapped STRAIGHT onto the env var names oauth2-proxy reads,
-  # with no `target.template`. The stack packages template theirs, but this
-  # manifest is a bootstrap resource and every bootstrap resource is rendered as
-  # a Go template first. That pass tried to resolve ExternalSecrets' own
-  # placeholder for the client secret against the platform config and failed with
-  # "can't evaluate field ARGOCD_CLIENT_SECRET in type BuildCustomizationSpec", so
-  # the proxy was silently never created and Argo CD kept its own login page.
-  # secretKey does the same job without needing a second templating pass, and a
-  # bootstrap manifest must never contain a template action the renderer cannot
-  # resolve — not even inside a comment.
+    # mergePolicy Merge: the two credential keys from `data` below stay as they
+    # are and these literals are ADDED — no template references, because this
+    # file is itself rendered by the controller as a Go template and the
+    # embedded-foundation test rightly rejects any surviving directive.
+    #
+    # The same two settings as the --cookie-refresh / --cookie-expire args on
+    # the Deployment below, ALSO as environment so that a platform whose
+    # controller image predates the args still refreshes: this Secret is
+    # created once and never rewritten (refreshPolicy CreatedOnce), so these
+    # keys survive the controller's re-apply of the Deployment, which the args
+    # do not. Flags win over env when both exist.
+    template:
+      engineVersion: v2
+      mergePolicy: Merge
+      data:
+        OAUTH2_PROXY_COOKIE_REFRESH: "25m"
+        OAUTH2_PROXY_COOKIE_EXPIRE: "8h0m0s"
   data:
     - secretKey: OAUTH2_PROXY_CLIENT_SECRET
       remoteRef:
@@ -80,6 +87,20 @@ spec:
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true
+            # Refresh the upstream tokens before Keycloak's access token
+            # (accessTokenLifespan 1800 s, keycloak-config.yaml) expires. This
+            # proxy forwards the ID token to Argo CD (--pass-authorization-header
+            # below) and Argo CD verifies it on EVERY request, preferring it over
+            # its own session cookie. Without a refresh the proxy's 7-day cookie
+            # kept replaying a token that died after 30 minutes: Argo CD logged
+            # `Failed to verify session token: oidc: token is expired`, bounced
+            # the user into its own OIDC login, which succeeded — and the very
+            # next request carried the same dead token again (2026-10-04: "argocd
+            # login not working"). The session itself is capped at Keycloak's
+            # SSO idle timeout (8 h) so a refresh can never outlive the realm
+            # session it depends on.
+            - --cookie-refresh=25m
+            - --cookie-expire=8h0m0s
             # Parent-domain cookie + the shared secret = a session established by
             # any other app is accepted here without a round trip to Keycloak.
             - --cookie-name=_adhar_sso_argocd

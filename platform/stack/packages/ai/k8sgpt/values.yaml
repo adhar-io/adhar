@@ -1,0 +1,38 @@
+# k8sgpt-operator — platform values (chart k8sgpt/k8sgpt-operator 0.2.29).
+#
+# The operator reconciles a K8sGPT custom resource (manifests/k8sgpt.yaml) into a
+# scanner Deployment that walks the cluster on an interval, explains every
+# unhealthy object with an LLM and writes one `Result` CR per finding. Every key
+# below is a deliberate deviation from the chart defaults; regenerate
+# manifests/install.yaml with ./generate-manifests.sh after editing.
+
+# DEVIATION (default: true kept, stated): the operator creates the scanner's
+# ServiceAccount and a cluster-wide READ ClusterRoleBinding for it at runtime.
+# k8sgpt only ever reads; it has no write path to the cluster.
+dynamicRBAC:
+  enabled: true
+
+# Interplex is k8sgpt's optional remote cache. Off: the platform's one scanner
+# does not need a cache service, and the chart would deploy a second Deployment.
+interplex:
+  enabled: false
+
+# Operator metrics (reconciles, results by kind) through the chart's
+# ServiceMonitor; generate-manifests.sh moves it to sync-wave 10 like every
+# other monitoring CR. The chart's Grafana dashboard needs the grafana-operator
+# CRD the platform does not run — the observability/kube-prometheus package
+# ships the AI dashboards instead.
+serviceMonitor:
+  enabled: true
+grafanaDashboard:
+  enabled: false
+
+controllerManager:
+  manager:
+    # DEVIATION (default: false). Every Result is also logged by the operator,
+    # so findings land in Loki with the rest of the platform's logs and a
+    # search for a Deployment's name shows what k8sgpt said about it.
+    enableResultLogging: true
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 256Mi}

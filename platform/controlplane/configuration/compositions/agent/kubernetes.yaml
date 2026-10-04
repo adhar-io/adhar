@@ -53,6 +53,9 @@ spec:
             {{- $sa := "agent" -}}
             {{- $sub := printf "system:serviceaccount:%s:%s" $ns $sa -}}
             {{- $owner := dig "owner" "" $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $project := dig "project" "adhar" $p -}}
             {{- $models := dig "models" "allow" (list) $p -}}
             {{- $tools := dig "tools" "allow" (list) $p -}}
             {{- $tph := dig "budget" "tokensPerHour" 100000 $p -}}
@@ -79,15 +82,17 @@ spec:
                    MCP body is parsed, so `mcp.tool.*` is absent there — a tool
                    clause at the Gateway sees "" and admits everything (measured
                    2026-10-04). On the backend the rule filters tools/list to what
-                   this agent may use and rejects a tools/call outside it. Federated
-                   tool names are `<target>_<tool>` (mcp-federation.yaml), so an
-                   allowed target is a name prefix. An empty allow-list is the
+                   this agent may use and rejects a tools/call outside it.
+                   `mcp.tool.target` is the federated target (mcp-federation.yaml
+                   `targets[].name`); `mcp.tool.name` there is the UNPREFIXED tool
+                   name (`list_pods`, not `cluster_list_pods`), so a prefix match on
+                   it matched nothing — also measured. An empty allow-list is the
                    literal `false`: this agent sees no tools and can call none. */ -}}
             {{- $toolRule := printf "default(jwt.sub, \"\") == \"%s\" && false" $sub -}}
             {{- if gt (len $tools) 0 -}}
-            {{- $prefixes := list -}}
-            {{- range $tools }}{{ $prefixes = append $prefixes (printf "\"%s_\"" .) }}{{ end -}}
-            {{- $toolRule = printf "default(jwt.sub, \"\") == \"%s\" && [%s].exists(p, default(mcp.tool.name, \"\").startsWith(p))" $sub (join ", " $prefixes) -}}
+            {{- $quoted := list -}}
+            {{- range $tools }}{{ $quoted = append $quoted (printf "\"%s\"" .) }}{{ end -}}
+            {{- $toolRule = printf "default(jwt.sub, \"\") == \"%s\" && default(mcp.tool.target, \"\") in [%s]" $sub (join ", " $quoted) -}}
             {{- end -}}
             ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -108,6 +113,9 @@ spec:
                     labels:
                       platform.adhar.io/self-service: "true"
                       adhar.io/plane: workload
+                      adhar.io/organisation: {{ $org | quote }}
+                      adhar.io/team: {{ $team | quote }}
+                      adhar.io/project: {{ $project | quote }}
                       adhar.io/environment: {{ $env | quote }}
                       adhar.io/agent: {{ $name | quote }}
                       # The selector every agent guardrail keys on: the Kyverno

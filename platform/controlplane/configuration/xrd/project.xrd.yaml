@@ -46,17 +46,23 @@ spec:
                     description: Owning team (Backstage Group)
                   name:
                     type: string
-                    description: Project name — also the project namespace
+                    description: "Project name \u2014 also the project namespace"
                   description:
                     type: string
-                    default: ""
+                    default: ''
+                    description: Shown in the AppProject and the Gitea repository.
                   tier:
                     type: string
-                    enum: [dev, test, staging, prod]
+                    enum:
+                    - dev
+                    - test
+                    - prod
                     default: dev
+                    description: Guardrail tier of the project HOME namespace (the Kargo project namespace). Environment
+                      tiers are set per entry of `environments`.
                   cpuQuota:
                     type: string
-                    default: "4"
+                    default: '4'
                   memoryQuota:
                     type: string
                     default: 8Gi
@@ -67,8 +73,79 @@ spec:
                     type: boolean
                     description: Auto-create a Gitea repo for the project
                     default: true
-                required: [organisation, team, name]
-            required: [parameters]
+                  environments:
+                    type: array
+                    description: "The project's environments, each composed as a CompositeEnvironment with its own\
+                      \ namespace, quota, network boundary and team access. Default dev \u2192 test \u2192 prod.\
+                      \ `namespace` defaults to `<project>-<name>`; the platform's own project pins `dev`/`test`/`prod`."
+                    default:
+                    - name: dev
+                      tier: dev
+                      autoPromote: true
+                    - name: test
+                      tier: test
+                      autoPromote: true
+                    - name: prod
+                      tier: prod
+                      autoPromote: false
+                    items:
+                      type: object
+                      required:
+                      - name
+                      properties:
+                        name:
+                          type: string
+                          enum:
+                          - dev
+                          - test
+                          - prod
+                        tier:
+                          type: string
+                          enum:
+                          - dev
+                          - test
+                          - prod
+                          description: Defaults to the name.
+                        namespace:
+                          type: string
+                          description: Override the environment namespace (default `<project>-<name>`).
+                          pattern: ^[a-z]([-a-z0-9]*[a-z0-9])?$
+                        autoPromote:
+                          type: boolean
+                          description: Kargo promotes freight into this environment without a human (dev and test
+                            by default; prod never).
+                        access:
+                          type: string
+                          enum:
+                          - admin
+                          - edit
+                          - view
+                          description: "The owning team's Kubernetes role in this environment. Default: admin in\
+                            \ dev/test, view in prod \u2014 production changes arrive through a Release."
+                        cpuQuota:
+                          type: string
+                        memoryQuota:
+                          type: string
+                        podQuota:
+                          type: integer
+                  allowedSourceRepos:
+                    type: array
+                    items:
+                      type: string
+                    default: []
+                    description: Extra Argo CD source repositories the project's AppProject admits, beyond the organisation's
+                      own Gitea repositories.
+                  imageRegistry:
+                    type: string
+                    default: harbor-core.adhar-system.svc.cluster.local/library
+                    description: Registry path the project's application images are published under; Kargo watches
+                      `<imageRegistry>/<application>`.
+                required:
+                - organisation
+                - team
+                - name
+            required:
+            - parameters
           status:
             type: object
             properties:
@@ -80,16 +157,43 @@ spec:
                 type: string
               phase:
                 type: string
+              environments:
+                type: array
+                description: 'Resolved environments: the single place applications and the paved-road Tasks look
+                  up where an environment lives.'
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    tier:
+                      type: string
+                    autoPromote:
+                      type: boolean
+              kargoProject:
+                type: string
+              organisation:
+                type: string
+              team:
+                type: string
+              ready:
+                type: boolean
+              message:
+                type: string
+              imageRegistry:
+                type: string
     additionalPrinterColumns:
-    - name: Org
+    - name: Organisation
       type: string
-      jsonPath: ".spec.parameters.organisation"
+      jsonPath: .spec.parameters.organisation
     - name: Team
       type: string
-      jsonPath: ".spec.parameters.team"
+      jsonPath: .spec.parameters.team
     - name: Namespace
       type: string
-      jsonPath: ".status.namespace"
-    - name: Repository
+      jsonPath: .status.namespace
+    - name: Phase
       type: string
-      jsonPath: ".status.repository"
+      jsonPath: .status.phase

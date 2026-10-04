@@ -19,7 +19,7 @@ rules:
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["services", "secrets", "configmaps", "persistentvolumeclaims", "namespaces", "resourcequotas", "serviceaccounts"]
+    resources: ["services", "secrets", "configmaps", "persistentvolumeclaims", "namespaces", "resourcequotas", "limitranges", "serviceaccounts"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # RoleBindings for composed workload identities (e.g. the secret-rotation SA).
   - apiGroups: ["rbac.authorization.k8s.io"]
@@ -31,8 +31,23 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # ADR-0026 concept hierarchy: a project owns a Kargo project (promotion
+  # pipeline per application) and materialises its credentials with ESO; an
+  # organisation and an environment bind their groups with RoleBindings.
+  - apiGroups: ["kargo.akuity.io"]
+    resources: ["projects", "projectconfigs", "warehouses", "stages", "promotions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Kargo's admission webhook lets a Promotion be CREATED only by a subject that
+  # may `promote` to its Stage (a Kargo-specific verb); a CompositeRelease is
+  # created by the provider, so the provider needs it.
+  - apiGroups: ["kargo.akuity.io"]
+    resources: ["stages"]
+    verbs: ["promote"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["argoproj.io"]
-    resources: ["applications"]
+    resources: ["applications", "appprojects"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["kafka.strimzi.io"]
     resources: ["kafkas", "kafkas/status", "kafkatopics", "kafkanodepools"]

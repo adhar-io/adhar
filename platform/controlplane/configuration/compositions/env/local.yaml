@@ -1,8 +1,19 @@
 ---
-# Local Environment composition — provisions a self-service namespace with a
-# ResourceQuota, a LimitRange (per-container defaults), and an optional
-# default-deny NetworkPolicy from a CompositeEnvironment. A team's
-# sandbox/dev/staging namespace, guard-railed.
+# Local Environment composition — one environment of a project (ADR-0026):
+# a namespace with a ResourceQuota, a LimitRange, a default-deny ingress
+# NetworkPolicy and the owning TEAM's access to it.
+#
+# Environments are normally composed BY a CompositeProject (one per entry of
+# its `environments`), which passes organisation / team / project / environment
+# down so every object here carries the shared ownership labels. A standalone
+# CompositeEnvironment (the `environment` template) still works and defaults to
+# the platform tenancy (adhar / platform).
+#
+# `access` is the point of an environment having an owner: the team is `admin`
+# in dev and test and `view` in prod, because production changes arrive through
+# a CompositeRelease (a Kargo promotion committed to Git), not through kubectl.
+# The organisation's admin group is always `admin` — teams subdivide a tenant,
+# they are not walls against the person who owns it.
 #
 # A CompositeEnvironment is a *namespaced* Crossplane v2 XR, so it cannot compose
 # a cluster-scoped Namespace directly. Instead it emits provider-kubernetes
@@ -34,6 +45,11 @@ spec:
             {{- $p := dig "spec" "parameters" dict $xr -}}
             {{- $name := dig "name" $xr.metadata.name $p -}}
             {{- $tier := dig "tier" "dev" $p -}}
+            {{- $env := dig "environment" $tier $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $project := dig "project" "" $p -}}
+            {{- $access := dig "access" "admin" $p -}}
             {{- $cpu := dig "cpuQuota" "4" $p -}}
             {{- $mem := dig "memoryQuota" "8Gi" $p -}}
             {{- $pods := dig "podQuota" 20 $p -}}
@@ -57,7 +73,13 @@ spec:
                     name: {{ $name }}
                     labels:
                       platform.adhar.io/self-service: "true"
-                      adhar.io/environment: {{ $name }}
+                      adhar.io/plane: workload
+                      adhar.io/organisation: {{ $org | quote }}
+                      adhar.io/team: {{ $team | quote }}
+                      {{- if $project }}
+                      adhar.io/project: {{ $project | quote }}
+                      {{- end }}
+                      adhar.io/environment: {{ $env | quote }}
                       adhar.io/tier: {{ $tier | quote }}
                       {{- range $k, $v := (dig "labels" dict $p) }}
                       {{ $k }}: {{ $v | quote }}
@@ -137,13 +159,63 @@ spec:
                       - from:
                           - namespaceSelector:
                               matchLabels:
-                                adhar.io/environment: {{ $name }}
+                                kubernetes.io/metadata.name: {{ $name }}
             {{- end }}
+            ---
+            # The owning team's access to this environment (see header).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: team-rbac
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ $name }}-team-{{ $access }}
+                    namespace: {{ $name }}
+                    labels:
+                      adhar.io/organisation: {{ $org | quote }}
+                      adhar.io/team: {{ $team | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $access }} }
+                  subjects:
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s" $team | quote }} }
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: org-admin-rbac
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ $name }}-org-admin
+                    namespace: {{ $name }}
+                    labels:
+                      adhar.io/organisation: {{ $org | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin }
+                  subjects:
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:org-%s-admin" $org | quote }} }
             ---
             # Publish the environment namespace back on the XR status.
             apiVersion: platform.adhar.io/v1alpha1
             kind: CompositeEnvironment
             status:
+              tier: {{ $tier }}
+              environment: {{ $env }}
               phase: Available
               ready: true
               namespace: {{ $name }}

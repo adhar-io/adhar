@@ -1,0 +1,93 @@
+---
+# CompositeRelease — one promotion of a freight into an environment (ADR-0026).
+#
+# A Kargo Promotion against the Stage `<application>-<environment>` in the
+# project's Kargo namespace. Only `stage` and `freight` are set: Kargo's
+# mutating webhook copies the promotion steps from the Stage's template
+# (verified against Kargo on 2026-10-04 with a server-side dry run), so the
+# release never carries a pipeline that could drift from the Stage's.
+#
+# The Promotion is immutable once accepted, so the composed Object is named
+# after the XR: a new release is a new XR, never an edit. Its phase is mirrored
+# onto the XR status from the Object's observed manifest.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositerelease-kargo
+  labels:
+    feature: release
+    provider: kargo
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeRelease
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $project := dig "project" "adhar" $p -}}
+            {{- $app := dig "application" "" $p -}}
+            {{- $env := dig "environment" "dev" $p -}}
+            {{- $freight := dig "freight" "" $p -}}
+            {{- if not $app }}{{ fail "parameters.application is required" }}{{ end -}}
+            {{- if not $freight }}{{ fail "parameters.freight is required" }}{{ end -}}
+            {{- $stage := printf "%s-%s" $app $env -}}
+            {{- $observed := dig "promotion" "resource" dict (default dict .observed.resources) -}}
+            {{- $manifest := dig "status" "atProvider" "manifest" dict $observed -}}
+            {{- $phase := dig "status" "phase" "" $manifest -}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: promotion
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kargo.akuity.io/v1alpha1
+                  kind: Promotion
+                  metadata:
+                    name: {{ $xr.metadata.name }}
+                    namespace: {{ $project }}
+                    labels:
+                      adhar.io/project: {{ $project | quote }}
+                      adhar.io/application: {{ $app | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                      adhar.io/release: {{ $xr.metadata.name | quote }}
+                    annotations:
+                      adhar.io/reason: {{ dig "reason" "" $p | quote }}
+                      adhar.io/released-by: {{ $xr.metadata.namespace }}/{{ $xr.metadata.name }}
+                  spec:
+                    # Quoted: a freight name is a 40-hex content hash, and one
+                    # made of digits only parses as an INTEGER unquoted — Kargo
+                    # then rejects the Promotion (".spec.freight: expected string").
+                    stage: {{ $stage | quote }}
+                    freight: {{ $freight | quote }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeRelease
+            status:
+              promotion: {{ $xr.metadata.name | quote }}
+              stage: {{ $stage | quote }}
+              {{- if $phase }}
+              phase: {{ $phase }}
+              message: {{ dig "status" "message" "" $manifest | quote }}
+              finishedAt: {{ dig "status" "finishedAt" "" $manifest | quote }}
+              ready: {{ eq $phase "Succeeded" }}
+              {{- else }}
+              phase: Pending
+              ready: false
+              {{- end }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,61 @@
+# `platform` — the in-cluster ClusterSecretStore that reads adhar-system.
+#
+# Compositions must never copy a password into a manifest, yet the objects
+# they create often need one: a CompositeProject's Kargo namespace needs the
+# Gitea CI credential (to clone and push application repositories) and the
+# Harbor credential (to list image tags). ESO's kubernetes provider is the
+# declarative way to project a platform Secret into another namespace: an
+# ExternalSecret in the target namespace names the source key, and this store
+# — a ServiceAccount allowed to READ secrets in adhar-system, nothing more —
+# resolves it. Until ADR-0026 each package that needed this shipped its own
+# store (`argocd`, `gitea`, `keycloak`, each reading the same namespace); this
+# is the shared one, owned by the package that owns ESO.
+#
+# Sync-wave 5: ESO's CRDs and webhook come up with this package at wave 0.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-store-platform
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eso-store-platform
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectrulesreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eso-store-platform
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+subjects:
+  - {kind: ServiceAccount, name: eso-store-platform, namespace: adhar-system}
+roleRef: {kind: Role, name: eso-store-platform, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: adhar-system
+      server:
+        caProvider: {type: ConfigMap, name: kube-root-ca.crt, namespace: adhar-system, key: ca.crt}
+      auth:
+        serviceAccount: {name: eso-store-platform, namespace: adhar-system}

@@ -1,0 +1,209 @@
+---
+# CompositeOrganisation — the tenant's footprint on the cluster (ADR-0026).
+#
+# Identity is the Console's: it creates the Keycloak groups `org-<name>` and
+# `org-<name>-admin` and puts people in them. Everything those groups are
+# GRANTED is composed here, from one object, so that a tenant is visible to
+# `adhar get`, Argo CD and policy as a Kubernetes resource and not only as a
+# row in the Console's database:
+#   • the organisation's home namespace, with quota and container defaults
+#   • RBAC: org admins administer the home namespace, members may read it
+#     (projects bind the same groups in their own namespaces)
+#   • the Gitea organisation that holds the tenant's repositories
+# The group names are published on the status so the project composition and
+# the Console read them from here instead of each spelling the convention.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeorganisation-local
+  labels:
+    feature: organisation
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeOrganisation
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $name := dig "name" $xr.metadata.name $p -}}
+            {{- $cpu := dig "cpuQuota" "8" $p -}}
+            {{- $mem := dig "memoryQuota" "16Gi" $p -}}
+            {{- $pods := dig "podQuota" 50 $p -}}
+            {{- $gitea := dig "createGiteaOrganisation" true $p -}}
+            {{- $extra := dig "labels" dict $p -}}
+            {{- $adminGroup := printf "org-%s-admin" $name -}}
+            {{- $memberGroup := printf "org-%s" $name -}}
+            {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: namespace
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: {{ $name }}
+                    labels:
+                      platform.adhar.io/self-service: "true"
+                      adhar.io/organisation: {{ $name | quote }}
+                      adhar.io/plane: workload
+                      {{- range $k, $v := $extra }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: quota
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ResourceQuota
+                  metadata:
+                    name: {{ $name }}-quota
+                    namespace: {{ $name }}
+                    labels: { adhar.io/organisation: {{ $name | quote }} }
+                  spec:
+                    hard:
+                      requests.cpu: "{{ $cpu }}"
+                      requests.memory: "{{ $mem }}"
+                      limits.cpu: "{{ $cpu }}"
+                      limits.memory: "{{ $mem }}"
+                      pods: "{{ $pods }}"
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: limits
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: LimitRange
+                  metadata:
+                    name: {{ $name }}-limits
+                    namespace: {{ $name }}
+                    labels: { adhar.io/organisation: {{ $name | quote }} }
+                  spec:
+                    limits:
+                      - type: Container
+                        default: { cpu: "500m", memory: "512Mi" }
+                        defaultRequest: { cpu: "100m", memory: "128Mi" }
+            ---
+            # Org admins own the home namespace; members may look at it. Both
+            # groups are also bound by every project in the organisation (the
+            # project composition reads their names off this XR's status).
+            # `oidc:` is the apiserver's --oidc-groups-prefix; the realm mapper
+            # emits bare group names, never paths.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: admin-rbac
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ $name }}-org-admin
+                    namespace: {{ $name }}
+                    labels: { adhar.io/organisation: {{ $name | quote }} }
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin }
+                  subjects:
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:%s" $adminGroup | quote }} }
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: member-rbac
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ $name }}-org-view
+                    namespace: {{ $name }}
+                    labels: { adhar.io/organisation: {{ $name | quote }} }
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: view }
+                  subjects:
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:%s" $memberGroup | quote }} }
+            {{- if $gitea }}
+            ---
+            # The Gitea organisation (idempotent: 422/409 = already there).
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: org-{{ $name }}-gitea
+              namespace: adhar-system
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: gitea-org
+              labels: { adhar.io/organisation: {{ $name | quote }} }
+            spec:
+              backoffLimit: 4
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: create-org
+                      image: curlimages/curl:8.10.1
+                      env:
+                        - name: GITEA_USER
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
+                        - name: GITEA_PASSWORD
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                      command: ["/bin/sh", "-c"]
+                      args:
+                        - |
+                          set -e
+                          AUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
+                          API="http://{{ $giteaHost }}/api/v1"
+                          code=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH -X POST "$API/orgs" \
+                            -d '{"username":"{{ $name }}","full_name":{{ default $name (dig "displayName" "" $p) | quote }},"description":{{ dig "description" "" $p | quote }},"visibility":"private"}')
+                          echo "org create -> $code"; cat /tmp/org 2>/dev/null || true; echo
+                          case "$code" in 201|409|422) echo "gitea organisation {{ $name }} ready"; exit 0 ;; esac
+                          echo "unexpected status $code"; exit 1
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 64Mi }
+            {{- end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeOrganisation
+            status:
+              namespace: {{ $name }}
+              adminGroup: {{ $adminGroup }}
+              memberGroup: {{ $memberGroup }}
+              {{- if $gitea }}
+              giteaOrganisation: {{ $name }}
+              {{- end }}
+              phase: Provisioned
+    - step: ready
+      functionRef:
+        name: function-auto-ready

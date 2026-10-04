@@ -38,6 +38,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/plane: control
 rules:
+  # k8sgpt (ai/k8sgpt) writes one Result per finding; the `cluster` MCP target
+  # surfaces them so an agent can say what k8sgpt already diagnosed instead of
+  # re-deriving it from pod logs.
+  - apiGroups: ["core.k8sgpt.ai"]
+    resources: ["results", "k8sgpts"]
+    verbs: ["get", "list", "watch"]
   # Core workload + event surfaces (mcp-cluster, alert-triage, drift-explain).
   - apiGroups: [""]
     resources:

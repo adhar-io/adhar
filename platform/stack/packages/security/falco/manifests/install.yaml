@@ -24,6 +24,20 @@ metadata:
   name: falco-falcosidekick
   namespace: adhar-system
 ---
+# Source: falco/charts/k8s-metacollector/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco-k8s-metacollector
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: k8s-metacollector-0.1.10
+    app.kubernetes.io/name: k8s-metacollector
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: "metadata-collector"
+---
 # Source: falco/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -1424,6 +1438,7 @@ data:
       enabled: true
       severity: info
     load_plugins:
+    - k8smeta
     - container
     log_level: info
     log_stderr: true
@@ -1447,6 +1462,14 @@ data:
     outputs_queue:
       capacity: 0
     plugins:
+    - init_config:
+        collectorHostname: falco-k8s-metacollector.adhar-system.svc
+        collectorPort: 45000
+        hostProc: /host
+        nodeName: ${FALCO_K8S_NODE_NAME}
+        verbosity: info
+      library_path: libk8smeta.so
+      name: k8smeta
     - init_config:
         engines:
           bpm:
@@ -1547,6 +1570,7 @@ data:
         pluginsDir: /plugins
         refs:
         - falco-rules:5
+        - ghcr.io/falcosecurity/plugins/plugin/k8smeta:0.4.1
         - ghcr.io/falcosecurity/plugins/plugin/container:0.7.1
         resolveDeps: true
         rulesfilesDir: /rulesfiles
@@ -1577,15 +1601,29 @@ data:
     - macro: user_shell_container_exclusions
       condition: >
         (container.image.repository in (ghcr.io/cloudnative-pg/postgresql, ghcr.io/cloudnative-pg/postgis)
-         or container.image.repository startswith "ghcr.io/cloudnative-pg/")
+         or container.image.repository startswith "ghcr.io/cloudnative-pg/"
+         or (container.image.repository in (docker.io/bitnamilegacy/redis, docker.io/bitnami/redis) and proc.pname = "redis-server"))
       override:
         condition: replace
     
     # The harbor-node-registry-trust DaemonSet (alpine/k8s) fetches the Harbor
     # CA with openssl on every node at start-up, which upstream classifies as
     # "Drop and execute new binary in container" (CRITICAL). Known and intended.
-    - macro: known_drop_and_execute_containers
-      condition: (k8s.ns.name = "adhar-system" and container.image.repository = "docker.io/alpine/k8s")
+    - list: known_drop_and_execute_containers
+      items: [docker.io/alpine/k8s]
+      override:
+        items: replace
+    
+    # Coder workspaces (application/coder) download the Coder agent into the
+    # pod at start-up and execute it from /tmp/coder.*/ — by design, on every
+    # workspace image. 173 CRITICAL "Drop and execute new binary" events in
+    # 20 minutes on one workspace (2026-10-04); known, intended, and not a
+    # fixed image list, so matched on the binary path and image publisher.
+    - macro: known_drop_and_execute_activities
+      condition: >
+        ((proc.exepath startswith "/tmp/coder." and proc.name = "coder")
+         or container.image.repository startswith "docker.io/codercom/"
+         or container.image.repository startswith "ghcr.io/coder/")
       override:
         condition: replace
     
@@ -1596,10 +1634,10 @@ data:
         exports telemetry. A shell means either prompt-injected tool execution or a
         compromised runtime, so this is CRITICAL regardless of the upstream shell rules.
       condition: >
-        spawned_process and container and k8s.pod.label[adhar.io/agent] exists
+        spawned_process and container and k8smeta.pod.label[adhar.io/agent] exists
         and proc.name in (shell_binaries)
       output: >
-        Shell in AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name pod=%k8s.pod.name
+        Shell in AI agent workload (agent=%k8smeta.pod.label[adhar.io/agent] ns=%k8s.ns.name pod=%k8s.pod.name
         shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline image=%container.image.repository
         user=%user.name uid=%user.uid)
       priority: CRITICAL
@@ -1612,14 +1650,83 @@ data:
         gateway and the telemetry collector, so a connection attempt elsewhere is
         exfiltration or a tool call bypassing the gateway — the policy drops the
         packets, this records the attempt.
+      # fd.snet, not fd.sip: a CIDR list only compares against the network
+      # field. `fd.sip in (<cidrs>)` fails rule COMPILATION ("unrecognized IPv4
+      # address 10.0.0.0/8") and Falco refuses to start — every node's agent
+      # crash-looped on 2026-10-04 until this was corrected.
       condition: >
-        outbound and container and k8s.pod.label[adhar.io/agent] exists
-        and not fd.sip in (rfc_1918_addresses) and not fd.snet in ("127.0.0.0/8")
+        outbound and container and k8smeta.pod.label[adhar.io/agent] exists
+        and not fd.snet in (rfc_1918_addresses) and not fd.snet in ("127.0.0.0/8")
       output: >
-        Off-cluster connection from AI agent workload (agent=%k8s.pod.label[adhar.io/agent] ns=%k8s.ns.name
+        Off-cluster connection from AI agent workload (agent=%k8smeta.pod.label[adhar.io/agent] ns=%k8s.ns.name
         pod=%k8s.pod.name dest=%fd.sip:%fd.sport proc=%proc.name cmdline=%proc.cmdline)
       priority: WARNING
       tags: [adhar, agent, network, mitre_exfiltration, T1041]
+---
+# Source: falco/charts/k8s-metacollector/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: falco-k8s-metacollector
+  labels:
+    helm.sh/chart: k8s-metacollector-0.1.10
+    app.kubernetes.io/name: k8s-metacollector
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: "metadata-collector"
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+      - namespaces
+      - pods
+      - replicationcontrollers
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - discovery.k8s.io
+    resources:
+      - endpointslices
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: falco/charts/k8s-metacollector/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco-k8s-metacollector
+  labels:
+    helm.sh/chart: k8s-metacollector-0.1.10
+    app.kubernetes.io/name: k8s-metacollector
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: "metadata-collector"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: falco-k8s-metacollector
+subjects:
+  - kind: ServiceAccount
+    name: falco-k8s-metacollector
+    namespace: adhar-system
 ---
 # Source: falco/charts/falcosidekick/templates/rbac-ui.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1790,6 +1897,38 @@ spec:
     app.kubernetes.io/instance: falco
     app.kubernetes.io/component: core
 ---
+# Source: falco/charts/k8s-metacollector/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco-k8s-metacollector
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: k8s-metacollector-0.1.10
+    app.kubernetes.io/name: k8s-metacollector
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: "metadata-collector"
+spec:
+  type: ClusterIP
+  ports:    
+    - name: broker-grpc
+      port: 45000
+      protocol: TCP
+      targetPort: broker-grpc
+    - name: health-probe
+      port: 8081
+      protocol: TCP
+      targetPort: health-probe
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: k8s-metacollector
+    app.kubernetes.io/instance: falco
+---
 # Source: falco/templates/service.yaml
 apiVersion: v1
 kind: Service
@@ -1838,8 +1977,8 @@ spec:
         app.kubernetes.io/name: falco
         app.kubernetes.io/instance: falco
       annotations:
-        checksum/config: 1ee02a90a0081ab6f9ace7ef473ecdb8e778ba05590adba717bb3b2e2398fcb2
-        checksum/rules: 9996b8c48cecf4026473f84e5f78f83fae34fe3cad644a5074f3959a49cb93c4
+        checksum/config: 2c4847638b023736bce1ecdbca1a7dca662b239978d7133b792811b82855c1d9
+        checksum/rules: 0f139d89e154d901c7afc9231fc9df2691546a141af81a4a4dcd226247775c78
         checksum/certs: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     spec:
       serviceAccountName: falco
@@ -2211,6 +2350,76 @@ spec:
               value: ""
             - name: TLSCLIENT_CACERTFILE
               value: ""
+          resources:
+            {}
+---
+# Source: falco/charts/k8s-metacollector/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: falco-k8s-metacollector
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: k8s-metacollector-0.1.10
+    app.kubernetes.io/name: k8s-metacollector
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: "metadata-collector"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8s-metacollector
+      app.kubernetes.io/instance: falco
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8s-metacollector
+        app.kubernetes.io/instance: falco
+    spec:
+      serviceAccountName: falco-k8s-metacollector
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: k8s-metacollector
+          securityContext:
+            capabilities:
+              drop:
+              - ALL
+          image: "docker.io/falcosecurity/k8s-metacollector:0.1.1"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /meta-collector
+          args:
+            - run
+          ports:            
+            - name: "broker-grpc"
+              containerPort: 45000
+              protocol: TCP
+            - name: "health-probe"
+              containerPort: 8081
+              protocol: TCP
+            - name: "metrics"
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
           resources:
             {}
 ---

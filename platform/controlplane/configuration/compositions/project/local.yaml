@@ -1,11 +1,28 @@
 ---
-# Local Project composition — fans a CompositeProject out into the real
-# infrastructure a project owns, all GitOps-managed:
-#   • a guard-railed namespace (ResourceQuota + LimitRange)
-#   • an ArgoCD AppProject scoped to that namespace (deployment guardrails)
-#   • a Gitea repository (the project's GitOps/source repo), auto-created
+# Local Project composition — a product and everything it owns (ADR-0026).
+#
+#   Organisation → Team → PROJECT → Application → Environment → Release
+#
+# A project fans out into:
+#   • its HOME namespace `<project>`, which is also its Kargo Project: Kargo
+#     insists on a namespace named after the project, and the promotion
+#     policy (ProjectConfig: dev and test promote themselves, prod never) and
+#     the credentials Kargo discovers by label live there;
+#   • one CompositeEnvironment per entry of `environments` — a namespaced XR
+#     composing namespaced XRs, which Crossplane v2 allows — each a namespace
+#     with quota, network boundary and the team's access (admin in dev/test,
+#     view in prod: production changes arrive through a CompositeRelease);
+#   • the Argo CD AppProject `<project>`, whose destinations are the home and
+#     every environment namespace, and whose sources are the organisation's
+#     Gitea repositories (plus `allowedSourceRepos`) — guardrails on WHAT may be
+#     deployed WHERE under this project;
+#   • optionally the project's own Gitea repository;
+#   • `status.environments[]`: the resolved {name, namespace, tier} list that
+#     the application composition and the paved-road Tasks read, so nobody
+#     else ever guesses where an environment lives.
+#
 # Monitoring needs no per-project wiring: kube-prometheus + the variable-driven
-# dashboards (incl. the Adhar Platform overview) auto-cover the new namespace.
+# dashboards auto-cover every new namespace.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -29,19 +46,39 @@ spec:
         inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
-            {{- $ns := $xr.metadata.namespace -}}
+            {{- $xrns := $xr.metadata.namespace -}}
             {{- $p := dig "spec" "parameters" dict $xr -}}
             {{- $name := dig "name" $xr.metadata.name $p -}}
             {{- $org := dig "organisation" "adhar" $p -}}
             {{- $team := dig "team" "platform" $p -}}
             {{- $tier := dig "tier" "dev" $p -}}
+            {{- $desc := dig "description" "" $p -}}
             {{- $cpu := dig "cpuQuota" "4" $p -}}
             {{- $mem := dig "memoryQuota" "8Gi" $p -}}
             {{- $pods := dig "podQuota" 30 $p -}}
             {{- $repo := dig "createRepository" true $p -}}
+            {{- $registry := dig "imageRegistry" "harbor-core.adhar-system.svc.cluster.local/library" $p -}}
+            {{- $extraRepos := dig "allowedSourceRepos" (list) $p -}}
             {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            {{- $envs := dig "environments" (list) $p -}}
+            {{- if not $envs -}}
+            {{- $envs = list (dict "name" "dev" "tier" "dev" "autoPromote" true) (dict "name" "test" "tier" "test" "autoPromote" true) (dict "name" "prod" "tier" "prod" "autoPromote" false) -}}
+            {{- end -}}
+            {{- /* Resolve every environment once; the same list feeds the XRs,
+                   the AppProject destinations and the status. */ -}}
+            {{- $resolved := list -}}
+            {{- range $envs -}}
+            {{- $e := . -}}
+            {{- $en := $e.name -}}
+            {{- $et := default $en (get $e "tier") -}}
+            {{- $ens := default (printf "%s-%s" $name $en) (get $e "namespace") -}}
+            {{- $auto := ternary (get $e "autoPromote") (ne $en "prod") (hasKey $e "autoPromote") -}}
+            {{- $access := default (ternary "view" "admin" (eq $en "prod")) (get $e "access") -}}
+            {{- $resolved = append $resolved (dict "name" $en "tier" $et "namespace" $ens "autoPromote" $auto "access" $access "cpu" (default $cpu (get $e "cpuQuota")) "mem" (default $mem (get $e "memoryQuota")) "pods" (default $pods (get $e "podQuota"))) -}}
+            {{- end -}}
+            {{- $labels := dict "platform.adhar.io/self-service" "true" "adhar.io/organisation" $org "adhar.io/team" $team "adhar.io/project" $name -}}
             ---
-            # Project namespace (cluster-scoped → provider-kubernetes Object)
+            # Home namespace = Kargo project namespace.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -56,12 +93,12 @@ spec:
                   metadata:
                     name: {{ $name }}
                     labels:
-                      platform.adhar.io/self-service: "true"
-                      platform.adhar.io/organisation: {{ $org | quote }}
-                      platform.adhar.io/team: {{ $team | quote }}
-                      platform.adhar.io/project: {{ $name | quote }}
-                      adhar.io/environment: {{ $name }}
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                      adhar.io/plane: workload
                       adhar.io/tier: {{ $tier | quote }}
+                      kargo.akuity.io/project: "true"
             ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
@@ -74,7 +111,7 @@ spec:
                 manifest:
                   apiVersion: v1
                   kind: ResourceQuota
-                  metadata: { name: {{ $name }}-quota, namespace: {{ $name }} }
+                  metadata: { name: {{ $name }}-quota, namespace: {{ $name }}, labels: { adhar.io/project: {{ $name | quote }} } }
                   spec:
                     hard:
                       requests.cpu: "{{ $cpu }}"
@@ -94,51 +131,21 @@ spec:
                 manifest:
                   apiVersion: v1
                   kind: LimitRange
-                  metadata: { name: {{ $name }}-limits, namespace: {{ $name }} }
+                  metadata: { name: {{ $name }}-limits, namespace: {{ $name }}, labels: { adhar.io/project: {{ $name | quote }} } }
                   spec:
                     limits:
                       - type: Container
                         default: { cpu: "500m", memory: "512Mi" }
                         defaultRequest: { cpu: "100m", memory: "128Mi" }
             ---
-            # Team RBAC — the isolation boundary between application teams.
-            #
-            # Without this the namespace above is a container with no owner: the
-            # only OIDC bindings on the platform are CLUSTER-wide, so every
-            # application admin reaches every tenant's namespace and a team's
-            # own members reach none of it by right. Binding the team's Keycloak
-            # group here is what makes a project actually belong to a team.
-            #
-            # `ws-team-<slug>` is the group name the console's team onboarding
-            # already creates (alongside `org-<slug>` for the organisation), and
-            # `oidc:` is the --oidc-groups-prefix the API server is configured
-            # with. The realm's group mapper emits BARE names, not paths, so this
-            # must not be spelled as a path.
-            #
-            # `admin` and not `cluster-admin`: full authority inside the team's
-            # own namespace -- workloads, config, Secrets, and RBAC within it --
-            # and none outside. That is "Platform Admin of your own tenant".
-            #
-            # TWO subjects, and the difference matters:
-            #
-            #   oidc:ws-team-<team>    -- this team. Sees only its own namespace.
-            #   oidc:org-<org>-admin   -- the organisation's OWNER. Reaches every
-            #                             namespace in THEIR org, because teams are
-            #                             how they subdivide their own tenant; they
-            #                             are not walls against the person who
-            #                             created the tenant.
-            #
-            # Deliberately NOT bound: the plain `oidc:org-<org>` membership group.
-            # Binding that would make every member of the organisation an admin of
-            # every team in it, which erases the team boundary the teams exist to
-            # draw. Membership of the org gets you in the door; a team gets you a
-            # namespace; being the org admin gets you all of your own org.
-            #
-            # Platform staff need no entry here at all: `platform-admin` and
-            # `platform-engineer` hold cluster-admin cluster-wide (see the keycloak
-            # package's k8s-rbac.yaml), so the platform's own operators -- user1 and
-            # user2 on a seeded cluster -- already reach every organisation and
-            # every team without a per-tenant binding.
+            # Team RBAC on the home namespace — the isolation boundary between
+            # application teams. `ws-team-<team>` is the Keycloak group the
+            # Console creates for a team (CompositeTeam publishes it on its
+            # status); `org-<org>-admin` is the organisation's owner, who reaches
+            # every namespace in their tenant. `oidc:` is the apiserver's
+            # --oidc-groups-prefix; the realm mapper emits bare names, not paths.
+            # Deliberately NOT bound: the plain `org-<org>` membership group —
+            # that would make every member an admin of every team.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -154,31 +161,17 @@ spec:
                     name: {{ printf "%s-team-admin" $name }}
                     namespace: {{ $name }}
                     labels:
-                      platform.adhar.io/organisation: {{ $org | quote }}
-                      platform.adhar.io/team: {{ $team | quote }}
-                  roleRef:
-                    apiGroup: rbac.authorization.k8s.io
-                    kind: ClusterRole
-                    name: admin
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin }
                   subjects:
-                    - apiGroup: rbac.authorization.k8s.io
-                      kind: Group
-                      name: {{ printf "oidc:ws-team-%s" $team | quote }}
-                    - apiGroup: rbac.authorization.k8s.io
-                      kind: Group
-                      name: {{ printf "oidc:org-%s-admin" $org | quote }}
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s" $team | quote }} }
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:org-%s-admin" $org | quote }} }
             ---
-            # Network isolation between application teams.
-            #
-            # RBAC stops a team CHANGING another team's namespace; it does nothing
-            # to stop a Pod in one tenant opening a socket to a Pod in another,
-            # which on a flat cluster network it can. Default-deny ingress, then
-            # re-admit exactly two sources.
-            #
-            # Egress is deliberately left open: tenants legitimately need the
-            # internet and the shared platform, and a default-deny egress policy
-            # that forgets kube-dns breaks every workload in a way that looks like
-            # a DNS outage rather than a policy.
+            # Network isolation of the home namespace: default-deny ingress, then
+            # re-admit the namespace itself and the shared platform (gateway,
+            # Prometheus, Loki, Argo CD, admission webhooks). Egress stays open.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -194,27 +187,177 @@ spec:
                     name: {{ printf "%s-tenant-isolation" $name }}
                     namespace: {{ $name }}
                     labels:
-                      platform.adhar.io/organisation: {{ $org | quote }}
-                      platform.adhar.io/team: {{ $team | quote }}
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
                   spec:
                     podSelector: {}
                     policyTypes: [Ingress]
                     ingress:
-                      # 1. the team's own namespace -- a tenant is not isolated
-                      #    from itself.
                       - from:
                           - podSelector: {}
-                      # 2. adhar-system -- the shared platform the platform team
-                      #    hosts for every application team: ingress gateway,
-                      #    Prometheus scrapes, Loki/Alloy, ArgoCD, admission
-                      #    webhooks. Without this the namespace is unreachable
-                      #    from the outside world and invisible to monitoring.
                       - from:
                           - namespaceSelector:
                               matchLabels:
                                 kubernetes.io/metadata.name: adhar-system
+            {{- range $resolved }}
             ---
-            # ArgoCD AppProject — deployment guardrails scoped to this project.
+            # One environment of the project: an XR composing an XR.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeEnvironment
+            metadata:
+              name: {{ $name }}-{{ .name }}
+              namespace: {{ $xrns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: env-{{ .name }}
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+                adhar.io/environment: {{ .name | quote }}
+            spec:
+              parameters:
+                name: {{ .namespace }}
+                tier: {{ .tier }}
+                environment: {{ .name }}
+                organisation: {{ $org }}
+                team: {{ $team }}
+                project: {{ $name }}
+                access: {{ .access }}
+                cpuQuota: {{ .cpu | quote }}
+                memoryQuota: {{ .mem }}
+                podQuota: {{ .pods }}
+                enableNetworkPolicy: true
+            {{- end }}
+            ---
+            # Kargo: the project's promotion pipeline container. Stages and
+            # Warehouses are added per application (CompositeApplication).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kargo-project
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kargo.akuity.io/v1alpha1
+                  kind: Project
+                  metadata:
+                    name: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+            ---
+            # Who may ship where: dev and test promote themselves, prod never
+            # does. Selected by the environment LABEL the application composition
+            # stamps on every Stage, so the rule is written once per project and
+            # applies to every application in it — one object to read, one to
+            # audit. Mirrors application/kargo's own promotion-pipeline.yaml.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kargo-projectconfig
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kargo.akuity.io/v1alpha1
+                  kind: ProjectConfig
+                  metadata:
+                    name: {{ $name }}
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    promotionPolicies:
+                      {{- range $resolved }}
+                      - stageSelector:
+                          matchLabels:
+                            adhar.io/environment: {{ .name | quote }}
+                        autoPromotionEnabled: {{ .autoPromote }}
+                      {{- end }}
+            ---
+            # Credentials Kargo discovers by label in the project namespace:
+            # `git` for cloning/pushing application repositories, `image` for
+            # listing Harbor tags. Materialised by ESO from the platform's own
+            # Secrets through the in-cluster ClusterSecretStore (`platform`
+            # reads adhar-system), so no composition ever copies a password.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kargo-git-credentials
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: external-secrets.io/v1
+                  kind: ExternalSecret
+                  metadata:
+                    name: kargo-git
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+                  spec:
+                    refreshInterval: 1h
+                    secretStoreRef: { kind: ClusterSecretStore, name: platform }
+                    target:
+                      name: kargo-git
+                      template:
+                        engineVersion: v2
+                        metadata:
+                          labels: { kargo.akuity.io/cred-type: git }
+                        data:
+                          repoURLPattern: {{ printf "^http://%s/%s/.*$" $giteaHost $org | quote }}
+                          username: {{ `{{ .username }}` | quote }}
+                          password: {{ `{{ .password }}` | quote }}
+                    data:
+                      - secretKey: username
+                        remoteRef: { key: gitea-ci-creds, property: username }
+                      - secretKey: password
+                        remoteRef: { key: gitea-ci-creds, property: password }
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kargo-image-credentials
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: external-secrets.io/v1
+                  kind: ExternalSecret
+                  metadata:
+                    name: kargo-image
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+                  spec:
+                    refreshInterval: 1h
+                    secretStoreRef: { kind: ClusterSecretStore, name: platform }
+                    target:
+                      name: kargo-image
+                      template:
+                        engineVersion: v2
+                        metadata:
+                          labels: { kargo.akuity.io/cred-type: image }
+                        data:
+                          repoURLPattern: {{ printf "^%s/.*$" $registry | quote }}
+                          username: {{ `{{ .username }}` | quote }}
+                          password: {{ `{{ .password }}` | quote }}
+                    data:
+                      - secretKey: username
+                        remoteRef: { key: harbor-push, property: username }
+                      - secretKey: password
+                        remoteRef: { key: harbor-push, property: password }
+            ---
+            # Argo CD AppProject — deployment guardrails scoped to this project:
+            # only the organisation's repositories, only into this project's
+            # namespaces.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -230,23 +373,33 @@ spec:
                     name: {{ $name }}
                     namespace: adhar-system
                     labels:
-                      platform.adhar.io/organisation: {{ $org | quote }}
-                      platform.adhar.io/team: {{ $team | quote }}
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
                   spec:
-                    description: {{ printf "%s / %s / %s" $org $team $name | quote }}
-                    sourceRepos: ["*"]
+                    description: {{ printf "%s / %s / %s%s" $org $team $name (ternary (printf " — %s" $desc) "" (ne $desc "")) | quote }}
+                    sourceRepos:
+                      - {{ printf "http://%s/%s/*" $giteaHost $org | quote }}
+                      # The public host is the platform's seed-time convention; the
+                      # controller rewrites it to the real domain when the stack is seeded.
+                      - {{ printf "https://gitea.adhar.localtest.me:8443/%s/*" $org | quote }}
+                      {{- range $extraRepos }}
+                      - {{ . | quote }}
+                      {{- end }}
                     destinations:
                       - server: https://kubernetes.default.svc
                         namespace: {{ $name }}
-                    clusterResourceWhitelist:
-                      - group: "*"
-                        kind: "*"
+                      {{- range $resolved }}
+                      - server: https://kubernetes.default.svc
+                        namespace: {{ .namespace }}
+                      {{- end }}
+                    clusterResourceWhitelist: []
                     namespaceResourceWhitelist:
                       - group: "*"
                         kind: "*"
             {{- if $repo }}
             ---
-            # Auto-create the project's Gitea repository (idempotent — 409 = ok).
+            # The project's Gitea repository, in the organisation (idempotent).
             apiVersion: batch/v1
             kind: Job
             metadata:
@@ -254,6 +407,10 @@ spec:
               namespace: adhar-system
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: repo-job
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
             spec:
               backoffLimit: 4
               ttlSecondsAfterFinished: 600
@@ -274,17 +431,12 @@ spec:
                           set -e
                           AUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
                           API="http://{{ $giteaHost }}/api/v1"
-                          # 1) Ensure the organisation exists (idempotent).
-                          ocode=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH \
-                            -X POST "$API/orgs" \
-                            -d '{"username":"{{ $org }}","full_name":"{{ $org }}","visibility":"public"}')
-                          echo "org create -> $ocode"; cat /tmp/org 2>/dev/null || true; echo
-                          case "$ocode" in 201|422|409) : ;; *) echo "org create failed"; exit 1 ;; esac
-                          # 2) Create the project repository (idempotent).
-                          rcode=$(curl -s -o /tmp/repo -w "%{http_code}" $AUTH \
-                            -X POST "$API/orgs/{{ $org }}/repos" \
-                            -d '{"name":"{{ $name }}","auto_init":true,"default_branch":"main","private":false,"description":"Adhar project {{ $name }} ({{ $org }}/{{ $team }})"}')
-                          echo "repo create -> $rcode"; cat /tmp/repo 2>/dev/null || true; echo
+                          ocode=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH -X POST "$API/orgs" \
+                            -d '{"username":"{{ $org }}","full_name":"{{ $org }}","visibility":"private"}')
+                          echo "org -> $ocode"; case "$ocode" in 201|422|409) : ;; *) echo "org create failed"; exit 1 ;; esac
+                          rcode=$(curl -s -o /tmp/repo -w "%{http_code}" $AUTH -X POST "$API/orgs/{{ $org }}/repos" \
+                            -d '{"name":"{{ $name }}","auto_init":true,"default_branch":"main","private":false,"description":{{ printf "Adhar project %s (%s/%s)" $name $org $team | quote }}}')
+                          echo "repo -> $rcode"; cat /tmp/repo 2>/dev/null || true; echo
                           case "$rcode" in 201|409) echo "repository {{ $org }}/{{ $name }} ready"; exit 0 ;; esac
                           echo "unexpected repo status $rcode"; exit 1
                       resources:
@@ -292,16 +444,26 @@ spec:
                         limits: { memory: 64Mi }
             {{- end }}
             ---
-            # Publish resolved coordinates on the XR status.
             apiVersion: platform.adhar.io/v1alpha1
             kind: CompositeProject
             status:
               namespace: {{ $name }}
               appProject: {{ $name }}
-              phase: Provisioned
+              kargoProject: {{ $name }}
+              organisation: {{ $org }}
+              team: {{ $team }}
+              imageRegistry: {{ $registry }}
               {{- if $repo }}
               repository: "http://{{ $giteaHost }}/{{ $org }}/{{ $name }}.git"
               {{- end }}
+              environments:
+                {{- range $resolved }}
+                - name: {{ .name }}
+                  namespace: {{ .namespace }}
+                  tier: {{ .tier }}
+                  autoPromote: {{ .autoPromote }}
+                {{- end }}
+              phase: Provisioned
     - step: ready
       functionRef:
         name: function-auto-ready

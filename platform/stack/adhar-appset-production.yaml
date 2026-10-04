@@ -108,6 +108,17 @@ spec:
             category: "ai"
             plane: "control"
             manifestPath: "ai/agentgateway/manifests"
+          # K8sGPT SRE assistant (ai/k8sgpt): scans the cluster on an interval and
+          # explains every unhealthy object with the platform's default model
+          # THROUGH agentgateway — its own ServiceAccount identity, one model, no
+          # tools — writing one Result CR per finding for adhar-ai and the
+          # Console. Enabled exactly where agentgateway is: no gateway, no model.
+          - name: "k8sgpt"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/k8sgpt/manifests"
           # Self-hosted, OpenAI-compatible LLM inference (vLLM). THREE elements
           # from one package directory: "vllm" is the shared surface (model-cache
           # PVC, Service, HTTPRoute, ServiceMonitor, Grafana dashboard, optional
