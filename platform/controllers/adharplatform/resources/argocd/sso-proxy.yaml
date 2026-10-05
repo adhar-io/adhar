@@ -40,7 +40,7 @@ spec:
       engineVersion: v2
       mergePolicy: Merge
       data:
-        OAUTH2_PROXY_COOKIE_REFRESH: "25m"
+        OAUTH2_PROXY_COOKIE_REFRESH: "2m"
         OAUTH2_PROXY_COOKIE_EXPIRE: "8h0m0s"
   data:
     - secretKey: OAUTH2_PROXY_CLIENT_SECRET
@@ -87,19 +87,34 @@ spec:
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true
-            # Refresh the upstream tokens before Keycloak's access token
-            # (accessTokenLifespan 1800 s, keycloak-config.yaml) expires. This
-            # proxy forwards the ID token to Argo CD (--pass-authorization-header
-            # below) and Argo CD verifies it on EVERY request, preferring it over
-            # its own session cookie. Without a refresh the proxy's 7-day cookie
-            # kept replaying a token that died after 30 minutes: Argo CD logged
-            # `Failed to verify session token: oidc: token is expired`, bounced
-            # the user into its own OIDC login, which succeeded — and the very
-            # next request carried the same dead token again (2026-10-04: "argocd
-            # login not working"). The session itself is capped at Keycloak's
-            # SSO idle timeout (8 h) so a refresh can never outlive the realm
-            # session it depends on.
-            - --cookie-refresh=25m
+            # Refresh the upstream tokens well before they expire. This proxy
+            # forwards the ID token to Argo CD (--pass-authorization-header
+            # below) and Argo CD verifies it on EVERY request, preferring it
+            # over its own session cookie. A stale token therefore breaks the
+            # UI even though the proxy's own session is perfectly valid.
+            #
+            # TWO MINUTES, because the `adhar` realm issues tokens that live
+            # FIVE. This said 25m until 2026-10-05, sized against
+            # "accessTokenLifespan 1800 s" — but that PUT in keycloak-config.yaml
+            # targets the MASTER realm, which only the config Job itself logs
+            # into. The `adhar` realm never set the field, so it keeps
+            # Keycloak's 300 s default; measured on the live realm:
+            #
+            #   id_token exp - iat = 300
+            #
+            # So the forwarded token was dead for 20 of every 25 minutes. Argo CD
+            # answered its own UI with 401, and oauth2-proxy turns a redirect
+            # into a 403 for XHR callers, which the UI renders as the much-
+            # reported "Something went wrong! Error: Forbidden". It also looked
+            # like Keycloak coming up BROKE a working admin login: before the
+            # realm exists this proxy cannot sign anyone in, so the operator is
+            # on Argo CD's local admin session; the moment SSO engages the
+            # forwarded-token path takes over and starts expiring.
+            #
+            # Keep this strictly below the realm's token lifespan — the invariant
+            # TestArgoCDSSOProxyRefreshesTheTokenItForwards reads out of
+            # keycloak-config.yaml rather than trusting a number in a comment.
+            - --cookie-refresh=2m
             - --cookie-expire=8h0m0s
             # Parent-domain cookie + the shared secret = a session established by
             # any other app is accepted here without a round trip to Keycloak.

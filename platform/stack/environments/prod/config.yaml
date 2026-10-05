@@ -550,7 +550,7 @@ packages:
     category: "infrastructure"
     manifestPath: "infrastructure/crossplane/manifests"
   - name: "terraform"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "infrastructure"
     manifestPath: "infrastructure/terraform/manifests"

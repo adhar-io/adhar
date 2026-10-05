@@ -1,7 +1,10 @@
 package adharplatform
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -113,21 +116,65 @@ func TestArgoCDSSOProxyRefreshesTheTokenItForwards(t *testing.T) {
 	m := regexp.MustCompile(`--cookie-refresh=(\d+)m`).FindStringSubmatch(s)
 	if m == nil {
 		t.Fatal("sso-proxy.yaml forwards the ID token but never refreshes it (--cookie-refresh missing): " +
-			"Argo CD rejects the dead token 30 minutes after login")
+			"Argo CD rejects the dead token once it expires")
 	}
 	mins, _ := strconv.Atoi(m[1])
-	if mins <= 0 || mins*60 >= 1800 {
-		t.Errorf("--cookie-refresh=%dm must be shorter than Keycloak's 1800 s accessTokenLifespan", mins)
+
+	// Checked against the realm that actually mints the token, not a number
+	// typed into a comment. The previous version of this test asserted
+	// "shorter than 1800 s" because the comment next to the flag said the
+	// lifespan was 1800 s — but that accessTokenLifespan PUT applies to the
+	// MASTER realm, and `adhar` keeps Keycloak's 300 s default. The test and
+	// the bug agreed with each other for a day.
+	lifespan := adharRealmTokenLifespanSeconds(t)
+	if mins <= 0 || mins*60 >= lifespan {
+		t.Errorf("--cookie-refresh=%dm does not fit inside the adhar realm's %d s token lifespan: "+
+			"the proxy would forward an expired ID token, which Argo CD answers with 401 and "+
+			"oauth2-proxy turns into a 403 for the UI's XHR calls", mins, lifespan)
+	}
+	// Refreshing at the very edge of expiry is a race with clock skew and a slow
+	// token endpoint; keep a real margin.
+	if mins*60*2 > lifespan {
+		t.Errorf("--cookie-refresh=%dm leaves no margin under a %d s lifespan; refresh at most every %d s",
+			mins, lifespan, lifespan/2)
 	}
 	if !regexp.MustCompile(`--cookie-expire=\d+h`).MatchString(s) {
 		t.Error("--cookie-expire must cap the proxy session (the realm's SSO idle timeout is 8 h); the default is 168 h")
 	}
 	// The env form, for a cluster whose controller image predates the args: the
 	// ExternalSecret is CreatedOnce, so these two keys are the one place a live
-	// fix survives the controller re-applying the Deployment.
-	for _, want := range []string{`OAUTH2_PROXY_COOKIE_REFRESH: "25m"`, `OAUTH2_PROXY_COOKIE_EXPIRE: "8h0m0s"`} {
-		if !strings.Contains(s, want) {
-			t.Errorf("the proxy's ExternalSecret template must carry %s", want)
-		}
+	// fix survives the controller re-applying the Deployment. Derived from the
+	// flag so the two cannot drift apart.
+	if want := fmt.Sprintf(`OAUTH2_PROXY_COOKIE_REFRESH: "%dm"`, mins); !strings.Contains(s, want) {
+		t.Errorf("the proxy's ExternalSecret template must carry %s, matching the --cookie-refresh flag", want)
 	}
+	if !strings.Contains(s, `OAUTH2_PROXY_COOKIE_EXPIRE: "8h0m0s"`) {
+		t.Error(`the proxy's ExternalSecret template must carry OAUTH2_PROXY_COOKIE_EXPIRE: "8h0m0s"`)
+	}
+}
+
+// adharRealmTokenLifespanSeconds is how long an ID token from the `adhar` realm
+// is valid: the realm payload's accessTokenLifespan if it sets one, otherwise
+// Keycloak's own default of 300 s. Keycloak gives the ID token the access
+// token's lifespan, and that is the clock the forwarded-token refresh races.
+func adharRealmTokenLifespanSeconds(t *testing.T) int {
+	t.Helper()
+	const keycloakDefaultTokenLifespan = 300
+
+	b, err := os.ReadFile(filepath.Join(stackPackagesDir(t), "security/keycloak/manifests/keycloak-config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*realm-payload\.json: \|\n\s*(\{.*)$`).FindSubmatch(b)
+	if m == nil {
+		t.Fatal("keycloak-config.yaml no longer carries a realm-payload.json; re-check this test")
+	}
+	var realm map[string]interface{}
+	if err := json.Unmarshal(m[1], &realm); err != nil {
+		t.Fatalf("realm-payload.json does not parse: %v", err)
+	}
+	if v, ok := realm["accessTokenLifespan"].(float64); ok && v > 0 {
+		return int(v)
+	}
+	return keycloakDefaultTokenLifespan
 }

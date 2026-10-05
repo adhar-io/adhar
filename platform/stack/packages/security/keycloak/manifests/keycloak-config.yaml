@@ -91,7 +91,7 @@ data:
   # registrationEmailAsUsername keeps identities addressable: onboarding emails
   # the workspace contact, and Gitea/Argo CD map users by email.
   realm-payload.json: |
-    {"realm":"adhar","enabled":true,"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false}
+    {"realm":"adhar","enabled":true,"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false,"ssoSessionIdleTimeout":28800,"ssoSessionMaxLifespan":36000,"accessTokenLifespan":1800,"clientSessionIdleTimeout":28800,"clientSessionMaxLifespan":36000}
   user-password.json: |
     {
         "temporary": false,
@@ -938,7 +938,27 @@ data:
     # genuine re-authentication daily. 30m access tokens cut refresh chatter
     # without meaningfully widening the window on a stolen token, since logout
     # and disable take effect at the session, not the token.
-    kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false,"ssoSessionIdleTimeout":28800,"ssoSessionMaxLifespan":36000,"accessTokenLifespan":1800,"clientSessionIdleTimeout":28800,"clientSessionMaxLifespan":36000}' "${REALM_URL}"
+    # A FUNCTION, called twice, because a PUT is the wrong and only tool here:
+    # the realm may or may not exist yet, and each case misses the other half.
+    #
+    #   * on an EXISTING realm this is the only way in — a setting added to
+    #     realm-payload.json never reaches it, since that payload is POSTed
+    #     only when the realm is absent;
+    #   * on a FRESH cluster this PUT 404s (there is nothing to update), the
+    #     realm is then POSTed from realm-payload.json below, and every setting
+    #     that lived ONLY here was silently lost.
+    #
+    # That second case is not hypothetical: it is why a brand-new platform ran
+    # with Keycloak's DEFAULTS — a 300 s access token and a 1800 s SSO idle
+    # timeout — while this file said 1800 s and 28800 s, and why the Argo CD UI
+    # started answering "Something went wrong! Error: Forbidden" five minutes
+    # after every sign-in (2026-10-05). The lifespans are now in BOTH places and
+    # this runs again after the realm is created, so a fresh and an existing
+    # cluster converge on the same realm.
+    harden_realm() {
+      kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false,"ssoSessionIdleTimeout":28800,"ssoSessionMaxLifespan":36000,"accessTokenLifespan":1800,"clientSessionIdleTimeout":28800,"clientSessionMaxLifespan":36000}' "${REALM_URL}"
+    }
+    harden_realm
 
     # A realm can exist half-provisioned: an earlier run that died mid-way
     # created the realm but none of the clients. Treating bare existence as
@@ -957,6 +977,10 @@ data:
       set -e
       echo "creating adhar realm and groups"
       kc -X POST --data @/var/config/realm-payload.json "${KEYCLOAK_URL}/admin/realms"
+      # The realm exists from here on, so the hardening above can finally land.
+      # Belt and braces with the lifespans now in realm-payload.json: a Keycloak
+      # that ignores or renames a field in the POST still gets it as an update.
+      harden_realm
       kc -X POST --data @/var/config/client-scope-groups-payload.json "${REALM_URL}/client-scopes"
       kc -X POST --data @/var/config/group-admin-payload.json "${REALM_URL}/groups"
       kc -X POST --data @/var/config/group-base-user-payload.json "${REALM_URL}/groups"

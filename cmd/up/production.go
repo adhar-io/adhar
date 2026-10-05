@@ -551,7 +551,14 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 					helpers.WarningStyle.Render("▲"), nsErr)
 			}
 		}
-		fmt.Printf("  %s %s provisioned\n", helpers.SuccessStyle.Render(helpers.IconReady), envName)
+		// No "<env> provisioned" line here. On the ordinary path — one
+		// environment, fully up — the ready panel below already says the
+		// platform is ready, with the URLs and the kube-context; a tick
+		// immediately above it says the same thing in a thinner way. It is
+		// the same reason the summary box is skipped for that case. When
+		// there is more to account for (several environments, or a failure)
+		// the summary box names it, and a failed environment still prints
+		// its own line above.
 		successCount++
 	}
 
