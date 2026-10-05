@@ -326,6 +326,17 @@ func RemoveClusterState(clusterName string) {
 // not root the command is wrapped in sudo (cloud images typically disable
 // direct root login).
 func SSHRun(signer ssh.Signer, user, ip, command string, timeout time.Duration) (string, error) {
+	// Refuse before dialling. ssh.PublicKeys(nil) panics inside the handshake,
+	// and whether the handshake is reached depends on the ENVIRONMENT: a laptop
+	// refuses the dial to an empty address outright, a GitHub runner has sshd on
+	// localhost and accepts it — so a caller with no credential passed every
+	// local test and crashed CI (2026-10-04).
+	if signer == nil {
+		return "", fmt.Errorf("ssh %s: no SSH signer — the cluster's private key is not loaded", ip)
+	}
+	if strings.TrimSpace(ip) == "" {
+		return "", fmt.Errorf("ssh: no address for the target node")
+	}
 	if user != "root" {
 		command = "sudo bash -c " + shellQuote(command)
 	}

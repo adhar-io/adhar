@@ -2393,15 +2393,14 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 			if err != nil {
 				return fmt.Errorf("failed to create worker node %s: %w", vmName, err)
 			}
-			if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
-				return fmt.Errorf("new worker %s not ready: %w", vmName, err)
-			}
-			// Same flags as a worker from `adhar up`: cloud-provider-azure
-			// initialises the node, the disk CSI node plugin lifts the taint.
-			if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true); err != nil {
-				return fmt.Errorf("new worker %s: %w", vmName, err)
-			}
-			if err := provider.KubeadmJoinWorker(signer, azureSSHUser, nodeInfo.PublicIP, joinCmd); err != nil {
+			// A VM that exists but never joins is the worst outcome: it bills,
+			// it is not a node, and the next scale-up collides with its name.
+			// 2026-10-04: a scale-up created adhar-worker-workers-2, failed
+			// before the join, and returned — the VM ran for eight hours while
+			// 32 pods sat Pending for the capacity it was supposed to be. From
+			// here on, a failure before the node exists discards the VM.
+			if err := p.prepareAndJoinWorker(ctx, signer, nodeInfo, joinCmd); err != nil {
+				p.discardHalfJoinedWorker(ctx, tracker.ResourceGroup, vmName)
 				return fmt.Errorf("new worker %s: %w", vmName, err)
 			}
 			tracker.VirtualMachines = append(tracker.VirtualMachines, nodeInfo.VMName)
@@ -3710,6 +3709,35 @@ func (p *Provider) clusterFor(ctx context.Context, clusterID string) (*types.Clu
 		}
 	}
 	return nil, fmt.Errorf("cluster %s not found in subscription %s", clusterID, p.config.SubscriptionID)
+}
+
+// prepareAndJoinWorker takes a freshly created VM through node prep, the
+// external cloud-provider kubelet flags and kubeadm join — the same steps a
+// worker from `adhar up` gets.
+func (p *Provider) prepareAndJoinWorker(ctx context.Context, signer ssh.Signer, nodeInfo *NodeInfo, joinCmd string) error {
+	if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
+		return fmt.Errorf("not ready: %w", err)
+	}
+	// cloud-provider-azure initialises the node, the disk CSI node plugin
+	// lifts the taint.
+	if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true); err != nil {
+		return err
+	}
+	return provider.KubeadmJoinWorker(signer, azureSSHUser, nodeInfo.PublicIP, joinCmd)
+}
+
+// discardHalfJoinedWorker deletes a VM that was created for a scale-up but
+// never became a node. Best effort: the caller is already returning the join
+// error, and a leaked VM is reported rather than hidden.
+func (p *Provider) discardHalfJoinedWorker(ctx context.Context, resourceGroup, vmName string) {
+	log.Printf("Worker %s did not join the cluster; deleting the VM so it is neither billed nor in the way of the next scale-up", vmName)
+	poller, err := p.virtualMachineClient.BeginDelete(ctx, resourceGroup, vmName, nil)
+	if err == nil {
+		_, err = poller.PollUntilDone(ctx, nil)
+	}
+	if err != nil {
+		log.Printf("Warning: could not delete half-joined worker %s — it is still billing and must be removed by hand: %v", vmName, err)
+	}
 }
 
 // scaleKubernetesVersion is the version a NEW worker must be prepared with.

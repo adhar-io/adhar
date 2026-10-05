@@ -37,6 +37,8 @@ spec:
       labels:
         app: keycloak
     spec:
+      # Head of the identity path — see manifests/priorityclass.yaml.
+      priorityClassName: adhar-critical-path
       containers:
       - args:
         - start-dev

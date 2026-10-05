@@ -46,16 +46,22 @@ kind: Job
 metadata:
   name: jupyterhub-config
   namespace: adhar-system
+  annotations:
+    # A Sync hook, recreated on every sync: a plain Job that reaches its
+    # backoffLimit stays Failed forever and selfHeal never touches it, so one
+    # slow bring-up cost JupyterHub its OIDC client permanently (41 failed pods
+    # over 8 h on 2026-10-05 while Keycloak was Pending for CPU). The script is
+    # idempotent, so re-running it on the next `adhar upgrade` is free.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  # This job polls for the keycloak-clients Secret, which is written by a
-  # DIFFERENT ArgoCD Application (keycloak) — sync waves cannot order across
-  # Applications, so it always starts before Keycloak is ready and exits 1
-  # until it is. The default backoffLimit of 6 gives up after ~10 minutes,
-  # long before a cold local bootstrap finishes bringing up keycloak-db ->
-  # keycloak -> the realm config job; the Job then stays Failed forever and
-  # JupyterHub never gets its OIDC client. Retry for ~2h instead (capped at
-  # the 6-minute inter-retry backoff Kubernetes tops out at).
-  backoffLimit: 40
+  # This job needs the keycloak-clients Secret, which is written by a DIFFERENT
+  # ArgoCD Application (keycloak) — sync waves cannot order across Applications,
+  # so it always starts before Keycloak is ready. It WAITS for the Secret inside
+  # one pod (below) rather than exiting 1 and spending a retry: every failed
+  # attempt here used to pull apt packages and kubectl again, and the
+  # exponential backoff made the gap between attempts six minutes.
+  backoffLimit: 6
   template:
     metadata:
       generateName: jupyterhub-config
@@ -100,13 +106,17 @@ spec:
               curl -sS -LO "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl"
               chmod +x kubectl
               
-              echo "checking if we're ready to start"
-              set +e
-              ./kubectl get secret -n adhar-system keycloak-clients &> /dev/null
-              if [ $? -ne 0 ]; then
-                exit 1
-              fi
-              set -e
+              # Wait for the identity path (CNPG → keycloak-db → Keycloak → the
+              # realm config Job) rather than fail: up to 90 minutes, which covers
+              # a cold cloud bring-up with room to spare.
+              echo "waiting for the keycloak-clients Secret"
+              for i in $(seq 1 180); do
+                if ./kubectl get secret -n adhar-system keycloak-clients &> /dev/null; then
+                  break
+                fi
+                [ "$i" -eq 180 ] && { echo "keycloak-clients never appeared after 90 minutes"; exit 1; }
+                sleep 30
+              done
               
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
               KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080

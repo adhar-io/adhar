@@ -1,0 +1,30 @@
+# The identity path must be able to claim CPU on a full cluster.
+#
+# Keycloak is the head of the platform's critical path: CNPG → keycloak-db →
+# Keycloak → its config Job writes `keycloak-clients` → every consumer
+# ExternalSecret → every oauth2-proxy. On 2026-10-05 a cluster came up with two
+# workers at 100% CPU requests and Keycloak sat Pending asking for 200m —
+# "No preemption victims found", because at priority 0 nothing could be moved
+# for it — while 14 oauth2-proxies reported CreateContainerConfigError (their
+# Secret does not exist until Keycloak runs), JupyterHub's hub could not start,
+# and the Console had no SSO. Coder's 2-CPU request was happily running.
+#
+# 800000: above every workload (0) and kpack's build classes (1–10000), so the
+# scheduler evicts a workload pod to seat Keycloak; below `adhar-node-bound`
+# (900000, data/cnpg) so a database pinned to one node by its volume still wins
+# that node; far below system-cluster-critical, so nothing here can starve the
+# control plane or the autoscaler. Apply it to the identity path only — a
+# priority everything has is no priority.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-critical-path
+  labels:
+    app.kubernetes.io/part-of: adhar
+    adhar.io/component: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+value: 800000
+preemptionPolicy: PreemptLowerPriority
+globalDefault: false
+description: "Adhar identity path (Keycloak and its client-config Jobs): preempts workloads, yields to node-bound databases and the control plane."

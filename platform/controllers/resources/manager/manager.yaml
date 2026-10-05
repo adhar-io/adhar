@@ -51,6 +51,31 @@ spec:
         adhar.io/component: controller-manager
     spec:
       serviceAccountName: adhar-controller-manager
+      # The manager hosts the node autoscaler: it is the thing that adds a
+      # worker when pods are Pending for CPU. At the default priority it was
+      # itself one of those Pending pods — a full cluster (2 workers at 100%
+      # requests, 32 pods Pending including Keycloak) could not add the node
+      # everything was waiting for because the component that adds nodes had
+      # no node to run on (2026-10-05). Hence:
+      #   * system-cluster-critical, so it preempts any workload for its 100m;
+      #   * a control-plane toleration and a PREFERENCE for the control-plane
+      #     node, which the platform keeps half-empty on purpose — capacity
+      #     decisions are made where workloads cannot crowd them out. A
+      #     single-node Kind cluster has only that node, so this is a
+      #     preference, never a requirement.
+      priorityClassName: system-cluster-critical
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
       # Service-link env vars from other Services in the shared namespace can
       # hijack flag parsing (ADR-0011).
       enableServiceLinks: false

@@ -1140,6 +1140,8 @@ spec:
       generateName: config
     spec:
       serviceAccountName: keycloak-config
+      # Writes keycloak-clients, which every SSO consumer waits on — identity path.
+      priorityClassName: adhar-critical-path
       restartPolicy: Never
       volumes:
         - name: keycloak-config
@@ -1207,6 +1209,7 @@ spec:
             app.kubernetes.io/name: keycloak-client-reconcile
         spec:
           serviceAccountName: keycloak-config
+          priorityClassName: adhar-critical-path
           restartPolicy: Never
           volumes:
             - name: keycloak-config

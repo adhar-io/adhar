@@ -5,13 +5,19 @@ on:
     branches: ['**'] # not tags
   workflow_dispatch:
 
-# E2E bootstraps a full platform; cancel superseded runs on the same ref.
-concurrency:
-  group: e2e-${{ github.ref }}-${{ matrix.engine || 'all' }}
-  cancel-in-progress: true
-
 jobs:
   e2e:
+    # E2E bootstraps a full platform; cancel superseded runs on the same ref —
+    # one group per engine so Docker and Podman never cancel each other.
+    #
+    # Job-level, not workflow-level: `matrix` does not exist in a workflow-level
+    # `concurrency` expression, and a workflow file that references it is
+    # rejected before any job starts. Every E2E run since the matrix was added
+    # failed with ZERO jobs and no log — a failure that looked like
+    # infrastructure and was a one-line syntax error (2026-10-05).
+    concurrency:
+      group: e2e-${{ github.ref }}-${{ matrix.engine }}
+      cancel-in-progress: true
     # Docker and Podman are both first-class local engines for `adhar up`
     # (docs/KIND_PROVIDER.md): the same bootstrap must pass on each, so both
     # run on every push — a regression that only shows on Podman (image

@@ -976,3 +976,35 @@ func httpRouteBackends(doc map[string]interface{}) []string {
 	}
 	return out
 }
+
+// Keycloak is the head of the identity path every SSO consumer waits on, so on
+// a full cluster it must be able to preempt a workload — at priority 0 it sat
+// Pending ("No preemption victims found") while 14 oauth2-proxies failed on the
+// Secret only it can produce (2026-10-05). The class sits below the node-bound
+// database class so a volume-pinned database still wins its one legal node.
+func TestIdentityPathOutranksWorkloads(t *testing.T) {
+	dir := filepath.Join(stackPackagesDir(t), "security/keycloak/manifests")
+	pc, err := os.ReadFile(filepath.Join(dir, "priorityclass.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var class struct {
+		Metadata struct{ Name string }
+		Value    int
+	}
+	if err := yaml.Unmarshal(pc, &class); err != nil {
+		t.Fatal(err)
+	}
+	if class.Metadata.Name != "adhar-critical-path" || class.Value <= 0 || class.Value >= 900000 {
+		t.Errorf("adhar-critical-path must exist with 0 < value < 900000 (adhar-node-bound); got %q=%d", class.Metadata.Name, class.Value)
+	}
+	for _, f := range []string{"install.yaml.tmpl", "keycloak-config.yaml"} {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), "priorityClassName: adhar-critical-path") {
+			t.Errorf("%s: the Keycloak workload / config Jobs must carry priorityClassName adhar-critical-path", f)
+		}
+	}
+}

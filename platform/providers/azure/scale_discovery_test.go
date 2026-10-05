@@ -144,3 +144,26 @@ func TestDiscoveredClusterCarriesItsEndpoint(t *testing.T) {
 		t.Error("expected the master public-IP lookup used to build the endpoint")
 	}
 }
+
+// A scale-up that fails after the VM exists must delete that VM.
+//
+// 2026-10-04: adhar-worker-workers-2 was created, the join never happened, and
+// the function returned — leaving a billing VM that was not a node and whose
+// name the next scale-up collided with. The add loop now hands the new VM to
+// prepareAndJoinWorker and discards it on any failure.
+func TestFailedScaleUpDiscardsTheVMItCreated(t *testing.T) {
+	scale := azureFunc(t, "ScaleNodeGroup")
+	if !strings.Contains(scale, "p.prepareAndJoinWorker(") || !strings.Contains(scale, "p.discardHalfJoinedWorker(") {
+		t.Fatal("ScaleNodeGroup must join through prepareAndJoinWorker and discard the VM when that fails")
+	}
+	discard := azureFunc(t, "discardHalfJoinedWorker")
+	if !strings.Contains(discard, "virtualMachineClient.BeginDelete(") {
+		t.Error("discardHalfJoinedWorker must actually delete the VM")
+	}
+	// The discard must come BEFORE the error return, or it is unreachable.
+	i := strings.Index(scale, "p.discardHalfJoinedWorker(")
+	j := strings.Index(scale[i:], "return fmt.Errorf(\"new worker")
+	if j < 0 {
+		t.Error("the join failure must still be returned after the VM is discarded")
+	}
+}
