@@ -63,6 +63,10 @@ spec:
                           valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
                         - name: GITEA_PASSWORD
                           valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                        # Payload as an environment variable, never spliced into the shell
+                        # string (an apostrophe in a description is an unterminated quote).
+                        - name: TEAM_PAYLOAD
+                          value: {{ dict "name" $name "description" (dig "description" "" $p) "permission" $perm "includes_all_repositories" false "can_create_org_repo" true "units" (list "repo.code" "repo.issues" "repo.pulls" "repo.releases" "repo.wiki" "repo.actions") | toJson | quote }}
                       command: ["/bin/sh", "-c"]
                       args:
                         - |
@@ -72,8 +76,7 @@ spec:
                           # The organisation must exist first; CompositeOrganisation creates it.
                           ocode=$(curl -s -o /dev/null -w "%{http_code}" $AUTH "$API/orgs/{{ $org }}")
                           [ "$ocode" = "200" ] || { echo "organisation {{ $org }} not in Gitea yet ($ocode)"; exit 1; }
-                          code=$(curl -s -o /tmp/team -w "%{http_code}" $AUTH -X POST "$API/orgs/{{ $org }}/teams" \
-                            -d '{"name":"{{ $name }}","description":{{ dig "description" "" $p | quote }},"permission":"{{ $perm }}","includes_all_repositories":false,"can_create_org_repo":true,"units":["repo.code","repo.issues","repo.pulls","repo.releases","repo.wiki","repo.actions"]}')
+                          code=$(curl -s -o /tmp/team -w "%{http_code}" $AUTH -X POST "$API/orgs/{{ $org }}/teams" -d "$TEAM_PAYLOAD")
                           echo "team create -> $code"; cat /tmp/team 2>/dev/null || true; echo
                           case "$code" in 201|409|422) echo "gitea team {{ $org }}/{{ $name }} ready"; exit 0 ;; esac
                           echo "unexpected status $code"; exit 1

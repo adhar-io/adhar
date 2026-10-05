@@ -99,6 +99,11 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: '5'
 spec:
+  # Node-bound: this instance's volume pins it to one node (node-local default
+  # StorageClass), so it must be able to preempt pods that can run anywhere.
+  # See data/cnpg/manifests/priorityclass.yaml. 2026-10-05: mariadb-0 sat
+  # Pending behind a worker at 100% CPU with "No preemption victims".
+  priorityClassName: adhar-node-bound
   galera:
     enabled: false
   livenessProbe:

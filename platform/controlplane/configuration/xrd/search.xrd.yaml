@@ -1,0 +1,208 @@
+---
+# CompositeSearch — a managed OpenSearch cluster for a team, as one object.
+#
+# The platform runs the opensearch-k8s-operator (data/opensearch) for its own
+# shared cluster; this API lets a project ask for a cluster OF ITS OWN in its
+# namespace — isolated indices, its own credentials, its own capacity — and get
+# the same production shape the platform cluster has: generated admin and
+# monitoring credentials (ESO Password generators, hashed by the operator),
+# TLS on transport and HTTP, Prometheus metrics through the operator's
+# ServiceMonitor, an index-lifecycle policy, and a daily snapshot into the
+# platform object store. Nothing here is typed by hand into Dashboards.
+#
+# The composition (compositions/search/opensearch-operator.yaml) emits
+# opensearch.org CRs through provider-kubernetes, so the operator package must
+# be enabled on the platform (it is, in the production profile).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositesearches.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositeSearch
+    plural: compositesearches
+  defaultCompositionRef:
+    name: compositesearch-opensearch
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: search
+                      provider: kubernetes
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                      description: Human-friendly name shown in the console (defaults to the resource name).
+                    version:
+                      type: string
+                      default: "3.8.0"
+                      description: >-
+                        OpenSearch engine version (Dashboards follows it). Keep in step with the
+                        platform cluster in data/opensearch: the operator downloads a
+                        Prometheus-exporter plugin release matched to this exact version, and a
+                        version it has no plugin for leaves every node unable to start.
+                    nodes:
+                      type: integer
+                      minimum: 1
+                      maximum: 9
+                      default: 1
+                      description: >-
+                        Nodes in the single master+data+ingest pool. One node is a development
+                        cluster with no replica shards; use 3 or more for a quorum.
+                    storageSize:
+                      type: string
+                      default: 20Gi
+                      description: Persistent volume per node.
+                    storageClass:
+                      type: string
+                      description: >-
+                        StorageClass for the node volumes. Empty means the cluster default, which on
+                        this platform is node-local (adhar-local) — durability is the snapshot
+                        schedule, not the disk. Name adhar-block for a real block device.
+                    resources:
+                      type: object
+                      description: Per-node compute. The operator sizes the JVM heap from the memory limit.
+                      properties:
+                        cpu:
+                          type: string
+                          default: 250m
+                        memory:
+                          type: string
+                          default: 2Gi
+                        memoryLimit:
+                          type: string
+                          default: 3Gi
+                    dashboards:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                          description: >-
+                            Also run OpenSearch Dashboards (one replica, Service <name>-dashboards:5601,
+                            in-cluster only). Off by default: it is 0.5-1 GiB that most API-driven
+                            consumers never open.
+                    snapshots:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                          description: >-
+                            Daily full snapshot into the platform object store (RustFS bucket
+                            adhar-backups, prefix opensearch/<namespace>/<name>). The S3 credentials are
+                            projected from the platform's root-creds through the `platform`
+                            ClusterSecretStore; nothing is copied into this manifest.
+                        schedule:
+                          type: string
+                          default: "30 1 * * *"
+                          description: Cron (UTC) for the snapshot. The default sits in the platform's nightly quiet window.
+                        retentionDays:
+                          type: integer
+                          minimum: 1
+                          maximum: 365
+                          default: 14
+                        bucket:
+                          type: string
+                          default: adhar-backups
+                    indexLifecycle:
+                      type: object
+                      description: >-
+                        An ISM policy applied to the index patterns below: roll over daily indices,
+                        drop replicas when they go warm, delete when they age out.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        indexPatterns:
+                          type: array
+                          items:
+                            type: string
+                          default: ["logs-*", "events-*"]
+                        warmAfterDays:
+                          type: integer
+                          minimum: 1
+                          default: 7
+                        deleteAfterDays:
+                          type: integer
+                          minimum: 1
+                          default: 30
+                    organisation:
+                      type: string
+                      default: adhar
+                      description: Owning organisation (label adhar.io/organisation).
+                    team:
+                      type: string
+                      default: platform
+                      description: Owning team (label adhar.io/team).
+                    project:
+                      type: string
+                      default: ""
+                      description: Owning project (label adhar.io/project).
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+                      description: Which of the three environments this cluster serves (label adhar.io/environment).
+                    deletionPolicy:
+                      type: string
+                      enum: [Delete, Orphan]
+                      default: Delete
+                      description: Orphan keeps the OpenSearchCluster (and its data) when this object is deleted.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: Pending, Creating, Available, Degraded or Failed — from the operator's cluster phase and health.
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                health:
+                  type: string
+                  description: Cluster health as OpenSearch reports it (green, yellow, red).
+                version:
+                  type: string
+                endpoint:
+                  type: string
+                  description: HTTPS REST endpoint inside the cluster.
+                port:
+                  type: integer
+                dashboardsEndpoint:
+                  type: string
+                credentialsSecret:
+                  type: string
+                  description: Secret in this namespace with username, password, host, port and uri for the admin user.
+                snapshotRepository:
+                  type: string
+                organisation:
+                  type: string
+                team:
+                  type: string
+                project:
+                  type: string
+                environment:
+                  type: string

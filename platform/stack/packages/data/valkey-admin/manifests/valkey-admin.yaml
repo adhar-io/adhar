@@ -1,0 +1,110 @@
+# Valkey Admin — Redis Commander over the platform's Valkey caches.
+#
+# Hand-written (no published chart); values.yaml documents every choice here.
+# Access is ONLY through the oauth2-proxy in sso.yaml: this Service is
+# ClusterIP and the HTTPRoute never points at it. Redis Commander has no users
+# of its own, and FLUSHALL is one click away.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-admin
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: valkey-admin
+    app.kubernetes.io/part-of: valkey-admin
+    app.kubernetes.io/component: ui
+  # Same wave as the proxy: both are plain Deployments with nothing to wait for.
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey-admin
+  template:
+    metadata:
+      labels:
+        app: valkey-admin
+        app.kubernetes.io/name: valkey-admin
+    spec:
+      # Sharing one namespace means Kubernetes injects a <NAME>_PORT env var per
+      # Service; the entrypoint reads PORT and friends, so keep those out.
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # The image creates its runtime user `redis` as uid 10000 (Dockerfile:
+        # adduser -S -u 10000) and gives it /redis-commander/config, which the
+        # entrypoint writes the generated connection config into.
+        runAsUser: 10000
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis-commander
+          image: ghcr.io/joeferner/redis-commander:0.9.1
+          imagePullPolicy: IfNotPresent
+          env:
+            # label:host:port — the shared platform cache (unauthenticated in
+            # the cluster, see data/valkey). Comma-separate to pre-wire more.
+            - name: REDIS_HOSTS
+              value: adhar-cache:adhar-cache.adhar-system.svc.cluster.local:6379
+            - name: PORT
+              value: "8081"
+            - name: ADDRESS
+              value: 0.0.0.0
+            - name: READ_ONLY
+              value: "false"
+            # Exit on SIGTERM instead of ignoring it, so a rollout does not wait
+            # out the grace period on every restart.
+            - name: K8S_SIGTERM
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8081
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # timeoutSeconds 5, never the 1s the platform forbids
+          # (TestNoProbeShipsAOneSecondTimeout).
+          readinessProbe:
+            httpGet:
+              path: /favicon.png
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /favicon.png
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-admin
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: valkey-admin
+    app.kubernetes.io/part-of: valkey-admin
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+spec:
+  type: ClusterIP
+  selector:
+    app: valkey-admin
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http

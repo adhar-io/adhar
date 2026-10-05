@@ -320,12 +320,13 @@ Review checklist for any control-plane PR:
 
 ## 11. Reference: the Platform APIs
 
-**25 XRDs** in `configuration/xrd/`, implemented by **47 Compositions** in `configuration/compositions/<domain>/`. The count in parentheses is the number of implementations available today.
+**31 XRDs** in `configuration/xrd/`, implemented by **54 Compositions** in `configuration/compositions/<domain>/`. The count in parentheses is the number of implementations available today.
 
 | Domain | API (kind) — file | Implementations |
 |--------|-----------|---|
 | **Workloads** | `CompositeApplication` (apps), `CompositeService` (service), `CompositePipeline` (pipeline), `CompositeWebhook` (webhook), `CompositeProject` (project) | apps (3: ArgoCD app, multi-env, local) · pipeline (3: Argo Workflows, Tekton, local) · service, webhook, project (1 each) |
 | **Infrastructure** | `CompositeCluster` (cluster), `CompositeNetwork` (network), `CompositeStorage` (storage), `CompositeDatabase` (database), `CompositeMessaging` (messaging) | cluster (6: EKS, AKS, GKE, DOKS, Civo K3s, Kind) · database (6: RDS, Azure SQL, Cloud SQL, CNPG, Redis, Valkey) · network (3: AWS VPC, Azure VNet, GCP VPC) · storage (2) · messaging (1: Strimzi) |
+| **Data services** | `CompositeSearch` (search), `CompositeVector` (vector) | search (1: OpenSearchCluster through the platform's opensearch-k8s-operator — generated credentials, ISM policy, daily snapshot to RustFS) · vector (1: Qdrant via provider-helm — generated API keys, declared collections, ServiceMonitor) |
 | **Environments** | `CompositeEnvironment` (env), `CompositePlatformConfig` (config), `CompositeGitOps` (gitops) | env (2) · config, gitops (1 each) |
 | **Security** | `CompositeAuthStack` (auth), `CompositeSecret` (secrets), `CompositeSecretRotation` (secretrotation), `CompositeCompliancePolicy` (compliancepolicy) | auth (1: Keycloak) · secrets (2: ESO, local) · secretrotation (2: AWS Secrets Manager, local) · compliance (3: Kyverno, OPA Gatekeeper, local) |
 | **Observability** | `CompositeMetrics` (metrics), `CompositeLogging` (logs), `CompositeTrace` (traces), `CompositeHealth` (health), `CompositeCostTracker` (costtracker) | Prometheus ServiceMonitor · Loki stack · Jaeger · healthcheck · OpenCost (1 each) |

@@ -1501,6 +1501,10 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: primary
     spec:
+      # Node-bound: its volume pins it to one node (node-local default StorageClass);
+      # see data/cnpg/manifests/priorityclass.yaml. Also set in values.yaml — the
+      # generator cannot be re-run blindly (it re-mints SECRET_KEY and resets probes).
+      priorityClassName: adhar-node-bound
       
       serviceAccountName: oncall-mariadb
       affinity:

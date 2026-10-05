@@ -18,3 +18,13 @@ CompositeEnvironment XRs, its Kargo project/policy/credentials and its Argo CD A
 `status.environments[]`; an application observes its project and composes Argo CD Applications + Kargo
 Warehouse/Stages; a release composes a Kargo Promotion. `platform/controllers/adharplatform/hierarchy_test.go`
 pins the agreements between them.
+
+## Managed data services
+
+`search` (CompositeSearch) and `vector` (CompositeVector) give a team an OpenSearch cluster or a Qdrant
+vector database of its own, in its namespace, with the same production shape the platform's shared
+services have: credentials minted by ESO generators (never in a manifest), Prometheus metrics, and for
+search an index-lifecycle policy plus a daily snapshot into the platform object store. Both carry the
+hierarchy labels (`organisation|team|project|environment`) and `adhar.io/plane: workload`.
+`platform/controllers/adharplatform/datastores_test.go` pins their agreements with the compositions,
+the provider RBAC and the data/opensearch package whose operator the search composition relies on.

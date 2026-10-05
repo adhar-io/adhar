@@ -77,9 +77,17 @@ harborAdminPassword: "Harbor12345"
 # (tightly coupled to Harbor internals) rather than sharing the platform cache.
 database:
   type: "internal"
+  internal:
+    # Node-bound: this component's volume pins it to one node (node-local default
+    # StorageClass), so it must be able to preempt pods that can run anywhere.
+    # See data/cnpg/manifests/priorityclass.yaml. 2026-10-05: harbor-trivy-0 sat
+    # Pending behind a worker at 100% CPU with "No preemption victims".
+    priorityClassName: adhar-node-bound
 
 redis:
   type: "internal"
+  internal:
+    priorityClassName: adhar-node-bound  # node-bound, see database.internal
 
 # --- Vulnerability scanner ------------------------------------------------------
 # Harbor registers a scanner ONLY when this is enabled: core reads WITH_TRIVY and
@@ -95,6 +103,7 @@ redis:
 # this one covers everything already sitting in the registry.
 trivy:
   enabled: true
+  priorityClassName: adhar-node-bound  # node-bound (its DB volume), see database.internal
   # The DBs are pulled from a mirror first, which avoids Docker Hub rate limits.
   # Leaving skipUpdate false means the adapter refreshes them on its own.
   skipUpdate: false

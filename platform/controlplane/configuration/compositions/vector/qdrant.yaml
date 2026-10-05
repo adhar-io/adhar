@@ -1,0 +1,437 @@
+---
+# CompositeVector → a Qdrant vector database installed and configured in the
+# requester's namespace.
+#
+# Install: the upstream qdrant/qdrant Helm chart through provider-helm, pinned.
+# Configure: provider-kubernetes Objects around it —
+#   * an API key and a read-only API key, each minted once by an ESO Password
+#     generator into its own Secret. They reach Qdrant as QDRANT__SERVICE__*
+#     environment variables with secretKeyRef, NOT through the chart's
+#     `apiKey.valueFrom`: that path resolves the Secret with Helm `lookup` at
+#     install time, so a release installed a moment before ESO wrote the Secret
+#     would run with no key at all and never notice. With env refs the pod
+#     simply does not start until the Secret exists, then does;
+#   * a Job that creates the declared collections once the API answers —
+#     idempotent (an existing collection is left alone), re-run under a new
+#     name whenever the declared list changes;
+#   * the chart's ServiceMonitor, scraping with the read-only key, so every
+#     composed store appears in Grafana with no per-instance wiring.
+#
+# Measured against qdrant/qdrant v1.19.1 with an API key set, because the
+# endpoints differ in whether they demand one:
+#   /, /livez, /readyz, /healthz  200 with NO key  -> kubelet probes work as-is
+#   /metrics                      401 with no key, 200 with either key
+#     -> the ServiceMonitor MUST carry `authorization`, or the scrape 401s and
+#        the dashboards are empty against a perfectly healthy database
+#   PUT /collections              200 with the write key, 403 with the read-only
+#     one -> the read-only key really is read-only, so it is the safe scrape
+#        credential and the collections Job needs the write key.
+#
+# The <name>-api-key Secret is also the connection Secret: api-key, url,
+# grpc-url, host and ports, so an application needs exactly one reference.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositevector-qdrant
+  labels:
+    feature: vector
+    provider: kubernetes
+    engine: qdrant
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeVector
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $version := dig "version" "v1.19.1" $p -}}
+            {{- $replicas := int (dig "replicas" 1 $p) -}}
+            {{- $disk := dig "storageSize" "10Gi" $p -}}
+            {{- $sc := dig "storageClass" "" $p -}}
+            {{- $cpu := dig "resources" "cpu" "100m" $p -}}
+            {{- $mem := dig "resources" "memory" "512Mi" $p -}}
+            {{- $memLimit := dig "resources" "memoryLimit" "2Gi" $p -}}
+            {{- $roKey := dig "readOnlyKey" true $p -}}
+            {{- $metrics := dig "metrics" true $p -}}
+            {{- $collections := dig "collections" (list) $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $project := dig "project" "" $p -}}
+            {{- $env := dig "environment" "dev" $p -}}
+            {{- $policy := dig "deletionPolicy" "Delete" $p -}}
+            {{- $k8sProvider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- $host := printf "%s.%s.svc.cluster.local" $name $ns -}}
+            {{- $distributed := gt $replicas 1 -}}
+            {{- $labels := dict "adhar.io/organisation" $org "adhar.io/team" $team "adhar.io/environment" $env "adhar.io/plane" "workload" "platform.adhar.io/vector" $name "app.kubernetes.io/managed-by" "crossplane" -}}
+            {{- if $project }}{{ $_ := set $labels "adhar.io/project" $project }}{{ end -}}
+            {{- /* The scrape credential: the read-only key when there is one. */ -}}
+            {{- $scrapeSecret := ternary (printf "%s-read-only-api-key" $name) (printf "%s-api-key" $name) (eq (toString $roKey) "true") -}}
+            {{- /* Status: Helm release state + the collections Job. */ -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $state := dig "qdrant" "resource" "status" "atProvider" "state" "" $observed -}}
+            {{- $jobSucceeded := dig "collections" "resource" "status" "atProvider" "manifest" "status" "succeeded" 0 $observed -}}
+            {{- $phase := "Pending" -}}
+            {{- $message := "Helm release not yet installed" -}}
+            {{- $ready := false -}}
+            {{- if eq $state "deployed" -}}
+              {{- if and $collections (lt (int $jobSucceeded) 1) -}}
+                {{- $phase = "Creating" -}}{{- $message = "Qdrant is up; creating collections" -}}
+              {{- else -}}
+                {{- $phase = "Available" -}}{{- $ready = true -}}{{- $message = printf "Qdrant %s is serving" $version -}}
+              {{- end -}}
+            {{- else if eq $state "failed" -}}
+              {{- $phase = "Failed" -}}{{- $message = "Helm release failed; see the Release's conditions" -}}
+            {{- else if $state -}}
+              {{- $phase = "Creating" -}}{{- $message = printf "Helm release state: %s" $state -}}
+            {{- end -}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: api-key-password
+              labels: {feature: vector, managed-by: adhar}
+            spec:
+              deletionPolicy: {{ $policy }}
+              providerConfigRef: {name: {{ quote $k8sProvider }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: generators.external-secrets.io/v1alpha1
+                  kind: Password
+                  metadata:
+                    name: {{ $name }}-api-key
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    # An API key is a bearer header: letters and digits only, so it
+                    # never needs escaping in a URL, a curl line or a YAML value.
+                    length: 48
+                    digits: 10
+                    symbols: 0
+                    noUpper: false
+                    allowRepeat: true
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: api-key
+              labels: {feature: vector, managed-by: adhar}
+            spec:
+              deletionPolicy: {{ $policy }}
+              providerConfigRef: {name: {{ quote $k8sProvider }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: external-secrets.io/v1
+                  kind: ExternalSecret
+                  metadata:
+                    name: {{ $name }}-api-key
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    # Minted once. Rotation is a deliberate act: delete the Secret,
+                    # let it regenerate, and restart the StatefulSet.
+                    refreshPolicy: CreatedOnce
+                    refreshInterval: "0"
+                    target:
+                      name: {{ $name }}-api-key
+                      template:
+                        engineVersion: v2
+                        metadata:
+                          labels:
+                            adhar.io/cli-secret: "true"
+                            platform.adhar.io/vector: {{ $name | quote }}
+                        data:
+                          api-key: {{ `{{ .PASSWORD }}` | quote }}
+                          host: {{ $host | quote }}
+                          port: "6333"
+                          grpc-port: "6334"
+                          url: {{ printf "http://%s:6333" $host | quote }}
+                          grpc-url: {{ printf "%s:6334" $host | quote }}
+                    dataFrom:
+                      - sourceRef:
+                          generatorRef:
+                            apiVersion: generators.external-secrets.io/v1alpha1
+                            kind: Password
+                            name: {{ $name }}-api-key
+                        rewrite:
+                          - transform:
+                              template: PASSWORD
+            {{- if eq (toString $roKey) "true" }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: read-only-api-key-password
+              labels: {feature: vector, managed-by: adhar}
+            spec:
+              deletionPolicy: {{ $policy }}
+              providerConfigRef: {name: {{ quote $k8sProvider }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: generators.external-secrets.io/v1alpha1
+                  kind: Password
+                  metadata:
+                    name: {{ $name }}-read-only-api-key
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    length: 48
+                    digits: 10
+                    symbols: 0
+                    noUpper: false
+                    allowRepeat: true
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: read-only-api-key
+              labels: {feature: vector, managed-by: adhar}
+            spec:
+              deletionPolicy: {{ $policy }}
+              providerConfigRef: {name: {{ quote $k8sProvider }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: external-secrets.io/v1
+                  kind: ExternalSecret
+                  metadata:
+                    name: {{ $name }}-read-only-api-key
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    refreshPolicy: CreatedOnce
+                    refreshInterval: "0"
+                    target:
+                      name: {{ $name }}-read-only-api-key
+                      template:
+                        engineVersion: v2
+                        metadata:
+                          labels:
+                            adhar.io/cli-secret: "true"
+                            platform.adhar.io/vector: {{ $name | quote }}
+                        data:
+                          api-key: {{ `{{ .PASSWORD }}` | quote }}
+                          url: {{ printf "http://%s:6333" $host | quote }}
+                    dataFrom:
+                      - sourceRef:
+                          generatorRef:
+                            apiVersion: generators.external-secrets.io/v1alpha1
+                            kind: Password
+                            name: {{ $name }}-read-only-api-key
+                        rewrite:
+                          - transform:
+                              template: PASSWORD
+            {{- end }}
+            ---
+            apiVersion: helm.m.crossplane.io/v1beta1
+            kind: Release
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: qdrant
+              labels: {feature: vector, managed-by: adhar}
+            spec:
+              deletionPolicy: {{ $policy }}
+              providerConfigRef: {name: helm-provider, kind: ClusterProviderConfig}
+              forProvider:
+                namespace: {{ $ns }}
+                chart:
+                  name: qdrant
+                  repository: https://qdrant.github.io/qdrant-helm
+                  # Pinned. Bump together with the default `version` in
+                  # xrd/vector.xrd.yaml after rendering the chart once.
+                  version: "1.19.1"
+                values:
+                  # Service and StatefulSet take the XR's name, so the endpoint is
+                  # <name>.<namespace>:6333 and not qdrant-<name>-....
+                  fullnameOverride: {{ $name }}
+                  replicaCount: {{ $replicas }}
+                  image:
+                    tag: {{ $version | quote }}
+                    pullPolicy: IfNotPresent
+                  podLabels:
+                    {{- range $k, $v := $labels }}
+                    {{ $k }}: {{ $v | quote }}
+                    {{- end }}
+                  env:
+                    - name: QDRANT__SERVICE__API_KEY
+                      valueFrom:
+                        secretKeyRef: {name: {{ $name }}-api-key, key: api-key}
+                    {{- if eq (toString $roKey) "true" }}
+                    - name: QDRANT__SERVICE__READ_ONLY_API_KEY
+                      valueFrom:
+                        secretKeyRef: {name: {{ $name }}-read-only-api-key, key: api-key}
+                    {{- end }}
+                  persistence:
+                    size: {{ $disk }}
+                    {{- if $sc }}
+                    storageClassName: {{ $sc }}
+                    {{- end }}
+                  resources:
+                    requests: {cpu: {{ $cpu }}, memory: {{ $mem }}}
+                    limits: {memory: {{ $memLimit }}}
+                  # The chart ships timeoutSeconds 1 on both probes; a loaded node
+                  # fails that for a healthy process (see the Harbor database note
+                  # in CLAUDE.md). Liveness is off upstream — on, with headroom.
+                  readinessProbe:
+                    enabled: true
+                    initialDelaySeconds: 10
+                    periodSeconds: 10
+                    timeoutSeconds: 5
+                    failureThreshold: 6
+                  livenessProbe:
+                    enabled: true
+                    initialDelaySeconds: 30
+                    periodSeconds: 20
+                    timeoutSeconds: 5
+                    failureThreshold: 3
+                  config:
+                    cluster:
+                      enabled: {{ $distributed }}
+                  podDisruptionBudget:
+                    enabled: {{ $distributed }}
+                    maxUnavailable: 1
+                  # Volume-pinned: a node-local PV ties each pod to one node, so it
+                  # must be able to preempt its way back there (data/cnpg defines
+                  # the class).
+                  priorityClassName: adhar-node-bound
+                  metrics:
+                    serviceMonitor:
+                      enabled: {{ $metrics }}
+                      additionalLabels:
+                        adhar.io/component: observability
+                      authorization:
+                        type: Bearer
+                        credentials: {name: {{ $scrapeSecret }}, key: api-key}
+            {{- if $collections }}
+            ---
+            # Create the declared collections. Named by a hash of the declaration
+            # so a changed list runs a new Job; an unchanged one is never re-run.
+            # The Job is not TTL-deleted — the provider would recreate it.
+            {{- $spec := list -}}
+            {{- range $collections -}}
+            {{- $c := . -}}
+            {{- $spec = append $spec (dict "name" $c.name "vectors" (dict "size" (int (default 1 (get $c "vectorSize"))) "distance" (default "Cosine" (get $c "distance")) "on_disk" (default false (get $c "onDisk"))) "replication_factor" (int (default 1 (get $c "replicationFactor")))) -}}
+            {{- end -}}
+            {{- $hash := trunc 8 (sha256sum (toJson $spec)) -}}
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: collections
+              labels: {feature: vector, managed-by: adhar}
+            spec:
+              deletionPolicy: {{ $policy }}
+              providerConfigRef: {name: {{ quote $k8sProvider }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: batch/v1
+                  kind: Job
+                  metadata:
+                    name: {{ $name }}-collections-{{ $hash }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    backoffLimit: 20
+                    activeDeadlineSeconds: 3600
+                    template:
+                      metadata:
+                        labels:
+                          platform.adhar.io/vector: {{ $name | quote }}
+                      spec:
+                        restartPolicy: OnFailure
+                        enableServiceLinks: false
+                        automountServiceAccountToken: false
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 65532
+                          seccompProfile: {type: RuntimeDefault}
+                        containers:
+                          - name: collections
+                            image: docker.io/curlimages/curl:8.11.1
+                            env:
+                              - name: QDRANT_URL
+                                value: http://{{ $host }}:6333
+                              - name: API_KEY
+                                valueFrom:
+                                  secretKeyRef: {name: {{ $name }}-api-key, key: api-key}
+                            securityContext:
+                              allowPrivilegeEscalation: false
+                              capabilities: {drop: [ALL]}
+                            resources:
+                              requests: {cpu: 10m, memory: 16Mi}
+                              limits: {memory: 64Mi}
+                            command: [/bin/sh, -ec]
+                            args:
+                              - |
+                                until curl -sf -H "api-key: $API_KEY" "$QDRANT_URL/readyz" >/dev/null; do
+                                  echo "waiting for $QDRANT_URL"; sleep 5
+                                done
+                                ensure() {
+                                  code=$(curl -s -o /dev/null -w '%{http_code}' -H "api-key: $API_KEY" "$QDRANT_URL/collections/$1")
+                                  if [ "$code" = "200" ]; then echo "collection $1 exists"; return 0; fi
+                                  echo "creating collection $1"
+                                  curl -sf -X PUT -H "api-key: $API_KEY" -H 'content-type: application/json' \
+                                    "$QDRANT_URL/collections/$1" -d "$2"
+                                  echo
+                                }
+                                {{- range $spec }}
+                                ensure {{ .name | quote }} {{ dict "vectors" .vectors "replication_factor" .replication_factor | toJson | squote }}
+                                {{- end }}
+            {{- end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeVector
+            status:
+              phase: {{ $phase }}
+              message: {{ $message | quote }}
+              ready: {{ $ready }}
+              {{- if $state }}
+              releaseState: {{ $state }}
+              {{- end }}
+              endpoint: http://{{ $host }}:6333
+              grpcEndpoint: {{ $host }}:6334
+              credentialsSecret: {{ $name }}-api-key
+              {{- if $collections }}
+              collections:
+                {{- range $collections }}
+                - {{ .name | quote }}
+                {{- end }}
+              {{- end }}
+              organisation: {{ $org }}
+              team: {{ $team }}
+              {{- if $project }}
+              project: {{ $project }}
+              {{- end }}
+              environment: {{ $env }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

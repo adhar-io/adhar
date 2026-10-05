@@ -425,17 +425,21 @@ spec:
                           valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
                         - name: GITEA_PASSWORD
                           valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                        # Payloads as environment variables, never spliced into the shell
+                        # string (an apostrophe in a description is an unterminated quote).
+                        - name: ORG_PAYLOAD
+                          value: {{ dict "username" $org "full_name" $org "visibility" "private" | toJson | quote }}
+                        - name: REPO_PAYLOAD
+                          value: {{ dict "name" $name "auto_init" true "default_branch" "main" "private" false "description" (printf "Adhar project %s (%s/%s)%s" $name $org $team (ternary (printf " — %s" $desc) "" (ne $desc ""))) | toJson | quote }}
                       command: ["/bin/sh", "-c"]
                       args:
                         - |
                           set -e
                           AUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
                           API="http://{{ $giteaHost }}/api/v1"
-                          ocode=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH -X POST "$API/orgs" \
-                            -d '{"username":"{{ $org }}","full_name":"{{ $org }}","visibility":"private"}')
+                          ocode=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH -X POST "$API/orgs" -d "$ORG_PAYLOAD")
                           echo "org -> $ocode"; case "$ocode" in 201|422|409) : ;; *) echo "org create failed"; exit 1 ;; esac
-                          rcode=$(curl -s -o /tmp/repo -w "%{http_code}" $AUTH -X POST "$API/orgs/{{ $org }}/repos" \
-                            -d '{"name":"{{ $name }}","auto_init":true,"default_branch":"main","private":false,"description":{{ printf "Adhar project %s (%s/%s)" $name $org $team | quote }}}')
+                          rcode=$(curl -s -o /tmp/repo -w "%{http_code}" $AUTH -X POST "$API/orgs/{{ $org }}/repos" -d "$REPO_PAYLOAD")
                           echo "repo -> $rcode"; cat /tmp/repo 2>/dev/null || true; echo
                           case "$rcode" in 201|409) echo "repository {{ $org }}/{{ $name }} ready"; exit 0 ;; esac
                           echo "unexpected repo status $rcode"; exit 1

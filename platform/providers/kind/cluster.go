@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -235,6 +236,9 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 	}
 
 	setupLog.V(1).Info("Kind cluster config generated", "config", string(rawConfig))
+	if err := ensureHostMounts(rawConfig); err != nil {
+		return err
+	}
 	setupLog.Info("Creating kind cluster", "cluster", c.name)
 
 	if err = c.provider.Create(
@@ -386,6 +390,42 @@ func (c *Cluster) ensurePlatformPKI() error {
 	_, _, err := EnsurePlatformCertificateOnDisk(PlatformPKIDirName, PlatformCertificateSANs(c.cfg))
 	if err != nil {
 		return fmt.Errorf("pre-generating platform certificate: %w", err)
+	}
+	return nil
+}
+
+// ensureHostMounts creates every host path the Kind config bind-mounts into
+// the node before the node is created.
+//
+// Docker creates a missing bind-mount source as an empty directory; Podman
+// refuses it (`statfs .adhar/backup: no such file or directory`, exit 125).
+// The provider's CreateCluster path always made `.adhar/backup`, this path —
+// the one `adhar up` uses — never did, so every Podman bootstrap failed in
+// the first ten seconds while Docker never noticed (E2E matrix, 2026-10-05).
+// Reading the paths back from the rendered config, rather than listing them
+// here, means a mount added to kind.yaml.tmpl cannot be forgotten.
+//
+// A hostPath whose containerPath names a file (kubelet's config.json) is a
+// file mount: its PARENT directory is created and the file is left to the
+// code that renders it.
+func ensureHostMounts(rawConfig []byte) error {
+	var cfg kindv1alpha4.Cluster
+	if err := yaml.Unmarshal(rawConfig, &cfg); err != nil {
+		return fmt.Errorf("parsing kind config for host mounts: %w", err)
+	}
+	for _, node := range cfg.Nodes {
+		for _, m := range node.ExtraMounts {
+			if m.HostPath == "" {
+				continue
+			}
+			dir := m.HostPath
+			if filepath.Ext(m.ContainerPath) != "" {
+				dir = filepath.Dir(m.HostPath)
+			}
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("creating host mount %s for %s: %w", dir, m.ContainerPath, err)
+			}
+		}
 	}
 	return nil
 }

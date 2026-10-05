@@ -67,6 +67,8 @@ spec:
     metadata:
       labels: {app: posthog-clickhouse-keeper}
     spec:
+      # Node-bound (its volume pins it to one node) — see data/cnpg/manifests/priorityclass.yaml.
+      priorityClassName: adhar-node-bound
       enableServiceLinks: false
       securityContext: {fsGroup: 101, runAsUser: 101, runAsGroup: 101}
       containers:

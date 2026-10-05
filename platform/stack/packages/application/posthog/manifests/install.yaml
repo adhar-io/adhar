@@ -4860,7 +4860,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: ca2cb137377a7af37d0a3a4993e0b9bea77dd358fefe687f271056a89513cbc1
+        checksum/secrets.yaml: 4a1b0412ae640547a51b53cd64ef4dd933e4cfa81cb8940dacad10f4076bff4b
       labels:
         app: posthog
         release: posthog
@@ -5074,7 +5074,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: d6acfb558695808b79a67f16625d773081e6f112bf5af000e45c31a6497d4f29
+        checksum/secrets.yaml: 625867696b3b4984eadbc26908b846c120de562ebfa572d3ea9d739bfd795509
       labels:
         app: posthog
         release: posthog
@@ -5165,7 +5165,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: b12171f17995730825bc878748a6d74e59fc10ca14650f3db633954c566a4491
+        checksum/secrets.yaml: 0a4a41378c8c0598298167876c3124fec8eafeb91479116a355c23969df6a35e
       labels:
         app: posthog
         release: posthog
@@ -5478,7 +5478,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: d1424a9bbe89b03008590319a3dcfb7e641180c05b9e1a6fd212b7c4f1e93686
+        checksum/secrets.yaml: 744213b866f45a775e7ebfca804611c2406aa3bd71e8d30b9bfeb58f3798af04
       labels:
         app: posthog
         release: posthog
@@ -5735,6 +5735,7 @@ spec:
       securityContext:
         fsGroup: 1001
       serviceAccountName: posthog-posthog-redis
+      priorityClassName: adhar-node-bound
       affinity:
         podAffinity: null
         podAntiAffinity:
@@ -5848,7 +5849,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-10-04-17-59-57
+  name: posthog-migrate-2026-10-05-14-38-53
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog
@@ -5861,9 +5862,9 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-10-04-17-59-57
+      name: posthog-migrate-2026-10-05-14-38-53
       annotations:
-        checksum/secrets.yaml: 0a71546fcb83445e5e8575177fe8629fb1f47b5dbb276ecaee32708921e33281
+        checksum/secrets.yaml: e7d533240d2f8542c70e413595d4bedc05c06806c64295c67cdfd881c278f1c4
       labels:
         app: posthog
         release: posthog
@@ -6212,7 +6213,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-10-04-17-59-57
+  name: posthog-grafana-annotation-job-post-2026-10-05-14-38-53
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog
@@ -6226,7 +6227,7 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-10-04-17-59-57
+      name: posthog-grafana-annotation-job-post-2026-10-05-14-38-53
     spec:
       restartPolicy: Never
       containers:

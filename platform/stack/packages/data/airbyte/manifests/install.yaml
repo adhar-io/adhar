@@ -736,20 +736,20 @@ spec:
           httpGet:
             path: /api/v1/health
             port: http
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 10
-          timeoutSeconds: 10
+          timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         readinessProbe:
           httpGet:
             path: /api/v1/health
             port: http
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 10
+          timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         ports:
         - name: http
           containerPort: 8001
@@ -1154,20 +1154,20 @@ spec:
           httpGet:
             path: /
             port: heartbeat
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         readinessProbe:
           httpGet:
             path: /
             port: heartbeat
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         ports:
         - name: heartbeat
           containerPort: 9000
@@ -1429,20 +1429,20 @@ spec:
           httpGet:
             path: /health/liveness
             port: 8085
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 10
-          timeoutSeconds: 10
+          timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         readinessProbe:
           httpGet:
             path: /health/liveness
             port: 8085
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 10
+          timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         ports:
         - name: http
           containerPort: 8007
@@ -1851,20 +1851,20 @@ spec:
           httpGet:
             path: /health/liveness
             port: heartbeat
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         readinessProbe:
           httpGet:
             path: /health/readiness
             port: heartbeat
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 12
         ports:
         - name: heartbeat
           containerPort: 8085

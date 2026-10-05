@@ -31,6 +31,10 @@ grafana:
 mariadb:
   image:
     repository: bitnamilegacy/mariadb
+  primary:
+    # Node-bound: its volume pins it to one node (node-local default
+    # StorageClass). See data/cnpg/manifests/priorityclass.yaml.
+    priorityClassName: adhar-node-bound
 rabbitmq:
   image:
     repository: bitnamilegacy/rabbitmq

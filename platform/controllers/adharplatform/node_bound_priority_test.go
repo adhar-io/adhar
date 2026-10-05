@@ -14,6 +14,9 @@ var (
 	kindAnything  = regexp.MustCompile(`(?m)^kind: (\S+)$`)
 	resourceName  = regexp.MustCompile(`(?m)^  name: (\S+)`)
 	nodeBoundName = "adhar-node-bound"
+
+	// Three of Harbor's StatefulSets are volume-pinned, so this path repeats.
+	harborInstall = "application/harbor/manifests/install.yaml"
 )
 
 // Every CNPG database must be able to claim room on the node its volume pins it
@@ -141,4 +144,46 @@ func stackPackagesDir(t *testing.T) string {
 		t.Fatalf("stack packages not found at %s: %v", dir, err)
 	}
 	return dir
+}
+
+// The same rule for every non-CNPG workload whose volume pins it to a node.
+//
+// 2026-10-05, after a cluster came up with two workers at 100% CPU: harbor-trivy-0,
+// mariadb-0, oncall-mariadb-0 and posthog-clickhouse-keeper-0 all sat Pending
+// with "didn't match PersistentVolume's node affinity … No preemption victims
+// found" — each had exactly one legal node and no priority to claim it. The
+// CNPG guard above could not see them because they are not CNPG Clusters.
+func TestOtherNodeBoundWorkloadsCarryThePriority(t *testing.T) {
+	want := "priorityClassName: " + nodeBoundName
+	cases := []struct{ file, marker string }{
+		{harborInstall, "\n  name: harbor-trivy\n"},
+		{harborInstall, "\n  name: \"harbor-database\"\n"},
+		{harborInstall, "\n  name: harbor-redis\n"},
+		{"data/mariadb-operator/manifests/cluster.yaml", "kind: MariaDB\n"},
+		{"application/posthog/manifests/clickhouse-keeper.yaml", "\n  name: posthog-clickhouse-keeper\n"},
+		{"observability/oncall/manifests/install.yaml", "\n  name: oncall-mariadb\n"},
+		{"application/posthog/manifests/install.yaml", "\n  name: posthog-posthog-redis-master\n"},
+		{"data/kubeflow/manifests/install.yaml", "\n  name: mysql\n"},
+	}
+	for _, c := range cases {
+		b, err := os.ReadFile(filepath.Join(stackPackagesDir(t), c.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The marker's own document (up to the next `---`) must carry the class.
+		found := false
+		for _, doc := range strings.Split(string(b), "\n---\n") {
+			if strings.Contains(doc, c.marker) && (strings.Contains(doc, "kind: StatefulSet") || strings.Contains(doc, "kind: MariaDB") || strings.Contains(doc, "kind: Deployment")) {
+				found = true
+				// Charts may quote the value.
+				if !strings.Contains(doc, want) && !strings.Contains(doc, `priorityClassName: "`+nodeBoundName+`"`) {
+					t.Errorf("%s: the workload %q has no `%s`; its volume pins it to one node, so it must be able "+
+						"to preempt there", c.file, strings.TrimSpace(c.marker), want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: no StatefulSet/Deployment/MariaDB document with %q — the guard is looking at nothing", c.file, strings.TrimSpace(c.marker))
+		}
+	}
 }

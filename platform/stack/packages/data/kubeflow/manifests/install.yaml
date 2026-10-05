@@ -2562,6 +2562,10 @@ spec:
         app: mysql
         application-crd-id: kubeflow-pipelines
     spec:
+      # Node-bound: the pipelines MySQL volume pins this pod to one node (node-local
+      # default StorageClass); see data/cnpg/manifests/priorityclass.yaml. 2026-10-05:
+      # Pending behind a worker at 100% CPU with "No preemption victims".
+      priorityClassName: adhar-node-bound
       containers:
       - args:
         - --datadir

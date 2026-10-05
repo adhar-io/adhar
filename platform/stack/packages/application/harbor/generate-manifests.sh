@@ -33,3 +33,10 @@ for d in docs:
 open(path, 'w').write('\n---\n'.join(out))
 print("pinned harbor-core clusterIP -> %s" % cip)
 PY
+# NOTE (2026-10-05): the committed install.yaml carries two hand-applied fixes
+# a plain re-render loses — probe timeoutSeconds raised from the chart's 1 s to
+# 5 s (TestNoProbeShipsAOneSecondTimeout) and a STABLE harbor-token-ca (the
+# chart mints a new key pair on every render, which invalidates every issued
+# token) — plus `priorityClassName: adhar-node-bound` on the database, redis and
+# trivy StatefulSets. Re-run this script only with those three carried forward;
+# diff against git before committing.

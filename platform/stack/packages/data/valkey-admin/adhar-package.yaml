@@ -1,0 +1,51 @@
+# Adhar marketplace contract for the valkey-admin package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: valkey-admin
+category: data
+version: "0.9.1"
+description: "Browser admin console for the platform's Valkey caches (Redis Commander): browse, edit and flush keys, run commands and watch server stats, behind Keycloak SSO."
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: MIT
+homepage: https://github.com/joeferner/redis-commander
+adharCompatibility:
+  minVersion: "0.1.0"
+  notes: >-
+    No published Helm chart; manifests/valkey-admin.yaml is hand-written against
+    the ghcr.io/joeferner/redis-commander image and documented by values.yaml.
+dependencies:
+  # The thing it administers: the shared `adhar-cache` Valkey the UI is
+  # pre-wired to. Without it the UI starts and shows a connection error.
+  - name: valkey
+    category: data
+  # The only way in. The UI has no authentication of its own, so the
+  # oauth2-proxy in manifests/sso.yaml is not optional.
+  - name: keycloak
+    category: security
+  - name: external-secrets
+    category: security
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta   # enabled in the production curated set only
+resources:
+  localSafe: true    # one 64Mi Node process; off locally only because the local core is curated
+keywords:
+  - valkey
+  - redis
+  - cache
+  - admin
+  - ui
+verification:
+  status: unverified
+  reason: Added 2026-10-05; not yet recorded from live Argo CD health.

@@ -1774,6 +1774,10 @@ spec:
       annotations:
         checksum/secret: 3f9503b45555a05ea7503f8a4c24da6eeca14ca5a5e21a41538266488a0a7466
     spec:
+      # Node-bound: its volume pins it to one node (node-local default StorageClass);
+      # see data/cnpg/manifests/priorityclass.yaml. Also set in values.yaml — the
+      # generator cannot be re-run blindly (it re-mints harbor-token-ca and resets probes).
+      priorityClassName: adhar-node-bound
       securityContext:
         runAsUser: 999
         fsGroup: 999
@@ -1910,6 +1914,10 @@ spec:
         component: redis
         app.kubernetes.io/component: redis
     spec:
+      # Node-bound: its volume pins it to one node (node-local default StorageClass);
+      # see data/cnpg/manifests/priorityclass.yaml. Also set in values.yaml — the
+      # generator cannot be re-run blindly (it re-mints harbor-token-ca and resets probes).
+      priorityClassName: adhar-node-bound
       securityContext:
         runAsUser: 999
         fsGroup: 999
@@ -2008,6 +2016,10 @@ spec:
       annotations:
         checksum/secret: 930510ccb4b0d1cee9172dff6c2978013670d1e911d90d6d9ab0b8546a9bf401
     spec:
+      # Node-bound: its volume pins it to one node (node-local default StorageClass);
+      # see data/cnpg/manifests/priorityclass.yaml. Also set in values.yaml — the
+      # generator cannot be re-run blindly (it re-mints harbor-token-ca and resets probes).
+      priorityClassName: adhar-node-bound
       securityContext:
         runAsUser: 10000
         fsGroup: 10000

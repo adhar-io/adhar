@@ -51,3 +51,87 @@ global:
 webapp:
   ingress:
     enabled: false
+
+server:
+  # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
+  # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
+  # requests it takes longer, so kubelet killed the server, worker, workload
+  # API server and launcher before they finished booting — 130+ restarts each
+  # (2026-10-05) and Airbyte never came up at all. The chart (1.9.3) has no
+  # startupProbe knob, so liveness carries the boot: 60 s + 12 × 10 s = 3 min
+  # before a kill, which a cold JVM on a saturated node fits with room.
+  # timeoutSeconds 5, never the chart's 1: a loaded node fails a healthy probe
+  # (TestNoProbeShipsAOneSecondTimeout).
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+
+worker:
+  # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
+  # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
+  # requests it takes longer, so kubelet killed the server, worker, workload
+  # API server and launcher before they finished booting — 130+ restarts each
+  # (2026-10-05) and Airbyte never came up at all. The chart (1.9.3) has no
+  # startupProbe knob, so liveness carries the boot: 60 s + 12 × 10 s = 3 min
+  # before a kill, which a cold JVM on a saturated node fits with room.
+  # timeoutSeconds 5, never the chart's 1: a loaded node fails a healthy probe
+  # (TestNoProbeShipsAOneSecondTimeout).
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+
+workload-api-server:
+  # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
+  # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
+  # requests it takes longer, so kubelet killed the server, worker, workload
+  # API server and launcher before they finished booting — 130+ restarts each
+  # (2026-10-05) and Airbyte never came up at all. The chart (1.9.3) has no
+  # startupProbe knob, so liveness carries the boot: 60 s + 12 × 10 s = 3 min
+  # before a kill, which a cold JVM on a saturated node fits with room.
+  # timeoutSeconds 5, never the chart's 1: a loaded node fails a healthy probe
+  # (TestNoProbeShipsAOneSecondTimeout).
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+
+workload-launcher:
+  # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
+  # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
+  # requests it takes longer, so kubelet killed the server, worker, workload
+  # API server and launcher before they finished booting — 130+ restarts each
+  # (2026-10-05) and Airbyte never came up at all. The chart (1.9.3) has no
+  # startupProbe knob, so liveness carries the boot: 60 s + 12 × 10 s = 3 min
+  # before a kill, which a cold JVM on a saturated node fits with room.
+  # timeoutSeconds 5, never the chart's 1: a loaded node fails a healthy probe
+  # (TestNoProbeShipsAOneSecondTimeout).
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12

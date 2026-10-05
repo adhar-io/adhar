@@ -178,14 +178,18 @@ spec:
                           valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
                         - name: GITEA_PASSWORD
                           valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                        # The payload travels as an environment variable, never spliced
+                        # into the shell string: a description with an apostrophe
+                        # ("the platform's own…") was an unterminated quote.
+                        - name: ORG_PAYLOAD
+                          value: {{ dict "username" $name "full_name" (default $name (dig "displayName" "" $p)) "description" (dig "description" "" $p) "visibility" "private" | toJson | quote }}
                       command: ["/bin/sh", "-c"]
                       args:
                         - |
                           set -e
                           AUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
                           API="http://{{ $giteaHost }}/api/v1"
-                          code=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH -X POST "$API/orgs" \
-                            -d '{"username":"{{ $name }}","full_name":{{ default $name (dig "displayName" "" $p) | quote }},"description":{{ dig "description" "" $p | quote }},"visibility":"private"}')
+                          code=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH -X POST "$API/orgs" -d "$ORG_PAYLOAD")
                           echo "org create -> $code"; cat /tmp/org 2>/dev/null || true; echo
                           case "$code" in 201|409|422) echo "gitea organisation {{ $name }} ready"; exit 0 ;; esac
                           echo "unexpected status $code"; exit 1

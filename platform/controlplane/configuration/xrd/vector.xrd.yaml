@@ -1,0 +1,187 @@
+---
+# CompositeVector — a Qdrant vector database for a team, as one object.
+#
+# RAG stores, semantic search, embeddings caches: every AI workload on the
+# platform (ADR-0024) needs somewhere to put vectors, and the platform's own
+# agents use pgvector on CNPG for that. A team that outgrows pgvector — HNSW
+# at scale, payload filtering, quantisation, a gRPC API — asks for a
+# CompositeVector and gets a Qdrant installed and configured in its namespace:
+# a generated API key (and a read-only one for dashboards and scrapers), the
+# collections it declared created with their vector size and distance, a
+# ServiceMonitor so it appears in Grafana, and a connection Secret.
+#
+# The composition (compositions/vector/qdrant.yaml) installs the upstream
+# qdrant/qdrant chart through provider-helm and configures it through
+# provider-kubernetes Objects; there is no operator to run.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositevectors.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositeVector
+    plural: compositevectors
+  defaultCompositionRef:
+    name: compositevector-qdrant
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: vector
+                      provider: kubernetes
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                      description: Human-friendly name shown in the console (defaults to the resource name).
+                    version:
+                      type: string
+                      default: v1.19.1
+                      description: Qdrant image tag. The chart version is pinned in the composition and bumped with it.
+                    replicas:
+                      type: integer
+                      minimum: 1
+                      maximum: 5
+                      default: 1
+                      description: >-
+                        Qdrant nodes. One is a single-node store; 2 or more enables Qdrant's
+                        distributed mode (Raft consensus, shard replication per collection) and a
+                        PodDisruptionBudget.
+                    storageSize:
+                      type: string
+                      default: 10Gi
+                      description: Persistent volume per node.
+                    storageClass:
+                      type: string
+                      description: >-
+                        StorageClass for the node volumes. Empty means the cluster default, which on
+                        this platform is node-local (adhar-local). Name adhar-block for a real block
+                        device.
+                    resources:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: 100m
+                        memory:
+                          type: string
+                          default: 512Mi
+                        memoryLimit:
+                          type: string
+                          default: 2Gi
+                    readOnlyKey:
+                      type: boolean
+                      default: true
+                      description: >-
+                        Also mint a read-only API key (Secret <name>-read-only-api-key). It is what
+                        the ServiceMonitor scrapes with, so metrics never carry the write key.
+                    metrics:
+                      type: boolean
+                      default: true
+                      description: Emit a ServiceMonitor for kube-prometheus.
+                    collections:
+                      type: array
+                      description: >-
+                        Collections created (idempotently) once the database is up. Existing
+                        collections are left alone — Qdrant cannot change a collection's vector size
+                        in place, so a changed entry is not applied to one that already exists.
+                      items:
+                        type: object
+                        required: [name, vectorSize]
+                        properties:
+                          name:
+                            type: string
+                            pattern: '^[a-zA-Z0-9_-]+$'
+                          vectorSize:
+                            type: integer
+                            minimum: 1
+                            description: Dimensionality of the embeddings (1536 for text-embedding-3-small, 768 for nomic-embed-text, ...).
+                          distance:
+                            type: string
+                            enum: [Cosine, Euclid, Dot, Manhattan]
+                            default: Cosine
+                          onDisk:
+                            type: boolean
+                            default: false
+                            description: Store vectors on disk instead of in RAM (slower, far larger collections).
+                          replicationFactor:
+                            type: integer
+                            minimum: 1
+                            default: 1
+                            description: Copies of each shard; only meaningful with replicas > 1.
+                    organisation:
+                      type: string
+                      default: adhar
+                      description: Owning organisation (label adhar.io/organisation).
+                    team:
+                      type: string
+                      default: platform
+                      description: Owning team (label adhar.io/team).
+                    project:
+                      type: string
+                      default: ""
+                      description: Owning project (label adhar.io/project).
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+                      description: Which of the three environments this store serves (label adhar.io/environment).
+                    deletionPolicy:
+                      type: string
+                      enum: [Delete, Orphan]
+                      default: Delete
+                      description: Orphan keeps the Helm release (and its volumes) when this object is deleted.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: Pending, Creating, Available or Failed — from the Helm release state and the collections Job.
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                releaseState:
+                  type: string
+                endpoint:
+                  type: string
+                  description: HTTP (REST) endpoint inside the cluster, port 6333.
+                grpcEndpoint:
+                  type: string
+                  description: gRPC endpoint inside the cluster, port 6334.
+                credentialsSecret:
+                  type: string
+                  description: Secret in this namespace with api-key, url, grpc-url, host and ports.
+                collections:
+                  type: array
+                  items:
+                    type: string
+                organisation:
+                  type: string
+                team:
+                  type: string
+                project:
+                  type: string
+                environment:
+                  type: string

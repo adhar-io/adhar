@@ -38,6 +38,10 @@ redis:
   image:
     repository: bitnamilegacy/redis
     tag: 6.2.7
+  master:
+    # Node-bound: its volume pins it to one node (node-local default
+    # StorageClass). See data/cnpg/manifests/priorityclass.yaml.
+    priorityClassName: adhar-node-bound
 
 # Use the platform's shared Strimzi Kafka (KRaft, no ZooKeeper) instead of the
 # chart's bundled Kafka 2.8.1 + ZooKeeper ensemble, whose Bitnami images

@@ -1,0 +1,39 @@
+# Valkey Admin — Redis Commander (MIT) as the browser admin UI over the
+# platform's Valkey caches.
+#
+# There is no Helm chart on a published index for Redis Commander (the chart in
+# its repository is not released anywhere a `helm repo add` can reach), and the
+# whole deployment is one container with a handful of environment variables,
+# so manifests/valkey-admin.yaml is written by hand and these values document
+# the choices it encodes. Keep the two in step.
+#
+# Why Redis Commander and not RedisInsight: RedisInsight is SSPL-licensed and
+# the platform ships only OSI licences (Apache-2.0 platform, BSD-3 Valkey).
+# Redis Commander is MIT, speaks plain RESP, and Valkey is RESP-compatible, so
+# every browse/edit/CLI feature works unchanged against it.
+
+image:
+  repository: ghcr.io/joeferner/redis-commander
+  # Pinned to the upstream release tag (ghcr publishes 0.9.1, 0.9, 0 and
+  # latest; the full tag is the only one that does not move).
+  tag: "0.9.1"
+
+# Connections the UI offers in its sidebar: label:host:port[:db[:password]].
+# The shared cache is unauthenticated inside the cluster (anonymousAuth in
+# data/valkey/manifests/valkey-cache.yaml), so no password travels here.
+# Caches a team composes through CompositeDatabase engine=valkey land in the
+# team's namespace and are added with the "Add server" button in the UI; they
+# are not pre-wired because their names are not known at render time.
+connections:
+  - label: adhar-cache
+    host: adhar-cache.adhar-system.svc.cluster.local
+    port: 6379
+
+# The UI itself has no users. Keycloak SSO (manifests/sso.yaml, oauth2-proxy
+# in front) is the only way in; the Service is ClusterIP and the HTTPRoute
+# points at the proxy, never at the app.
+server:
+  port: 8081
+  # Read-only off: this is an ADMIN console — platform operators use it to
+  # inspect and flush keys. Flip READ_ONLY to "true" to make it a viewer.
+  readOnly: false
