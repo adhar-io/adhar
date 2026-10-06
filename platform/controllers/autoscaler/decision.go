@@ -83,6 +83,42 @@ var capacityShortageMarkers = []string{
 	"exceed max volume count",
 }
 
+// antiAffinityMarker is the scheduler's wording when a pod cannot be placed
+// because another member of its own group already occupies every candidate.
+//
+// It is NOT in capacityShortageMarkers, because whether a new worker fixes it
+// depends on the topology key: a fresh host satisfies hostname anti-affinity
+// (it hosts none of the group yet) and does nothing at all for zone
+// anti-affinity, since new workers join the existing zones. So the marker is
+// paired with hostAntiAffinityOnly below.
+//
+// Without it an HA workload sits Pending forever on an under-sized cluster with
+// the autoscaler idle and room to grow. Measured on a live Civo bring-up
+// (2026-10-06): production mode installs Argo CD HA, whose Redis wants three
+// replicas with REQUIRED anti-affinity on kubernetes.io/hostname, the shipped
+// config provisions two workers, and the control plane is tainted — so
+// argo-cd-redis-ha-server-2 and its haproxy stayed unschedulable with
+// maxWorkers=5 and nothing to stop the autoscaler adding the third host.
+const antiAffinityMarker = "didn't match pod anti-affinity rules"
+
+// hostAntiAffinityOnly reports whether every REQUIRED pod anti-affinity term
+// spreads over kubernetes.io/hostname. Only then is "add a host" the remedy.
+func hostAntiAffinityOnly(p corev1.Pod) bool {
+	if p.Spec.Affinity == nil || p.Spec.Affinity.PodAntiAffinity == nil {
+		return false
+	}
+	terms := p.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	if len(terms) == 0 {
+		return false
+	}
+	for _, t := range terms {
+		if t.TopologyKey != corev1.LabelHostname {
+			return false
+		}
+	}
+	return true
+}
+
 // Snapshot is everything a decision is made from. It is a plain value so the
 // policy can be exercised without a cluster.
 type Snapshot struct {
@@ -335,7 +371,15 @@ func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node) []string {
 			continue
 		}
 		msg, ok := unschedulableMessage(p)
-		if !ok || !mentionsCapacityShortage(msg) {
+		if !ok {
+			continue
+		}
+		// Either a straight shortage, or a hostname spread that one more host
+		// satisfies. Anything else (a zone conflict, an unbound volume) is not
+		// something another identical worker can solve.
+		hostSpread := strings.Contains(strings.ToLower(msg), antiAffinityMarker) && hostAntiAffinityOnly(p)
+		fixableByANewWorker := mentionsCapacityShortage(msg) || hostSpread
+		if !fixableByANewWorker {
 			continue
 		}
 		// A pod pinned to labels no current worker carries will not fit the

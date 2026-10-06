@@ -520,3 +520,57 @@ func TestWithoutTaintKeepsOtherTaints(t *testing.T) {
 		t.Fatalf("expected the other taint to survive, got %v", got)
 	}
 }
+
+// An HA workload that cannot place its last replica is waiting for a HOST, and
+// the autoscaler is the thing that can give it one.
+//
+// Measured on a live Civo bring-up (2026-10-06): production mode installs Argo
+// CD HA, whose Redis StatefulSet wants three replicas with REQUIRED anti-affinity
+// on kubernetes.io/hostname; the config provisions two workers and the control
+// plane is tainted. argo-cd-redis-ha-server-2 and its haproxy therefore stayed
+// Pending indefinitely while maxWorkers was 5 and the autoscaler reported
+// nothing to do, because "didn't match pod anti-affinity rules" was not a
+// reason it recognised.
+//
+// It must stay precise: a new worker joins the EXISTING zones, so a zone spread
+// is not something scaling fixes and must not trigger one.
+func TestAntiAffinityPendingCountsOnlyWhenAHostWouldFixIt(t *testing.T) {
+	const msg = "0/3 nodes are available: 1 node(s) had untolerated taint(s), " +
+		"2 node(s) didn't match pod anti-affinity rules."
+
+	withAntiAffinity := func(name, topologyKey string) corev1.Pod {
+		p := pending(name, msg)
+		p.Spec.Affinity = &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				TopologyKey: topologyKey,
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app": name},
+				},
+			}},
+		}}
+		return p
+	}
+
+	workers := []corev1.Node{worker("w1"), worker("w2")}
+
+	cases := []struct {
+		name string
+		pod  corev1.Pod
+		want bool
+	}{
+		{"hostname spread — another host is exactly the fix", withAntiAffinity("redis-ha-2", corev1.LabelHostname), true},
+		{"zone spread — a new worker joins the same zones", withAntiAffinity("spread-z", "topology.kubernetes.io/zone"), false},
+		{"the message without any required anti-affinity", pending("no-affinity", msg), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pendingForCapacity([]corev1.Pod{tc.pod}, workers)
+			if tc.want && len(got) == 0 {
+				t.Errorf("pod stays Pending forever: the autoscaler does not count it, so it never adds the host that would place it")
+			}
+			if !tc.want && len(got) != 0 {
+				t.Errorf("counted %v, but a new worker cannot satisfy that constraint — scaling would burn money for nothing", got)
+			}
+		})
+	}
+}

@@ -79,10 +79,10 @@ unit-tested where it is pure; **live** means it ran on that cloud:
 | Scale up: fresh join token, prep, join (`ScaleNodeGroup`) | ✅ live | ✅ built (was a stub returning `nil`) | ✅ built (was a stub that only logged) | ✅ built (was a stub) | ✅ built (reached the managed node-pool API) |
 | Scale down: drain + delete Node, then delete the instance | ✅ live | ✅ built (terminated without draining before) | ✅ built | ✅ built | ✅ built |
 | `GetNodeGroup` / `ListNodeGroups` report real members | ✅ | ✅ (by tag) | ✅ (by VM prefix) | ✅ (by instance prefix) | managed pools only |
-| Cloud-controller-manager (`--cloud-provider=external`) | ✅ DO CCM | ✅ built (`aws-cloud-controller-manager` chart) | ✅ built (`cloud-provider-azure` chart) | ✅ built (`cloud-provider-gcp` manifest) | ✅ built (Civo CCM manifest) |
-| CSI driver + block StorageClass (not default) | ✅ DO CSI | ✅ built (EBS CSI chart, `adhar-block` gp3) | ✅ Azure Disk CSI chart, `adhar-block` StandardSSD | ✅ built (PD CSI kustomize, `adhar-block` pd-balanced) | ✅ built (Civo CSI kustomize, `civo-volume`) |
+| Cloud-controller-manager (`--cloud-provider=external`) | ✅ DO CCM | ✅ built (`aws-cloud-controller-manager` chart) | ✅ built (`cloud-provider-azure` chart) | ✅ built (`cloud-provider-gcp` manifest) | ⛔ **none in compute mode, by design** — the Civo CCM resolves `CIVO_CLUSTER_ID` against the MANAGED Kubernetes API, which a kubeadm cluster on plain instances does not have, so it nil-panics and never clears `node.cloudprovider.kubernetes.io/uninitialized`. `clusterMode: k3s` is where it works |
+| CSI driver + block StorageClass (not default) | ✅ DO CSI | ✅ built (EBS CSI chart, `adhar-block` gp3) | ✅ Azure Disk CSI chart, `adhar-block` StandardSSD | ✅ built (PD CSI kustomize, `adhar-block` pd-balanced) | ⛔ **none in compute mode** — the Civo CSI plugin needs `.spec.providerID`, which only the CCM sets. Node-local `adhar-local` is the only StorageClass; block storage needs `clusterMode: k3s` |
 | Default StorageClass `adhar-local` (node-local, no attach limit) | ✅ | ✅ built | ✅ live-verified | ✅ built | ✅ built |
-| CSI startup taint (`node.adhar.io/csi-not-ready`, lifted by the autoscaler; CSI node DaemonSet tolerates it) | ✅ live | ✅ built | ✅ built | ✅ built | ✅ built |
+| CSI startup taint (`node.adhar.io/csi-not-ready`, lifted by the autoscaler; CSI node DaemonSet tolerates it) | ✅ live | ✅ built | ✅ built | ✅ built | ⛔ **not requested in compute mode** — with no CSI driver to register a CSINode, the only way out is the autoscaler's 10-minute `startupTaintMaxWait`, so asking for it cost every bring-up a flat ten minutes of unschedulable workers (fixed 2026-10-06) |
 | Node autoscaler (needs the two rows above) | ✅ live | built, unverified | built, unverified | built, unverified | built, unverified |
 | Nodes pull kpack-built images from the in-cluster Harbor (containerd certs.d) | ✅ live | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep |
 | Upgrade (`adhar upgrade`, control plane then workers — shared `KubeadmUpgradeCluster`) | ✅ live | ✅ built | ✅ built | ✅ built | ✅ built |
@@ -151,8 +151,14 @@ watch on that run:
   `gke-gcloud-auth-plugin` on PATH. GKE and EKS ship their own CNI/kube-proxy;
   the platform bootstrap installing Cilium on those managed planes is the
   least-verified part of managed mode.
-- **Civo**: CCM + CSI read the API key from kube-system/`civo-api-access`; the
-  CSI manifest ships `civo-volume`, which is marked default.
+- **Civo**: compute mode installs NEITHER the CCM nor the CSI driver — see the
+  two rows above and `civoComputeHasExternalCCM` in `platform/providers/civo/compute.go`.
+  It writes kube-system/`civo-api-access` (API key, region, cluster id) for
+  anything in-cluster that wants to call Civo, and makes node-local `adhar-local`
+  the default StorageClass. The pinned CCM/CSI manifest URLs were removed on
+  2026-10-06: nothing applied them, and their presence read as "this provider
+  installs a CCM" to both humans and
+  `TestProvidersEnableTheExternalCCMOnEveryJoinPath`.
 
 The teardown and quota rows above came out of the GCP bring-up, where each was a
 real bill or a real half-built cluster before it was code: a load balancer and 41
@@ -461,7 +467,7 @@ round and the platform subdomain stops resolving for the propagation window.
 | `gcp` | Cloud DNS | ✅ | `serviceAccountKey`/`serviceAccountKeyFile` **and** `projectId`. ADC alone provisions fine but fails here |
 | `azure` | Azure DNS | ✅ | `clientId`, `clientSecret`, `tenantId`, `config.subscriptionId`, `config.dnsResourceGroup` |
 | `cloudflare` | Cloudflare | ✅ | `config.cloudflareApiToken` (or `CLOUDFLARE_API_TOKEN`) |
-| `civo` | Civo DNS | ❌ records only | `providers.civo.token`. cert-manager has no Civo solver, so the platform keeps its self-signed certificate — use `dnsProvider: cloudflare` for the zone if you need a trusted one |
+| `civo` | Civo DNS | ✅ via webhook solver | `providers.civo.token`. cert-manager has no native Civo solver, so the cert-manager package renders one (`civo-dns-webhook.yaml.tmpl`, okteto/cert-manager-webhook-civo) and a `civo` branch of `adhar-letsencrypt-dns`, applied only when `dnsProvider: civo`. DNS-01 needs no public A record, so this works even in compute mode where there is no cloud load balancer |
 | `none` / omitted | — | ❌ | none. Self-signed certificate, no DNS automation |
 
 ### Skipping it is supported

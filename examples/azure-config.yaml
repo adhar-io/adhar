@@ -249,7 +249,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 3
+      maxWorkers: 5
 
   test:
     isolation: namespace
@@ -269,7 +269,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 3
+      maxWorkers: 5
 
   prod:
     isolation: namespace
@@ -289,4 +289,4 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 4
+      maxWorkers: 5

@@ -331,9 +331,18 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
 
-	// External cloud provider: the kubelet defers node initialisation to the
-	// Civo cloud-controller-manager installed right after the joins.
-	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, master.PublicIP, master.PrivateIP, true, false); err != nil {
+	// NO cloud provider, and therefore no CSI startup taint — the same answer the
+	// workers get, from the same constant. This passed a hardcoded `true` while
+	// civoComputeHasExternalCCM three hundred lines up said false and
+	// cloud_integration.go installed no CCM, so the control plane registered with
+	// node.cloudprovider.kubernetes.io/uninitialized:NoSchedule and kept it: that
+	// taint is lifted by a cloud-controller-manager and by nothing else. Measured
+	// on a live mum1 bring-up (2026-10-06) — the master sat unschedulable, CoreDNS
+	// and the platform's own namespace stayed Pending, and `adhar up` never got
+	// past Cilium. The comment this replaces promised "the Civo
+	// cloud-controller-manager installed right after the joins", which stopped
+	// being true when compute mode dropped the CCM.
+	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, master.PublicIP, master.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM); err != nil {
 		return nil, fmt.Errorf("control plane %s: %w", master.Hostname, err)
 	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, master.PublicIP, master.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
@@ -350,7 +359,11 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, instance.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", instance.Hostname, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, civoComputeHasExternalCCM, true); err != nil {
+		// Both flags from the one constant: the CSI startup taint is only ever
+		// lifted through a CSINode, a CSINode needs .spec.providerID, and that
+		// needs the CCM compute mode does not run. Requesting it anyway left both
+		// workers Ready and permanently empty.
+		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", instance.Hostname, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, instance.PublicIP, joinCmd); err != nil {
@@ -475,6 +488,17 @@ func (p *Provider) computeClusterFromInstances(clusterName string, instances []c
 		Endpoint:  endpoint,
 		CreatedAt: created,
 		UpdatedAt: time.Now(),
+		// Ownership, so the teardown's guard actually guards something. Every
+		// instance here was found by its `adhar-cluster-<name>` tag, which only
+		// this provider writes — that IS the proof Adhar built the cluster. Not
+		// surfacing it as the tag the CLI reads (helpers.IsAdharManaged looks for
+		// adhar.io/managed-by) left `adhar down` printing
+		//
+		//   ! cluster is not tagged adhar.io/managed-by=adhar; deleting anyway
+		//
+		// on every Civo teardown, which trains the operator to ignore the one
+		// warning that is supposed to stop them deleting somebody else's cluster.
+		Tags: map[string]string{"adhar.io/managed-by": "adhar"},
 		Metadata: map[string]interface{}{
 			"mode":        "compute",
 			"workerNodes": workers,
@@ -739,17 +763,16 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 			if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, inst.PublicIP, 15*time.Minute); err != nil {
 				return fmt.Errorf("new worker %s not ready: %w", host, err)
 			}
-			// Both flags true, matching the create path above. The comment this
-			// replaces said no cloud-controller-manager or CSI driver was installed
-			// on Civo compute clusters — but cloud_integration.go installs the Civo
-			// CCM (civoCCMManifestURL) and the Civo CSI driver (civoCSIRef), and the
-			// create path has always passed true. The stale comment left scaled
-			// workers without --cloud-provider=external, which is the same silent
-			// chain that stranded autoscaled AWS nodes: no CCM initialisation, so no
-			// .spec.providerID, so the CSI node plugin cannot identify its instance
-			// and publishes no CSINode, so node.adhar.io/csi-not-ready is never
-			// lifted and the node stays Ready and completely empty.
-			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, civoComputeHasExternalCCM, true); err != nil {
+			// Both flags from the one constant, matching the create path. The
+			// chain this protects against is real but points the other way in
+			// compute mode: no CCM means no .spec.providerID, which means the CSI
+			// node plugin cannot identify its instance and publishes no CSINode,
+			// which means node.adhar.io/csi-not-ready is never lifted and the node
+			// stays Ready and completely empty. So compute mode asks for neither.
+			// An earlier comment here justified `true` by saying
+			// cloud_integration.go installs the Civo CCM and CSI — it did once, and
+			// stopped (see civoComputeHasExternalCCM); the argument outlived the code.
+			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM); err != nil {
 				return fmt.Errorf("new worker %s: %w", host, err)
 			}
 			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, inst.PublicIP, joinCmd); err != nil {

@@ -268,6 +268,46 @@ func quotaShortfall(q *civogo.Quota, nodes, cpu, ramMB, diskGB int) []string {
 	return out
 }
 
+// Minimum shape the platform's own control plane needs on Civo. Measured, not
+// guessed: a g3.medium (2 vCPU, 4096 MB) control plane carried kubeadm, etcd and
+// the API server through the bootstrap and then became UNREACHABLE — both the
+// API and SSH stopped answering, while Civo still reported the instance ACTIVE —
+// once Argo CD began reconciling the production profile's 76 applications across
+// 85+ pods on a live mum1 bring-up (2026-10-06). The workers were idle at the
+// time; it is the control plane that runs out, and it is RAM first: etcd plus the
+// API server's watch cache on 4 GB with that many watchers thrashes.
+//
+// g3.large (4 vCPU, 8192 MB) is the smallest size with room for it. Azure's
+// control plane, for comparison, runs 2 vCPU with 16 GB.
+const (
+	civoControlPlaneMinCPU   = 4
+	civoControlPlaneMinRAMMB = 8192
+)
+
+// controlPlaneSizeAdvice returns a warning when the chosen control-plane size is
+// below what the platform needs, and "" when it is fine or unknown.
+//
+// A WARNING rather than a refusal, for the same reason the load-balancer quota
+// is not checked above: how much control plane is enough depends on how many
+// packages the profile enables, and a trimmed profile fits on less. The operator
+// gets the numbers before any instance is billed, which is the part that was
+// missing.
+func controlPlaneSizeAdvice(size string, cpu, ramMB int) string {
+	// 0,0 means the size was not found in the region — sizeShape already warned,
+	// and guessing from a name would be worse than saying nothing.
+	if cpu == 0 && ramMB == 0 {
+		return ""
+	}
+	if cpu >= civoControlPlaneMinCPU && ramMB >= civoControlPlaneMinRAMMB {
+		return ""
+	}
+	return fmt.Sprintf("control plane %s has %d vCPU and %d MB RAM; the platform's control plane "+
+		"wants at least %d vCPU and %d MB (g3.large). A smaller one bootstraps and then stops "+
+		"answering once Argo CD reconciles the full profile. Set controlPlaneMachineType to g3.large "+
+		"or larger, or enable fewer packages.",
+		size, cpu, ramMB, civoControlPlaneMinCPU, civoControlPlaneMinRAMMB)
+}
+
 // checkQuota fails a create before it starts when the account cannot hold the
 // cluster. A quota the API will not report is not a reason to refuse: it logs and
 // proceeds, so a token without quota access still works.
@@ -285,6 +325,15 @@ func (p *Provider) checkQuota(plan []string) error {
 		c, r, d := p.sizeShape(size)
 		cpu, ram, disk = cpu+c, ram+r, disk+d
 	}
+	// plannedInstanceSizes puts the control plane first, which is the one node
+	// whose size decides whether the cluster stays reachable.
+	if len(plan) > 0 {
+		c, r, _ := p.sizeShape(plan[0])
+		if advice := controlPlaneSizeAdvice(plan[0], c, r); advice != "" {
+			log.Printf("Warning: %s", advice)
+		}
+	}
+
 	shortfalls := quotaShortfall(q, len(plan), cpu, ram, disk)
 	summary := strings.Join(plan, " + ")
 	if len(shortfalls) == 0 {

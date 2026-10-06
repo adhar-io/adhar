@@ -3,6 +3,8 @@ package civo
 import (
 	"strings"
 	"testing"
+
+	"github.com/civo/civogo"
 )
 
 // Civo COMPUTE mode installs neither the Civo cloud-controller-manager nor the
@@ -92,5 +94,83 @@ func TestCCMSecretCarriesTheTokenHoweverItWasSupplied(t *testing.T) {
 				t.Error("the api-key is empty")
 			}
 		})
+	}
+}
+
+// Instance sizes the Civo tests name repeatedly.
+const (
+	sizeMedium = "g3.medium"
+	sizeLarge  = "g3.large"
+	sizeXLarge = "g3.xlarge"
+
+	// The default worker node-group name.
+	groupWorkers = "workers"
+
+	// Civo's instance status for a running machine.
+	statusActive = "ACTIVE"
+)
+
+// A control plane too small to stay reachable is worth saying out loud BEFORE
+// the instances are billed. The numbers come from a live mum1 bring-up where a
+// g3.medium control plane bootstrapped and then stopped answering its API and
+// SSH entirely under the production profile's reconcile load.
+func TestControlPlaneSizeAdviceWarnsBeforeTheInstancesExist(t *testing.T) {
+	cases := []struct {
+		name     string
+		size     string
+		cpu, ram int
+		warn     bool
+	}{
+		{"the size that wedged a live cluster", sizeMedium, 2, 4096, true},
+		{"enough CPU but half the RAM", "custom", 4, 4096, true},
+		{"enough RAM but half the CPU", "custom", 2, 8192, true},
+		{"the smallest size that fits", sizeLarge, 4, 8192, false},
+		{"comfortably larger", sizeXLarge, 6, 16384, false},
+		// sizeShape returns 0,0,0 for a size the region does not list and warns
+		// about that itself; inventing a shape from the name would be worse.
+		{"unknown size", "g9.enormous", 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := controlPlaneSizeAdvice(tc.size, tc.cpu, tc.ram)
+			if tc.warn && got == "" {
+				t.Errorf("%s (%d vCPU, %d MB) should warn: it is below the platform's control-plane minimum",
+					tc.size, tc.cpu, tc.ram)
+			}
+			if !tc.warn && got != "" {
+				t.Errorf("%s (%d vCPU, %d MB) should not warn, got %q", tc.size, tc.cpu, tc.ram, got)
+			}
+			// A warning has to be actionable: name the size and the way out.
+			if tc.warn && got != "" {
+				for _, want := range []string{tc.size, sizeLarge, "controlPlaneMachineType"} {
+					if !strings.Contains(got, want) {
+						t.Errorf("the warning does not mention %q: %s", want, got)
+					}
+				}
+			}
+		})
+	}
+}
+
+// `adhar down` refuses to treat an untagged cluster as Adhar's own without
+// saying so, and that warning is only useful if it stays quiet for clusters we
+// did build. Civo compute clusters are identified by an `adhar-cluster-<name>`
+// instance tag that nothing else writes, so the cluster object must report the
+// ownership tag the CLI actually reads (cmd/helpers.IsAdharManaged).
+func TestComputeClusterReportsAdharOwnership(t *testing.T) {
+	p := &Provider{config: &Config{Region: "mum1"}}
+	c := p.computeClusterFromInstances("adhar", []civogo.Instance{
+		{Hostname: "adhar-adhar-master-1", Status: statusActive, PublicIP: "203.0.113.10",
+			Tags: []string{computeClusterTag("adhar"), computeMasterTag}},
+		{Hostname: "adhar-adhar-workers-1", Status: statusActive,
+			Tags: []string{computeClusterTag("adhar"), computeWorkerTag}},
+	})
+	if c == nil {
+		t.Fatal("no cluster built")
+		return
+	}
+	if got := c.Tags["adhar.io/managed-by"]; got != "adhar" {
+		t.Errorf("adhar.io/managed-by = %q, want \"adhar\" — `adhar down` would warn that a cluster "+
+			"Adhar created is not Adhar-managed, on every teardown", got)
 	}
 }

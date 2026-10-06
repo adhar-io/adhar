@@ -133,7 +133,7 @@ spec:
       serviceAccountName: plane-instance-setup
       containers:
         - name: setup
-          image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
+          image: ghcr.io/adhar-io/plane-backend:1.4.2-1
           envFrom:
             - configMapRef: {name: plane-app-vars}
             - secretRef: {name: plane-app-secrets}

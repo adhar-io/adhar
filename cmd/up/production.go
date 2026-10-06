@@ -19,15 +19,16 @@ package up
 import (
 	"context"
 	"fmt"
+	"os"
+	"sort"
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	applyconfigcorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"os"
-	"sort"
-	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
@@ -227,10 +228,9 @@ func printSharedClusterPlan(cfg *config.Config, nsEnvs []string, sharedEnv strin
 	if isLocalProviderEnv(cfg, sharedEnv) {
 		return
 	}
-	fmt.Printf("  %s Building ONE cluster; %s become namespaces on it.\n",
+	fmt.Printf("  %s Building ONE cluster; %s environments as namespaces on it.\n",
 		helpers.InfoStyle.Render("▸"), strings.Join(nsEnvs, ", "))
-	fmt.Printf("     To give an environment its own cluster instead, set `isolation: cluster`\n")
-	fmt.Printf("     on it in the config.\n\n")
+	fmt.Printf("    To give an environment its own cluster, set `isolation: cluster` in configuration.\n\n")
 }
 
 // isLocalProviderEnv reports whether the environment runs on the local (Kind)

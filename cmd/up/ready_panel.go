@@ -40,9 +40,18 @@ func renderCloudReadyPanel(host, clusterName string) string {
 		{"Context", "kubectl config use-context " + KubeContextName(clusterName)},
 		{"Teardown", "adhar down -f <config> --env <env>"},
 	}
-	// Leading newline so the panel is not flush against whatever printed above it
-	// (a summary box, or the blocker warning).
-	return "\n" + helpers.RenderReadyPanel(access, hints)
+	// NO leading newline. The stage checklist deliberately leaves no gap before
+	// this panel (see StageTracker.Finish: "the checklist and its result read as
+	// one list"), so adding one here put a blank line between
+	//
+	//   ✓  GitOps sync - platform stack  18m03s
+	//   ✓  Platform ready
+	//
+	// and split one list in two. The local path has always rendered it flush
+	// (local.go calls helpers.RenderReadyPanel directly); this is now the same.
+	// The two things that DO want separation provide it themselves: the blocker
+	// warning ends with a blank line, and the summary box has its own border.
+	return helpers.RenderReadyPanel(access, hints)
 }
 
 // lower is ASCII-only on purpose: these are fixed app names, and

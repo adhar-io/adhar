@@ -152,7 +152,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 3
+      maxWorkers: 5
 
   test:
     isolation: namespace
@@ -170,7 +170,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 3
+      maxWorkers: 5
 
   prod:
     isolation: namespace
@@ -188,7 +188,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 3
-      maxWorkers: 7
+      maxWorkers: 5
 
 # ---------------------------------------------------------------------------
 # Agentic capabilities (Adhar AI)

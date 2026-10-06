@@ -10,45 +10,29 @@ import (
 	"adhar-io/adhar/globals"
 )
 
-// Cloud integration for a self-managed (kubeadm on Civo instances) cluster:
-// the Civo cloud-controller-manager, the Civo CSI driver (its manifest ships
-// the `civo-volume` StorageClass), the default-class mark and the
-// CSI-startup-taint toleration. Both read the API key from
-// kube-system/civo-api-access. Pinned; bump with a bring-up.
-// Both refs were stale and BOTH 404ed on the first live Civo bring-up
-// (2026-10-02), which is what "built and unit-tested but never run" looks like:
-// the CCM was pinned to v0.0.24 when upstream's tags are v0.1.x, and its manifest
-// had also moved from manifest/cloud-controller-manager.yaml to
-// doc/yaml/ccm-install.yaml; the CSI was pinned to v0.2.0 when upstream is on
-// v0.10.x. The resource names the steps below wait on — StorageClass civo-volume,
-// DaemonSet civo-csi-node — were re-checked at these tags and are unchanged.
+// Cloud integration for a self-managed (kubeadm on Civo instances) cluster.
 //
-// Verify a bump by fetching the URL and diffing the names, not by assuming the
-// path survived: a 404 here fails the create AFTER the instances exist and bill.
-const (
-	civoCCMManifestURL = "https://raw.githubusercontent.com/civo/civo-cloud-controller-manager/v0.1.9/doc/yaml/ccm-install.yaml"
-	civoCSIRef         = "github.com/civo/civo-csi/deploy/kubernetes?ref=v0.10.7"
-	civoAPIURL         = "https://api.civo.com"
-
-	// The Civo CSI kustomization declares a VolumeSnapshotClass but does NOT ship
-	// the CRDs that define one, so applying it on a fresh cluster fails with
-	//
-	//   no matches for kind "VolumeSnapshotClass" in version
-	//   "snapshot.storage.k8s.io/v1" (ensure CRDs are installed first)
-	//
-	// and takes the whole create down after the instances exist. The CRDs belong to
-	// external-snapshotter, which every CSI driver expects the cluster to provide;
-	// DigitalOcean's integration installs its own equivalent "CSI CRDs" step for
-	// the same reason. Applied BEFORE the CSI step below.
-	csiSnapshotCRDBase = "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd"
-)
-
-// csiSnapshotCRDs are the three CRDs a CSI driver's snapshot support needs.
-var csiSnapshotCRDs = []string{
-	"snapshot.storage.k8s.io_volumesnapshotclasses.yaml",
-	"snapshot.storage.k8s.io_volumesnapshotcontents.yaml",
-	"snapshot.storage.k8s.io_volumesnapshots.yaml",
-}
+// It is deliberately SHORT: a Civo API secret for anything in-cluster that wants
+// it, and the node-local StorageClass. No cloud-controller-manager and no Civo
+// block-storage CSI — see civoComputeHasExternalCCM in compute.go for why
+// claiming an external cloud provider you cannot supply strands every node.
+//
+// The CCM manifest URL, the CSI kustomize ref and the external-snapshotter CRD
+// list used to live here as constants. They are gone rather than kept "for
+// reference": nothing applied them any more, yet their presence told both the
+// reader and TestProvidersEnableTheExternalCCMOnEveryJoinPath that this provider
+// installs a CCM — which is exactly the premise that left a live mum1 cluster
+// with a permanently tainted control plane while the test stayed green
+// (2026-10-06). `clusterMode: k3s`, Civo's managed service, is the path where a
+// CCM, cloud LoadBalancers and block storage all work, and it brings its own.
+//
+// The URL-rot lesson those pins taught is still worth keeping: both of them
+// 404ed on the first live bring-up (the CCM pinned v0.0.24 against upstream
+// v0.1.x and moved path; the CSI pinned v0.2.0 against v0.10.x), which fails a
+// create AFTER the instances exist and bill. Any manifest URL added back here
+// must be verified by FETCHING it, and is covered by
+// TestPinnedUpstreamRefsStillResolve.
+const civoAPIURL = "https://api.civo.com"
 
 func (p *Provider) cloudIntegrationSteps(clusterName, clusterID string) []provider.IntegrationStep {
 	return append([]provider.IntegrationStep{

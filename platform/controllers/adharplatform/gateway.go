@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"strings"
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -38,6 +39,8 @@ const (
 	// Fixed node ports so the Kind static host port-mapping (8080/8443 ->
 	// 30080/30443) keeps working. CiliumGatewayClassConfig can select NodePort
 	// service type but cannot pin port numbers, so the controller patches them.
+	// The in-cluster name of the Gateway Service, used by the CoreDNS rewrite.
+	gatewayServiceFQDN   = "cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local"
 	gatewayHTTPNodePort  = 30080
 	gatewayHTTPSNodePort = 30443
 	// The 8443 listener is pinned to the SAME node port number so that, on the
@@ -137,6 +140,20 @@ func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl
 		if err := r.pinGatewayNodePorts(ctx); err != nil {
 			logger.Info("Gateway Service node ports not pinned yet; will retry on the next reconcile", "error", err)
 			return ctrl.Result{}, nil
+		}
+	}
+
+	// A cloud cluster whose gateway Service never gets a LoadBalancer address
+	// cannot resolve its own hostnames, and that breaks the platform from the
+	// INSIDE: every oauth2-proxy does OIDC Discovery against
+	// https://keycloak.<host>/... at startup and exits when the lookup fails.
+	// Measured on a live Civo compute bring-up (2026-10-06) — twenty-odd SSO
+	// proxies in CrashLoopBackOff with `no such host`, their applications
+	// Degraded, on an otherwise healthy platform. Non-fatal: it is a
+	// reachability improvement, not a prerequisite for the core install.
+	if !isKind {
+		if err := r.ensureGatewayHostResolves(ctx); err != nil {
+			logger.Info("Could not point CoreDNS at the gateway; platform hostnames may not resolve in-cluster", "error", err)
 		}
 	}
 
@@ -271,4 +288,78 @@ func setGatewayNodePorts(svc *corev1.Service) {
 			svc.Spec.Ports[idx].NodePort = gatewayAltHTTPSNodePort
 		}
 	}
+}
+
+// insertGatewayRewrite adds a CoreDNS `rewrite` that resolves `*.<host>` to the
+// Cilium Gateway Service, returning the new Corefile and whether it changed.
+//
+// It is a pure function so the Corefile surgery can be tested without a
+// cluster: a malformed Corefile takes DNS down for everything.
+//
+// The rewrite goes immediately BEFORE `forward`, because `rewrite stop` has to
+// be evaluated before the query leaves for the upstream resolver. CoreDNS's own
+// `reload` directive picks the ConfigMap change up within ~30s, so nothing has
+// to restart it.
+func insertGatewayRewrite(corefile, host string) (string, bool) {
+	if host == "" || strings.Contains(corefile, gatewayServiceFQDN) {
+		return corefile, false
+	}
+	const forwardPrefix = "forward . /etc/resolv.conf"
+	lines := strings.Split(corefile, "\n")
+	for i, l := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(l), forwardPrefix) {
+			continue
+		}
+		indent := l[:len(l)-len(strings.TrimLeft(l, " \t"))]
+		block := []string{
+			indent + "rewrite stop {",
+			indent + "    name regex (.*)\\." + strings.ReplaceAll(host, ".", "\\.") + " " + gatewayServiceFQDN + " answer auto",
+			indent + "}",
+		}
+		out := append([]string{}, lines[:i]...)
+		out = append(out, block...)
+		out = append(out, lines[i:]...)
+		return strings.Join(out, "\n"), true
+	}
+	// No forward directive: appending a rewrite to an unknown layout risks
+	// breaking resolution, so leave it alone and say nothing changed.
+	return corefile, false
+}
+
+// ensureGatewayHostResolves points CoreDNS at the Gateway Service when nothing
+// else will resolve the platform's hostnames.
+//
+// It does NOTHING when the gateway Service already has a LoadBalancer address:
+// there, external-dns publishes a record and the public name resolves. It is
+// the no-CCM case (Civo compute mode) that needs this, where the Service stays
+// <pending> forever.
+func (r *AdharPlatformReconciler) ensureGatewayHostResolves(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+
+	var svc corev1.Service
+	if err := r.Get(ctx, types.NamespacedName{Name: gatewayServiceName, Namespace: globals.AdharSystemNamespace}, &svc); err != nil {
+		return fmt.Errorf("reading the gateway Service: %w", err)
+	}
+	for _, ing := range svc.Status.LoadBalancer.Ingress {
+		if ing.IP != "" || ing.Hostname != "" {
+			return nil // a real address exists; public DNS is the path
+		}
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cm corev1.ConfigMap
+		if err := r.Get(ctx, types.NamespacedName{Name: "coredns", Namespace: "kube-system"}, &cm); err != nil {
+			return err
+		}
+		updated, changed := insertGatewayRewrite(cm.Data["Corefile"], r.Config.Host)
+		if !changed {
+			return nil
+		}
+		cm.Data["Corefile"] = updated
+		if err := r.Update(ctx, &cm); err != nil {
+			return err
+		}
+		logger.Info("CoreDNS now resolves the platform hostnames to the gateway", "host", r.Config.Host)
+		return nil
+	})
 }

@@ -443,7 +443,7 @@ spec:
       containers:
       - name: plane-api
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-1
         stdin: true
         tty: true
         resources:
@@ -510,7 +510,7 @@ spec:
       containers:
       - name: plane-beat-worker
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-1
         stdin: true
         tty: true
         resources:
@@ -713,7 +713,7 @@ spec:
       containers:
       - name: plane-worker
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-1
         stdin: true
         tty: true
         resources:
@@ -1011,7 +1011,7 @@ spec:
     spec:
       containers:
       - name: plane-api-migrate
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-1
         command: 
           - ./bin/docker-entrypoint-migrator.sh
         imagePullPolicy: Always

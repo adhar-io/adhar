@@ -70,3 +70,27 @@ for pattern, replacement in subs.items():
 open(path, 'w').write(src)
 print(f"pinned {total} MinIO image reference(s) to quay.io")
 PYEOF
+
+# Use the platform's OWN plane-backend build, not the upstream one.
+#
+# adhar-io/plane is the fork the platform's Plane changes live in, and its CI
+# publishes ghcr.io/adhar-io/plane-backend. The tag is the upstream line plus a
+# build number (1.4.2-1 for v1.4.2), so it cannot come from the chart's
+# `planeVersion` value — that one tag is shared by frontend, space, admin and
+# live, which are NOT republished under adhar-io and must keep pointing at
+# artifacts.plane.so. Hence a rewrite here rather than a values override, the
+# same reason the MinIO images above are rewritten.
+#
+# Verified public and multi-arch (linux/amd64 + linux/arm64) before pinning:
+#   curl -H "Authorization: Bearer $(ghcr token)" \
+#     https://ghcr.io/v2/adhar-io/plane-backend/manifests/1.4.2-1
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import re, sys
+
+path = sys.argv[1]
+src = open(path).read()
+src, n = re.subn(r'artifacts\.plane\.so/makeplane/plane-backend:\S+',
+                 'ghcr.io/adhar-io/plane-backend:1.4.2-1', src)
+open(path, 'w').write(src)
+print(f"pointed {n} plane-backend reference(s) at ghcr.io/adhar-io")
+PYEOF

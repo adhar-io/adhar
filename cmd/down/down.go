@@ -618,7 +618,7 @@ func teardown(sub chan tea.Msg) {
 
 	// Step 4: Clean up leftover files
 	emit(logger.StatusMsg("Removing leftover kubeconfig files..."))
-	removed := cleanupFiles()
+	removed := cleanupFiles(clusterNames...)
 	if len(removed) == 0 {
 		detail("→ No leftover kubeconfig files to remove")
 	} else {
@@ -634,7 +634,17 @@ func teardown(sub chan tea.Msg) {
 
 // cleanupFiles removes any leftover kubeconfig files generated during 'up' and
 // returns the paths it removed (for the detailed teardown output).
-func cleanupFiles() []string {
+//
+// `clusters` are the clusters that were actually deleted. Their kubeconfig does
+// NOT match the glob below: `adhar up` writes it to
+// ~/.adhar/clusters/<name>/kubeconfig, so this step reported "No leftover
+// kubeconfig files to remove" while leaving a kubeconfig pointing at a
+// control-plane IP that no longer exists — which then answers every kubectl
+// with a connection timeout and reads like a broken cluster rather than a
+// deleted one. Only the named clusters are touched: that tree also holds the
+// kubeconfigs of clusters that are still running, so a glob over it would take
+// out the ones the operator did not ask to remove.
+func cleanupFiles(clusters ...string) []string {
 	patterns := []string{"*-kubeconfig.yaml"}
 	var removed []string
 
@@ -655,10 +665,26 @@ func cleanupFiles() []string {
 	}
 
 	// Search home directory, then the current directory.
-	if home, err := os.UserHomeDir(); err == nil {
+	home, homeErr := os.UserHomeDir()
+	if homeErr == nil {
 		remove(home)
 	}
 	remove("")
+
+	// The per-cluster state kubeconfig of each cluster that was deleted. The SSH
+	// key beside it is left alone: this step promises kubeconfigs, and the key is
+	// what a re-create of the same cluster name reuses.
+	if homeErr == nil {
+		for _, name := range clusters {
+			if name == "" {
+				continue
+			}
+			kc := filepath.Join(home, ".adhar", "clusters", name, "kubeconfig")
+			if err := os.Remove(kc); err == nil {
+				removed = append(removed, kc)
+			}
+		}
+	}
 
 	return removed
 }
@@ -761,6 +787,9 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	ctx := context.Background()
 	var failures []string
 	outcome := teardownOutcome{}
+	// The cluster names actually deleted, so the cleanup step can remove their
+	// state kubeconfig and nothing else.
+	var deletedClusters []string
 	seenProvider := map[string]bool{}
 	for _, envName := range envNames {
 		env := cfg.ResolvedEnvironments[envName]
@@ -856,6 +885,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		}
 		detail("  ● deleted %s", clusterName)
 		outcome.Deleted = append(outcome.Deleted, envName)
+		deletedClusters = append(deletedClusters, clusterName)
 	}
 	// Reaches the UI before DoneMsg, so the final screen knows whether anything
 	// was actually removed.
@@ -863,7 +893,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 
 	emit(logger.StepMsg("Cleaning up"))
 	emit(logger.StatusMsg("Removing leftover kubeconfig files..."))
-	removed := cleanupFiles()
+	removed := cleanupFiles(deletedClusters...)
 	if len(removed) == 0 {
 		detail("→ No leftover kubeconfig files to remove")
 	} else {

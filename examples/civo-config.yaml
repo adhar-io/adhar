@@ -45,10 +45,26 @@ providers:
     # token: "…"                        # or inline — avoid in a committed file
     # tokenFile: /path/to/token         # or from disk
     config:
-      cluster_mode: compute             # kubeadm on plain Civo instances (the default and the
-                                        # path the platform is designed around). "k3s" opts into
-                                        # Civo's managed Kubernetes instead; everything above the
-                                        # cluster is unchanged.
+      # cluster_mode decides whether the platform's own URLs work from a browser.
+      #
+      # compute (this setting) is kubeadm on plain Civo instances and has NO
+      # cloud-controller-manager, so the Gateway's LoadBalancer Service never
+      # gets an address. Measured consequences on a live mum1 bring-up
+      # (2026-10-06): nothing publishes an A record, so `*.hub.adhar.io` is
+      # NXDOMAIN; the cluster firewall this provider creates opens 22, 6443 and
+      # the node-port range 30000-32767, and NOT 80/443; and the gateway is
+      # reachable only as https://<node public IP>:<https node port> with the
+      # right SNI. The platform itself comes up healthy and holds a real
+      # Let's Encrypt certificate (DNS-01 needs no A record), and the in-cluster
+      # names resolve because the controller points CoreDNS at the gateway — but
+      # the printed URLs do not resolve for a browser.
+      #
+      # k3s is Civo's MANAGED Kubernetes: a cloud-controller-manager, a real
+      # LoadBalancer with a public address, an A record from external-dns, and
+      # the URLs below on port 443. Choose it if the platform needs to be
+      # reachable by its hostnames; stay on compute for a kubeadm cluster you
+      # reach through node ports.
+      cluster_mode: compute
       network_label: adhar-network
       reuse_existing_network: true      # reuse a network with a matching CIDR instead of creating one
       cidr: 10.7.0.0/16                 # must not overlap a cluster you intend to mesh with
@@ -117,8 +133,13 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-dev
+      # g3.large (4 vCPU, 8 GB), not g3.medium. A g3.medium control plane
+      # bootstraps fine and then stops answering its API and SSH altogether once
+      # Argo CD starts reconciling the full profile — measured on a live mum1
+      # bring-up (2026-10-06). It is RAM that runs out first: etcd plus the API
+      # server's watch cache on 4 GB with ~85 pods' worth of watchers thrashes.
       - key: controlPlaneMachineType
-        value: g3.medium
+        value: g3.large
       - key: nodeSize
         value: g3.xlarge
       - key: nodeCount
@@ -126,7 +147,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 3
+      maxWorkers: 5
 
   test:
     isolation: namespace
@@ -136,8 +157,13 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-test
+      # g3.large (4 vCPU, 8 GB), not g3.medium. A g3.medium control plane
+      # bootstraps fine and then stops answering its API and SSH altogether once
+      # Argo CD starts reconciling the full profile — measured on a live mum1
+      # bring-up (2026-10-06). It is RAM that runs out first: etcd plus the API
+      # server's watch cache on 4 GB with ~85 pods' worth of watchers thrashes.
       - key: controlPlaneMachineType
-        value: g3.medium
+        value: g3.large
       - key: nodeSize
         value: g3.xlarge
       - key: nodeCount
@@ -145,7 +171,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 3
+      maxWorkers: 5
 
   prod:
     isolation: namespace
@@ -155,8 +181,13 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-prod
+      # g3.large (4 vCPU, 8 GB), not g3.medium. A g3.medium control plane
+      # bootstraps fine and then stops answering its API and SSH altogether once
+      # Argo CD starts reconciling the full profile — measured on a live mum1
+      # bring-up (2026-10-06). It is RAM that runs out first: etcd plus the API
+      # server's watch cache on 4 GB with ~85 pods' worth of watchers thrashes.
       - key: controlPlaneMachineType
-        value: g3.medium
+        value: g3.large
       - key: nodeSize
         value: g3.xlarge
       - key: nodeCount
@@ -164,7 +195,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 3
-      maxWorkers: 6
+      maxWorkers: 5
 
 # ---------------------------------------------------------------------------
 # A note on storage, because it decides how many workers you need

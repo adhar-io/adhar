@@ -189,8 +189,23 @@ mkdir -p /etc/systemd/resolved.conf.d
 } >/etc/systemd/resolved.conf.d/adhar.conf
 systemctl restart systemd-resolved 2>/dev/null || true
 
-apt-get update
-apt-get install -y containerd apt-transport-https ca-certificates curl gpg
+# apt WAITS for the dpkg lock instead of failing on it. Ubuntu runs
+# unattended-upgrades on first boot, and it holds /var/lib/dpkg/lock-frontend
+# for the first minute or two of a machine's life — exactly when cloud-init runs
+# this script. Without the timeout apt exits immediately:
+#
+#   E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process
+#      1806 (unattended-upgr)
+#
+# cloud-init then marks scripts_user failed, kubeadm is never installed, and the
+# node never joins. The create sits in WaitForNodePrep for its full 15 minutes
+# and fails with a timeout that says nothing about apt. It is a RACE, so it
+# fails some bring-ups and not others: a live Civo run joined all three nodes,
+# the next one lost both workers to it (2026-10-06). DPkg::Lock::Timeout needs
+# apt >= 1.9.11; Ubuntu 22.04 ships 2.4.
+APT_WAIT="%[4]s"
+apt-get $APT_WAIT update
+apt-get $APT_WAIT install -y containerd apt-transport-https ca-certificates curl gpg
 
 # systemd limits. containerd runs every container as a transient systemd scope
 # ("cri-containerd-<id>.scope"); on a dense node the defaults run out and pods
@@ -235,8 +250,8 @@ systemctl enable containerd
 mkdir -p /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v%[1]s/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v%[1]s/deb/ /" >/etc/apt/sources.list.d/kubernetes.list
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
+apt-get $APT_WAIT update
+apt-get $APT_WAIT install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
 
 # Pre-pull the CNI images the platform bootstrap cannot start without. Detached
@@ -248,7 +263,7 @@ nohup sh -c 'for img in %[3]s; do ctr -n k8s.io images pull --hosts-dir /etc/con
 
 mkdir -p "$(dirname %[2]s)"
 touch %[2]s
-`, k8sMinor, KubeadmCloudInitMarker, strings.Join(CriticalPathImages, " "))
+`, k8sMinor, KubeadmCloudInitMarker, strings.Join(CriticalPathImages, " "), aptLockWait)
 }
 
 // ClusterStateDir returns (creating if needed) the local directory holding
@@ -723,19 +738,24 @@ func LastLines(s string, n int) string {
 // `kubeadm upgrade apply`, then kubelet/kubectl on every node. Workers are
 // upgraded via `kubeadm upgrade node` after the control plane. The package
 // stream is switched to the target minor so apt can see the target version.
+// aptLockWait makes apt WAIT for the dpkg lock rather than fail on it. See the
+// note in the node-prep script: unattended-upgrades holds that lock on a fresh
+// Ubuntu machine, and an upgrade runs against nodes that may be running it too.
+const aptLockWait = "-o DPkg::Lock::Timeout=600"
+
 func KubeadmUpgradeCluster(ctx context.Context, signer ssh.Signer, user, masterIP string, workerIPs []string, targetVersion string) error {
 	minor := K8sMinorFromVersion(targetVersion)
 	repoSwitch := fmt.Sprintf(
 		"curl -fsSL https://pkgs.k8s.io/core:/stable:/v%[1]s/deb/Release.key | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && "+
 			"echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v%[1]s/deb/ /' >/etc/apt/sources.list.d/kubernetes.list && "+
-			"apt-get update", minor)
+			"apt-get "+aptLockWait+" update", minor)
 
 	// Control plane: upgrade kubeadm, apply, then kubelet.
 	steps := []string{
 		repoSwitch,
-		"apt-mark unhold kubeadm && apt-get install -y kubeadm && apt-mark hold kubeadm",
+		"apt-mark unhold kubeadm && apt-get " + aptLockWait + " install -y kubeadm && apt-mark hold kubeadm",
 		fmt.Sprintf("kubeadm upgrade apply -y v%s", strings.TrimPrefix(targetVersion, "v")),
-		"apt-mark unhold kubelet kubectl && apt-get install -y kubelet kubectl && apt-mark hold kubelet kubectl && systemctl restart kubelet",
+		"apt-mark unhold kubelet kubectl && apt-get " + aptLockWait + " install -y kubelet kubectl && apt-mark hold kubelet kubectl && systemctl restart kubelet",
 	}
 	for _, cmd := range steps {
 		if out, err := SSHRun(signer, user, masterIP, cmd, 20*time.Minute); err != nil {
@@ -747,9 +767,9 @@ func KubeadmUpgradeCluster(ctx context.Context, signer ssh.Signer, user, masterI
 	for _, ip := range workerIPs {
 		wSteps := []string{
 			repoSwitch,
-			"apt-mark unhold kubeadm && apt-get install -y kubeadm && apt-mark hold kubeadm",
+			"apt-mark unhold kubeadm && apt-get " + aptLockWait + " install -y kubeadm && apt-mark hold kubeadm",
 			"kubeadm upgrade node",
-			"apt-mark unhold kubelet kubectl && apt-get install -y kubelet kubectl && apt-mark hold kubelet kubectl && systemctl restart kubelet",
+			"apt-mark unhold kubelet kubectl && apt-get " + aptLockWait + " install -y kubelet kubectl && apt-mark hold kubelet kubectl && systemctl restart kubelet",
 		}
 		for _, cmd := range wSteps {
 			if out, err := SSHRun(signer, user, ip, cmd, 20*time.Minute); err != nil {
