@@ -97,6 +97,7 @@ spec:
                     labels:
                       project: {{ quote $params.project }}
                       adhar.io/application: {{ quote (default $params.displayName $xr.metadata.name) }}
+                      platform.adhar.io/application-type: {{ quote (default "service" $params.type) }}
                     finalizers:
                       - resources-finalizer.argocd.argoproj.io
                   spec:

@@ -1,0 +1,272 @@
+# ApplicationType `ai` → isolated, GPU-placed pods (ADR-0024, roadmap: AI
+# workloads as first-class tenants).
+#
+# A CompositeApplication with `parameters.type: ai` composes its namespace
+# with these labels (compositions/apps/*.yaml, from `parameters.ai`):
+#
+#   platform.adhar.io/application-type: ai
+#   platform.adhar.io/isolation:        microvm | container      (default microvm)
+#   platform.adhar.io/gpu-sharing:      mig | timeslice | none   (default mig)
+#   platform.adhar.io/gpu-count:        "1"
+#
+# The LABELS are the contract; this policy is the mechanism. It never touches
+# a pod outside an `application-type: ai` namespace, and it mutates rather
+# than validates: a developer writes an ordinary Deployment with
+# `nvidia.com/gpu: 1` and the platform decides where and how isolated it runs.
+#
+#   isolation=microvm  → runtimeClassName `kata-qemu` (no GPU) or
+#                        `kata-qemu-nvidia-gpu` (GPU, VFIO passthrough on a
+#                        `nvidia.com/gpu.workload.config=vm-passthrough` node).
+#                        Runtime: infrastructure/kata-containers; GPU side:
+#                        infrastructure/gpu-operator in sandbox mode `kata`.
+#   isolation=container→ GPU pods go to `nvidia.com/gpu.present=true` nodes,
+#                        and the SHARING label picks the pool:
+#                          mig       → nodes whose device plugin runs MIG
+#                                      `single` (`nvidia.com/mig.strategy=single`;
+#                                      each slice is one `nvidia.com/gpu`)
+#                          timeslice → `nvidia.com/gpu.sharing-strategy=time-slicing`
+#                          none      → any GPU node
+#                        Both labels are published by GPU feature discovery
+#                        from the node's live device-plugin configuration, so
+#                        a pod can only land where the sharing it asked for is
+#                        actually in effect.
+#
+# HONEST LIMIT: a GPU passed through to a microVM is that VM's alone. MIG
+# slices and time-slicing are container-runtime mechanisms and do not exist
+# behind VFIO, so `isolation: microvm` + `gpu.sharing: mig|timeslice` gets a
+# WHOLE GPU and the pod is annotated `platform.adhar.io/gpu-sharing-effective:
+# dedicated` to say so. Choose `isolation: container` when sharing matters more
+# than the VM boundary.
+#
+# Passthrough devices are advertised under the GPU's PRODUCT name
+# (`nvidia.com/GA102GL_A10`, …), not `nvidia.com/gpu`. The `adhar-gpu-passthrough`
+# ConfigMap (shipped empty by infrastructure/gpu-operator) names that resource
+# once per cluster; when it is set the policy rewrites the pod's
+# `nvidia.com/gpu` request to it, so application manifests stay portable.
+#
+# `background: false`: mutation is admission-time only. `failurePolicy:
+# Ignore` is the platform's Kyverno default — an outage of the policy engine
+# must never wedge scheduling (ADR-0012); an AI pod admitted during one runs
+# un-isolated and the namespace-plane audit policies report it.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: ai-workload-isolation
+  annotations:
+    policies.kyverno.io/title: AI Workload Isolation
+    policies.kyverno.io/category: Adhar Governance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Pods in a namespace labelled platform.adhar.io/application-type=ai run
+      in a Kata microVM (RuntimeClass kata-qemu / kata-qemu-nvidia-gpu) when
+      the namespace asks for microvm isolation, and GPU pods are placed on the
+      node pool whose GPU sharing mode (MIG single, time-slicing, or
+      dedicated) matches the namespace's platform.adhar.io/gpu-sharing label.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  background: false
+  failurePolicy: Ignore
+  rules:
+    # ---- microVM isolation ------------------------------------------------
+    - name: microvm-runtime-gpu
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+                  platform.adhar.io/isolation: microvm
+      preconditions:
+        all:
+          # Respect an explicit choice: a pod that names its RuntimeClass
+          # already decided.
+          - key: "{{ request.object.spec.runtimeClassName || '' }}"
+            operator: Equals
+            value: ""
+          - key: "{{ length(request.object.spec.containers[].resources.limits.\"nvidia.com/gpu\" || `[]`) }}"
+            operator: GreaterThan
+            value: 0
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              platform.adhar.io/isolation-effective: microvm
+              platform.adhar.io/gpu-sharing-effective: dedicated
+          spec:
+            runtimeClassName: kata-qemu-nvidia-gpu
+            nodeSelector:
+              nvidia.com/gpu.workload.config: vm-passthrough
+    - name: microvm-runtime
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+                  platform.adhar.io/isolation: microvm
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.runtimeClassName || '' }}"
+            operator: Equals
+            value: ""
+          - key: "{{ length(request.object.spec.containers[].resources.limits.\"nvidia.com/gpu\" || `[]`) }}"
+            operator: Equals
+            value: 0
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              platform.adhar.io/isolation-effective: microvm
+          spec:
+            runtimeClassName: kata-qemu
+    # The passthrough resource name, once the cluster operator has recorded
+    # it. Runs AFTER microvm-runtime-gpu (rules apply in order) and only when
+    # the ConfigMap names a resource; an empty value leaves `nvidia.com/gpu`
+    # alone, which on a vm-passthrough node means Pending — visible, not
+    # silent.
+    - name: microvm-gpu-passthrough-resource
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+                  platform.adhar.io/isolation: microvm
+      context:
+        - name: passthrough
+          configMap:
+            name: adhar-gpu-passthrough
+            namespace: adhar-system
+      preconditions:
+        all:
+          - key: "{{ passthrough.data.resource || '' }}"
+            operator: NotEquals
+            value: ""
+          - key: "{{ passthrough.data.resource || '' }}"
+            operator: NotEquals
+            value: nvidia.com/gpu
+      mutate:
+        foreach:
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.resources.limits.\"nvidia.com/gpu\" || '' }}"
+                  operator: NotEquals
+                  value: ""
+            patchesJson6902: |-
+              - op: add
+                path: /spec/containers/{{elementIndex}}/resources/limits/{{ replace_all(passthrough.data.resource, '/', '~1') }}
+                value: '{{ element.resources.limits."nvidia.com/gpu" }}'
+              - op: remove
+                path: /spec/containers/{{elementIndex}}/resources/limits/nvidia.com~1gpu
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.resources.requests.\"nvidia.com/gpu\" || '' }}"
+                  operator: NotEquals
+                  value: ""
+            patchesJson6902: |-
+              - op: add
+                path: /spec/containers/{{elementIndex}}/resources/requests/{{ replace_all(passthrough.data.resource, '/', '~1') }}
+                value: '{{ element.resources.requests."nvidia.com/gpu" }}'
+              - op: remove
+                path: /spec/containers/{{elementIndex}}/resources/requests/nvidia.com~1gpu
+    # ---- container isolation: GPU placement and sharing -------------------
+    - name: gpu-node-placement
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+                matchExpressions:
+                  - {key: platform.adhar.io/isolation, operator: NotIn, values: [microvm]}
+      preconditions:
+        all:
+          - key: "{{ length(request.object.spec.containers[].resources.limits.\"nvidia.com/gpu\" || `[]`) }}"
+            operator: GreaterThan
+            value: 0
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              platform.adhar.io/isolation-effective: container
+          spec:
+            nodeSelector:
+              nvidia.com/gpu.present: "true"
+    - name: gpu-sharing-mig
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+                  platform.adhar.io/gpu-sharing: mig
+                matchExpressions:
+                  - {key: platform.adhar.io/isolation, operator: NotIn, values: [microvm]}
+      preconditions:
+        all:
+          - key: "{{ length(request.object.spec.containers[].resources.limits.\"nvidia.com/gpu\" || `[]`) }}"
+            operator: GreaterThan
+            value: 0
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              platform.adhar.io/gpu-sharing-effective: mig
+          spec:
+            nodeSelector:
+              nvidia.com/mig.strategy: single
+    - name: gpu-sharing-timeslice
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+                  platform.adhar.io/gpu-sharing: timeslice
+                matchExpressions:
+                  - {key: platform.adhar.io/isolation, operator: NotIn, values: [microvm]}
+      preconditions:
+        all:
+          - key: "{{ length(request.object.spec.containers[].resources.limits.\"nvidia.com/gpu\" || `[]`) }}"
+            operator: GreaterThan
+            value: 0
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              platform.adhar.io/gpu-sharing-effective: timeslice
+          spec:
+            nodeSelector:
+              nvidia.com/gpu.sharing-strategy: time-slicing
+    # GPU pools are conventionally tainted `nvidia.com/gpu:NoSchedule`; every
+    # GPU pod in an AI namespace tolerates it, whichever isolation it got.
+    - name: gpu-taint-toleration
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.adhar.io/application-type: ai
+      preconditions:
+        all:
+          - key: "{{ length(request.object.spec.containers[].resources.limits.\"nvidia.com/gpu\" || `[]`) }}"
+            operator: GreaterThan
+            value: 0
+          - key: "{{ length(request.object.spec.tolerations[?key=='nvidia.com/gpu'] || `[]`) }}"
+            operator: Equals
+            value: 0
+      mutate:
+        patchesJson6902: |-
+          - op: add
+            path: /spec/tolerations/-
+            value: {"key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule"}

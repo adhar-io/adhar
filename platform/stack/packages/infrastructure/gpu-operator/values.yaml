@@ -1,0 +1,136 @@
+# NVIDIA GPU Operator — values for the platform render (manifests/install.yaml).
+#
+# One operator, two kinds of GPU node, chosen per node by a label:
+#
+#   nvidia.com/gpu.workload.config=container       (the default for unlabelled nodes)
+#     Driver, container toolkit, device plugin, DCGM exporter, GPU feature
+#     discovery. Pods request `nvidia.com/gpu` and run as containers. This is
+#     where ai/llm-d's GPU profile (Qwen3.6-27B on one card) and every
+#     `isolation: container` AI application run — and where GPU SHARING
+#     happens: the device-plugin ConfigMap below defines a MIG profile and a
+#     time-slicing profile, selected per node with
+#     `nvidia.com/device-plugin.config=<name>`.
+#
+#   nvidia.com/gpu.workload.config=vm-passthrough
+#     vfio-manager binds the GPUs to VFIO and the sandbox device plugin
+#     advertises them as whole devices for microVMs (Kata, via the
+#     `kata-qemu-nvidia-gpu` RuntimeClass that infrastructure/kata-containers
+#     creates). This is where an `isolation: microvm` AI application with a
+#     GPU runs. A passthrough GPU is the VM's alone: no MIG, no time-slicing,
+#     one GPU per pod (NVIDIA's stated limits for this mode).
+#
+# The `ai-workload-isolation` Kyverno policy (security/adhar-kyverno-policies)
+# turns a CompositeApplication's `ai.isolation` / `ai.gpu.sharing` into the
+# nodeSelector that lands a pod on the right kind of node.
+#
+# Chart v26.7.1. Everything is pinned by the chart; nothing here is :latest.
+
+# Driver and toolkit ON THE NODE, managed by the operator. Set
+# `driver.enabled: false` on a cloud image that ships the driver pre-installed
+# (GKE COS, EKS GPU AMIs); `toolkit.enabled: false` likewise.
+driver:
+  enabled: true
+toolkit:
+  enabled: true
+# Node Feature Discovery publishes the `nvidia.com/gpu.present=true` label every
+# GPU manifest on the platform selects on. Shipped by this chart; nothing else
+# on the platform runs NFD.
+nfd:
+  enabled: true
+cdi:
+  enabled: true
+
+# --- Container nodes: sharing profiles ---------------------------------------
+devicePlugin:
+  enabled: true
+  config:
+    create: true
+    name: adhar-gpu-sharing
+    # Unlabelled container nodes: whole GPUs, no sharing.
+    default: dedicated
+    data:
+      dedicated: |-
+        version: v1
+        flags:
+          migStrategy: none
+      # MIG, `single` strategy: every GPU on the node is partitioned into
+      # same-sized slices (the MIG manager applies the partition, see
+      # migManager below) and EACH SLICE is advertised as one `nvidia.com/gpu`.
+      # An application that asks for `ai.gpu.count: 2` with `sharing: mig`
+      # therefore gets two hardware-isolated slices, with no change to how it
+      # requests them. GPU feature discovery labels such nodes
+      # `nvidia.com/mig.strategy=single`, which is what the isolation policy
+      # selects on.
+      mig-single: |-
+        version: v1
+        flags:
+          migStrategy: single
+      # Time-slicing: each physical GPU is advertised 4 times and the pods
+      # that land on it share it round-robin, with NO memory isolation between
+      # them (a misbehaving tenant can OOM its neighbours). Cheapest way to
+      # put several small models on one card; never for untrusted tenants.
+      # Labelled `nvidia.com/gpu.sharing-strategy=time-slicing` by GFD.
+      time-slice-4: |-
+        version: v1
+        flags:
+          migStrategy: none
+        sharing:
+          timeSlicing:
+            renameByDefault: false
+            failRequestsGreaterThanOne: true
+            resources:
+              - name: nvidia.com/gpu
+                replicas: 4
+
+migManager:
+  enabled: true
+  config:
+    # The operator generates a per-hardware config; `all-disabled` is its
+    # default partition. Label a node `nvidia.com/mig.config=all-1g.10gb` (or
+    # whatever profile its card supports: `nvidia-smi mig -lgip`) together
+    # with `nvidia.com/device-plugin.config=mig-single` to carve it up.
+    default: all-disabled
+
+gfd:
+  enabled: true
+dcgmExporter:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    # Monitoring CRs go in wave 10 on this platform (the CRDs come from
+    # observability/kube-prometheus).
+    additionalLabels:
+      release: kube-prometheus
+
+# --- microVM nodes: VFIO passthrough for Kata -------------------------------
+sandboxWorkloads:
+  enabled: true
+  defaultWorkload: container
+  # `kata`: on vm-passthrough nodes the operator runs vfio-manager and the Kata
+  # sandbox device plugin instead of the container stack.
+  mode: kata
+vfioManager:
+  enabled: true
+sandboxDevicePlugin:
+  enabled: true
+kataSandboxDevicePlugin:
+  enabled: true
+# The Kata RUNTIME comes from infrastructure/kata-containers (kata-deploy),
+# which creates the `kata-qemu-nvidia-gpu` RuntimeClass. NVIDIA's Kata Manager
+# would install a second copy of the runtime and fight over that RuntimeClass,
+# so it stays off.
+kataManager:
+  enabled: false
+# vGPU (SR-IOV) and confidential computing are not part of this platform's
+# contract; the operator leaves nodes without those labels alone anyway.
+vgpuManager:
+  enabled: false
+vgpuDeviceManager:
+  enabled: false
+ccManager:
+  enabled: false
+
+operator:
+  # The operator itself is a control-plane service in adhar-system; its
+  # DaemonSets go wherever NFD finds a GPU.
+  defaultRuntime: containerd

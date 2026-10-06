@@ -10,10 +10,11 @@
 # builds its own pseudo-service for the model pods.
 router:
   modelServers:
-    # Selects the vLLM pods this router balances across (see modelserver.yaml).
+    # Selects the vLLM pods this router balances across (manifests/cpu or
+    # manifests/gpu — the pool label is profile-agnostic on purpose).
     matchLabels:
       llm-d.ai/inferenceServing: "true"
-      llm-d.ai/model: qwen2.5-0.5b-instruct
+      llm-d.ai/model: adhar-local
     protocol: http
   inferencePool:
     create: false

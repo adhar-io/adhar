@@ -1,0 +1,31 @@
+# The resource name of a GPU passed through to a microVM.
+#
+# On a `nvidia.com/gpu.workload.config=vm-passthrough` node the sandbox device
+# plugin advertises each GPU under its PRODUCT name — `nvidia.com/GA102GL_A10`,
+# `nvidia.com/GA100_A100_PCIE_40GB`, … — not as `nvidia.com/gpu`. Application
+# manifests should not have to know that: the `ai-workload-isolation` Kyverno
+# policy (security/adhar-kyverno-policies) rewrites `nvidia.com/gpu` in a
+# microVM-isolated AI pod to whatever this ConfigMap names.
+#
+# Shipped EMPTY, because the value is a fact about your hardware. Fill it in
+# once per cluster, after the operator has labelled the passthrough pool:
+#
+#   kubectl get node -l nvidia.com/gpu.workload.config=vm-passthrough \
+#     -o jsonpath='{.items[0].status.allocatable}'
+#
+# and put the `nvidia.com/<PRODUCT>` key here (environments repo, this file).
+# While it is empty the policy leaves `nvidia.com/gpu` alone, and a microVM GPU
+# pod stays Pending on a passthrough node — visible, never silently
+# un-isolated. One product per cluster is the contract; a mixed passthrough
+# fleet needs one AI namespace per product and is out of scope.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-gpu-passthrough
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: gpu-operator
+    app.kubernetes.io/part-of: gpu-operator
+    adhar.io/component: infrastructure
+data:
+  resource: ""

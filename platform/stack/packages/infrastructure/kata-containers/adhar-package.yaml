@@ -1,0 +1,50 @@
+# Adhar marketplace contract for the kata-containers package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: kata-containers
+category: infrastructure
+version: "3.21.0"
+appVersion: "3.21.0"
+description: "Kata Containers runtime (kata-deploy) on opt-in nodes: the `kata-qemu` and `kata-qemu-nvidia-gpu` RuntimeClasses that put an ApplicationType `ai` workload in its own microVM, with VFIO GPU passthrough when paired with gpu-operator."
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://katacontainers.io
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # GPU passthrough into a microVM needs the operator's VFIO manager and
+  # sandbox device plugin; CPU-only microVMs need nothing else.
+  - name: gpu-operator
+    category: infrastructure
+    optional: true
+  # The ai-workload-isolation policy is what selects these RuntimeClasses.
+  - name: adhar-kyverno-policies
+    category: security
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+# A per-node installer (privileged DaemonSet) that only runs where a node is
+# labelled adhar.io/microvm=true — the node agent IS the package.
+planeAffinity: data-plane
+stability: beta
+resources:
+  localSafe: false   # Kind nodes have no /dev/kvm; mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - kata
+  - microvm
+  - isolation
+  - runtimeclass
+  - gpu
+verification:
+  status: unverified

@@ -75,6 +75,18 @@ spec:
             {{- $ex := "${{" -}}
             {{- $ready := 0 -}}
             {{- $labels := dict "adhar.io/organisation" (dig "organisation" "adhar" $projStatus) "adhar.io/team" (dig "team" "platform" $projStatus) "adhar.io/project" $project "adhar.io/application" $name -}}
+            {{- /* The application type, on every environment's Application and on its namespace,
+                   where the ai-workload-isolation policy reads it. See compositions/apps/local.yaml
+                   for the full account; here every environment gets the same labels. */ -}}
+            {{- $type := default "service" $params.type -}}
+            {{- $ai := default (dict) $params.ai -}}
+            {{- $_ := set $labels "platform.adhar.io/application-type" $type -}}
+            {{- $nsLabels := dict "platform.adhar.io/application-type" $type -}}
+            {{- if eq $type "ai" -}}
+            {{- $_ := set $nsLabels "platform.adhar.io/isolation" (default "microvm" (get $ai "isolation")) -}}
+            {{- $_ := set $nsLabels "platform.adhar.io/gpu-sharing" (dig "gpu" "sharing" "mig" $ai) -}}
+            {{- $_ := set $nsLabels "platform.adhar.io/gpu-count" (toString (dig "gpu" "count" 1 $ai)) -}}
+            {{- end -}}
             ---
             # Observe the project (read-only): where do its environments live?
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -171,6 +183,11 @@ spec:
                       namespace: {{ quote $ns }}
                     syncPolicy:
                       automated: {prune: true, selfHeal: true}
+                      managedNamespaceMetadata:
+                        labels:
+                          {{- range $k, $v := $nsLabels }}
+                          {{ $k }}: {{ $v | quote }}
+                          {{- end }}
                       syncOptions:
                         - ServerSideApply=true
                         - RespectIgnoreDifferences=true

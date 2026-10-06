@@ -262,6 +262,18 @@ spec:
                   name: adhar-ai-llm
                   key: MODEL
                   optional: true
+            # The SECONDARY model: the self-hosted one. When a completion on the
+            # primary fails after its retries — provider down, 5xx, the
+            # gateway unkeyed — the runtime names this instead, so every
+            # agentic feature (chat, tasks, chores, journeys, rerank, rewrite)
+            # keeps answering from inside the cluster. `local/default` is the
+            # alias BOTH llm-d model-server profiles serve (ai/llm-d: Qwen2.5
+            # on CPU, Qwen3.6-27B-FP8 on one GPU), so this does not change
+            # when the profile does. A budget (429) or policy refusal is never
+            # retried here. With llm-d disabled the fallback simply fails too,
+            # and /healthz `llm.fallbacks.secondary_failed` says so.
+            - name: ADHAR_AI_LLM_SECONDARY_MODEL
+              value: "local/default"
             # The runtime KEEPS its OIDC settings: it publishes its own hostname
             # (httproute.yaml) so /chat is reached directly, not through the AI
             # gateway, and it exchanges the caller's token for a short-lived

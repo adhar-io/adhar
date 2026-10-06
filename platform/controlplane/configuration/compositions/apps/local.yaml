@@ -31,6 +31,25 @@ spec:
             {{- $src := dig "source" dict $p -}}
             {{- $dst := dig "destination" dict $p -}}
             {{- $k8sProvider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- /* The application TYPE decides how the platform runs it. `ai` is the one
+                   type that changes placement: its pods go into Kata microVMs with a shared
+                   GPU, enforced by the ai-workload-isolation policy on the namespace labels
+                   below, and its namespace gets an AgentWorkload (quota, network policy, model
+                   and tool allow-lists on the AI gateway). The labels are the contract: the
+                   policy reads them, nothing here reaches into a pod. */ -}}
+            {{- $type := dig "type" "service" $p -}}
+            {{- $ai := dig "ai" dict $p -}}
+            {{- $aiEnv := dig "environment" "dev" $ai -}}
+            {{- $isolation := dig "isolation" "microvm" $ai -}}
+            {{- $gpuCount := dig "gpu" "count" 1 $ai -}}
+            {{- $gpuSharing := dig "gpu" "sharing" "mig" $ai -}}
+            {{- $aiNs := printf "%s-%s" $name $aiEnv -}}
+            {{- $nsLabels := dict "platform.adhar.io/application-type" $type -}}
+            {{- if eq $type "ai" -}}
+            {{- $_ := set $nsLabels "platform.adhar.io/isolation" $isolation -}}
+            {{- $_ := set $nsLabels "platform.adhar.io/gpu-sharing" $gpuSharing -}}
+            {{- $_ := set $nsLabels "platform.adhar.io/gpu-count" (toString $gpuCount) -}}
+            {{- end -}}
             ---
             # The Argo CD Application must live where Argo CD watches — the
             # platform namespace — while this XR lives in the TEAM's namespace.
@@ -60,6 +79,7 @@ spec:
                     namespace: adhar-system
                     labels:
                       platform.adhar.io/self-service: "true"
+                      platform.adhar.io/application-type: {{ $type | quote }}
                       adhar.io/application: {{ $name | quote }}
                       adhar.io/source-namespace: {{ $ns | quote }}
                     finalizers:
@@ -96,13 +116,60 @@ spec:
                       {{- end }}
                     destination:
                       server: {{ dig "server" "https://kubernetes.default.svc" $dst | quote }}
+                      {{- if eq $type "ai" }}
+                      # An ai application deploys into the namespace its AgentWorkload owns.
+                      namespace: {{ $aiNs | quote }}
+                      {{- else }}
                       namespace: {{ dig "namespace" $ns $dst | quote }}
+                      {{- end }}
                     syncPolicy:
                       automated:
                         prune: true
                         selfHeal: true
+                      {{- if ne $type "ai" }}
+                      # The type travels onto the namespace Argo CD creates, where the
+                      # ai-workload-isolation policy (and anything else) can read it.
+                      managedNamespaceMetadata:
+                        labels:
+                          {{- range $k, $v := $nsLabels }}
+                          {{ $k }}: {{ $v | quote }}
+                          {{- end }}
+                      {{- end }}
                       syncOptions:
+                        {{- if ne $type "ai" }}
                         - CreateNamespace=true
+                        {{- end }}
+                        - ServerSideApply=true
+            {{- if eq $type "ai" }}
+            ---
+            # The namespace, its quota, its network policy and its gateway allow-lists
+            # all come from one AgentWorkload. Namespaced XR, same namespace as this
+            # one, so Crossplane v2 composes it without a provider hop. The
+            # isolation labels ride on `parameters.labels` onto the namespace.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: AgentWorkload
+            metadata:
+              name: {{ $name }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: agent-workload
+              labels:
+                platform.adhar.io/self-service: "true"
+                adhar.io/application: {{ $name | quote }}
+            spec:
+              parameters:
+                name: {{ $name | quote }}
+                environment: {{ $aiEnv | quote }}
+                project: {{ dig "project" "adhar" $p | quote }}
+                models: {{ dig "models" (list) $ai | toJson }}
+                tools: {{ dig "tools" (list) $ai | toJson }}
+                budget:
+                  tokensPerHour: {{ dig "budget" "tokensPerHour" 100000 $ai }}
+                  requestsPerMinute: {{ dig "budget" "requestsPerMinute" 60 $ai }}
+                labels:
+                  {{- range $k, $v := $nsLabels }}
+                  {{ $k }}: {{ $v | quote }}
+                  {{- end }}
+            {{- end }}
     - step: ready
       functionRef:
         name: function-auto-ready

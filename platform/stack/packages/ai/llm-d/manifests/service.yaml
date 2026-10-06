@@ -1,0 +1,18 @@
+# Plain Service over the model-server replicas of WHICHEVER profile is enabled
+# (../cpu or ../gpu). The router's agentgateway sidecar reaches pods directly
+# via the EPP, but a Service keeps the model reachable for health checks,
+# dashboards and a bypass path when debugging the router. Selector = the pool
+# label the router selects on (values.yaml router.modelServers.matchLabels).
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-d-decode
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: llm-d-decode, app.kubernetes.io/part-of: llm-d}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  selector:
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/model: adhar-local
+  ports:
+    - {name: http, port: 8000, targetPort: http}

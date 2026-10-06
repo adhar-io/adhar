@@ -1,17 +1,28 @@
-# The model server behind the llm-d router: vLLM's OFFICIAL CPU build serving a
-# small instruction model, so the whole stack — router, EPP scheduling,
-# agentgateway routing on `local/*` — is exercisable on the platform's CPU
-# droplets and on Kind. Swap the image for `vllm/vllm-openai` and add a GPU
-# resource on an accelerator node pool; nothing else changes.
+# llm-d model server — CPU PROFILE (appset element "llm-d-cpu").
 #
-# Labels are the contract with the router (values.yaml
-# router.modelServers.matchLabels): the EPP discovers replicas by these labels,
-# so they must match exactly.
+# vLLM's OFFICIAL CPU build serving a small instruction model, so the whole
+# stack — router, EPP scheduling, agentgateway routing on `local/*` — is
+# exercisable on the platform's CPU droplets and on Kind. The GPU profile in
+# ../gpu/install.yaml serves Qwen3.6-27B on one accelerator; enable EXACTLY ONE
+# of the two (both Deployments are named `llm-d-decode` and both claim the
+# `llm-d-model-cache` PVC).
+#
+# Labels are the contract with the router (../../values.yaml
+# router.modelServers.matchLabels): the EPP discovers replicas by
+# `llm-d.ai/inferenceServing=true,llm-d.ai/model=adhar-local`. The pool label is
+# deliberately NOT the model name — it names the platform's local pool, so
+# swapping the profile (CPU today, GPU tomorrow) re-points nothing: the router,
+# agentgateway's `local/*` route and adhar-ai's secondary model all stay as
+# they are.
+#
+# Two served names: the real one, `local/Qwen/Qwen2.5-0.5B-Instruct`, for a
+# caller that wants THIS model; and the alias `local/default`, which is what
+# adhar-ai names as its self-hosted fallback (ADHAR_AI_LLM_SECONDARY_MODEL)
+# so that the runtime does not have to know which profile is installed.
 #
 # Model: Qwen2.5-0.5B-Instruct — open weights, no HF token required, ~1 GB, and
 # it answers in seconds on 4 CPUs, which is what makes an end-to-end proof of the
-# agentic loop against self-hosted inference practical. `local/` + this model id
-# is what the agent runtime sends (adhar-ai DEFAULT_MODELS["local"]).
+# agentic loop against self-hosted inference practical.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -37,7 +48,7 @@ metadata:
     app.kubernetes.io/name: llm-d-decode
     app.kubernetes.io/part-of: llm-d
     llm-d.ai/inferenceServing: "true"
-    llm-d.ai/model: qwen2.5-0.5b-instruct
+    llm-d.ai/model: adhar-local
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
   replicas: 1
@@ -45,14 +56,14 @@ spec:
   selector:
     matchLabels:
       llm-d.ai/inferenceServing: "true"
-      llm-d.ai/model: qwen2.5-0.5b-instruct
+      llm-d.ai/model: adhar-local
   template:
     metadata:
       labels:
         app.kubernetes.io/name: llm-d-decode
         app.kubernetes.io/part-of: llm-d
         llm-d.ai/inferenceServing: "true"
-        llm-d.ai/model: qwen2.5-0.5b-instruct
+        llm-d.ai/model: adhar-local
     spec:
       enableServiceLinks: false
       securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true}
@@ -64,7 +75,11 @@ spec:
             - "Qwen/Qwen2.5-0.5B-Instruct"
             # The model NAME clients send. agentgateway strips nothing, so the
             # runtime's `local/Qwen/Qwen2.5-0.5B-Instruct` must be served as-is.
-            - "--served-model-name=local/Qwen/Qwen2.5-0.5B-Instruct"
+            - "--served-model-name"
+            - "local/Qwen/Qwen2.5-0.5B-Instruct"
+            # The profile-agnostic alias adhar-ai falls back to. Same name on
+            # the GPU profile, so the runtime never learns which one is on.
+            - "local/default"
             - "--port=8000"
             # The agent runtime sends its whole MCP toolbox (27 tool schemas,
             # ~4k tokens) with every turn; at 4096 vLLM answered every request
@@ -125,20 +140,3 @@ spec:
           persistentVolumeClaim: {claimName: llm-d-model-cache}
         - name: dshm
           emptyDir: {medium: Memory, sizeLimit: 2Gi}
----
-# Plain Service over the replicas — the router's agentgateway sidecar reaches
-# pods directly via the EPP, but a Service keeps the model reachable for health
-# checks, dashboards and a bypass path when debugging the router.
-apiVersion: v1
-kind: Service
-metadata:
-  name: llm-d-decode
-  namespace: adhar-system
-  labels: {app.kubernetes.io/name: llm-d-decode, app.kubernetes.io/part-of: llm-d}
-  annotations: {argocd.argoproj.io/sync-wave: "1"}
-spec:
-  selector:
-    llm-d.ai/inferenceServing: "true"
-    llm-d.ai/model: qwen2.5-0.5b-instruct
-  ports:
-    - {name: http, port: 8000, targetPort: http}

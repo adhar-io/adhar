@@ -132,6 +132,25 @@ spec:
             category: "ai"
             plane: "control"
             manifestPath: "ai/llm-d/manifests"
+          # The llm-d MODEL SERVER, one profile at a time: "llm-d-cpu" (Qwen2.5-0.5B,
+          # any node, the development proof) or "llm-d-gpu" (Qwen3.6-27B-FP8 on ONE
+          # GPU — the platform's self-hosted secondary model). Both Deployments are
+          # named llm-d-decode and claim the same PVC, so enable "llm-d" plus EXACTLY
+          # ONE profile. Both serve the alias `local/default`, which adhar-ai names as
+          # ADHAR_AI_LLM_SECONDARY_MODEL: the hosted key stays primary and every
+          # agentic feature falls back here. The GPU profile needs gpu-operator.
+          - name: "llm-d-cpu"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/llm-d/manifests/cpu"
+          - name: "llm-d-gpu"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/llm-d/manifests/gpu"
           - name: "vllm-cpu"
             enabled: "false"
             namespace: "adhar-system"
@@ -673,6 +692,25 @@ spec:
             namespace: "adhar-system"
             category: "infrastructure"
             manifestPath: "infrastructure/terraform/manifests"
+          # ApplicationType `ai` isolation (CompositeApplication parameters.type: ai).
+          # kata-containers installs the Kata microVM runtime on nodes labelled
+          # adhar.io/microvm=true and creates the kata-qemu / kata-qemu-nvidia-gpu
+          # RuntimeClasses; gpu-operator advertises nvidia.com/gpu on container nodes
+          # (with MIG and time-slicing sharing profiles) and VFIO passthrough on
+          # vm-passthrough nodes. The ai-workload-isolation Kyverno policy
+          # (adhar-kyverno-policies) turns the namespace labels into RuntimeClass and
+          # node placement. Off by default: Kind has no /dev/kvm and no GPU; turn them
+          # on per cluster once a GPU or bare-metal pool exists.
+          - name: "kata-containers"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "infrastructure"
+            manifestPath: "infrastructure/kata-containers/manifests"
+          - name: "gpu-operator"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "infrastructure"
+            manifestPath: "infrastructure/gpu-operator/manifests"
           - name: "dapr"
             enabled: "false"
             namespace: "adhar-system"

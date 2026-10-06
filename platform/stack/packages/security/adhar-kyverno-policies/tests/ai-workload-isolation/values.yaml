@@ -1,0 +1,19 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: values
+namespaceSelector:
+  - name: vision-prod
+    labels: {platform.adhar.io/application-type: ai, platform.adhar.io/isolation: microvm, platform.adhar.io/gpu-sharing: mig}
+  - name: embed-prod
+    labels: {platform.adhar.io/application-type: ai, platform.adhar.io/isolation: container, platform.adhar.io/gpu-sharing: mig}
+  - name: slice-prod
+    labels: {platform.adhar.io/application-type: ai, platform.adhar.io/isolation: container, platform.adhar.io/gpu-sharing: timeslice}
+  - name: team-web
+    labels: {platform.adhar.io/application-type: service}
+policies:
+  - name: ai-workload-isolation
+    rules:
+      - name: microvm-gpu-passthrough-resource
+        values:
+          passthrough.data.resource: nvidia.com/GA102GL_A10

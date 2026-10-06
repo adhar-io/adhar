@@ -1,0 +1,202 @@
+# llm-d model server — GPU PROFILE (appset element "llm-d-gpu").
+#
+# Qwen3.6-27B, FP8, on ONE GPU, behind the llm-d router. This is the platform's
+# self-hosted model: adhar-ai keeps the hosted key as its PRIMARY provider and
+# names `local/default` as its SECONDARY, so every agentic feature — chat,
+# tasks, chores, journeys, rerank and rewrite — lands here the moment the
+# hosted provider fails, is unkeyed, or is asked for by name
+# (ADHAR_AI_LLM_PROVIDER=local makes it primary). k8sgpt and any other
+# agentgateway caller reach it by naming a `local/*` model.
+#
+# MUTUALLY EXCLUSIVE WITH ../cpu/install.yaml: both Deployments are named
+# `llm-d-decode` and both claim the `llm-d-model-cache` PVC. Enable exactly one
+# of the `llm-d-cpu` / `llm-d-gpu` ApplicationSet elements — never both.
+#
+# MODEL (verified on the HuggingFace hub)
+#   Qwen/Qwen3.6-27B-FP8 — Apache-2.0, UNGATED (no HF token), FP8 weights of
+#   ~28 GB (architecture Qwen3_5ForConditionalGeneration, which vLLM v0.29.0
+#   lists as supported). Tool calling uses the hermes `<tool_call>` format and
+#   the template emits `<think>` blocks, hence the two parsers below.
+#
+# SIZING — one GPU with >= 40 GB
+#   28 GB of weights + a 32k-token KV cache fits an A100-40GB tightly and an
+#   A100/H100-80GB or L40S-48GB comfortably. `--max-model-len 32768` caps the
+#   window at what the agent runtime actually sends (its toolbox is ~4k tokens
+#   of schemas per turn); the model advertises 262k, which would reserve a KV
+#   cache no card of this class can hold. On a 24 GB card this profile does
+#   NOT fit — pick a smaller FP8 model and keep everything else.
+#
+# PREREQUISITES (this profile stays Pending without them)
+#   1. A GPU node pool. 2. infrastructure/gpu-operator (or any device plugin)
+#   advertising `nvidia.com/gpu` and labelling nodes `nvidia.com/gpu.present=true`.
+#   3. Conventionally a `nvidia.com/gpu` NoSchedule taint on that pool, which
+#   the toleration below matches.
+#
+# IMAGE: vllm/vllm-openai:v0.29.0 — the official CUDA build. Pinned, never
+# :latest (ADR-0019 / disallow-latest-tag). Entrypoint is ["vllm", "serve"].
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-d-model-cache
+  namespace: adhar-system
+  # SAME WAVE as llm-d-decode, the only consumer: a WaitForFirstConsumer PVC
+  # cannot bind until a pod mounts it (see ../cpu/install.yaml).
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  accessModes: [ReadWriteOnce]
+  # 28 GB of weights plus the hub's download staging and vLLM's compiled
+  # kernel caches, so a pod reschedule never re-downloads the model.
+  resources: {requests: {storage: 80Gi}}
+---
+# Optional HuggingFace token for GATED repositories. Qwen3.6-27B-FP8 is ungated,
+# so this materialises EMPTY (the `default ""` template) and is unused unless
+# the model below is swapped for a gated one. Same shape as ai/vllm's
+# hf-token.yaml; its own name so both packages can be enabled together.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: llm-d-hf-token
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: llm-d-decode, app.kubernetes.io/part-of: llm-d}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: vault, kind: ClusterSecretStore}
+  target:
+    name: llm-d-hf-token
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        HF_TOKEN: '{{ .hfToken | default "" }}'
+  data:
+    - secretKey: hfToken
+      remoteRef: {key: vllm/hf, property: HF_TOKEN, conversionStrategy: Default}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-d-decode
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: llm-d-decode
+    app.kubernetes.io/part-of: llm-d
+    adhar.io/llm-d-profile: gpu
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/model: adhar-local
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # single RWO model cache, single GPU
+  selector:
+    matchLabels:
+      llm-d.ai/inferenceServing: "true"
+      llm-d.ai/model: adhar-local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: llm-d-decode
+        app.kubernetes.io/part-of: llm-d
+        adhar.io/llm-d-profile: gpu
+        llm-d.ai/inferenceServing: "true"
+        llm-d.ai/model: adhar-local
+    spec:
+      enableServiceLinks: false
+      # Only where a device plugin actually advertises GPUs; tolerate the
+      # conventional taint that keeps CPU workloads off the pool.
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+      securityContext:
+        # The CUDA image ships a `vllm` account at uid 2000 / gid 0 (same as
+        # ai/vllm's GPU profile). fsGroup 0 makes the cache volume writable.
+        runAsNonRoot: true
+        runAsUser: 2000
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.29.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "Qwen/Qwen3.6-27B-FP8"
+            # The model NAMES clients send. agentgateway strips nothing, so the
+            # runtime's `local/Qwen/Qwen3.6-27B-FP8` must be served as-is; the
+            # alias `local/default` is the profile-agnostic name adhar-ai falls
+            # back to (ADHAR_AI_LLM_SECONDARY_MODEL), identical on ../cpu.
+            - "--served-model-name"
+            - "local/Qwen/Qwen3.6-27B-FP8"
+            - "local/default"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            # One GPU: keep EQUAL to nvidia.com/gpu below (vLLM asserts on a
+            # mismatch). FP8 weights are loaded as-is; no --dtype override.
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "32768"
+            # Weights + KV cache may claim 90% of the card; the rest is CUDA
+            # context and fragmentation headroom (0.92 upstream OOMs on a
+            # shared card).
+            - "--gpu-memory-utilization"
+            - "0.90"
+            # The agent runtime sends tools with every turn and
+            # tool_choice=auto; without a parser vLLM answers 400. hermes is
+            # the parser for Qwen's `<tool_call>` JSON format.
+            - "--enable-auto-tool-choice"
+            - "--tool-call-parser"
+            - "hermes"
+            # Qwen3.6 thinks by default. The parser moves the `<think>` block
+            # into `reasoning_content`, so the runtime's answer contract sees
+            # only the answer; and thinking is turned OFF for the agent loop,
+            # whose 4k-token completions would otherwise be spent reasoning
+            # about which tool to call rather than calling it. A caller that
+            # wants reasoning passes `chat_template_kwargs: {enable_thinking: true}`.
+            - "--reasoning-parser"
+            - "qwen3"
+            - "--default-chat-template-kwargs"
+            - '{"enable_thinking": false}'
+          env:
+            - {name: HOME, value: /cache}
+            - {name: HF_HOME, value: /cache/hf}
+            - {name: VLLM_CACHE_ROOT, value: /cache/vllm}
+            - {name: TRITON_CACHE_DIR, value: /cache/triton}
+            - {name: XDG_CACHE_HOME, value: /cache/xdg}
+            # Only needed for GATED repos; the ExternalSecret above always
+            # materialises (empty when unset) and `optional` means a missing
+            # Secret never blocks the pod.
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef: {name: llm-d-hf-token, key: HF_TOKEN, optional: true}
+          ports:
+            - {name: http, containerPort: 8000}
+          volumeMounts:
+            - {name: cache, mountPath: /cache}
+            - {name: dshm, mountPath: /dev/shm}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 15
+            failureThreshold: 160   # first start downloads 28 GB and compiles kernels
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: llm-d-model-cache}
+        - name: dshm
+          emptyDir: {medium: Memory, sizeLimit: 8Gi}

@@ -711,6 +711,56 @@ There is also a direct route at `https://vllm.<host>/v1` for curling from a lapt
 
 Locally, free headroom first: the CPU profile asks for 6Gi on top of the 32-app core, and cold start is image pull → ~1 GB model download → torch compile (all cached on the PVC, so the second start is fast). The GPU profile needs a GPU node pool with the NVIDIA device plugin advertising `nvidia.com/gpu` and nodes labelled `nvidia.com/gpu.present=true`; without it the pod stays `Pending` forever. Watch it in Grafana → *Platform* → **Adhar - vLLM Inference** (throughput, time-to-first-token, queue depth, KV-cache utilisation); sustained preemptions mean the KV cache is full. Gated models (Llama, Gemma) need a HuggingFace token at `secret/vllm/hf`, property `HF_TOKEN`, read through the `vault` ClusterSecretStore.
 
+### Self-hosted inference behind llm-d (the secondary model)
+
+`vllm` above is the bare engine. **`llm-d`** is the platform's self-hosted model as the AI layer uses it: an endpoint-picker router with an agentgateway sidecar in front of vLLM, reached by naming a `local/*` model at `https://ai.<host>/v1` with your Keycloak token — governed, budgeted and attributed like every other call. Three entries from one directory; enable `llm-d` **plus exactly one profile**:
+
+| Entry | Model | Where it runs |
+| --- | --- | --- |
+| `llm-d` | — | the router (EPP + agentgateway sidecar) and the model-server Service |
+| `llm-d-cpu` | `Qwen/Qwen2.5-0.5B-Instruct` | any node — the development proof |
+| `llm-d-gpu` | **`Qwen/Qwen3.6-27B-FP8`** (`--max-model-len 32768`, tool calling on) | one GPU with ≥ 40 GB, on a `gpu-operator` node |
+
+Both profiles serve the alias **`local/default`**. The hosted key stays Adhar AI's **primary** provider; `local/default` is its **secondary** (`ADHAR_AI_LLM_SECONDARY_MODEL`): when the primary fails — unkeyed, down, 5xx after its retries — every agentic feature (chat, tasks, chores, journeys, retrieval rerank and rewrite) answers from the self-hosted model, and `GET https://ai.<host>/healthz` → `llm.answered_by` shows it. A budget or policy refusal is never retried there. `ADHAR_AI_LLM_PROVIDER=local` makes it primary instead.
+
+```bash
+curl -s https://ai.<host>/v1/chat/completions -H "Authorization: Bearer $(adhar auth token)" \
+  -d '{"model":"local/default","messages":[{"role":"user","content":"hello"}]}'
+```
+
+### AI applications: `type: ai`
+
+A `CompositeApplication` declares what kind of application it is, and the platform decides how it runs:
+
+```yaml
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeApplication
+metadata: {name: vision-agent, namespace: team-ml}
+spec:
+  parameters:
+    name: vision-agent
+    project: ml
+    type: ai                      # service | web | worker | data | ai  (default service)
+    ai:
+      environment: prod
+      isolation: microvm          # microvm (default) | container
+      gpu: {count: 1, sharing: mig}   # mig (default) | timeslice | none
+      models: [local/default]     # what its AgentWorkload may name
+      tools: [cluster_list_pods]
+      budget: {tokensPerHour: 100000, requestsPerMinute: 60}
+    source: {repoURL: https://gitea.<host>/ml/vision-agent.git, path: manifests}
+```
+
+`type: ai` composes, on top of the Argo CD Application, an **AgentWorkload** (its namespace `vision-agent-prod`, ServiceAccount, quota, NetworkPolicy and agentgateway model/tool allow-lists with the budget) and labels the namespace `platform.adhar.io/application-type=ai`, `isolation`, `gpu-sharing`, `gpu-count`. The `ai-workload-isolation` Kyverno policy then mutates every pod there:
+
+| `ai.isolation` | GPU requested | What the pod gets |
+| --- | --- | --- |
+| `microvm` | no | `runtimeClassName: kata-qemu` — its own VM (`infrastructure/kata-containers`) |
+| `microvm` | yes | `kata-qemu-nvidia-gpu`, placed on a `nvidia.com/gpu.workload.config=vm-passthrough` node; the GPU is passed through **whole** — MIG and time-slicing do not exist behind VFIO, and the pod is annotated `gpu-sharing-effective: dedicated` |
+| `container` | yes | placed on a `nvidia.com/gpu.present=true` node whose device plugin runs the sharing asked for: `mig` → `mig.strategy=single` (each `nvidia.com/gpu` is one hardware-isolated slice), `timeslice` → `gpu.sharing-strategy=time-slicing`, `none` → any GPU node |
+
+The developer writes an ordinary Deployment with `nvidia.com/gpu: 1`; the type decides the rest. Both packages are off by default (Kind has neither `/dev/kvm` nor a GPU) — see `infrastructure/kata-containers` and `infrastructure/gpu-operator` for the node labels that turn a pool into a microVM or GPU pool.
+
 ## 9. Check production readiness
 
 The `application/scorecards` package grades every service 0–100 (A–F) from real in-cluster signals and surfaces it in the Console — a platform grade, a per-category breakdown and the full signal ledger. It is **enabled in production and gitops, off in the local core** (turn it on to see per-package readiness locally).

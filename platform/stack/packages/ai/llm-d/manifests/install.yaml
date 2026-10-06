@@ -247,7 +247,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
               - --endpoint-selector
-              - "llm-d.ai/inferenceServing=true,llm-d.ai/model=qwen2.5-0.5b-instruct"
+              - "llm-d.ai/inferenceServing=true,llm-d.ai/model=adhar-local"
               - --endpoint-target-ports
               - "8000"
               - --zap-encoder

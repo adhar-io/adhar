@@ -1,0 +1,50 @@
+# Adhar marketplace contract for the gpu-operator package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: gpu-operator
+category: infrastructure
+version: "26.7.1"
+appVersion: "v26.7.1"
+description: "NVIDIA GPU Operator: driver, toolkit, device plugin with MIG and time-slicing sharing profiles, DCGM metrics and GPU feature discovery on container nodes; VFIO passthrough for Kata microVMs. Advertises the nvidia.com/gpu that llm-d and every ApplicationType ai workload schedule against."
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: kube-prometheus
+    category: observability
+    optional: true
+  # The microVM half: the Kata runtime and its RuntimeClasses.
+  - name: kata-containers
+    category: infrastructure
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: nvidia/gpu-operator
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+# A control-plane operator with a per-node half: NFD's worker DaemonSet here,
+# and the driver/toolkit/device-plugin DaemonSets the operator creates on
+# every GPU node.
+planeAffinity: any
+stability: beta
+resources:
+  localSafe: false   # no GPUs on Kind; mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - gpu
+  - nvidia
+  - mig
+  - time-slicing
+  - vfio
+  - kata
+verification:
+  status: unverified

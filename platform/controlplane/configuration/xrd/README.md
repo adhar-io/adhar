@@ -28,3 +28,14 @@ search an index-lifecycle policy plus a daily snapshot into the platform object 
 hierarchy labels (`organisation|team|project|environment`) and `adhar.io/plane: workload`.
 `platform/controllers/adharplatform/datastores_test.go` pins their agreements with the compositions,
 the provider RBAC and the data/opensearch package whose operator the search composition relies on.
+
+## ApplicationType (`apps.xrd.yaml`)
+
+`CompositeApplication.spec.parameters.type` — `service | web | worker | data | ai`, default `service` — says what
+kind of application this is, and every composition stamps it on the Argo CD Application and the namespace as
+`platform.adhar.io/application-type`. For `ai` the `parameters.ai` block (environment, `isolation: microvm|container`,
+`gpu: {count, sharing: mig|timeslice|none}`, `models`, `tools`, `budget`) additionally composes an **AgentWorkload**
+(`agentworkload.xrd.yaml`: namespace `<name>-<env>`, ServiceAccount, quota, NetworkPolicy, agentgateway model/tool
+allow-lists and budget) and labels that namespace `platform.adhar.io/isolation`, `gpu-sharing` and `gpu-count`. The
+labels are the contract; the `ai-workload-isolation` Kyverno policy (`security/adhar-kyverno-policies`) is the
+mechanism that turns them into a Kata RuntimeClass and GPU-pool placement for every pod.

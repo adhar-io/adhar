@@ -1,0 +1,45 @@
+# kata-deploy — values for the platform render (manifests/install.yaml).
+#
+# Kata Containers runs a pod inside its own lightweight VM (QEMU + a guest
+# kernel) so that a container escape ends at a hypervisor boundary instead of
+# at the node. On this platform it is the isolation an ApplicationType `ai`
+# workload gets by default (CompositeApplication `parameters.type: ai`,
+# `parameters.ai.isolation: microvm`): the `ai-workload-isolation` Kyverno
+# policy (security/adhar-kyverno-policies) stamps those pods with one of the
+# RuntimeClasses this DaemonSet creates.
+#
+# TWO SHIMS, NOT THIRTEEN. The chart's default list installs every
+# hypervisor and every confidential-computing variant; each one is a guest
+# kernel + rootfs on every node and a RuntimeClass nobody here selects.
+#   qemu            -> RuntimeClass `kata-qemu`            (microVM, no GPU)
+#   qemu-nvidia-gpu -> RuntimeClass `kata-qemu-nvidia-gpu` (microVM + VFIO GPU
+#                      passthrough; pairs with infrastructure/gpu-operator in
+#                      sandboxWorkloads mode `kata`)
+# `createDefaultRuntimeClass: false` — `kata` must stay an explicit choice; the
+# node's default runtime remains runc.
+env:
+  shims: "qemu qemu-nvidia-gpu"
+  defaultShim: "qemu"
+  createRuntimeClasses: "true"
+  createDefaultRuntimeClass: "false"
+  debug: "false"
+
+# OPT-IN NODES ONLY. Kata needs hardware virtualisation (/dev/kvm) on the node;
+# Kind, most default cloud VM shapes without nested virtualisation, and every
+# control-plane droplet do not have it, and a kata-deploy pod on such a node
+# installs a runtime that can never start a VM. Label the nodes (a bare-metal
+# pool, or a VM pool with nested virt enabled) and the DaemonSet follows:
+#
+#   kubectl label node <name> adhar.io/microvm=true
+#
+# Once the runtime is installed kata-deploy labels the node
+# `katacontainers.io/kata-runtime=true` itself, and every RuntimeClass it
+# creates carries that as its scheduling nodeSelector — so a `kata-*` pod
+# can only ever land on a node where the runtime is actually ready.
+nodeSelector:
+  adhar.io/microvm: "true"
+
+# The chart defaults `imagePullPolicy: Always`; the image is pinned to the
+# chart's appVersion, so IfNotPresent is both correct and kinder to nodes.
+imagePullPolicy: IfNotPresent
+k8sDistribution: "k8s"

@@ -38,7 +38,8 @@ client. Subcommands (create/list/...) manage client/personal tokens and
 require admin wiring; they report clearly when not configured.
 
 Examples:
-  adhar auth token
+  adhar auth token                       # the bare bearer token
+  adhar auth token --show                # who it is for, and when it expires
   adhar auth token --user admin --insecure
   adhar auth token --client-id my-svc --client-secret xxxx`,
 		// The default output IS a bearer token, so the CLI header/footer must not
@@ -52,12 +53,18 @@ Examples:
 	tokenID   string
 	tokenName string
 	tokenUser string
+	// --show prints the human summary (user, groups, expiry) instead of the
+	// bare token. The DEFAULT is the bare token, because that is what the
+	// help has always promised and what `$(adhar auth token)` needs: a masked
+	// token with a banner is not a credential anything can use.
+	tokenShow bool
 )
 
 func init() {
 	tokenCmd.Flags().StringVarP(&tokenID, "id", "i", "", "Token ID")
 	tokenCmd.Flags().StringVarP(&tokenName, "name", "n", "", "Token name")
 	tokenCmd.Flags().StringVarP(&tokenUser, "user", "u", "", "Token owner")
+	tokenCmd.Flags().BoolVar(&tokenShow, "show", false, "Print a masked summary (user, groups, expiry) instead of the bare token")
 
 	// Add token subcommands
 	tokenCmd.AddCommand(createTokenCmd)
@@ -102,6 +109,13 @@ func runDecodeToken(cmd *cobra.Command, args []string) error {
 	}
 	if output == "json" {
 		return helpers.PrintJSON(claims)
+	}
+
+	// The bare token, so `curl -H "Authorization: Bearer $(adhar auth token)"`
+	// and an MCP client's `Authorization` header get exactly a credential.
+	if !tokenShow {
+		fmt.Println(raw)
+		return nil
 	}
 
 	fmt.Printf("⛨ Token:    %s\n", maskToken(raw))

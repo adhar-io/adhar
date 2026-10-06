@@ -9,7 +9,7 @@ name: llm-d
 category: ai
 version: "0.10.0"
 appVersion: "v0.10.0"
-description: 'llm-d distributed inference: an endpoint-picker router with an agentgateway sidecar in front of vLLM replicas, serving `local/*` models to the agent runtime through the platform AI data plane.'
+description: 'llm-d distributed inference: an endpoint-picker router with an agentgateway sidecar in front of vLLM, serving `local/*` models. Two model-server profiles, llm-d-cpu (Qwen2.5-0.5B) and llm-d-gpu (Qwen3.6-27B-FP8 on one GPU), both answering to `local/default` — adhar-ai''s self-hosted secondary model.'
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -18,7 +18,14 @@ license: Apache-2.0
 homepage: https://llm-d.ai
 adharCompatibility:
   minVersion: "0.1.0"
-dependencies: []
+dependencies:
+  # Every local/* call arrives through the AI data plane.
+  - name: agentgateway
+    category: ai
+  # The GPU profile schedules against nvidia.com/gpu.
+  - name: gpu-operator
+    category: infrastructure
+    optional: true
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
@@ -36,6 +43,8 @@ keywords:
   - vllm
   - llm-d
   - self-hosted
+  - qwen
+  - gpu
 verification:
   status: verified
   profile: production

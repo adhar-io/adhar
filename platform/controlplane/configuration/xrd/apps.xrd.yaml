@@ -49,6 +49,71 @@ spec:
                 properties:
                   displayName:
                     type: string
+                  type:
+                    type: string
+                    description: >-
+                      What kind of application this is. It decides how the platform runs it, not
+                      only how it labels it. `service` (the default), `web`, `worker` and `data`
+                      deploy as ordinary containers. `ai` deploys into an isolated microVM (Kata
+                      Containers, RuntimeClass `kata-qemu-nvidia-gpu` when it asks for a GPU) with
+                      GPU sharing, and gets an AgentWorkload for its namespace: resource quota,
+                      network policy, and model and tool allow-lists on the AI gateway.
+                    enum: [service, web, worker, data, ai]
+                    default: service
+                  ai:
+                    type: object
+                    description: Settings that apply only when `type` is `ai`. Ignored otherwise.
+                    properties:
+                      environment:
+                        type: string
+                        description: >-
+                          The environment the AgentWorkload is created for. Its namespace is
+                          `<application>-<environment>`, which also becomes the Application's
+                          destination namespace.
+                        enum: [dev, test, prod]
+                        default: dev
+                      isolation:
+                        type: string
+                        description: >-
+                          `microvm` runs every pod in a Kata Containers microVM: its own kernel,
+                          no shared host namespaces. `container` runs ordinary containers and is
+                          the fallback for nodes without KVM.
+                        enum: [microvm, container]
+                        default: microvm
+                      gpu:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                            description: GPUs (or GPU partitions) each pod may request. 0 means none.
+                            default: 1
+                            minimum: 0
+                          sharing:
+                            type: string
+                            description: >-
+                              How a physical GPU is shared. `mig` hands each pod a MIG partition,
+                              which works inside a microVM (A100/H100-class cards). `timeslice`
+                              shares a whole GPU between containers by time-slicing, which does
+                              NOT work across microVMs — with `isolation: microvm` it is downgraded
+                              to one GPU per pod and the policy report says so. `none` gives each pod
+                              a whole GPU.
+                            enum: [mig, timeslice, none]
+                            default: mig
+                      models:
+                        type: array
+                        description: Model names this application may call through the AI gateway. Empty means none.
+                        items: {type: string}
+                        default: []
+                      tools:
+                        type: array
+                        description: MCP tools this application may call through the AI gateway. Empty means none.
+                        items: {type: string}
+                        default: []
+                      budget:
+                        type: object
+                        properties:
+                          tokensPerHour: {type: integer, default: 100000}
+                          requestsPerMinute: {type: integer, default: 60}
                   project:
                     type: string
                     description: The CompositeProject this application belongs to. Its environments, AppProject

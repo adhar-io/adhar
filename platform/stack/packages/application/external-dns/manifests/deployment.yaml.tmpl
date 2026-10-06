@@ -76,6 +76,25 @@ spec:
             - --source=ingress
             - --source=gateway-httproute
             - --policy=upsert-only
+            # NEVER publish an RFC1918 address into a public zone.
+            #
+            # The sources above report whatever address their object carries, and
+            # on a cluster with no cloud load balancer that can be the nodes' own
+            # private IPs — a Gateway in Cilium's host-network mode reports
+            # 192.168.x.y. Combined with --policy=upsert-only, which never
+            # deletes, one bad reconcile writes records that resolve forever to
+            # addresses no client can route, and the platform's URLs then fail
+            # in the most confusing way available: DNS answers, nothing connects.
+            #
+            # Observed on a live Civo compute cluster (2026-10-06): 140 A records
+            # for *.hub.adhar.io pointing at 192.168.1.2-5, which had to be
+            # deleted through the provider's API because external-dns will not
+            # retract them. These three nets are the whole of RFC1918; a private
+            # zone that legitimately wants them is not what this platform
+            # publishes to.
+            - --exclude-target-net=10.0.0.0/8
+            - --exclude-target-net=172.16.0.0/12
+            - --exclude-target-net=192.168.0.0/16
             - --registry=txt
             - --txt-owner-id={{ .TXTOwnerID }}
             - --provider={{ .ExternalDNSProvider }}
