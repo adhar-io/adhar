@@ -118,7 +118,7 @@ func TestPlatformKargoPipelineMatchesTheModel(t *testing.T) {
 
 // The platform pipeline and the per-application pipeline must agree.
 //
-// Since ADR-0026 the per-application pipeline is composed: the CompositeProject
+// Since ADR-0026 the per-application pipeline is composed: the Project
 // XRD's default `environments` is the environment list, and the project
 // composition's ProjectConfig carries the promotion policy, keyed on the Stage's
 // environment label. The paved-road Task no longer iterates a fixed list — it
@@ -150,7 +150,7 @@ func TestPlatformAndAppPipelinesAgreeOnTheModel(t *testing.T) {
 		auto[m["name"].(string)], _ = m["autoPromote"].(bool)
 	}
 	if strings.Join(names, ",") != strings.Join(environmentModel, ",") {
-		t.Errorf("CompositeProject's default environments are %v, want %v in that order", names, environmentModel)
+		t.Errorf("Project's default environments are %v, want %v in that order", names, environmentModel)
 	}
 	for env, want := range map[string]bool{"dev": true, "test": true, "prod": false} {
 		if auto[env] != want {
@@ -172,7 +172,7 @@ func TestPlatformAndAppPipelinesAgreeOnTheModel(t *testing.T) {
 	if strings.Contains(string(tb), "for env in dev test prod; do") {
 		t.Error("the paved-road Task hardcodes the environment list again; it must read the project's status.environments")
 	}
-	if !strings.Contains(string(tb), "kind: CompositeApplication") {
-		t.Error("the paved-road Task must register an application by applying a CompositeApplication")
+	if !strings.Contains(string(tb), "kind: Application") {
+		t.Error("the paved-road Task must register an application by applying a Application")
 	}
 }

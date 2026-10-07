@@ -43,7 +43,7 @@ the local Kind topology (`adhar up` with no `-f`), whose default host
 | The ApplicationSet disappeared and nothing restored it | [3.6 Re-apply the ApplicationSet](#36-the-applicationset-was-deleted-and-nothing-restores-it) |
 | `kubectl get clusterproviderconfigs.<group>` → **`No resources found`** on a healthy platform | [4.1 Zero ProviderConfigs](#41-zero-providerconfigs-crossplane-silently-skipped-them) |
 | `field not declared in schema` on `spec.deletionPolicy` | [4.2 Namespaced managed resources](#42-deletionpolicy-field-not-declared-in-schema) |
-| Applications hang `Terminating` forever after deleting a `CompositeCluster` | [4.3 Teardown finalizer trap](#43-applications-hang-terminating-after-a-compositecluster-is-deleted) |
+| Applications hang `Terminating` forever after deleting a `Cluster` | [4.3 Teardown finalizer trap](#43-applications-hang-terminating-after-a-cluster-is-deleted) |
 | `0/N nodes are available: N node(s) exceed max volume count` | [5.1 The 7-volume wall](#51-exceed-max-volume-count--the-digitalocean-7-volume-wall) |
 | `node(s) had volume node affinity conflict` | [5.2 Not a capacity problem](#52-volume-node-affinity-conflict--not-a-capacity-problem) |
 | Autoscaler logs `holding`, or never adds a node | [5.3 The autoscaler is not scaling](#53-the-autoscaler-is-not-scaling) |
@@ -573,9 +573,9 @@ Related: **DOKS version slugs expire.** A hard-coded fallback such as
 `1.33.1-do.3` eventually stops existing. Query
 `doctl kubernetes options versions` rather than trusting a default.
 
-### 4.3 Applications hang `Terminating` after a `CompositeCluster` is deleted
+### 4.3 Applications hang `Terminating` after a `Cluster` is deleted
 
-**Symptom** — you delete a `CompositeCluster`, and the ArgoCD Applications that
+**Symptom** — you delete a `Cluster`, and the ArgoCD Applications that
 targeted that workload cluster hang in `Terminating` forever.
 
 **Root cause** — deleting the XR removes the ArgoCD cluster-registration Secret

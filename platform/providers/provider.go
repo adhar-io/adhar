@@ -411,10 +411,27 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	// Build provider configuration from environment config
 	providerConfig := buildProviderConfig(envConfig)
 
-	// Create provider instance
-	prov, err := pm.factory.CreateProvider(providerType, providerConfig)
+	// Which of the three cluster modes this provider block asked for. Parsed
+	// HERE, before the provider is built, because `provided` changes who owns
+	// the cluster: the cloud provider is replaced by ProvidedProvider, which
+	// adopts an existing cluster and refuses every lifecycle call.
+	clusterMode, err := ParseClusterMode(providerConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s provider: %w", providerType, err)
+		return nil, fmt.Errorf("%s provider: %w", providerType, err)
+	}
+
+	// Create provider instance
+	var prov Provider
+	if ClusterModeIsProvided(clusterMode) {
+		prov, err = NewProvidedProvider(providerType, envConfig.ResolvedRegion, providerConfig)
+		if err != nil {
+			return nil, fmt.Errorf("clusterMode: %s on the %s provider: %w", ClusterModeProvided, providerType, err)
+		}
+	} else {
+		prov, err = pm.factory.CreateProvider(providerType, providerConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %s provider: %w", providerType, err)
+		}
 	}
 
 	// One name, resolved once, used by every step below — create, reuse-detection
@@ -422,6 +439,11 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	clusterName := ResolveClusterName(opts.ClusterName)
 
 	if opts.DryRun {
+		if ClusterModeIsProvided(clusterMode) {
+			fmt.Printf("DRY-RUN: Would install the platform onto the EXISTING cluster reached by %s (environment '%s'); no cluster would be created\n",
+				providedClusterSource(prov), envConfig.Name)
+			return nil, nil
+		}
 		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s' (environment '%s')\n",
 			envConfig.ResolvedProvider, clusterName, envConfig.ResolvedRegion, envConfig.Name)
 		return nil, nil
@@ -493,6 +515,16 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	}
 
 	if opts.Recreate {
+		// --recreate DELETES the cluster first. On a provided cluster that is the
+		// one action this mode exists to prevent, and the refusal belongs here
+		// rather than in DeleteCluster: by the time the teardown is attempted the
+		// operator has already been told their cluster is being rebuilt.
+		if !ClusterLifecycleIsOurs(clusterMode) {
+			return nil, fmt.Errorf("--recreate cannot be used with clusterMode: %s — "+
+				"the platform did not create cluster %q and will not delete it; "+
+				"remove the platform from it instead, or recreate the cluster with the tool that built it",
+				ClusterModeProvided, clusterName)
+		}
 		if err := recreateCluster(ctx, prov, clusterName); err != nil {
 			return nil, fmt.Errorf("recreating %s cluster: %w", providerType, err)
 		}
@@ -523,12 +555,20 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	// Not logged at INFO: the checklist's "Cloud cluster" stage carries the cluster
 	// name, provider and region in its detail, so this line said the same thing a
 	// second time directly above it.
-	logger.Debugf("Creating cluster '%s' for environment '%s' using %s provider in region %s",
-		clusterName, envConfig.Name, providerType, envConfig.ResolvedRegion)
+	if ClusterModeIsProvided(clusterMode) {
+		logger.Debugf("Adopting the existing cluster reached by %s for environment '%s' (clusterMode: %s)",
+			providedClusterSource(prov), envConfig.Name, ClusterModeProvided)
+	} else {
+		logger.Debugf("Creating cluster '%s' for environment '%s' using %s provider in region %s",
+			clusterName, envConfig.Name, providerType, envConfig.ResolvedRegion)
+	}
 	opts.notify(PhaseClusterCreating)
 
 	cluster, err := prov.CreateCluster(ctx, spec)
 	if err != nil {
+		if ClusterModeIsProvided(clusterMode) {
+			return nil, fmt.Errorf("adopting the provided cluster: %w", err)
+		}
 		return nil, fmt.Errorf("failed to create %s cluster: %w", providerType, err)
 	}
 
@@ -899,4 +939,19 @@ func parseIntOrDefault(value string, defaultValue int) int {
 		return parsed
 	}
 	return defaultValue
+}
+
+// providedClusterSource describes WHICH existing cluster a provided-mode run is
+// about to install onto — the kubeconfig and context, which is the only
+// identifying thing the operator can check before it starts. "cluster 'prod' in
+// region 'LON1'" means nothing here: no cluster is created and the region is not
+// where anything is placed.
+func providedClusterSource(p Provider) string {
+	if pp, ok := p.(*ProvidedProvider); ok {
+		if pp.kubeContext != "" {
+			return fmt.Sprintf("context %q in %s", pp.kubeContext, pp.kubeconfigPath)
+		}
+		return pp.kubeconfigPath
+	}
+	return "the configured kubeconfig"
 }

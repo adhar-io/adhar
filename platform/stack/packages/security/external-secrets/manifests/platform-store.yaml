@@ -1,7 +1,7 @@
 # `platform` — the in-cluster ClusterSecretStore that reads adhar-system.
 #
 # Compositions must never copy a password into a manifest, yet the objects
-# they create often need one: a CompositeProject's Kargo namespace needs the
+# they create often need one: a Project's Kargo namespace needs the
 # Gitea CI credential (to clone and push application repositories) and the
 # Harbor credential (to list image tags). ESO's kubernetes provider is the
 # declarative way to project a platform Secret into another namespace: an

@@ -17,7 +17,7 @@ Developers and tenant teams need Kubernetes clusters that are cheap, fast, and d
 
 - **Local-first development**: a vcluster on the local Kind host gives a developer a clean, disposable cluster in seconds — own API server, own CRDs, own admission chain, freely installable/deletable — while reusing the host's Cilium, storage, and images. Full `adhar up` teardown/recreate stops being the reset mechanism for everyday experiments.
 - **Isolation boundary placement**: namespaces isolate *workloads* (tenant apps under RBAC/NetworkPolicy); vclusters isolate *Kubernetes itself* (CRDs, webhooks, API versions, cluster-scoped objects). Anything that needs to install cluster-scoped machinery belongs in a vcluster, not the host.
-- **One API across sizes**: `CompositeCluster` (ADR-0005) gains a vcluster-backed Composition, so "give me a cluster" resolves to a vcluster locally/for ephemeral needs and to EKS/AKS/GKE for durable workload clusters — same claim shape, provider-appropriate weight (ADR-0007's declarative path).
+- **One API across sizes**: `Cluster` (ADR-0005) gains a vcluster-backed Composition, so "give me a cluster" resolves to a vcluster locally/for ephemeral needs and to EKS/AKS/GKE for durable workload clusters — same claim shape, provider-appropriate weight (ADR-0007's declarative path).
 - **GitOps applies inside**: each vcluster is registerable as an ArgoCD destination cluster; the host platform stays the management plane (ADR-0001) and vclusters are workload targets, not platform copies.
 - **Version skew testing**: a vcluster can run a different Kubernetes minor version than its host, which is the platform's supported way to test tenant workloads against upcoming Kubernetes versions without a second physical cluster.
 

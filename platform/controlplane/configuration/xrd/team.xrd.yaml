@@ -1,4 +1,4 @@
-# CompositeTeam — the people who own projects (ADR-0026).
+# Team — the people who own projects (ADR-0026).
 #
 # A team composes nothing that costs money. It exists as an object so that
 # projects can reference it, selectors can find everything the team owns
@@ -10,16 +10,16 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeteams.platform.adhar.io
+  name: teams.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeTeam
-    plural: compositeteams
+    kind: Team
+    plural: teams
     shortNames: [team, teams]
   defaultCompositionRef:
-    name: compositeteam-local
+    name: team-local
   versions:
     - name: v1alpha1
       served: true
@@ -53,7 +53,7 @@ spec:
                       maxLength: 40
                     organisation:
                       type: string
-                      description: Name of the CompositeOrganisation this team belongs to.
+                      description: Name of the Organisation this team belongs to.
                     displayName:
                       type: string
                       default: ""

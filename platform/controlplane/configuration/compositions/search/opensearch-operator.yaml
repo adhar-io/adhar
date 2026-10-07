@@ -1,5 +1,5 @@
 ---
-# CompositeSearch → an OpenSearchCluster in the requester's namespace, run by
+# Search → an OpenSearchCluster in the requester's namespace, run by
 # the platform's opensearch-k8s-operator (data/opensearch), with everything the
 # platform's own shared cluster has:
 #
@@ -29,7 +29,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositesearch-opensearch
+  name: search-opensearch
   labels:
     feature: search
     provider: kubernetes
@@ -37,7 +37,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeSearch
+    kind: Search
   mode: Pipeline
   pipeline:
     - step: render
@@ -617,7 +617,7 @@ spec:
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeSearch
+            kind: Search
             status:
               phase: {{ $phase }}
               message: {{ $message | quote }}

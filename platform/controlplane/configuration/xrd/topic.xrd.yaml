@@ -1,0 +1,111 @@
+# Topic — a Kafka topic on the platform's SHARED cluster.
+#
+# The platform runs one Strimzi Kafka cluster (`adhar-kafka`) and every package
+# wires to it; a team asking for a topic should get a topic, not a second broker.
+# `Messaging` is the other object — it builds a whole Kafka cluster, for the rare
+# workload that needs isolation the shared one cannot give.
+#
+# Strimzi's topic operator watches KafkaTopic objects in the cluster's own
+# namespace, so the composed object lands there with the `strimzi.io/cluster`
+# label; the connection Secret lands in the REQUESTER's namespace, which is
+# where the workload reads it from.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: topics.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Topic
+    plural: topics
+  defaultCompositionRef:
+    name: topic-local-strimzi
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: topic
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                parameters:
+                  type: object
+                  properties:
+                    displayName: { type: string }
+                    topicName:
+                      type: string
+                      description: >-
+                        The topic as Kafka sees it. Defaults to the object's own
+                        name; set it when the wire name has to differ (a dotted
+                        name like `payments.captured` is a perfectly good topic
+                        name and a perfectly bad Kubernetes object name).
+                    cluster:
+                      type: string
+                      default: adhar-kafka
+                      description: The Strimzi Kafka cluster to create the topic on.
+                    partitions:
+                      type: integer
+                      default: 3
+                      minimum: 1
+                      description: >-
+                        Partitions are the unit of parallelism and can only be
+                        INCREASED later; a topic that starts at 1 caps its
+                        consumer group at one member forever.
+                    replicas:
+                      type: integer
+                      default: 1
+                      minimum: 1
+                      description: >-
+                        Replication factor. Must not exceed the cluster's broker
+                        count — Strimzi reports the topic as NotReady if it does,
+                        and 1 means a broker restart loses the partition.
+                    retentionHours:
+                      type: integer
+                      default: 168
+                      description: How long records are kept (168h = 7 days).
+                    retentionBytes:
+                      type: integer
+                      default: -1
+                      description: Size cap per partition; -1 means no size limit.
+                    cleanupPolicy:
+                      type: string
+                      enum: [delete, compact, "compact,delete"]
+                      default: delete
+                      description: >-
+                        `compact` keeps the last record per key — the right choice
+                        for a changelog or a lookup table, the wrong one for an
+                        event stream.
+                    minInsyncReplicas:
+                      type: integer
+                      default: 1
+                    config:
+                      type: object
+                      additionalProperties: { type: string }
+                      description: Extra topic-level Kafka settings, verbatim.
+                    organisation: { type: string, default: adhar }
+                    team: { type: string, default: platform }
+                    project: { type: string, default: "" }
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+            status:
+              type: object
+              properties:
+                topic: { type: string }
+                bootstrapServers: { type: string }
+                connectionSecret: { type: string }

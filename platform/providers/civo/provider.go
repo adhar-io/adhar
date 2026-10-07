@@ -33,15 +33,19 @@ func init() {
 		civoConfig := &Config{}
 
 		// Parse authentication
+		// Default: kubeadm on Civo instances. `clusterMode: managed` opts into
+		// Civo's managed Kubernetes (k3s); everything above the cluster behaves
+		// the same either way.
+		mode, err := provider.ParseClusterMode(config)
+		if err != nil {
+			return nil, err
+		}
+		civoConfig.ClusterMode = mode
 		if token, ok := config["token"].(string); ok {
 			civoConfig.Token = token
 		}
 		if useEnv, ok := config["useEnvironment"].(bool); ok {
 			civoConfig.UseEnvironment = useEnv
-		}
-		// Canonical mode switch: raw compute (default) vs managed k3s.
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			civoConfig.ClusterMode = "k3s"
 		}
 		if region, ok := config["region"].(string); ok {
 			civoConfig.Region = region
@@ -54,11 +58,6 @@ func init() {
 
 		// Parse configuration section
 		if configSection, ok := config["config"].(map[string]interface{}); ok {
-
-			// Cluster creation mode: "compute" (default) or "k3s"
-			if mode, ok := configSection["cluster_mode"].(string); ok {
-				civoConfig.ClusterMode = mode
-			}
 
 			// Basic configuration
 			if size, ok := configSection["size"].(string); ok {
@@ -339,6 +338,25 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		Tags:              tags,
 		Pools:             pools,
 		CNIPlugin:         "cilium",
+		// Opt OUT of Civo's default marketplace applications. Leaving this empty
+		// does not mean "none": the API applies every application marked default,
+		// and `GET /v2/kubernetes/applications` reports two of them —
+		// traefik2-nodeport and metrics-server (checked 2026-10-07).
+		//
+		// Both collide with what the platform installs itself:
+		//
+		//   * traefik2-nodeport is a second ingress implementation. This platform
+		//     replaced ingress-nginx with the Cilium Gateway (ADR/CLAUDE.md), and
+		//     Traefik would claim node ports and answer on hostnames the Gateway
+		//     is supposed to own.
+		//   * metrics-server duplicates the observability/metrics-server package.
+		//     Two installs register the same aggregated APIService
+		//     (v1beta1.metrics.k8s.io); whichever loses leaves `kubectl top` and
+		//     every HPA reading from an endpoint that may not be serving — the
+		//     same class of breakage kubescape's aggregated APIService caused.
+		//
+		// A leading "-" removes a default application.
+		Applications: civoRemovedDefaultApps,
 	}
 
 	created, err := p.client.NewKubernetesClusters(clusterConfig)
@@ -393,6 +411,11 @@ func (p *Provider) resolveCivoVersion(requested string) (string, error) {
 }
 
 // buildCivoPools converts the cluster spec node groups into Civo pool configs.
+// civoRemovedDefaultApps opts a managed cluster out of Civo's default
+// applications. The platform brings its own ingress (Cilium Gateway) and its own
+// metrics-server, and two of either is worse than none.
+const civoRemovedDefaultApps = "-traefik2-nodeport,-metrics-server"
+
 func (p *Provider) buildCivoPools(spec *types.ClusterSpec) []civogo.KubernetesClusterPoolConfig {
 	var pools []civogo.KubernetesClusterPoolConfig
 	for _, ng := range spec.NodeGroups {

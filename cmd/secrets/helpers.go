@@ -14,14 +14,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// compositeSecretRotationGVR / compositeSecretGVR identify the Crossplane XRs the
+// secretRotationGVR / secretGVR identify the Crossplane XRs the
 // secrets commands drive through the control plane (platform.adhar.io, namespaced).
 var (
-	compositeSecretRotationGVR = schema.GroupVersionResource{
-		Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositesecretrotations",
+	secretRotationGVR = schema.GroupVersionResource{
+		Group: "platform.adhar.io", Version: "v1alpha1", Resource: "secretrotations",
 	}
-	compositeSecretGVR = schema.GroupVersionResource{
-		Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositesecrets",
+	secretGVR = schema.GroupVersionResource{
+		Group: "platform.adhar.io", Version: "v1alpha1", Resource: "secrets",
 	}
 )
 

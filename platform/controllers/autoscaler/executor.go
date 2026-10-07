@@ -170,6 +170,19 @@ func parseAWSCredentialsINI(s string) (string, string) {
 // through: the bootstrap-time provider config, the credentials Secret, and the
 // cluster's SSH key materialised where the kubeadm helpers expect it.
 func (r *Reconciler) newProvider(ctx context.Context, spec *clusterSpec) (pfactory.Provider, error) {
+	// A PROVIDED cluster is not ours to grow or shrink. The autoscaler adds
+	// capacity by creating a cloud instance and kubeadm-joining it, and removes
+	// it by draining the node and deleting the instance — on a cluster the
+	// platform did not build that bills an account nobody asked it to touch and
+	// produces nodes the cluster's own tooling knows nothing about. Refused here,
+	// at the single point where every scaling action gets its provider, so no
+	// path can route around it.
+	if mode, err := pfactory.ParseClusterMode(spec.ProviderConfig); err == nil && !pfactory.ClusterLifecycleIsOurs(mode) {
+		return nil, fmt.Errorf("node autoscaling is not available on a provided cluster (clusterMode: %s): "+
+			"the platform did not create its nodes and will not add or remove any — "+
+			"scale the cluster with the tool that built it", mode)
+	}
+
 	cfg := map[string]interface{}{}
 	for k, v := range spec.ProviderConfig {
 		cfg[k] = v

@@ -1,0 +1,116 @@
+# Queue — a RabbitMQ queue (and its exchange binding) on the platform's shared
+# broker.
+#
+# Kafka and RabbitMQ are not interchangeable and the platform runs both: a Topic
+# is a durable, replayable log, a Queue is work handed to exactly one consumer
+# and acknowledged. Pick by the semantics you need, not by what is installed.
+#
+# Created through the broker's management API, because this platform runs the
+# RabbitMQ chart rather than the cluster operator — there is no CRD to compose.
+# Idempotent: PUT on a queue that exists is a no-op in RabbitMQ.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: queues.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Queue
+    plural: queues
+  defaultCompositionRef:
+    name: queue-local-rabbitmq
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: queue
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                parameters:
+                  type: object
+                  properties:
+                    displayName: { type: string }
+                    queueName:
+                      type: string
+                      description: The queue as the broker sees it; defaults to the object's name.
+                    vhost:
+                      type: string
+                      default: "/"
+                    durable:
+                      type: boolean
+                      default: true
+                      description: >-
+                        A non-durable queue is gone when the broker restarts.
+                        Durable is the only sane default for work that matters.
+                    autoDelete:
+                      type: boolean
+                      default: false
+                    exchange:
+                      type: object
+                      description: >-
+                        An exchange to declare and bind this queue to. Without
+                        one the queue can still be published to directly by name
+                        (the default exchange).
+                      properties:
+                        name: { type: string }
+                        type:
+                          type: string
+                          enum: [direct, topic, fanout, headers]
+                          default: topic
+                        routingKey:
+                          type: string
+                          default: "#"
+                    deadLetter:
+                      type: object
+                      description: >-
+                        Where rejected or expired messages go. Without a
+                        dead-letter queue a poison message is either retried
+                        forever or dropped silently.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        queueName:
+                          type: string
+                          description: Defaults to `<queue>-dlq`.
+                    messageTTLSeconds:
+                      type: integer
+                      description: Per-message TTL; unset means no expiry.
+                    maxLength:
+                      type: integer
+                      description: Maximum ready messages before the overflow policy applies.
+                    quorum:
+                      type: boolean
+                      default: false
+                      description: >-
+                        Declare a quorum queue (replicated, Raft) instead of a
+                        classic one. Only useful on a multi-node broker; the
+                        platform's default install is one replica.
+                    organisation: { type: string, default: adhar }
+                    team: { type: string, default: platform }
+                    project: { type: string, default: "" }
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+            status:
+              type: object
+              properties:
+                queue: { type: string }
+                amqpURI: { type: string }
+                connectionSecret: { type: string }

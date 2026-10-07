@@ -98,6 +98,20 @@ const (
 	// `adhar cluster scale` uses. It carries no credentials.
 	ClusterSpecConfigMapName = "adhar-cluster-spec"
 
+	// ClusterSpecClusterModeKey is the key in ClusterSpecConfigMapName holding
+	// the cluster mode — "compute", "managed" or "provided". The in-cluster
+	// controllers cannot infer it: a provided cluster looks like any other from
+	// the inside, and it is the difference between installing the platform's own
+	// CNI and leaving the operator's networking alone.
+	ClusterSpecClusterModeKey = "clusterMode"
+
+	// ClusterSpecGatewayAddressesKey holds the comma-separated PUBLIC addresses
+	// the platform edge answers on when the cluster has no cloud load balancer
+	// (the Cilium Gateway in host-network mode). external-dns publishes these:
+	// the Gateway's own status carries the nodes' private addresses, which in a
+	// public zone resolve and never connect.
+	ClusterSpecGatewayAddressesKey = "gatewayPublicAddresses"
+
 	// ClusterSSHSecretName holds the cluster's kubeadm SSH private key (key
 	// "id_ed25519"), mirrored from ~/.adhar/clusters/<name>/ at bootstrap.
 	// Joining a new worker means running kubeadm on the control plane over

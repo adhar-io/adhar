@@ -1,5 +1,5 @@
 ---
-# CompositeVector → a Qdrant vector database installed and configured in the
+# Vector → a Qdrant vector database installed and configured in the
 # requester's namespace.
 #
 # Install: the upstream qdrant/qdrant Helm chart through provider-helm, pinned.
@@ -32,7 +32,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositevector-qdrant
+  name: vector-qdrant
   labels:
     feature: vector
     provider: kubernetes
@@ -40,7 +40,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeVector
+    kind: Vector
   mode: Pipeline
   pipeline:
     - step: render
@@ -409,7 +409,7 @@ spec:
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeVector
+            kind: Vector
             status:
               phase: {{ $phase }}
               message: {{ $message | quote }}

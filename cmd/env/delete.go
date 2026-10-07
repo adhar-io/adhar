@@ -17,7 +17,7 @@ var deleteForce bool
 var deleteCmd = &cobra.Command{
 	Use:   "delete [environment-name]",
 	Short: "Delete environment",
-	Long: `Delete an environment. This removes any CompositeEnvironment XR (best-effort)
+	Long: `Delete an environment. This removes any Environment XR (best-effort)
 and then deletes the environment's namespace and everything in it.
 
 Examples:
@@ -52,10 +52,10 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Best-effort: remove the CompositeEnvironment XR first.
+	// Best-effort: remove the Environment XR first.
 	if dyn, derr := getDynamicClient(); derr == nil {
-		if err := dyn.Resource(compositeEnvironmentGVR).Namespace(envName).Delete(ctx, envName, metav1.DeleteOptions{}); err != nil && !crdMissing(err) && !k8serrors.IsNotFound(err) {
-			fmt.Println(helpers.CreateMuted("   CompositeEnvironment XR not deleted: " + err.Error()))
+		if err := dyn.Resource(environmentGVR).Namespace(envName).Delete(ctx, envName, metav1.DeleteOptions{}); err != nil && !crdMissing(err) && !k8serrors.IsNotFound(err) {
+			fmt.Println(helpers.CreateMuted("   Environment XR not deleted: " + err.Error()))
 		}
 	}
 

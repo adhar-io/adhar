@@ -3,33 +3,33 @@
 # a namespace with a ResourceQuota, a LimitRange, a default-deny ingress
 # NetworkPolicy and the owning TEAM's access to it.
 #
-# Environments are normally composed BY a CompositeProject (one per entry of
+# Environments are normally composed BY a Project (one per entry of
 # its `environments`), which passes organisation / team / project / environment
 # down so every object here carries the shared ownership labels. A standalone
-# CompositeEnvironment (the `environment` template) still works and defaults to
+# Environment (the `environment` template) still works and defaults to
 # the platform tenancy (adhar / platform).
 #
 # `access` is the point of an environment having an owner: the team is `admin`
 # in dev and test and `view` in prod, because production changes arrive through
-# a CompositeRelease (a Kargo promotion committed to Git), not through kubectl.
+# a Release (a Kargo promotion committed to Git), not through kubectl.
 # The organisation's admin group is always `admin` — teams subdivide a tenant,
 # they are not walls against the person who owns it.
 #
-# A CompositeEnvironment is a *namespaced* Crossplane v2 XR, so it cannot compose
+# A Environment is a *namespaced* Crossplane v2 XR, so it cannot compose
 # a cluster-scoped Namespace directly. Instead it emits provider-kubernetes
 # `Object` managed resources (themselves namespaced) that create the targets via
 # the in-cluster kubernetes-provider ClusterProviderConfig.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeenvironment-local
+  name: environment-local
   labels:
     feature: environment
     provider: local
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeEnvironment
+    kind: Environment
   mode: Pipeline
   pipeline:
     - step: render
@@ -212,7 +212,7 @@ spec:
             ---
             # Publish the environment namespace back on the XR status.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeEnvironment
+            kind: Environment
             status:
               tier: {{ $tier }}
               environment: {{ $env }}

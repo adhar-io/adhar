@@ -1,0 +1,39 @@
+# A Git repository the platform manages: created on the git server, populated
+# from a source, and kept there for Argo CD to read.
+#
+# The platform uses this for its own foundation repos (`packages`,
+# `environments`) at bootstrap. Write one yourself when a package has to be
+# delivered from a repository the platform owns rather than from upstream.
+#
+# `source.type` decides where the content comes from:
+#   embedded — a manifest compiled into the adhar binary (argocd | gitea | nginx)
+#   local    — a directory on the machine running the controller
+#   remote   — another git repository, mirrored in
+apiVersion: platform.adhar.io/v1alpha1
+kind: GitRepository
+metadata:
+  name: payments-platform-config
+  namespace: adhar-system
+spec:
+  provider:
+    name: gitea
+    # The URL callers use (API calls, and what Argo CD is told).
+    gitURL: https://gitea.platform.example.com
+    # The URL that resolves INSIDE the cluster. These differ on purpose: Argo CD
+    # talking to the public hostname goes out through the edge and back.
+    internalGitURL: http://gitea-http.adhar-system.svc.cluster.local:3000
+    organizationName: adhar
+  secretRef:
+    name: gitea-credential
+    namespace: adhar-system
+  source:
+    type: remote
+    remoteRepository:
+      url: https://github.com/acme/payments-platform-config
+      ref: main
+      path: "."
+      cloneSubmodules: false
+  customization:
+    # The package these manifests customize. Required whenever `customization`
+    # is present.
+    name: payments-api

@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositenetworks.platform.adhar.io
+  name: networks.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeNetwork
-    plural: compositenetworks
+    kind: Network
+    plural: networks
   defaultCompositionRef:
-    name: compositenetwork-aws-vpc
+    name: network-aws-vpc
   versions:
     - name: v1alpha1
       served: true

@@ -26,12 +26,12 @@ func TestProviderConfigStringMatchesHoweverTheKeyIsSpelled(t *testing.T) {
 // A decoded config's numbers are not strings; a string-only assertion dropped
 // them and fell back to a built-in default.
 func TestProviderConfigStringRendersNonStringScalars(t *testing.T) {
-	cfg := map[string]interface{}{"disksizegb": 256, "usemanagedk8s": true, "count": float64(4)}
+	cfg := map[string]interface{}{"disksizegb": 256, "primary": true, "count": float64(4)}
 	if got := providerConfigString(cfg, "diskSizeGb"); got != "256" {
 		t.Errorf("diskSizeGb = %q, want 256", got)
 	}
-	if got := providerConfigString(cfg, "useManagedK8s"); got != "true" {
-		t.Errorf("useManagedK8s = %q, want true", got)
+	if got := providerConfigString(cfg, "primary"); got != "true" {
+		t.Errorf("primary = %q, want true", got)
 	}
 	if got := providerConfigString(cfg, "count"); got != "4" {
 		t.Errorf("count = %q, want 4 (not 4.0)", got)

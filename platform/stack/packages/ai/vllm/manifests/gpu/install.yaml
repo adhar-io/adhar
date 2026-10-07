@@ -18,7 +18,7 @@
 # the full rationale on not using the chart.
 #
 # PREREQUISITES (this profile will stay Pending without them)
-#   1. A node pool with NVIDIA GPUs. On Adhar's CompositeCluster XR that is a
+#   1. A node pool with NVIDIA GPUs. On Adhar's Cluster XR that is a
 #      GPU node group; on a managed cluster it is a GPU-instance pool.
 #   2. The NVIDIA device plugin (or the GPU Operator) advertising the
 #      `nvidia.com/gpu` extended resource on those nodes. Kubernetes cannot

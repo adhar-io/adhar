@@ -19,7 +19,7 @@ var (
 		Long: `Delete a policy by name.
 
 By default a Kyverno ClusterPolicy (kyverno.io/v1) is deleted. With --xr the
-named CompositeCompliancePolicy is deleted instead, so the control plane garbage-
+named CompliancePolicy is deleted instead, so the control plane garbage-
 collects the ClusterPolicies it composed.
 
 Examples:
@@ -34,12 +34,12 @@ Examples:
 )
 
 func init() {
-	deleteCmd.Flags().BoolVar(&deleteXR, "xr", false, "Delete the CompositeCompliancePolicy XR instead of a ClusterPolicy")
+	deleteCmd.Flags().BoolVar(&deleteXR, "xr", false, "Delete the CompliancePolicy XR instead of a ClusterPolicy")
 }
 
-// compositeCompliancePolicyGVR mirrors the XRD plural.
-var compositeCompliancePolicyGVR = schema.GroupVersionResource{
-	Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositecompliancepolicies",
+// compliancePolicyGVR mirrors the XRD plural.
+var compliancePolicyGVR = schema.GroupVersionResource{
+	Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compliancepolicies",
 }
 
 func runDeletePolicy(cmd *cobra.Command, args []string) error {
@@ -61,11 +61,11 @@ func runDeletePolicy(cmd *cobra.Command, args []string) error {
 		if ns == "" {
 			ns = "default"
 		}
-		fmt.Printf("✖ Deleting CompositeCompliancePolicy %s (namespace %s)...\n", name, ns)
-		if err := dyn.Resource(compositeCompliancePolicyGVR).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		fmt.Printf("✖ Deleting CompliancePolicy %s (namespace %s)...\n", name, ns)
+		if err := dyn.Resource(compliancePolicyGVR).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 			return fmt.Errorf("delete compliance policy %s: %w", name, err)
 		}
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("CompositeCompliancePolicy %s deleted", name)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("CompliancePolicy %s deleted", name)))
 		return nil
 	}
 

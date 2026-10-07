@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -124,8 +125,20 @@ type fakeEngine struct {
 func (f *fakeEngine) run(_ context.Context, args ...string) (string, error) {
 	cmd := strings.Join(args, " ")
 	f.calls = append(f.calls, cmd)
-	for prefix, a := range f.answers {
+
+	// MOST SPECIFIC prefix wins, and the order is sorted rather than map order.
+	// Ranging over the map made this a coin flip: the fixtures deliberately pair
+	// a catch-all ("exec") with a precise path, both of which prefix-match the
+	// same command, so Go's randomised map iteration decided the answer and
+	// TestImagesToPreloadSkipsCachedAndAbsentImages failed about half the time.
+	prefixes := make([]string, 0, len(f.answers))
+	for prefix := range f.answers {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Slice(prefixes, func(i, j int) bool { return len(prefixes[i]) > len(prefixes[j]) })
+	for _, prefix := range prefixes {
 		if strings.HasPrefix(cmd, prefix) {
+			a := f.answers[prefix]
 			return a.out, a.err
 		}
 	}

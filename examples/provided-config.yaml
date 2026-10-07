@@ -1,0 +1,135 @@
+# Adhar onto a cluster you ALREADY HAVE — `clusterMode: provided`.
+#
+# The other example files describe a cluster for the platform to build. This one
+# describes a cluster that already exists: Adhar creates no network, no
+# instances and no managed control plane, reaches your cluster through your own
+# kubeconfig, and installs the platform onto it.
+#
+#   adhar up -f examples/provided-config.yaml --env dev --dry-run   # validate
+#   adhar up -f examples/provided-config.yaml --env dev             # install
+#
+# `adhar down` on a provided cluster DELETES NOTHING. The platform did not create
+# the cluster, so it never destroys it: the teardown reports the cluster as left
+# running and tells you how to remove the platform from it
+# (`kubectl delete adharplatform --all -n adhar-system`).
+#
+# ── What your cluster has to provide ──────────────────────────────────────────
+#
+#   1. Kubernetes 1.28 or newer, and cluster-admin through the kubeconfig below.
+#
+#   2. Cilium, with Gateway API support enabled — or NO CNI at all.
+#
+#      The platform's data path IS Cilium: kube-proxy is replaced and the
+#      platform Gateway is a Cilium Gateway, which is what every platform URL
+#      resolves through. So:
+#
+#        • Cilium already installed (gatewayAPI.enabled=true): reused exactly as
+#          you configured it. The platform does NOT reapply its own Cilium
+#          manifests over yours — not its version, not its IPAM mode, not its
+#          Hubble settings.
+#        • No CNI yet (a bare kubeadm cluster, nodes NotReady): the platform
+#          installs Cilium itself, as it does when it builds a cluster.
+#        • A different CNI (Calico, Flannel, the AWS VPC CNI, kindnet, …):
+#          REFUSED by the preflight. Bringing the platform up would mean
+#          replacing the networking of a cluster it does not own, and it will not
+#          do that silently. Remove the other CNI first, or use
+#          `clusterMode: compute`/`managed` and let the platform build a cluster.
+#
+#   3. A default StorageClass. The platform's packages ask for roughly 90 volumes
+#      without naming a class. In compute mode the platform installs
+#      local-path-provisioner and makes it the default; on your cluster it
+#      changes no storage defaults, so one of your classes must be marked
+#      default. The preflight warns when none is.
+#
+#   4. Enough room. The production profile needs about 18 vCPU and 64 GB of RAM
+#      across the cluster; the non-production one considerably less. Nothing here
+#      adds nodes — the node autoscaler is disabled in this mode, because adding
+#      capacity means creating cloud instances for a cluster the platform does
+#      not own.
+#
+# ── Edge DNS and TLS ──────────────────────────────────────────────────────────
+#
+# Still works, and still comes from the provider block: external-dns publishes
+# the platform zone and cert-manager answers the ACME DNS-01 challenge with the
+# same cloud credentials as any other mode. The `type:` below therefore names
+# the cloud that hosts your DNS ZONE, which need not be where the cluster runs.
+# Set `dnsProvider: none` if you manage the records yourself — the platform then
+# serves a self-signed certificate on the hostnames you point at your Gateway.
+
+globalSettings:
+  adharContext: adhar-mgmt              # kube-context name prefix and Cilium cluster name
+  defaultHost: platform.example.com     # every platform URL derives from this
+  defaultHttpPort: 80
+  defaultHttpsPort: 443
+  enableHAMode: false
+  email: admin@example.com              # Let's Encrypt (ACME) account
+
+  # Which cloud hosts the DNS zone for defaultHost. `none` disables edge DNS and
+  # leaves TLS self-signed.
+  dnsProvider: none
+
+providers:
+  # The provider block still names a cloud, because everything ABOVE the cluster
+  # reads from it: the DNS credentials, and the Crossplane ProviderConfig your
+  # teams' Database/Storage claims use. Only the cluster
+  # lifecycle changes hands.
+  #
+  # If there is no cloud in the picture at all, `type: custom` is the right
+  # choice: nothing in provided mode calls a cloud API for the cluster.
+  custom:
+    type: custom
+    primary: true
+
+    # THE SETTING THIS FILE IS ABOUT.
+    #
+    # compute  — the platform builds the cluster (kubeadm on raw instances).
+    # managed  — the cloud builds and runs it (EKS/AKS/GKE/DOKS/Civo k3s).
+    # provided — it already exists; the platform only installs onto it, and
+    #            never creates or deletes it.
+    clusterMode: provided
+
+    # Where that cluster is. Both optional:
+    #   kubeconfig  defaults to $KUBECONFIG, then ~/.kube/config
+    #   kubeContext defaults to the file's current context
+    #
+    # Name the context explicitly in anything automated. "Whichever context
+    # happens to be current" is how a platform gets installed onto the wrong
+    # cluster. The file is reduced to this one context before anything uses it,
+    # so the rest of your kubeconfig is never carried into the platform.
+    kubeconfig: ~/.kube/config
+    kubeContext: my-existing-cluster
+
+environmentTemplates:
+  nonprod-defaults:
+    clusterConfig:
+      - key: autoScale
+        value: "false"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
+
+# One environment, as a namespace on the provided cluster. `isolation: cluster`
+# makes no sense here: a provided cluster is the one cluster there is, and the
+# platform cannot create another.
+environments:
+  dev:
+    isolation: namespace
+    type: non-production
+    provider: custom
+    template: nonprod-defaults
+    clusterConfig:
+      # The platform's name for this cluster: the kube-context `adhar up` writes,
+      # the name `adhar cluster list` shows. It does NOT rename your cluster.
+      - key: name
+        value: adhar-dev
+    # Nothing sizes the cluster here. It already exists, so machine types, node
+    # counts and disk sizes describe nothing — keys like nodeSize and nodeCount
+    # are inert in this mode.
+    #
+    # Autoscaling is likewise unavailable — the autoscaler refuses to act on a
+    # cluster whose nodes the platform did not create.
+    autoscaling:
+      enabled: false

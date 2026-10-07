@@ -23,7 +23,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 type DataPlaneInfraMode string
 
 const (
-	InfraModeComposite DataPlaneInfraMode = "composite" // Crossplane CompositeCluster
+	InfraModeComposite DataPlaneInfraMode = "composite" // Crossplane Cluster
 	InfraModeVCluster  DataPlaneInfraMode = "vcluster"  // vcluster on the control plane (T1/T2)
 	InfraModeAdopt     DataPlaneInfraMode = "adopt"     // register an existing kubeconfig
 )
@@ -76,7 +76,7 @@ type DataPlaneInfrastructure struct {
 	Region string `json:"region,omitempty"`
 	// +optional
 	NodePools []NodePoolSpec `json:"nodePools,omitempty"`
-	// CompositeRef links the CompositeCluster XR the controller created (mode=composite).
+	// CompositeRef links the Cluster XR the controller created (mode=composite).
 	// +optional
 	CompositeRef *NamedRef `json:"compositeRef,omitempty"`
 	// KubeconfigSecretRef references a kubeconfig secret (mode=adopt).
@@ -207,7 +207,7 @@ func (r *DataPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.Get(ctx, req.NamespacedName, dp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// Finalizer for orderly teardown (deregister ArgoCD, delete CompositeCluster/vcluster).
+	// Finalizer for orderly teardown (deregister ArgoCD, delete Cluster/vcluster).
 	if !dp.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, dp)
 	}
@@ -264,20 +264,20 @@ func (r *DataPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 ### 2.2 Phase implementations
 
 - **`ensureInfra`** — switch on `spec.infrastructure.mode`:
-  - `composite`: server-side apply a `CompositeCluster` XR (see §2.3), set `status`/`spec.compositeRef`, poll its `Ready`; on ready, read the connection secret the composition publishes and build a `client.Client` to the data plane.
+  - `composite`: server-side apply a `Cluster` XR (see §2.3), set `status`/`spec.compositeRef`, poll its `Ready`; on ready, read the connection secret the composition publishes and build a `client.Client` to the data plane.
   - `vcluster`: `helm`-render the vcluster chart into `adhar-system` (or a `dp-<name>` namespace) on the control plane; wait for the vcluster statefulset; fetch its kubeconfig secret.
   - `adopt`: load `kubeconfigSecretRef`, build the client, verify `/healthz`.
 - **`ensureArgoRegistration`** — create/patch the ArgoCD cluster `Secret` (`argocd.argoproj.io/secret-type: cluster`) with the data-plane server/CA/token, and stamp `spec.placement.labels` as secret labels. Idempotent SSA with `FieldManager`.
 - **`ensureAgents`** — ensure the workload ApplicationSet (see §4) targets this cluster (label match) and query ArgoCD for the health of the profile's Applications on it; return `true` only when all are `Healthy`.
 - **`ensureMesh`** — run the Cilium clustermesh connect (`cilium clustermesh connect --context mgmt --destination-context <dp>`) via a Job on the control plane using the CLI image; register the SPIFFE trust-domain entry. Idempotent (checks `clustermesh status` first).
 - **`ensureObservability`** — apply the `observability-hub` ConfigMap into the data plane (Alloy reads it) with `hub` + ingest endpoints.
-- **`finalize`** — deregister ArgoCD cluster secret, delete the `CompositeCluster`/vcluster (only for controller-created infra, never `adopt`), remove finalizer.
+- **`finalize`** — deregister ArgoCD cluster secret, delete the `Cluster`/vcluster (only for controller-created infra, never `adopt`), remove finalizer.
 
-### 2.3 CompositeCluster XR authored by the controller (mode=composite)
+### 2.3 Cluster XR authored by the controller (mode=composite)
 
 ```yaml
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeCluster
+kind: Cluster
 metadata:
   name: {{ .dp.Name }}
   namespace: adhar-system
@@ -297,7 +297,7 @@ spec:
 func (r *DataPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DataPlane{}).
-		Owns(&unstructured.Unstructured{ /* CompositeCluster GVK */ }).
+		Owns(&unstructured.Unstructured{ /* Cluster GVK */ }).
 		Watches(&argov1alpha1.Application{}, handler.EnqueueRequestsFromMapFunc(r.appToDataPlane)). // recount on app health changes
 		Complete(r)
 }
@@ -427,7 +427,7 @@ Control-plane namespaces (`adhar-system`, the hub, harbor) carry `adhar.io/plane
 ## 10. Tests
 
 - **Unit**: `dataplane_types_test.go` (enum validation via envtest apply), deepcopy round-trip.
-- **envtest** (`platform/controllers/dataplane/controller_test.go`): fake CompositeCluster (unstructured) + fake ArgoCD Application/Secret; assert condition progression InfraReady→…→Ready, finalizer teardown, app recount on Application health change.
+- **envtest** (`platform/controllers/dataplane/controller_test.go`): fake Cluster (unstructured) + fake ArgoCD Application/Secret; assert condition progression InfraReady→…→Ready, finalizer teardown, app recount on Application health change.
 - **parity** (`parity_test.go` additions): assert every package's `plane` label is set; no `plane: workload` element appears in `adhar-appset-control.yaml`; control and workload appsets together cover the same package set as today (superset invariant).
 - **policy** (`chainsaw`/kyverno-test): app Deployment denied in a non-control namespace on the control plane; admitted in a data-plane namespace.
 - **e2e T1** (`tests/e2e/bootstrap`): after `adhar up`, assert a `DataPlane` named `local` is `Ready`, a sample app's pods run in the vcluster (not `adhar-system`), and `adhar-system` has zero `plane: workload` workloads.
@@ -465,7 +465,7 @@ tests/e2e/bootstrap/bootstrap_test.go                   (T1 assertions)
 - **M1 — API + controller skeleton**: `DataPlane` CRD, deepcopy, controller with `mode: adopt` (register an existing kubeconfig), `adhar get dataplanes`. No provisioning yet.
 - **M2 — Package split + placement**: `plane` labels, `adhar-appset-control.yaml`, extended workload appset, Sveltos placement, parity tests. Control plane app-free in CI.
 - **M3 — Local vcluster data plane**: T1 provisions a vcluster data plane by default; e2e asserts app placement off the control plane.
-- **M4 — Composite + vcluster infra modes**: controller drives `CompositeCluster`/vcluster; mesh + observability wiring automated; live T3 `DataPlane` reaches `Ready`.
+- **M4 — Composite + vcluster infra modes**: controller drives `Cluster`/vcluster; mesh + observability wiring automated; live T3 `DataPlane` reaches `Ready`.
 - **M5 — Migration + enforcement**: `adhar upgrade split-planes`, Kyverno Enforce, `adhar dataplane check`; docs + PRODUCTION runbook.
 
 ## 14. Risks

@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositecompliancepolicies.platform.adhar.io
+  name: compliancepolicies.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeCompliancePolicy
-    plural: compositecompliancepolicies
+    kind: CompliancePolicy
+    plural: compliancepolicies
   defaultCompositionRef:
-    name: compositecompliancepolicy-local
+    name: compliancepolicy-local
   versions:
     - name: v1alpha1
       served: true

@@ -16,7 +16,7 @@ import (
 var encryptCmd = &cobra.Command{
 	Use:   "encrypt",
 	Short: "Store sensitive data as a managed secret",
-	Long: `Wrap sensitive values as a CompositeSecret (platform.adhar.io) through the
+	Long: `Wrap sensitive values as a Secret (platform.adhar.io) through the
 control plane instead of creating a raw Kubernetes Secret. Crossplane materializes
 the backing Secret locally; on a cloud platform the same XR maps to the provider's
 encrypted secret store (KMS/Key Vault), so the request is portable.
@@ -74,8 +74,8 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		spec["encryption"].(map[string]interface{})["provider"] = encryptProvider
 	}
 
-	// Same feature label the compositesecret-local composition carries.
-	obj := helpers.NewXR("CompositeSecret", secretName, ns, "secret", nil, spec)
+	// Same feature label the secret-local composition carries.
+	obj := helpers.NewXR("Secret", secretName, ns, "secret", nil, spec)
 
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -87,7 +87,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		return unreachable(err)
 	}
 
-	if _, err := dyn.Resource(compositeSecretGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if _, err := dyn.Resource(secretGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
 			return fmt.Errorf("secret %q already exists in namespace %q", secretName, ns)
 		}
@@ -98,7 +98,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	for k := range stringData {
 		keys = append(keys, k)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● CompositeSecret %q created with keys: %s", secretName, strings.Join(keys, ", "))))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Secret %q created with keys: %s", secretName, strings.Join(keys, ", "))))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Backing secret materializes as: %s (namespace %s)", secretName, ns)))
 	return nil
 }

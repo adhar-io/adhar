@@ -12,7 +12,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCompliancePolicy
+    kind: CompliancePolicy
   mode: Pipeline
   pipeline:
     - step: render-gatekeeper-policies

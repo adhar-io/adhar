@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeapplication-multienv
+  name: application-multienv
   labels:
     feature: apps
     topology: multi-env
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeApplication
+    kind: Application
   mode: Pipeline
   pipeline:
     - step: render-environments
@@ -24,7 +24,7 @@ spec:
                    Organisation → Team → Project → APPLICATION → Environment → Release
 
                    The application never decides where an environment lives: it
-                   OBSERVES its CompositeProject (an observe-only provider-kubernetes
+                   OBSERVES its Project (an observe-only provider-kubernetes
                    Object — managementPolicies: [Observe]) and reads
                    status.environments[] from it. Until the project has published
                    that list, this renders only the observation and reports Pending.
@@ -41,7 +41,7 @@ spec:
                        to make the Rollout healthy before the Stage counts as done.
                    Plus one Kargo Warehouse watching the application's image repository.
                    This is what the imperative `app-env-register` Task used to apply by
-                   hand, made declarative; the Task now applies a CompositeApplication.
+                   hand, made declarative; the Task now applies a Application.
 
                    Kargo expressions are `${{ … }}`; `{{` starts a Go template action,
                    so they are spelled through $ex below. */ -}}
@@ -100,7 +100,7 @@ spec:
               forProvider:
                 manifest:
                   apiVersion: platform.adhar.io/v1alpha1
-                  kind: CompositeProject
+                  kind: Project
                   metadata:
                     name: {{ quote $project }}
                     namespace: {{ quote $xrns }}
@@ -271,7 +271,7 @@ spec:
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeApplication
+            kind: Application
             status:
               {{- if not $envs }}
               phase: Pending

@@ -45,7 +45,7 @@ MIG also needs the partition applied: label the node
 `nvidia-smi mig -lgip` for what the card supports); the MIG manager does the
 rest. The default partition is `all-disabled`.
 
-A `CompositeApplication` with `parameters.ai.gpu.sharing: mig` is placed on a
+A `Application` with `parameters.ai.gpu.sharing: mig` is placed on a
 `mig.strategy=single` node by the `ai-workload-isolation` policy, so its
 `ai.gpu.count: 2` is two slices with no change to how it requests them;
 `timeslice` lands on a time-slicing node; `none` on any GPU node. The labels

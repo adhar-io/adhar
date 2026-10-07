@@ -1,0 +1,45 @@
+# A place for a team's code AND the artefacts built from it: a Gitea repository,
+# the Harbor project its images are pushed to, and (optionally) its own Nexus
+# hosted repositories.
+#
+# These are one object because they are one thing. A team given only the git repo
+# finds out about the other two the first time CI pushes — kpack reports
+# UNAUTHORIZED for a Harbor project that does not exist, and `npm publish`
+# reports a 404.
+#
+# Everything is idempotent: re-applying converges, and pointing this at systems
+# that were set up by hand adopts them rather than failing.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Repository
+metadata:
+  name: payments-api
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: repository
+  parameters:
+    displayName: Payments API
+    description: Payment capture and settlement service
+    # The Gitea organisation that owns it, and the Harbor project name. One
+    # organisation per platform is the tenancy model, so this is nearly always
+    # the default.
+    organisation: acme
+    private: false
+    defaultBranch: main
+    # A repository with no commits has no default branch, which Argo CD reports
+    # as `unknown revision` rather than as an empty repository.
+    autoInit: true
+    container:
+      enabled: true
+      public: false
+      quotaGB: 20
+    packages:
+      # Off by default: the platform's shared maven-hosted/npm-hosted/pypi-hosted
+      # repositories already exist, and most teams publish into those.
+      enabled: false
+      formats: [npm]
+    organisationLabel: acme
+    team: payments
+    project: payments-api

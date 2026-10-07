@@ -1,0 +1,24 @@
+# A team inside the organisation. This is the onboarding unit and the isolation
+# unit: a person is given access by being added to the team's Keycloak group
+# (`ws-team-<name>`), and everything the team owns is labelled with it.
+#
+# The Gitea team of the same name is created with `giteaPermission` on the
+# repositories granted to it. Teams hold no quota of their own — their projects
+# do (see project.yaml).
+apiVersion: platform.adhar.io/v1alpha1
+kind: Team
+metadata:
+  name: payments
+  namespace: adhar-system
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+  parameters:
+    name: payments
+    organisation: acme
+    displayName: Payments
+    description: Payment capture, settlement and reconciliation
+    # read | write | admin — what the Gitea team may do with its repositories.
+    giteaPermission: write

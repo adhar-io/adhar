@@ -22,7 +22,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 type DataPlaneInfraMode string
 
 const (
-	InfraModeComposite DataPlaneInfraMode = "composite" // Crossplane CompositeCluster
+	InfraModeComposite DataPlaneInfraMode = "composite" // Crossplane Cluster
 	InfraModeVCluster  DataPlaneInfraMode = "vcluster"  // vcluster on the control plane (T1/T2)
 	InfraModeAdopt     DataPlaneInfraMode = "adopt"     // register an existing kubeconfig
 )
@@ -79,7 +79,7 @@ type DataPlaneInfrastructure struct {
 	Version string `json:"version,omitempty"`
 	// +optional
 	NodePools []NodePoolSpec `json:"nodePools,omitempty"`
-	// CompositeRef links the CompositeCluster XR the controller created (mode=composite).
+	// CompositeRef links the Cluster XR the controller created (mode=composite).
 	// +optional
 	CompositeRef *NamedRef `json:"compositeRef,omitempty"`
 	// KubeconfigSecretRef references a kubeconfig secret (mode=adopt).

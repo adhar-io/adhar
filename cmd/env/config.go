@@ -18,7 +18,7 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config [environment-name]",
 	Short: "Show or set environment configuration",
-	Long: `Show or update a CompositeEnvironment XR's parameters (resource quotas and
+	Long: `Show or update a Environment XR's parameters (resource quotas and
 limits) through the control plane. With no setter flags the current parameters
 and status are shown; passing any setter patches the XR and Crossplane reconciles
 the change (ResourceQuota / LimitRange / NetworkPolicy).
@@ -86,13 +86,13 @@ func runConfig(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("build patch: %w", err)
 		}
 		logger.Info(fmt.Sprintf("⎔ Updating configuration for environment: %s", envName))
-		if _, err := dyn.Resource(compositeEnvironmentGVR).Namespace(envName).
+		if _, err := dyn.Resource(environmentGVR).Namespace(envName).
 			Patch(ctx, envName, types.MergePatchType, data, metav1.PatchOptions{}); err != nil {
 			if crdMissing(err) {
-				return fmt.Errorf("CompositeEnvironment XRD not installed; cannot manage config for %q", envName)
+				return fmt.Errorf("Environment XRD not installed; cannot manage config for %q", envName)
 			}
 			if k8serrors.IsNotFound(err) {
-				return fmt.Errorf("environment %q has no CompositeEnvironment XR", envName)
+				return fmt.Errorf("environment %q has no Environment XR", envName)
 			}
 			return fmt.Errorf("patch environment config: %w", err)
 		}
@@ -111,10 +111,10 @@ func showEnvironmentConfig(ctx context.Context, envName string) error {
 		return unreachable(err)
 	}
 
-	xr, err := dyn.Resource(compositeEnvironmentGVR).Namespace(envName).Get(ctx, envName, metav1.GetOptions{})
+	xr, err := dyn.Resource(environmentGVR).Namespace(envName).Get(ctx, envName, metav1.GetOptions{})
 	if err != nil {
 		if crdMissing(err) || k8serrors.IsNotFound(err) {
-			return fmt.Errorf("no CompositeEnvironment XR for %q (create it with `adhar environment create %s`)", envName, envName)
+			return fmt.Errorf("no Environment XR for %q (create it with `adhar environment create %s`)", envName, envName)
 		}
 		return fmt.Errorf("get environment config: %w", err)
 	}

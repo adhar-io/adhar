@@ -2,13 +2,13 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositewebhooks.platform.adhar.io
+  name: webhooks.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeWebhook
-    plural: compositewebhooks
+    kind: Webhook
+    plural: webhooks
   versions:
   - name: v1alpha1
     served: true

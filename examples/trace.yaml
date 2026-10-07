@@ -1,0 +1,24 @@
+# Distributed tracing for a team's workloads. The platform's own trace store is
+# Tempo (observability/tempo), with Alloy receiving OTLP; this object asks for a
+# trace pipeline with its own backend and sampling.
+#
+# Sample rate is a cost decision, not a quality one: 100% of a busy service is
+# the largest telemetry bill on the platform. And verify at the READER — a
+# pipeline that accepts spans and stores them somewhere nothing queries looks
+# identical to a working one.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Trace
+metadata:
+  name: payments-traces
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: traces
+  name: payments-traces
+  backend: tempo
+  sampling:
+    rate: 0.1
+    strategy: probabilistic
+  retention: 168h

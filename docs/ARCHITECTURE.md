@@ -221,7 +221,7 @@ Two paths provision infrastructure, deliberately ([ADR-0007](adr/0007-dual-provi
 
 The default provisioning model is **raw compute + kubeadm** on every cloud, with managed Kubernetes as an opt-in ([ADR-0022](adr/0022-custom-clusters-no-managed-k8s.md)).
 
-A developer requests a `CompositeDatabase` in their namespace; the composition provisions CNPG locally or RDS/Cloud SQL in the cloud — same API, provider-appropriate implementation, governed by ordinary RBAC and quotas. **How it is built, installed, operated and debugged is [Control Plane In Depth](CONTROL_PLANE.md)** — including the install order, the ProviderConfig strictness rule, and the v2 conventions.
+A developer requests a `Database` in their namespace; the composition provisions CNPG locally or RDS/Cloud SQL in the cloud — same API, provider-appropriate implementation, governed by ordinary RBAC and quotas. **How it is built, installed, operated and debugged is [Control Plane In Depth](CONTROL_PLANE.md)** — including the install order, the ProviderConfig strictness rule, and the v2 conventions.
 
 ## 6. Networking
 
@@ -312,14 +312,14 @@ flowchart LR
     subgraph prod["Data plane: production"]
         wl3["Apps + agents"]
     end
-    xp2 -- "CompositeCluster provisions" --> dev & stg & prod
+    xp2 -- "Cluster provisions" --> dev & stg & prod
     argo2 -- "ApplicationSets deploy" --> dev & stg & prod
     wl1 & wl2 & wl3 -- "metrics/logs/traces (Alloy)" --> obs2
 ```
 
 **Control-plane / data-plane separation** ([ADR-0023](adr/0023-control-dataplane-separation.md)) makes the two roles first-class: the control plane runs only fleet/platform services; application workloads run on data planes. The cluster-scoped `DataPlane` API and its controller (`platform/controllers/dataplane/`) register workload clusters, push the thin-agent profile, wire Cilium Cluster Mesh, and roll fleet health up onto `AdharPlatform`. Placement is driven by the `adhar.io/plane` label; the enforcing Kyverno policy ships in `security/policy-packs` (`manifests/plane-isolation.yaml`), which is **disabled by default** — turning the invariant on is a deliberate act. Operators drive it with `adhar get dataplanes` and the staged, reversible `adhar upgrade split-planes`, which stands up a local vcluster data plane so apps run off the control plane even on a laptop.
 
-What was proven end-to-end: a `CompositeCluster` XR provisioned a real DOKS cluster (~11 minutes), auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster|dataplane|dataplane-mode`), the thin workload profile landed 5/5 Healthy on it, and teardown left no paid resources.
+What was proven end-to-end: a `Cluster` XR provisioned a real DOKS cluster (~11 minutes), auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster|dataplane|dataplane-mode`), the thin workload profile landed 5/5 Healthy on it, and teardown left no paid resources.
 
 Full HA sizing, backup/DR procedures and hardening live in the [Production Guide](PRODUCTION.md); the DigitalOcean specifics in [DIGITALOCEAN_PROVIDER.md](DIGITALOCEAN_PROVIDER.md).
 

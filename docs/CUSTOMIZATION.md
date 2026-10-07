@@ -181,7 +181,7 @@ For day-to-day deployment (CLI, golden paths, preview environments), see [User G
 
 There are two template systems, and they serve different surfaces.
 
-**CLI / control-plane templates** — `platform/stack/templates/*.yaml`, pushed to the Gitea `templates` repo at bootstrap. Each is a `CompositeApplication` with `${APP_NAME}` / `${APP_NAMESPACE}` placeholders. These are what `adhar application deploy <name> --template <t>` instantiates. Shipped: `basic-git`, `microservice`, `frontend`. To add one, drop a new `<name>.yaml` in that directory and run `adhar upgrade`.
+**CLI / control-plane templates** — `platform/stack/templates/*.yaml`, pushed to the Gitea `templates` repo at bootstrap. Each is a `Application` with `${APP_NAME}` / `${APP_NAMESPACE}` placeholders. These are what `adhar application deploy <name> --template <t>` instantiates. Shipped: `basic-git`, `microservice`, `frontend`. To add one, drop a new `<name>.yaml` in that directory and run `adhar upgrade`.
 
 **Console golden paths** — `platform/stack/packages/application/adhar-templates/`, Backstage `scaffolder.backstage.io/v1beta3` templates. Shipped: `microservice`, `frontend`, `data-pipeline`, `ml` (plus `basic`, `argo-workflows`, `app-with-bucket`). Adding one:
 
@@ -250,7 +250,7 @@ Domain and port values are never hardcoded in package manifests: the stack is wr
 
 The control plane (`platform/controlplane/`) ships the composite APIs (XRDs) and their compositions on Crossplane v2, and is designed for two kinds of extension.
 
-**a) A new implementation of an existing API** — for example your organization's opinionated PostgreSQL behind the standard `CompositeDatabase`. Write a new Composition (Pipeline mode) selecting on your label or parameters; consumers do not change.
+**a) A new implementation of an existing API** — for example your organization's opinionated PostgreSQL behind the standard `Database`. Write a new Composition (Pipeline mode) selecting on your label or parameters; consumers do not change.
 
 **b) A new platform API** — for example `CompositeQueue`:
 
@@ -267,7 +267,7 @@ To target a new cloud or on-prem substrate, implement the `Provider` interface (
 
 The **`custom` provider** is the low-effort alternative: point Adhar at any existing conformant cluster and skip provisioning entirely.
 
-For declarative provisioning parity, add matching Crossplane compositions (§9b) so `CompositeCluster` works on the new provider too.
+For declarative provisioning parity, add matching Crossplane compositions (§9b) so `Cluster` works on the new provider too.
 
 ## 11. Tune foundation components
 

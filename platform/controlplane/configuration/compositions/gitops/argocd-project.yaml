@@ -1,13 +1,13 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositegitops-argocd
+  name: gitops-argocd
   labels:
     feature: gitops
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeGitOps
+    kind: GitOps
   mode: Pipeline
   pipeline:
     - step: render-gitops
@@ -168,7 +168,7 @@ spec:
             # details are v1-only (CONVENTIONS.md §1), so the coordinates that
             # used to be emitted as connection details live on status instead.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeGitOps
+            kind: GitOps
             status:
               projectSynced: {{ $projectHealthy }}
               managedApplicationSets: {{ len $appsets }}

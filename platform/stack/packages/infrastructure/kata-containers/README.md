@@ -8,7 +8,7 @@ by default. Pinned to kata-deploy **3.21.0**.
 
 ## How it fits the platform
 
-A `CompositeApplication` with `parameters.type: ai` composes its namespace
+A `Application` with `parameters.type: ai` composes its namespace
 with `platform.adhar.io/isolation: microvm` (the default). The
 `ai-workload-isolation` policy in `security/adhar-kyverno-policies` then
 stamps every pod in that namespace with one of the RuntimeClasses this

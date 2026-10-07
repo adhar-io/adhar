@@ -59,7 +59,7 @@ spec:
               infrastructure:
                 properties:
                   compositeRef:
-                    description: CompositeRef links the CompositeCluster XR the controller
+                    description: CompositeRef links the Cluster XR the controller
                       created (mode=composite).
                     properties:
                       name:

@@ -32,7 +32,7 @@ cluster: [PRODUCTION_ACCESS.md](PRODUCTION_ACCESS.md). Failures:
 | Path | Mechanism | Used for |
 | --- | --- | --- |
 | **Imperative** | Go provider interface (`platform/providers/`) | Day-0 cluster creation from the CLI (`adhar up`, `adhar cluster create`) and day-2 cluster ops (`scale`, `upgrade`, `delete`) |
-| **Declarative** | Crossplane Compositions (`platform/controlplane/`) | Continuous, GitOps-managed infrastructure (`CompositeCluster`, `CompositeDatabase`, …) |
+| **Declarative** | Crossplane Compositions (`platform/controlplane/`) | Continuous, GitOps-managed infrastructure (`Cluster`, `Database`, …) |
 
 Both share the same provider credentials. The imperative path gets you a
 management cluster; the declarative path lets that cluster manage everything
@@ -46,10 +46,10 @@ paths have run against real hardware.
 | Path | Status | Evidence |
 | --- | --- | --- |
 | **DigitalOcean — droplets + kubeadm** | ✅ **Live-verified end to end** | Cluster creation (~5 min to a serving API), SSH-fetched admin kubeconfig, node registration, Cilium to `Ready`, worker scale-up (join) and scale-down (drain), node autoscaling in both directions, full 76-package production profile, HA mode, `adhar upgrade`, Velero backup+restore, publicly trusted wildcard TLS via DO DNS-01, clean teardown leaving no paid resources |
-| **DigitalOcean — DOKS via `CompositeCluster`** | ✅ **Live-verified** | A `CompositeCluster` XR provisioned a real DOKS cluster in ~11 min, auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster`, `adhar.io/dataplane`, `adhar.io/dataplane-mode`), the thin workload profile landed 5/5 Healthy, teardown left nothing behind |
+| **DigitalOcean — DOKS via `Cluster`** | ✅ **Live-verified** | A `Cluster` XR provisioned a real DOKS cluster in ~11 min, auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster`, `adhar.io/dataplane`, `adhar.io/dataplane-mode`), the thin workload profile landed 5/5 Healthy, teardown left nothing behind |
 | **Cilium Cluster Mesh** | ✅ **Live-verified** | `adhar-mgmt` (id 1, `10.244.0.0/16`) meshed with `adhar-test` (id 2, `10.245.0.0/16`); `clustermesh status` green both sides, bidirectional traffic over a global service. See [PRODUCTION §7](PRODUCTION.md#7-cluster-mesh-t3) for the VPC rule and why SPIFFE/SPIRE is deliberately not deployed |
 | **GCP — GCE instances + kubeadm** | ✅ **Live-verified** | Cluster creation on `adhar-cloud` (kubeadm on e2-standard-8, external CCM, PD CSI), a real load balancer for the Gateway, node autoscaling, the 80-package production profile, and a clean `adhar down` that removed every instance, the forwarding rule, the target pool, the `k8s-*` firewall rules and 41 `pvc-*` disks with no manual intervention. See [GCP_PROVIDER.md](GCP_PROVIDER.md) |
-| **AWS, Azure, Civo** | ⚙️ **Built, render-verified only** | Provider registration, config-schema validation and `--dry-run` pass; the kubeadm code path — node prep, join, drain, scale plan, cloud-controller-manager, CSI + default StorageClass, upgrade — is shared with DigitalOcean (see §2.1 for the per-row status), and the managed opt-in (EKS / AKS / GKE / Civo k3s via `useManagedK8s: true`) is implemented end to end (create, kubeconfig, node groups, scale, upgrade, health, delete). **No live run yet** — treat first use on these clouds as a bring-up exercise |
+| **AWS, Azure, Civo** | ⚙️ **Built, render-verified only** | Provider registration, config-schema validation and `--dry-run` pass; the kubeadm code path — node prep, join, drain, scale plan, cloud-controller-manager, CSI + default StorageClass, upgrade — is shared with DigitalOcean (see §2.1 for the per-row status), and the managed opt-in (EKS / AKS / GKE / Civo k3s via `clusterMode: managed`) is implemented end to end (create, kubeconfig, node groups, scale, upgrade, health, delete). **No live run yet** — treat first use on these clouds as a bring-up exercise |
 | **`custom` (bring your own hosts)** | ⚙️ Render-verified | Same kubeadm flow over SSH against machines you own |
 | **Kind (local)** | ✅ Exercised continuously | `make e2e` runs a full `adhar up` → verify → `adhar down` cycle |
 
@@ -79,14 +79,15 @@ unit-tested where it is pure; **live** means it ran on that cloud:
 | Scale up: fresh join token, prep, join (`ScaleNodeGroup`) | ✅ live | ✅ built (was a stub returning `nil`) | ✅ built (was a stub that only logged) | ✅ built (was a stub) | ✅ built (reached the managed node-pool API) |
 | Scale down: drain + delete Node, then delete the instance | ✅ live | ✅ built (terminated without draining before) | ✅ built | ✅ built | ✅ built |
 | `GetNodeGroup` / `ListNodeGroups` report real members | ✅ | ✅ (by tag) | ✅ (by VM prefix) | ✅ (by instance prefix) | managed pools only |
-| Cloud-controller-manager (`--cloud-provider=external`) | ✅ DO CCM | ✅ built (`aws-cloud-controller-manager` chart) | ✅ built (`cloud-provider-azure` chart) | ✅ built (`cloud-provider-gcp` manifest) | ⛔ **none in compute mode, by design** — the Civo CCM resolves `CIVO_CLUSTER_ID` against the MANAGED Kubernetes API, which a kubeadm cluster on plain instances does not have, so it nil-panics and never clears `node.cloudprovider.kubernetes.io/uninitialized`. `clusterMode: k3s` is where it works |
-| CSI driver + block StorageClass (not default) | ✅ DO CSI | ✅ built (EBS CSI chart, `adhar-block` gp3) | ✅ Azure Disk CSI chart, `adhar-block` StandardSSD | ✅ built (PD CSI kustomize, `adhar-block` pd-balanced) | ⛔ **none in compute mode** — the Civo CSI plugin needs `.spec.providerID`, which only the CCM sets. Node-local `adhar-local` is the only StorageClass; block storage needs `clusterMode: k3s` |
+| Cloud-controller-manager (`--cloud-provider=external`) | ✅ DO CCM | ✅ built (`aws-cloud-controller-manager` chart) | ✅ built (`cloud-provider-azure` chart) | ✅ built (`cloud-provider-gcp` manifest) | ⛔ **none in compute mode, by design** — the Civo CCM resolves `CIVO_CLUSTER_ID` against the MANAGED Kubernetes API, which a kubeadm cluster on plain instances does not have, so it nil-panics and never clears `node.cloudprovider.kubernetes.io/uninitialized`. `clusterMode: managed` is where it works |
+| CSI driver + block StorageClass (not default) | ✅ DO CSI | ✅ built (EBS CSI chart, `adhar-block` gp3) | ✅ Azure Disk CSI chart, `adhar-block` StandardSSD | ✅ built (PD CSI kustomize, `adhar-block` pd-balanced) | ⛔ **none in compute mode** — the Civo CSI plugin needs `.spec.providerID`, which only the CCM sets. Node-local `adhar-local` is the only StorageClass; block storage needs `clusterMode: managed` |
 | Default StorageClass `adhar-local` (node-local, no attach limit) | ✅ | ✅ built | ✅ live-verified | ✅ built | ✅ built |
 | CSI startup taint (`node.adhar.io/csi-not-ready`, lifted by the autoscaler; CSI node DaemonSet tolerates it) | ✅ live | ✅ built | ✅ built | ✅ built | ⛔ **not requested in compute mode** — with no CSI driver to register a CSINode, the only way out is the autoscaler's 10-minute `startupTaintMaxWait`, so asking for it cost every bring-up a flat ten minutes of unschedulable workers (fixed 2026-10-06) |
 | Node autoscaler (needs the two rows above) | ✅ live | built, unverified | built, unverified | built, unverified | built, unverified |
 | Nodes pull kpack-built images from the in-cluster Harbor (containerd certs.d) | ✅ live | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep |
 | Upgrade (`adhar upgrade`, control plane then workers — shared `KubeadmUpgradeCluster`) | ✅ live | ✅ built | ✅ built | ✅ built | ✅ built |
-| Managed-service mode (`useManagedK8s: true`), same operations | ✅ DOKS live (via `CompositeCluster`) | ✅ EKS built | ✅ AKS built (BYO CNI) | ✅ GKE built | ✅ k3s built |
+| Managed-service mode (`clusterMode: managed`), same operations | ✅ DOKS live (via `Cluster`) | ✅ EKS built | ✅ AKS built (BYO CNI) | ✅ GKE built | ✅ k3s built |
+| Platform edge (Gateway address) | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ⚙️ **host-network Gateway** — no CCM in compute mode, so Envoy binds :80/:443 on every node, the firewall opens both, external-dns publishes the instances' public IPs and CoreDNS points `*.<host>` at a node-backed shim Service. Built 2026-10-07, not yet live-verified; `clusterMode: managed` uses the ordinary LoadBalancer path |
 | Cleanup leaves no billed resources | ✅ live | ✅ built | ✅ built | ✅ **live** | ✅ built |
 | Teardown sweeps what the IN-CLUSTER controllers created (CCM load balancers, CSI volumes) — invisible to the resource tracker | ✅ live | ✅ built (classic ELB **and** NLB, target groups, `k8s-elb-*` SGs, EBS volumes) | ✅ built (resource-group delete; per-resource when the group is not ours) | ✅ **live** (forwarding rule, target pool, `k8s-*` firewall rules, PD disks) | ✅ built (load balancers by instance identity, volumes detached first) |
 | `--purge-orphaned-volumes` for untagged CSI leftovers | ✅ live | ✅ built | ✅ built (incl. disks outside the resource group) | ✅ **live** (41 disks swept on a real teardown) | ✅ built |
@@ -294,32 +295,96 @@ scale-down drains, removes the node, then deletes the instance). Single
 control-plane per cluster today; HA control planes (LB + stacked etcd) are on
 the roadmap.
 
-### Opting into managed Kubernetes
+### The three cluster modes
 
-Set one flag on the provider to use the cloud's managed service instead — every
-other behaviour and operation is identical (`clusterMode: <service>` is the
-explicit spelling of the same switch; `compute` is the default). Creating,
-fetching the kubeconfig, adding/removing/scaling node groups, upgrading,
-health and teardown all go through the managed API in that mode, and the
-network the cluster sits in is created and cleaned up by the same code as the
-compute mode:
+`clusterMode` on the provider block says where the cluster comes from. The same
+three words on every cloud, with the service implied by the provider:
+
+| Mode | Who creates the cluster | Who can delete it |
+| --- | --- | --- |
+| `compute` (default) | Adhar, kubeadm on raw instances it provisions | Adhar (`adhar down`) |
+| `managed` | the cloud's hosted Kubernetes, created through its API by Adhar | Adhar (`adhar down`) |
+| `provided` | **nobody — it already exists** | **nobody: `adhar down` deletes nothing** |
+
+The per-cloud spellings (`eks`, `aks`, `gke`, `doks`, `k3s`) and the
+`useManagedK8s` boolean were removed on 2026-10-07 and are now REJECTED rather
+than mapped. Mapping them silently was the dangerous option: a stale
+`clusterMode: gke` that resolved to `compute` builds a kubeadm cluster for
+someone who asked for GKE, and they find out from the bill or a missing load
+balancer.
+
+#### `managed` — the cloud's hosted Kubernetes
+
+Every other behaviour and operation is identical to compute mode. Creating,
+fetching the kubeconfig, adding/removing/scaling node groups, upgrading, health
+and teardown all go through the managed API, and the network the cluster sits in
+is created and cleaned up by the same code as compute mode:
 
 ```yaml
 providers:
   digitalocean:
     type: digitalocean
-    useManagedK8s: true   # DOKS instead of droplets+kubeadm
+    clusterMode: managed  # DOKS instead of droplets+kubeadm
 ```
 
-| Provider | Default (`useManagedK8s: false`) | `useManagedK8s: true` |
+| Provider | `clusterMode: compute` | `clusterMode: managed` |
 | --- | --- | --- |
 | digitalocean | Droplets + kubeadm | Managed DOKS |
-| civo | Instances + kubeadm | Managed k3s |
-| aws | EC2 + kubeadm | Managed EKS (`clusterMode: eks`; needs the `aws` CLI for `eks get-token`) |
-| azure | VMs + kubeadm | Managed AKS (`clusterMode: aks`; BYO CNI, Cilium from the bootstrap) |
-| gcp | GCE + kubeadm | Managed GKE (`clusterMode: gke`; needs `gke-gcloud-auth-plugin`) |
+| civo | Instances + kubeadm | Managed k3s (sizes come from a different family: `g4s.kube.*`, not `g3.*`) |
+| aws | EC2 + kubeadm | Managed EKS (needs the `aws` CLI for `eks get-token`) |
+| azure | VMs + kubeadm | Managed AKS (BYO CNI, Cilium from the bootstrap) |
+| gcp | GCE + kubeadm | Managed GKE (needs `gke-gcloud-auth-plugin`) |
 | custom | Your machines + kubeadm (BYO) | not applicable (clear error) |
 | kind | Local containers | not applicable |
+
+#### `provided` — install onto a cluster you already have
+
+Adhar creates nothing: no network, no instances, no managed control plane. It
+reaches your cluster through your own kubeconfig and installs the platform onto
+it. See `examples/provided-config.yaml` for a complete file.
+
+```yaml
+providers:
+  custom:                 # or the cloud that hosts your DNS zone
+    type: custom
+    clusterMode: provided
+    kubeconfig: ~/.kube/config        # default: $KUBECONFIG, then ~/.kube/config
+    kubeContext: my-existing-cluster  # default: the file's current context
+```
+
+`region:` is not required in this mode — nothing is placed anywhere. The
+kubeconfig is reduced to the named context before anything uses it, because that
+file becomes `KUBECONFIG` for the whole bootstrap and is merged into your
+default kubeconfig.
+
+**Nothing about the cluster is ever deleted.** `adhar down` reads the mode before
+it even looks for a cluster, reports the cluster as left running, and tells you
+how to remove the platform from it (`kubectl delete adharplatform --all -n
+adhar-system`). `--recreate` is refused, and the node autoscaler refuses to act:
+adding capacity means creating cloud instances, which on a cluster Adhar did not
+build would bill an account nobody pointed it at.
+
+What the cluster has to provide, all checked by the preflight before anything is
+installed:
+
+| Requirement | Why | If missing |
+| --- | --- | --- |
+| Kubernetes ≥ 1.28, cluster-admin | the bootstrap installs CRDs and Gateway API v1 | **fail** |
+| Cilium with `gatewayAPI.enabled=true`, **or no CNI at all** | the platform's data path IS Cilium with kubeProxyReplacement, and the Gateway is a Cilium Gateway | **fail** |
+| at least one node | nothing can be scheduled otherwise | **fail** |
+| a default StorageClass | ~90 of the platform's PVCs name no class, and this mode installs no provisioner and changes no storage defaults | warn |
+
+A cluster running a **different** CNI (Calico, Flannel, the AWS VPC CNI,
+kindnet, Antrea, Kube-OVN, Weave) is refused rather than converted: installing
+would mean replacing the networking of a cluster Adhar was not given. Remove the
+other CNI first, or use `compute`/`managed` and let Adhar build a cluster.
+
+When Cilium is already there it is **left exactly as configured** — the
+reconciler skips its own Cilium manifests rather than overwriting your version,
+IPAM mode, kubeProxyReplacement setting or Hubble configuration. The mode is
+recorded in the `adhar-cluster-spec` ConfigMap at bootstrap, which is how the
+in-cluster controllers know: from the inside, a provided cluster looks like any
+other.
 
 ### Bring-your-own hosts (`custom` provider)
 
@@ -498,7 +563,7 @@ environments:
 
 Port conflict? `adhar up --port 9443` (HTTP auto-derives as 9080).
 
-### DigitalOcean (droplets; DOKS via `useManagedK8s`)
+### DigitalOcean (droplets; DOKS via `clusterMode: managed`)
 
 The most exercised path — see [§2](#2-verification-status-what-is-proven-where).
 
@@ -579,7 +644,7 @@ environments:
 ```
 
 Use IRSA for workload identity, including Crossplane's credentials
-([PRODUCTION §5](PRODUCTION.md#5-security-hardening)). `useManagedK8s: true`
+([PRODUCTION §5](PRODUCTION.md#5-security-hardening)). `clusterMode: managed`
 on the provider switches to EKS (control plane + managed node groups + EBS CSI
 addon). Render-verified only.
 
@@ -602,7 +667,7 @@ environments:
       - { key: enable_auto_scaling, value: "true" }
 ```
 
-`useManagedK8s: true` on the provider switches to AKS (BYO CNI, one agent
+`clusterMode: managed` on the provider switches to AKS (BYO CNI, one agent
 pool per node group). Render-verified only.
 
 ### GCP (GCE compute)
@@ -624,11 +689,11 @@ environments:
       - { key: node_count,   value: "3" }
 ```
 
-Use Workload Identity for Crossplane credentials. `useManagedK8s: true` on
+Use Workload Identity for Crossplane credentials. `clusterMode: managed` on
 the provider switches to GKE (zonal, one node pool per node group).
 Render-verified only.
 
-### Civo (instances; k3s via `useManagedK8s`)
+### Civo (instances; k3s via `clusterMode: managed`)
 
 ```bash
 export CIVO_API_KEY="…"
@@ -693,7 +758,7 @@ symptom-to-section lookup table.
 2. Register in `factory.go`; add config + schema entries
 3. Add a test config under `tests/` and wire `--dry-run` validation
 4. For declarative parity, add Crossplane Compositions implementing
-   `CompositeCluster` for the new provider
+   `Cluster` for the new provider
    ([Customization §9](CUSTOMIZATION.md#9-extend-the-infrastructure-apis-crossplane))
 5. Document setup in this guide, and record its verification status in
    [§2](#2-verification-status-what-is-proven-where) — "render-verified" until

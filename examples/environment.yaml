@@ -1,7 +1,7 @@
 # A named environment (a quota-bounded namespace with a tier) that applications
 # are promoted into. Environments are what Kargo Stages point at.
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeEnvironment
+kind: Environment
 metadata:
   name: payments-staging
   namespace: team-payments

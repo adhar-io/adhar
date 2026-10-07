@@ -80,22 +80,22 @@ func (r *DataPlaneReconciler) ensureAdopt(ctx context.Context, dp *v1alpha1.Data
 	return r.clientFromKubeconfigSecret(ctx, dp, ref.Name, ns, true)
 }
 
-// ensureComposite server-side-applies a CompositeCluster XR (owned for GC) and
+// ensureComposite server-side-applies a Cluster XR (owned for GC) and
 // waits for the composition to publish a `<dp>-kubeconfig` connection secret.
-// Real but tolerant: if the CompositeCluster CRD is absent (e.g. envtest) the
+// Real but tolerant: if the Cluster CRD is absent (e.g. envtest) the
 // apply is skipped so reconciliation still converges deterministically.
 func (r *DataPlaneReconciler) ensureComposite(ctx context.Context, dp *v1alpha1.DataPlane) (client.Client, bool, error) {
 	logger := log.FromContext(ctx)
 
-	xr := r.compositeClusterFor(dp)
+	xr := r.clusterFor(dp)
 	if err := controllerutil.SetControllerReference(dp, xr, r.Scheme); err != nil {
-		return nil, false, fmt.Errorf("setting owner reference on CompositeCluster: %w", err)
+		return nil, false, fmt.Errorf("setting owner reference on Cluster: %w", err)
 	}
 	if err := ssaApply(ctx, r.Client, xr); err != nil {
 		if !isMissingKind(err) {
-			return nil, false, fmt.Errorf("applying CompositeCluster: %w", err)
+			return nil, false, fmt.Errorf("applying Cluster: %w", err)
 		}
-		logger.V(1).Info("CompositeCluster CRD not installed; skipping XR apply", "error", err.Error())
+		logger.V(1).Info("Cluster CRD not installed; skipping XR apply", "error", err.Error())
 	}
 
 	// Record the composite reference on the spec once, so re-runs adopt the
@@ -222,12 +222,12 @@ func (r *DataPlaneReconciler) clientFromKubeconfigSecret(ctx context.Context, dp
 	return cl, true, nil
 }
 
-// compositeClusterFor builds the CompositeCluster XR for a mode=composite plane
+// clusterFor builds the Cluster XR for a mode=composite plane
 // in the exact shape the XRD (platform/controlplane/configuration/xrd/
 // cluster.xrd.yaml) validates: everything under spec.parameters, the provider
 // as the XRD enum, node pools keyed by instanceType, and a compositionSelector
 // that picks the per-cloud composition by its `provider` label.
-func (r *DataPlaneReconciler) compositeClusterFor(dp *v1alpha1.DataPlane) *unstructured.Unstructured {
+func (r *DataPlaneReconciler) clusterFor(dp *v1alpha1.DataPlane) *unstructured.Unstructured {
 	infra := dp.Spec.Infrastructure
 	pools := make([]interface{}, 0, len(infra.NodePools))
 	for _, p := range infra.NodePools {
@@ -245,7 +245,7 @@ func (r *DataPlaneReconciler) compositeClusterFor(dp *v1alpha1.DataPlane) *unstr
 		pools = append(pools, map[string]interface{}{keyName: "default", "instanceType": defaultNodeSize(infra.Provider), "count": int64(2)})
 	}
 	xr := &unstructured.Unstructured{}
-	xr.SetGroupVersionKind(compositeClusterGVK)
+	xr.SetGroupVersionKind(clusterGVK)
 	xr.SetName(dp.Name)
 	xr.SetNamespace(controlPlaneNamespace)
 	xr.SetLabels(map[string]string{dataPlaneLabelKey: dp.Name})
@@ -291,7 +291,7 @@ func compositionProvider(p v1alpha1.EnvironmentProvider) string {
 	}
 }
 
-// xrdProvider maps the platform provider names onto the CompositeCluster XRD
+// xrdProvider maps the platform provider names onto the Cluster XRD
 // enum (AWS_EKS, GCP_GKE, AZURE_AKS, DIGITALOCEAN_DOKS, CIVO_K3S, KIND).
 func xrdProvider(p v1alpha1.EnvironmentProvider) string {
 	switch compositionProvider(p) {
@@ -417,14 +417,14 @@ func (r *DataPlaneReconciler) vclusterFor(dp *v1alpha1.DataPlane) *unstructured.
 	return app
 }
 
-// deleteManagedInfra deletes the controller-created infra (CompositeCluster or
+// deleteManagedInfra deletes the controller-created infra (Cluster or
 // vcluster) during finalize. Best-effort and tolerant of already-deleted or
 // never-created resources (missing CRD).
 func (r *DataPlaneReconciler) deleteManagedInfra(ctx context.Context, dp *v1alpha1.DataPlane) error {
 	var obj *unstructured.Unstructured
 	switch dp.Spec.Infrastructure.Mode {
 	case v1alpha1.InfraModeComposite:
-		obj = r.compositeClusterFor(dp)
+		obj = r.clusterFor(dp)
 	case v1alpha1.InfraModeVCluster:
 		obj = r.vclusterFor(dp)
 	default:

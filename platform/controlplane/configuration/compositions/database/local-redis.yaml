@@ -1,6 +1,6 @@
 ---
 # Local Redis/Valkey composition — provisions a single-instance Redis in the
-# requester's namespace for self-service caching. Same CompositeDatabase XRD
+# requester's namespace for self-service caching. Same Database XRD
 # (engine: redis). Selected explicitly via compositionRef by the template, or by
 # the `provider: local, engine: redis` labels.
 #
@@ -8,7 +8,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositedatabase-local-redis
+  name: database-local-redis
   labels:
     feature: database
     provider: local
@@ -16,7 +16,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeDatabase
+    kind: Database
   mode: Pipeline
   pipeline:
     - step: render

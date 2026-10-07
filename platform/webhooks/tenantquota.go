@@ -2,7 +2,7 @@ package webhooks
 
 // Hierarchical tenant quotas.
 //
-// A CompositeProject already gets a guard-railed namespace with a ResourceQuota
+// A Project already gets a guard-railed namespace with a ResourceQuota
 // (see compositions/project/local.yaml), so no single project can exhaust the
 // cluster. What was missing is the level above: nothing stopped one team creating
 // thirty projects, each individually reasonable, and consuming everything.

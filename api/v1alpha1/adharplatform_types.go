@@ -563,8 +563,17 @@ func sanitizeOwnerID(host string) string {
 
 // PackageCustomization defines how packages are customized
 type PackageCustomization struct {
+	// The json tag below carried a stray apostrophe (`name,omitempty'`) until
+	// 2026-10-07. controller-gen does not read `omitempty'` as omitempty, so it
+	// generated this field as REQUIRED — and the CustomPackage controller creates
+	// GitRepository objects with no customization at all, which the API server
+	// then rejected with `spec.customization.name: Required value`. One
+	// character, and custom packages could not be delivered. Separated from the
+	// doc comment by a blank line so it stays out of the CRD description;
+	// guarded by TestNoStructTagIsMalformed.
+
 	// Name is the name of the package to be customized. e.g. argocd
-	Name string `json:"name,omitempty'"`
+	Name string `json:"name,omitempty"`
 	// FilePath is the absolute file path to a YAML file that contains Kubernetes manifests.
 	FilePath string `json:"filePath,omitempty"`
 }

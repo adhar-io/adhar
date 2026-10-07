@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeclusters.platform.adhar.io
+  name: clusters.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeCluster
-    plural: compositeclusters
+    kind: Cluster
+    plural: clusters
   defaultCompositionRef:
-    name: compositecluster-aws-eks
+    name: cluster-aws-eks
   versions:
     - name: v1alpha1
       served: true

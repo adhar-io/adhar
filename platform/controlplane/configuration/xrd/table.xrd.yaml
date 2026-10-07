@@ -1,0 +1,108 @@
+# Table — an Iceberg table in the platform lakehouse.
+#
+# The lakehouse is Iceberg-on-RustFS: the REST catalog is RustFS S3 Tables
+# (warehouse `lakehouse`) and Trino is the engine every other tool queries it
+# through. A team asking for a table should not have to know any of that, or
+# which of DDL, the REST API and the warehouse layout to use.
+#
+# Created with DDL through Trino, because that is the one path that is identical
+# for every engine afterwards: Spark, Dagster, Metabase and OpenMetadata all see
+# a table created this way. `CREATE TABLE IF NOT EXISTS` makes it idempotent,
+# and a table whose columns change is ALTERed by the operator, not by this
+# object — schema evolution on a table with data is a decision, not a diff.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: tables.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Table
+    plural: tables
+  defaultCompositionRef:
+    name: table-local-iceberg
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: table
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                parameters:
+                  type: object
+                  required: [schema, columns]
+                  properties:
+                    displayName: { type: string }
+                    catalog:
+                      type: string
+                      default: iceberg
+                      description: The Trino catalog; `iceberg` is the platform lakehouse.
+                    schema:
+                      type: string
+                      description: >-
+                        The Iceberg namespace (Trino calls it a schema), created
+                        if absent. One per team or per domain, not per table.
+                    tableName:
+                      type: string
+                      description: Defaults to the object's name.
+                    columns:
+                      type: array
+                      minItems: 1
+                      description: >-
+                        The table's columns, in order. Iceberg types as Trino
+                        spells them (bigint, varchar, timestamp(6), decimal(18,2),
+                        array(varchar), row(...)).
+                      items:
+                        type: object
+                        required: [name, type]
+                        properties:
+                          name: { type: string }
+                          type: { type: string }
+                          comment: { type: string }
+                    partitionBy:
+                      type: array
+                      description: >-
+                        Iceberg partitioning expressions (`day(event_time)`,
+                        `bucket(16, customer_id)`). Partitioning is the single
+                        biggest lever on query cost and cannot be chosen well
+                        without knowing the queries — which is why it is declared
+                        here rather than defaulted.
+                      items: { type: string }
+                    sortedBy:
+                      type: array
+                      items: { type: string }
+                    format:
+                      type: string
+                      enum: [PARQUET, ORC, AVRO]
+                      default: PARQUET
+                    comment:
+                      type: string
+                      default: ""
+                    organisation: { type: string, default: adhar }
+                    team: { type: string, default: platform }
+                    project: { type: string, default: "" }
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+            status:
+              type: object
+              properties:
+                table: { type: string }
+                catalog: { type: string }
+                location: { type: string }

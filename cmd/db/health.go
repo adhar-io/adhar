@@ -17,7 +17,7 @@ import (
 var healthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Check database health",
-	Long: `Check the health of managed databases by reading the CompositeDatabase XR
+	Long: `Check the health of managed databases by reading the Database XR
 status together with the composed CloudNativePG Cluster status (phase and ready
 instance count). Read-only.
 
@@ -47,7 +47,7 @@ func runHealth(cmd *cobra.Command, args []string) error {
 }
 
 func checkDatabaseHealth(ctx context.Context, client dynamic.Interface, ns, name string) error {
-	xr, err := client.Resource(compositeDatabaseGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	xr, err := client.Resource(databaseGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return fmt.Errorf("database %q not found in namespace %q", name, ns)
@@ -104,7 +104,7 @@ func checkDatabaseHealth(ctx context.Context, client dynamic.Interface, ns, name
 }
 
 func checkAllDatabasesHealth(ctx context.Context, client dynamic.Interface, ns string) error {
-	list, err := client.Resource(compositeDatabaseGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
+	list, err := client.Resource(databaseGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list databases: %w", err)
 	}

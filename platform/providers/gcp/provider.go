@@ -129,16 +129,13 @@ func init() {
 		// win, because they are the more specific place to say something.
 		config = flattenProviderConfig(config)
 
-		// Default: kubeadm on Compute Engine. `useManagedK8s: true` (or
-		// clusterMode: gke) opts into GKE; everything else behaves the same.
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			gcpConfig.ClusterMode = clusterModeGKE
+		// Default: kubeadm on Compute Engine. `clusterMode: managed` opts into
+		// GKE; everything above the cluster behaves the same either way.
+		mode, err := provider.ParseClusterMode(config)
+		if err != nil {
+			return nil, err
 		}
-		if mode, ok := config["clusterMode"].(string); ok && mode != "" {
-			gcpConfig.ClusterMode = mode
-		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
-			gcpConfig.ClusterMode = mode
-		}
+		gcpConfig.ClusterMode = mode
 
 		// Parse GCP-specific configuration with multiple auth methods
 		// Check both root level and config section for backward compatibility
@@ -317,7 +314,7 @@ type Config struct {
 	// ClusterMode selects how clusters are created:
 	//   "compute" (default) — Compute Engine VMs + kubeadm, Kubernetes managed
 	//   by adhar itself (Cilium replaces kube-proxy during bootstrap).
-	//   "gke" — Google Kubernetes Engine (`useManagedK8s: true`).
+	//   "gke" — Google Kubernetes Engine (`clusterMode: managed`).
 	ClusterMode string `json:"clusterMode,omitempty"`
 
 	ProjectID string `json:"projectId"`
@@ -765,7 +762,7 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 // CreateCluster creates a new manual Kubernetes cluster on GCP Compute Engine instances
 func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
 	// Default mode: self-managed Kubernetes on Compute Engine. GKE is the
-	// explicit opt-in (`useManagedK8s: true` / clusterMode: gke).
+	// explicit opt-in (`clusterMode: managed`).
 	if p.isManagedMode() {
 		return p.createManagedCluster(ctx, spec)
 	}

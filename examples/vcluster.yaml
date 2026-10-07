@@ -12,7 +12,7 @@
 # own API server and etcd. Ask for a different Kubernetes minor than the host
 # with `version`, which is the reason most teams want one.
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeCluster
+kind: Cluster
 metadata:
   name: payments-dev
   namespace: team-payments

@@ -1,9 +1,13 @@
 # Adhar on Google Cloud — kubeadm on Compute Engine, autoscaled.
 #
-# The default here is the same as every other cloud: Adhar builds the cluster
-# itself with kubeadm on plain GCE instances. GKE is available behind one flag
-# (useManagedK8s, below) and every other behaviour is identical, but the
-# kubeadm path is the one the platform is designed around.
+# This file asks for GKE: `clusterMode: managed` below. The platform has three
+# modes on every cloud — `compute` (Adhar builds the cluster itself with kubeadm
+# on plain GCE instances), `managed` (Google runs the control plane) and
+# `provided` (the cluster already exists and Adhar only installs onto it).
+# Everything above the cluster is identical in all three; managed is the default
+# in the shipped configs because only a managed control plane brings a
+# cloud-controller-manager, and without one the Gateway never gets a load
+# balancer address and the platform's URLs do not resolve.
 #
 #   adhar up -f examples/gcp-config.yaml --env production --dry-run   # validate
 #   adhar up -f examples/gcp-config.yaml --env production             # deploy
@@ -60,7 +64,34 @@ providers:
 
     # Managed GKE instead of kubeadm on GCE. Everything else — packages, GitOps,
     # SSO, autoscaling, teardown — behaves the same either way.
-    # useManagedK8s: true
+    # clusterMode: the platform has THREE modes, the same three for every
+    # provider — `compute` (kubeadm on raw instances), `managed` (this
+    # cloud's hosted Kubernetes, here GKE) and `provided` (an existing
+    # cluster, see below). The service name is implied by the provider, so the
+    # old per-cloud spellings (eks/aks/gke/doks/k3s) and the `useManagedK8s`
+    # boolean are gone; both are now rejected rather than mapped,
+    # so a stale config fails loudly instead of quietly building the other mode.
+    #
+    # managed, because that is the mode where the cloud runs a
+    # cloud-controller-manager: the Gateway gets a real load-balancer address,
+    # external-dns can publish an A record for it, and the platform's URLs answer
+    # on 443. Compute mode has none of that (measured on Civo, 2026-10-06) and is
+    # reached through node ports.
+    #
+    # The THIRD mode is `provided`: the cluster ALREADY EXISTS and the platform
+    # only installs itself onto it, reached through the kubeconfig named below.
+    # Nothing is created, and — the part that matters — nothing is ever deleted:
+    # `adhar down` removes nothing and leaves the cluster running. The cluster
+    # must either already run Cilium with gatewayAPI.enabled=true (the platform
+    # leaves that Cilium exactly as configured), or have no CNI at all, in which
+    # case the platform installs Cilium itself. A cluster running a different CNI
+    # is REFUSED by the preflight rather than having its networking replaced.
+    #
+    #   clusterMode: provided
+    #   kubeconfig: ~/.kube/config       # default: $KUBECONFIG, then ~/.kube/config
+    #   kubeContext: my-existing-cluster # default: the file's current context
+    #
+    clusterMode: managed
 
     config:
       project_id: your-gcp-project

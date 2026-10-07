@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositenetwork-gcp-vpc
+  name: network-gcp-vpc
   labels:
     feature: network
     provider: gcp
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeNetwork
+    kind: Network
   mode: Pipeline
   pipeline:
     - step: render-vpc
@@ -102,7 +102,7 @@ spec:
 
             items = _items + [{
                 apiVersion: "platform.adhar.io/v1alpha1"
-                kind: "CompositeNetwork"
+                kind: "Network"
                 metadata: oxr.metadata
                 status: {
                     phase: _phase

@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeauthstack-keycloak
+  name: authstack-keycloak
   labels:
     feature: auth
     provider: keycloak
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeAuthStack
+    kind: AuthStack
   mode: Pipeline
   pipeline:
     - step: render-keycloak
@@ -307,7 +307,7 @@ spec:
 
             items = _items + [{
                 apiVersion: "platform.adhar.io/v1alpha1"
-                kind: "CompositeAuthStack"
+                kind: "AuthStack"
                 metadata: oxr.metadata
                 status: {
                     phase: _phase

@@ -86,16 +86,13 @@ func init() {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse Azure provider config: %w", err)
 		}
-		// Default: kubeadm on VMs. `useManagedK8s: true` (or clusterMode: aks)
-		// opts into AKS; everything else behaves the same.
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			providerConfig.ClusterMode = clusterModeAKS
+		// Default: kubeadm on VMs. `clusterMode: managed` opts into AKS;
+		// everything above the cluster behaves the same either way.
+		mode, err := provider.ParseClusterMode(config)
+		if err != nil {
+			return nil, err
 		}
-		if mode, ok := config["clusterMode"].(string); ok && mode != "" {
-			providerConfig.ClusterMode = mode
-		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
-			providerConfig.ClusterMode = mode
-		}
+		providerConfig.ClusterMode = mode
 		// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
 		// --purge-orphaned-volumes`; see sweepSubscriptionOrphanDisks.
 		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
@@ -182,7 +179,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 			// looking for a bug in the setting that actually works.
 			"clientId", "clientSecret", "clientSecretFile", "tenantId",
 			"credentials_file", "certificatePath", "useManagedIdentity", "useAzureCLI",
-			"useEnvironment", "clusterMode", "useManagedK8s", "purgeOrphanedVolumes",
+			"useEnvironment", "clusterMode", "purgeOrphanedVolumes",
 			"type", "primary"} {
 			known[normaliseKey(k)] = true
 		}
@@ -569,7 +566,7 @@ type Config struct {
 	// ClusterMode selects how clusters are created:
 	//   "compute" (default) — VMs + kubeadm, Kubernetes managed by adhar
 	//   itself (Cilium replaces kube-proxy during bootstrap).
-	//   "aks" — Azure Kubernetes Service (`useManagedK8s: true`).
+	//   "aks" — Azure Kubernetes Service (`clusterMode: managed`).
 	ClusterMode string `json:"clusterMode,omitempty"`
 
 	SubscriptionID string `json:"subscriptionId"`
@@ -926,7 +923,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}
 
 	// Default mode: self-managed Kubernetes on VMs. AKS is the explicit
-	// opt-in (`useManagedK8s: true` / clusterMode: aks).
+	// opt-in (`clusterMode: managed`).
 	if p.isManagedMode() {
 		return p.createManagedCluster(ctx, spec)
 	}

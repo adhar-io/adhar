@@ -2,13 +2,13 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositescales.platform.adhar.io
+  name: scales.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeScale
-    plural: compositescales
+    kind: Scale
+    plural: scales
   versions:
   - name: v1alpha1
     served: true

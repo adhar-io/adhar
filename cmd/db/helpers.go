@@ -26,17 +26,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// compositeDatabaseGVR identifies Crossplane CompositeDatabase XRs which back
+// databaseGVR identifies Crossplane Database XRs which back
 // the platform's managed databases (platform.adhar.io/v1alpha1, namespaced).
-var compositeDatabaseGVR = schema.GroupVersionResource{
+var databaseGVR = schema.GroupVersionResource{
 	Group:    "platform.adhar.io",
 	Version:  "v1alpha1",
-	Resource: "compositedatabases",
+	Resource: "databases",
 }
 
 // cnpgClusterGVR / cnpgBackupGVR identify the CloudNativePG resources the local
-// PostgreSQL composition (compositedatabase-local-cnpg) creates for each
-// CompositeDatabase. Day-2 operations (backup/restore/health) act on these
+// PostgreSQL composition (database-local-cnpg) creates for each
+// Database. Day-2 operations (backup/restore/health) act on these
 // composed resources directly, the same objects the control plane manages.
 var (
 	cnpgClusterGVR = schema.GroupVersionResource{

@@ -17,7 +17,7 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all databases",
-	Long: `List managed databases (Crossplane CompositeDatabase resources).
+	Long: `List managed databases (Crossplane Database resources).
 
 Examples:
   adhar database list
@@ -39,7 +39,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	list, err := client.Resource(compositeDatabaseGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
+	list, err := client.Resource(databaseGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list databases: %w", err)
 	}

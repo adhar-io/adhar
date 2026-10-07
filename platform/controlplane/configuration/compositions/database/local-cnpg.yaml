@@ -1,7 +1,7 @@
 ---
 # Local PostgreSQL database composition — provisions a CloudNativePG Cluster in
 # the requester's namespace. Selected on the local/Kind platform via the
-# `provider: local` label (compositionSelector). Same CompositeDatabase XRD as
+# `provider: local` label (compositionSelector). Same Database XRD as
 # the cloud (AWS RDS / Azure SQL / GCP CloudSQL) compositions, so a developer's
 # self-service request is portable across environments.
 #
@@ -10,7 +10,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositedatabase-local-cnpg
+  name: database-local-cnpg
   labels:
     feature: database
     provider: local
@@ -18,7 +18,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeDatabase
+    kind: Database
   mode: Pipeline
   pipeline:
     - step: render

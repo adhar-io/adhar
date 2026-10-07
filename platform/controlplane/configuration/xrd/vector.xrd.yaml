@@ -1,11 +1,11 @@
 ---
-# CompositeVector — a Qdrant vector database for a team, as one object.
+# Vector — a Qdrant vector database for a team, as one object.
 #
 # RAG stores, semantic search, embeddings caches: every AI workload on the
 # platform (ADR-0024) needs somewhere to put vectors, and the platform's own
 # agents use pgvector on CNPG for that. A team that outgrows pgvector — HNSW
 # at scale, payload filtering, quantisation, a gRPC API — asks for a
-# CompositeVector and gets a Qdrant installed and configured in its namespace:
+# Vector and gets a Qdrant installed and configured in its namespace:
 # a generated API key (and a read-only one for dashboards and scrapers), the
 # collections it declared created with their vector size and distance, a
 # ServiceMonitor so it appears in Grafana, and a connection Secret.
@@ -16,15 +16,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositevectors.platform.adhar.io
+  name: vectors.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeVector
-    plural: compositevectors
+    kind: Vector
+    plural: vectors
   defaultCompositionRef:
-    name: compositevector-qdrant
+    name: vector-qdrant
   versions:
     - name: v1alpha1
       served: true

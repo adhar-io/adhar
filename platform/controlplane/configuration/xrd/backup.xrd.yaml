@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositebackuppolicies.platform.adhar.io
+  name: backuppolicies.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeBackupPolicy
-    plural: compositebackuppolicies
+    kind: BackupPolicy
+    plural: backuppolicies
   defaultCompositionRef:
-    name: compositebackuppolicy-velero
+    name: backuppolicy-velero
   versions:
     - name: v1alpha1
       served: true

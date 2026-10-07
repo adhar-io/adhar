@@ -1,6 +1,6 @@
 package webhooks
 
-// ProjectValidator enforces the hierarchical tenant quota on CompositeProject.
+// ProjectValidator enforces the hierarchical tenant quota on Project.
 //
 // Per-namespace ResourceQuotas (which the project composition already creates)
 // stop one project exhausting the cluster. They do nothing about a team creating
@@ -34,13 +34,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// compositeProjectListGVK is the XRD in configuration/xrd/project.xrd.yaml.
+// projectListGVK is the XRD in configuration/xrd/project.xrd.yaml.
 // Listed as unstructured because the XR has no generated Go type — Crossplane
 // creates the CRD from the XRD at install time.
-var compositeProjectListGVK = schema.GroupVersionKind{
+var projectListGVK = schema.GroupVersionKind{
 	Group:   "platform.adhar.io",
 	Version: "v1alpha1",
-	Kind:    "CompositeProjectList",
+	Kind:    "ProjectList",
 }
 
 // ProjectValidator needs a reader because a ceiling is a property of the TEAM,
@@ -139,10 +139,10 @@ func (v *ProjectValidator) allowanceFor(ctx context.Context, team string) (Allow
 	return a, true, nil
 }
 
-// projectsOfTeam lists the team's existing CompositeProjects.
+// projectsOfTeam lists the team's existing Projects.
 func (v *ProjectValidator) projectsOfTeam(ctx context.Context, team string) ([]ProjectRequest, error) {
 	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(compositeProjectListGVK)
+	list.SetGroupVersionKind(projectListGVK)
 	if err := v.Client.List(ctx, list); err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (v *ProjectValidator) projectsOfTeam(ctx context.Context, team string) ([]P
 	return out, nil
 }
 
-// projectRequestFrom pulls the quota-relevant fields off a CompositeProject.
+// projectRequestFrom pulls the quota-relevant fields off a Project.
 func projectRequestFrom(obj *unstructured.Unstructured) (ProjectRequest, string, error) {
 	params, _, _ := unstructured.NestedMap(obj.Object, "spec", "parameters")
 	if params == nil {

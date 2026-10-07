@@ -4,7 +4,7 @@ Adhar on Google Cloud: Compute Engine instances bootstrapped with kubeadm, the f
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on Compute Engine instances (default); GKE via `useManagedK8s: true` |
+| Provisioning model | kubeadm on Compute Engine instances (default); GKE via `clusterMode: managed`; an existing cluster via `clusterMode: provided` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Cloud DNS, or any zone you point at the load balancer |
 
@@ -105,7 +105,7 @@ Two traps here.
 **`container.googleapis.com` is required even in kubeadm mode.** The provider
 constructs its GKE client unconditionally, so a disabled Container API fails
 provider construction before a single instance is created. It is not only for
-`useManagedK8s: true`.
+`clusterMode: managed`.
 
 **Service Usage cannot bootstrap itself.** On a project where it has never been
 used, nothing can enable it, including the command above — the API needed to turn
@@ -379,7 +379,7 @@ plane to GKE instead; every other operation (`adhar up`, node groups,
 providers:
   gcp:
     type: gcp
-    useManagedK8s: true      # or clusterMode: gke
+    clusterMode: managed     # GKE instead of kubeadm on GCE
 ```
 
 What it creates: the VPC network and subnet (same helpers as compute mode),

@@ -3,7 +3,7 @@
 # repository gets automatically; this object is for a pipeline of your own
 # shape — its stages become Tekton Tasks, its triggers an EventListener.
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositePipeline
+kind: Pipeline
 metadata:
   name: payments-api-ci
   namespace: team-payments

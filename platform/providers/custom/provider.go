@@ -40,7 +40,7 @@ const (
 func init() {
 	provider.DefaultFactory.RegisterProvider("custom", func(config map[string]interface{}) (provider.Provider, error) {
 		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			return nil, fmt.Errorf("useManagedK8s is not applicable to the custom provider: bring-your-own hosts are always self-managed")
+			return nil, fmt.Errorf("useManagedK8s has been removed, and no clusterMode applies to the custom provider: bring-your-own hosts are always self-managed")
 		}
 		customConfig := &Config{}
 
@@ -699,4 +699,26 @@ func (p *Provider) InvestigateCluster(ctx context.Context, clusterID string) err
 // extractClusterName strips the "custom-" ID prefix.
 func extractClusterName(clusterID string) string {
 	return strings.TrimPrefix(clusterID, "custom-")
+}
+
+// GatewayAddresses returns the hosts the platform edge is reachable on: the
+// machines the operator gave us. There is no cloud API and no load balancer
+// here, so the Cilium Gateway runs in host-network mode and Envoy binds
+// :80/:443 on each of these addresses (see
+// provider.GatewayHostNetworkRequired). external-dns publishes them.
+//
+// Every host is returned, control plane included: the Envoy DaemonSet runs on
+// each node, so each address answers. If the machines sit behind a NAT or a
+// load balancer of your own, point DNS at that instead — these are the
+// addresses adhar can see.
+func (p *Provider) GatewayAddresses(_ context.Context, _ string) ([]string, error) {
+	addresses := append([]string{}, p.config.MasterIPs...)
+	addresses = append(addresses, p.config.WorkerIPs...)
+	if len(addresses) == 0 {
+		addresses = append(addresses, p.config.NodeIPs...)
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("no hosts are configured, so the platform edge has no address")
+	}
+	return addresses, nil
 }

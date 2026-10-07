@@ -2,13 +2,13 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositerestores.platform.adhar.io
+  name: restores.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeRestore
-    plural: compositerestores
+    kind: Restore
+    plural: restores
   versions:
   - name: v1alpha1
     served: true

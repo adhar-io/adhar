@@ -166,7 +166,7 @@ spec:
 #
 # Every consumer of the platform object store (CNPG barman backups, Velero,
 # Loki, Airbyte, Kubeflow Pipelines, Penpot, PostHog, the console, the
-# CompositeStorage bucket composition …) reads Secret `root-creds` keys
+# Storage bucket composition …) reads Secret `root-creds` keys
 # `rootUser` / `rootPassword`. MinIO used to mint that Secret in a Job. RustFS is
 # the primary store and MinIO is disabled in every profile, so RustFS must
 # publish the same contract — otherwise twenty consumers break at once, each in

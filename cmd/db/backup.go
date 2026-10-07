@@ -20,7 +20,7 @@ var backupCmd = &cobra.Command{
 	Long: `Create an on-demand backup of a managed PostgreSQL database.
 
 This creates a CloudNativePG "Backup" (postgresql.cnpg.io/v1) that targets the
-Cluster the CompositeDatabase composed. The backup runs through the same
+Cluster the Database composed. The backup runs through the same
 control-plane-managed resource the Console/GitOps would create — CNPG performs
 the backup according to the target Cluster's configured backup method.
 

@@ -124,7 +124,7 @@ adhar application deploy hello --template microservice --namespace hello
 adhar application status hello
 ```
 
-That fetched `microservice.yaml` from `adhar/templates`, substituted the name and namespace, and created a `CompositeApplication` — the platform's own application API. Crossplane expanded it into an ArgoCD Application, which deployed the manifests. Run `adhar application deploy` with a bad template name to list what is available.
+That fetched `microservice.yaml` from `adhar/templates`, substituted the name and namespace, and created a `Application` — the platform's own application API. Crossplane expanded it into an ArgoCD Application, which deployed the manifests. Run `adhar application deploy` with a bad template name to list what is available.
 
 Already have a repo? Point ArgoCD straight at it:
 

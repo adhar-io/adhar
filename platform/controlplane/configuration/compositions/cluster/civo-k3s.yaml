@@ -5,14 +5,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositecluster-civo-k3s
+  name: cluster-civo-k3s
   labels:
     feature: cluster
     provider: civo
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCluster
+    kind: Cluster
   mode: Pipeline
   pipeline:
     - step: render-civo

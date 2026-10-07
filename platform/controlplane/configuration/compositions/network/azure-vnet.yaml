@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositenetwork-azure-vnet
+  name: network-azure-vnet
   labels:
     feature: network
     provider: azure
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeNetwork
+    kind: Network
   mode: Pipeline
   pipeline:
     - step: render-vnet
@@ -130,7 +130,7 @@ spec:
 
             items = _items + [{
                 apiVersion: "platform.adhar.io/v1alpha1"
-                kind: "CompositeNetwork"
+                kind: "Network"
                 metadata: oxr.metadata
                 status: {
                     phase: _phase

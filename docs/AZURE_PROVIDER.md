@@ -41,7 +41,7 @@ that is live-verified on DigitalOcean.
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on Azure VMs (default); AKS via `useManagedK8s: true` |
+| Provisioning model | kubeadm on Azure VMs (default); AKS via `clusterMode: managed`; an existing cluster via `clusterMode: provided` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Azure DNS, or any zone you point at the load balancer |
 
@@ -245,7 +245,7 @@ plane to AKS instead; every other operation (`adhar up`, node groups,
 providers:
   azure:
     type: azure
-    useManagedK8s: true      # or clusterMode: aks
+    clusterMode: managed     # AKS instead of kubeadm on VMs
 ```
 
 What it creates: the resource group (or the configured one), then an AKS

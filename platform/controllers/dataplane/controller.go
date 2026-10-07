@@ -46,7 +46,7 @@ const (
 	errRequeueTime     = time.Second * 5
 
 	// controlPlaneNamespace is where the control plane hosts ArgoCD cluster
-	// secrets, CompositeCluster XRs, vcluster releases and kubeconfig secrets.
+	// secrets, Cluster XRs, vcluster releases and kubeconfig secrets.
 	controlPlaneNamespace = "adhar-system"
 
 	// argoClusterSecretTypeLabel marks a Secret as an ArgoCD cluster credential.
@@ -59,9 +59,9 @@ const (
 var argoApplicationGVK = schema.GroupVersionKind{Group: "argoproj.io", Version: apiVersionV1alpha1, Kind: "Application"}
 var argoApplicationListGVK = schema.GroupVersionKind{Group: "argoproj.io", Version: apiVersionV1alpha1, Kind: "ApplicationList"}
 
-// compositeClusterGVK is the Crossplane XR the controller authors for
+// clusterGVK is the Crossplane XR the controller authors for
 // mode=composite data planes (owned for garbage collection).
-var compositeClusterGVK = schema.GroupVersionKind{Group: "platform.adhar.io", Version: apiVersionV1alpha1, Kind: "CompositeCluster"}
+var clusterGVK = schema.GroupVersionKind{Group: "platform.adhar.io", Version: apiVersionV1alpha1, Kind: "Cluster"}
 
 // DataPlaneReconciler reconciles a DataPlane object.
 type DataPlaneReconciler struct {
@@ -90,7 +90,7 @@ func (r *DataPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Finalizer for orderly teardown (deregister ArgoCD, delete
-	// CompositeCluster/vcluster for controller-created infra only).
+	// Cluster/vcluster for controller-created infra only).
 	if !dp.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, dp)
 	}
@@ -198,7 +198,7 @@ func (r *DataPlaneReconciler) rollUpFleet(ctx context.Context) {
 }
 
 // finalize deregisters the ArgoCD cluster secret and (for controller-created
-// infra only, never adopt) deletes the CompositeCluster/vcluster, then removes
+// infra only, never adopt) deletes the Cluster/vcluster, then removes
 // the finalizer.
 func (r *DataPlaneReconciler) finalize(ctx context.Context, dp *v1alpha1.DataPlane) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -274,10 +274,10 @@ func (r *DataPlaneReconciler) countPlacedApps(ctx context.Context, argoName stri
 }
 
 // SetupWithManager wires the controller: reconcile DataPlanes, own the
-// CompositeCluster XRs it authors, and recount placed apps when Application
+// Cluster XRs it authors, and recount placed apps when Application
 // health changes.
 // SetupWithManager wires the controller. It deliberately watches only core
-// types: the CompositeCluster XRD and the ArgoCD Application CRD are installed
+// types: the Cluster XRD and the ArgoCD Application CRD are installed
 // late in (or after) bootstrap, and a watch on a not-yet-registered kind blocks
 // the manager's cache sync and kills it at WaitForCacheSyncTimeout — which is
 // how an early version left ArgoCD empty on fresh `adhar up`. Progress on the

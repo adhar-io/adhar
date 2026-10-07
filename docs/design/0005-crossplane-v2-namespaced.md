@@ -41,12 +41,12 @@ namespaced shape. From `xrd/database.xrd.yaml`:
 ```yaml
 apiVersion: apiextensions.crossplane.io/v2      # v2: only the XRD moved to /v2
 kind: CompositeResourceDefinition
-metadata: { name: compositedatabases.platform.adhar.io }
+metadata: { name: databases.platform.adhar.io }
 spec:
   group: platform.adhar.io
   scope: Namespaced                              # v2 model — XR lives in the user's namespace, no claims
-  names: { kind: CompositeDatabase, plural: compositedatabases }
-  defaultCompositionRef: { name: compositedatabase-aws-rds-postgresql }
+  names: { kind: Database, plural: databases }
+  defaultCompositionRef: { name: database-aws-rds-postgresql }
   versions:
     - name: v1alpha1
       served: true
@@ -73,12 +73,12 @@ Schema conventions enforced across all 25 XRDs ([CONVENTIONS §1](../../platform
 
 | Domain | XRD file → kind |
 |---|---|
-| Workloads | `apps`→CompositeApplication, `service`→CompositeService, `pipeline`→CompositePipeline, `webhook`→CompositeWebhook |
-| Infrastructure | `cluster`→CompositeCluster, `network`→CompositeNetwork, `storage`→CompositeStorage, `database`→CompositeDatabase |
-| Environments | `env`→CompositeEnvironment, `config`→CompositePlatformConfig, `gitops`→CompositeGitOps |
-| Security | `auth`→CompositeAuth, `secrets`→CompositeSecrets, `secretrotation`→CompositeSecretRotation, `compliancepolicy`→CompositeCompliancePolicy |
-| Observability | `metrics`→CompositeMetrics, `logs`→CompositeLogs, `traces`→CompositeTraces, `health`→CompositeHealth, `costtracker`→CompositeCostTracker |
-| Operations | `backup`→CompositeBackup, `restore`→CompositeRestore, `scale`→CompositeScale |
+| Workloads | `apps`→Application, `service`→Service, `pipeline`→Pipeline, `webhook`→Webhook |
+| Infrastructure | `cluster`→Cluster, `network`→Network, `storage`→Storage, `database`→Database |
+| Environments | `env`→Environment, `config`→PlatformConfig, `gitops`→GitOps |
+| Security | `auth`→CompositeAuth, `secrets`→CompositeSecrets, `secretrotation`→SecretRotation, `compliancepolicy`→CompliancePolicy |
+| Observability | `metrics`→Metrics, `logs`→CompositeLogs, `traces`→CompositeTraces, `health`→Health, `costtracker`→CostTracker |
+| Operations | `backup`→CompositeBackup, `restore`→Restore, `scale`→Scale |
 
 ## 2. The implementation layer — Compositions (`configuration/compositions/`, 34 files)
 
@@ -90,10 +90,10 @@ One directory per domain; one file per implementation (e.g. `compositions/databa
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositedatabase-aws-rds-postgresql
+  name: database-aws-rds-postgresql
   labels: { feature: database, provider: aws, engine: postgresql }   # dispatch labels
 spec:
-  compositeTypeRef: { apiVersion: platform.adhar.io/v1alpha1, kind: CompositeDatabase }
+  compositeTypeRef: { apiVersion: platform.adhar.io/v1alpha1, kind: Database }
   mode: Pipeline
   pipeline:
     - step: render-rds
@@ -104,7 +104,7 @@ spec:
 **Selector-based dispatch.** Every Composition is labeled `feature: <domain>` + `provider: <aws|gcp|azure|kind|kubernetes|kyverno|...>`
 (database adds `engine:`). Selection is driven per-request by `spec.crossplane.compositionSelector`
 (matching those labels) or the XRD's `defaultCompositionRef`. Several Compositions implement one XRD —
-one per cloud — which is exactly how the same `CompositeDatabase` becomes RDS on AWS, Cloud SQL on GCP,
+one per cloud — which is exactly how the same `Database` becomes RDS on AWS, Cloud SQL on GCP,
 Azure SQL on Azure, or a Kubernetes-native database locally.
 
 **Functions in use** (declared in `crossplane.yaml`, installed via `functions/functions.yaml`):
@@ -239,7 +239,7 @@ every run is inspectable as an `Operation` object.
 ## 6. A request's life (end-to-end)
 
 ```
-Developer applies CompositeDatabase (namespaced) in team-orders
+Developer applies Database (namespaced) in team-orders
   → API server admits it (RBAC on the namespace + XRD schema validation)
   → Crossplane selects the Composition by labels {feature=database, provider=aws, engine=postgresql}
   → function-kcl pipeline renders rds.aws.m.upbound.io Instance/SubnetGroup (+ connection Secret)

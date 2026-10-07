@@ -2,15 +2,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositepipelines.platform.adhar.io
+  name: pipelines.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositePipeline
-    plural: compositepipelines
+    kind: Pipeline
+    plural: pipelines
   defaultCompositionRef:
-    name: compositepipeline-local
+    name: pipeline-local
   versions:
   - name: v1alpha1
     served: true

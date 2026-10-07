@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositecosttrackers.platform.adhar.io
+  name: costtrackers.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeCostTracker
-    plural: compositecosttrackers
+    kind: CostTracker
+    plural: costtrackers
   defaultCompositionRef:
-    name: compositecosttracker-opencost
+    name: costtracker-opencost
   versions:
     - name: v1alpha1
       served: true

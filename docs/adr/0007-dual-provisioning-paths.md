@@ -16,7 +16,7 @@ A single mechanism cannot serve both well: pure CLI/SDK provisioning gives no co
 Maintain **two deliberate provisioning paths with a defined hand-off**:
 
 - **Imperative path** — the Go `Provider` interface (`platform/providers/interface.go`, seven implementations, factory-instantiated). Scope: creating/attaching the management cluster and CLI-driven day-2 cluster operations (`adhar up`, `adhar cluster …`). Kept intentionally broad (node groups, VPC, LB, storage, health, cost) so the CLI is useful standalone.
-- **Declarative path** — the Crossplane control plane (ADR-0005). Scope: everything after the management cluster exists — workload clusters (`CompositeCluster`), databases, networks, and all GitOps-managed infrastructure.
+- **Declarative path** — the Crossplane control plane (ADR-0005). Scope: everything after the management cluster exists — workload clusters (`Cluster`), databases, networks, and all GitOps-managed infrastructure.
 
 **Hand-off rule**: the imperative path's job ends when the management cluster is bootstrapped; anything that should *stay* managed belongs to Crossplane. The two paths share credentials (and should converge on workload identity), and any new provider should land in both (interface implementation + Compositions) to keep parity.
 

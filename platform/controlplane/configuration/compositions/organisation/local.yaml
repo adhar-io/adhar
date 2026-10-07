@@ -1,5 +1,5 @@
 ---
-# CompositeOrganisation — the tenant's footprint on the cluster (ADR-0026).
+# Organisation — the tenant's footprint on the cluster (ADR-0026).
 #
 # Identity is the Console's: it creates the Keycloak groups `org-<name>` and
 # `org-<name>-admin` and puts people in them. Everything those groups are
@@ -15,14 +15,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeorganisation-local
+  name: organisation-local
   labels:
     feature: organisation
     provider: local
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeOrganisation
+    kind: Organisation
   mode: Pipeline
   pipeline:
     - step: render
@@ -199,7 +199,7 @@ spec:
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeOrganisation
+            kind: Organisation
             status:
               namespace: {{ $name }}
               adminGroup: {{ $adminGroup }}

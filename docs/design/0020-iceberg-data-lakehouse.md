@@ -34,7 +34,7 @@ Every data package is currently `enabled: "false"` in `platform/stack/adhar-apps
    PyIceberg  Flink          │
         │                    │ S3A (path-style, per-tenant creds via ESO)
         │  S3 read/write     v
-        └──────────────►  MinIO / S3 / GCS / Blob   (buckets provisioned by CompositeStorage XR)
+        └──────────────►  MinIO / S3 / GCS / Blob   (buckets provisioned by Storage XR)
                               ▲
                    lakeFS ────┘  (Git-like branches over the object store; dev/test data isolation)
 
@@ -100,7 +100,7 @@ spec:
           ports: [{ containerPort: 8181 }]
 ```
 
-`root-creds` is the **existing** MinIO secret (verified in `minio/values.yaml: existingSecret: root-creds`). In cloud, `AWS_*` come from the CompositeStorage connection secret instead (§4).
+`root-creds` is the **existing** MinIO secret (verified in `minio/values.yaml: existingSecret: root-creds`). In cloud, `AWS_*` come from the Storage connection secret instead (§4).
 
 ### 2.3 Gateway + SSO (`manifests/httproute.yaml`, `manifests/oidc.yaml`)
 
@@ -146,7 +146,7 @@ Kafka → Iceberg sink connectors land streaming data into catalog tables; Airby
 
 ## 4. Tenant self-service — `CompositeLakehouse` XR (🔜)
 
-"A lakehouse space" becomes tenant self-service via Crossplane (ADR-0005), building on the shipped `CompositeStorage` XRD (verified: `platform/controlplane/configuration/xrd/storage.xrd.yaml`, `scope: Namespaced`, `type: [block,file,object,database]`). A new thin XRD composes a bucket + catalog namespace + scoped credentials:
+"A lakehouse space" becomes tenant self-service via Crossplane (ADR-0005), building on the shipped `Storage` XRD (verified: `platform/controlplane/configuration/xrd/storage.xrd.yaml`, `scope: Namespaced`, `type: [block,file,object,database]`). A new thin XRD composes a bucket + catalog namespace + scoped credentials:
 
 ```yaml
 # platform/controlplane/configuration/xrd/lakehouse.xrd.yaml (new; apiextensions v2, Namespaced)
@@ -163,7 +163,7 @@ spec:
     expireSnapshots: { schedule: "0 4 * * 0", olderThanDays: 7 }
 ```
 
-The composition (`configuration/compositions/lakehouse/*.yaml`, Pipeline mode) fans out to: a `CompositeStorage{type: object}` for the bucket, an `ExternalSecret` delivering scoped S3 creds to the team namespace, a call to the REST catalog to `createNamespace`, and per-table `CronOperation`s (§6) seeded from `spec.maintenance`. Local/MinIO uses one shared bucket with prefixes; cloud provisions a real S3/GCS bucket per lakehouse.
+The composition (`configuration/compositions/lakehouse/*.yaml`, Pipeline mode) fans out to: a `Storage{type: object}` for the bucket, an `ExternalSecret` delivering scoped S3 creds to the team namespace, a call to the REST catalog to `createNamespace`, and per-table `CronOperation`s (§6) seeded from `spec.maintenance`. Local/MinIO uses one shared bucket with prefixes; cloud provisions a real S3/GCS bucket per lakehouse.
 
 ## 5. Data versioning — lakeFS wired to the lakehouse (🔜)
 
@@ -214,7 +214,7 @@ Three operations: `rewrite_data_files` (compaction, daily), `expire_snapshots` (
 |---|---|---|
 | SSO | Catalog + every engine UI validate Keycloak tokens; catalog namespace == Keycloak group | ADR-0008; `minio/manifests/oidc.yaml` pattern |
 | Secrets | S3 creds + JDBC passwords via ESO `ExternalSecret` from Vault; no plaintext in Git | ADR-0009; `platform/stack/packages/security/{external-secrets,vault}/` |
-| Buckets | `CompositeStorage{type: object}` / `CompositeLakehouse` XR | ADR-0005; `configuration/xrd/storage.xrd.yaml` |
+| Buckets | `Storage{type: object}` / `CompositeLakehouse` XR | ADR-0005; `configuration/xrd/storage.xrd.yaml` |
 | Gateway | `HTTPRoute` on `adhar-gateway` for `catalog.<domain>` (no nginx) | ADR-0002; `trino/manifests/httproute.yaml` pattern |
 | GitOps | All manifests seeded to Gitea `packages` repo, synced by the local ApplicationSet | ADR-0003/0004; `globals/project.go` (`GiteaPlatformOrg=adhar`) |
 | Cost | OpenCost attributes catalog/engine compute + object storage per namespace | ADR-0010 |
@@ -227,7 +227,7 @@ Add an `iceberg` element to `platform/stack/adhar-appset-local.yaml` (`category:
 ## 9. Ordering & idempotency
 
 1. CNPG operator ready → `iceberg-catalog-db` Cluster healthy (Postgres up)
-2. MinIO ready + `adhar-lakehouse` bucket exists (bucket job / CompositeStorage)
+2. MinIO ready + `adhar-lakehouse` bucket exists (bucket job / Storage)
 3. `iceberg-rest` Deployment ready (JDBC migration on first start is idempotent)
 4. Trino/Spark catalogs resolve (they tolerate catalog restarts — connection is per-query)
 5. CronOperations registered (no-op until tables exist)
@@ -246,7 +246,7 @@ ArgoCD sync waves order (1)–(3); engines (4) are independent Applications that
 - **Package parity** (`platform/controllers/adharplatform/parity_test.go`): the new `iceberg` package appears in the appset with a resolvable `manifestPath`; local profile enables exactly {minio, iceberg, cnpg, trino}.
 - **Manifest lint**: `kubeconform` on `data/iceberg/manifests/*` and the new XRD/composition/operations (repo CI already validates crossplane `configuration/`).
 - **e2e (`tests/e2e`, gated)**: on a live platform — create an Iceberg table via Trino, read it via a Spark job, verify byte-identical rows (multi-engine ACID contract); create a lakeFS branch, write, merge; assert the compaction CronOperation reduces file count on a small-file table.
-- **XRD round-trip**: `CompositeLakehouse` apply under envtest against the composition renders a `CompositeStorage`, an `ExternalSecret`, and N `CronOperation`s.
+- **XRD round-trip**: `CompositeLakehouse` apply under envtest against the composition renders a `Storage`, an `ExternalSecret`, and N `CronOperation`s.
 - **Security**: a token scoped to team A's Keycloak group cannot list team B's catalog namespace (OIDC namespace isolation).
 
 ## 12. Code & file map

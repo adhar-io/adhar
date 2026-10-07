@@ -109,16 +109,13 @@ func firstInt32(config map[string]interface{}, fallback int32, keys ...string) i
 func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	awsConfig := &Config{}
 
-	// Default: kubeadm on EC2. `useManagedK8s: true` (or clusterMode: eks)
-	// opts into Amazon EKS; everything else behaves the same.
-	if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-		awsConfig.ClusterMode = clusterModeEKS
+	// Default: kubeadm on EC2. `clusterMode: managed` opts into Amazon EKS;
+	// everything above the cluster behaves the same either way.
+	mode, err := provider.ParseClusterMode(config)
+	if err != nil {
+		return nil, err
 	}
-	if mode, ok := config["clusterMode"].(string); ok && mode != "" {
-		awsConfig.ClusterMode = mode
-	} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
-		awsConfig.ClusterMode = mode
-	}
+	awsConfig.ClusterMode = mode
 
 	// Parse AWS-specific configuration with multiple auth methods
 	if region, ok := config["region"].(string); ok {
@@ -242,7 +239,7 @@ type Config struct {
 	// ClusterMode selects how clusters are created:
 	//   "compute" (default) — EC2 instances + kubeadm, Kubernetes managed by
 	//   adhar itself (Cilium replaces kube-proxy during bootstrap).
-	//   "eks" — Amazon's managed Kubernetes service (`useManagedK8s: true`).
+	//   "eks" — Amazon's managed Kubernetes service (`clusterMode: managed`).
 	ClusterMode string `json:"clusterMode,omitempty"`
 
 	// Authentication Methods (multiple options supported)

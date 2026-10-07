@@ -44,31 +44,49 @@ providers:
     useEnvironment: true                # read the token from CIVO_TOKEN
     # token: "…"                        # or inline — avoid in a committed file
     # tokenFile: /path/to/token         # or from disk
+    # clusterMode: the platform has THREE modes, the same three for every
+    # provider — `compute` (kubeadm on raw Civo instances), `managed` (Civo's
+    # hosted Kubernetes, k3s) and `provided` (an existing cluster, see below). The service name is implied by the provider, so the
+    # old spellings (`cluster_mode: k3s`, `useManagedK8s: true`) are gone and are
+    # now rejected rather than mapped.
+    #
+    # managed, because it is the only Civo mode where the platform's URLs work from
+    # a browser: Civo runs a cloud-controller-manager, so the Gateway's Service gets
+    # a real public load-balancer address and external-dns publishes an A record for
+    # it. Measured on a live compute-mode cluster (2026-10-06): no LB address, no A
+    # record, nothing on 443, and the provider firewall opens only 22, 6443 and the
+    # node-port range.
+    #
+    # NOTE sizes come from a different family in managed mode: g4s.kube.* /
+    # g3.k3s.* / g4m.kube.*, not the Instance list (g3.*). A g3.* size fails at
+    # create.
+    #
+    # The THIRD mode is `provided`: the cluster ALREADY EXISTS and the platform
+    # only installs itself onto it, reached through the kubeconfig named below.
+    # Nothing is created, and — the part that matters — nothing is ever deleted:
+    # `adhar down` removes nothing and leaves the cluster running. The cluster
+    # must either already run Cilium with gatewayAPI.enabled=true (the platform
+    # leaves that Cilium exactly as configured), or have no CNI at all, in which
+    # case the platform installs Cilium itself. A cluster running a different CNI
+    # is REFUSED by the preflight rather than having its networking replaced.
+    #
+    #   clusterMode: provided
+    #   kubeconfig: ~/.kube/config       # default: $KUBECONFIG, then ~/.kube/config
+    #   kubeContext: my-existing-cluster # default: the file's current context
+    #
+    clusterMode: managed
     config:
-      # cluster_mode decides whether the platform's own URLs work from a browser.
-      #
-      # compute (this setting) is kubeadm on plain Civo instances and has NO
-      # cloud-controller-manager, so the Gateway's LoadBalancer Service never
-      # gets an address. Measured consequences on a live mum1 bring-up
-      # (2026-10-06): nothing publishes an A record, so `*.hub.adhar.io` is
-      # NXDOMAIN; the cluster firewall this provider creates opens 22, 6443 and
-      # the node-port range 30000-32767, and NOT 80/443; and the gateway is
-      # reachable only as https://<node public IP>:<https node port> with the
-      # right SNI. The platform itself comes up healthy and holds a real
-      # Let's Encrypt certificate (DNS-01 needs no A record), and the in-cluster
-      # names resolve because the controller points CoreDNS at the gateway — but
-      # the printed URLs do not resolve for a browser.
-      #
-      # k3s is Civo's MANAGED Kubernetes: a cloud-controller-manager, a real
-      # LoadBalancer with a public address, an A record from external-dns, and
-      # the URLs below on port 443. Choose it if the platform needs to be
-      # reachable by its hostnames; stay on compute for a kubeadm cluster you
-      # reach through node ports.
-      cluster_mode: compute
       network_label: adhar-network
       reuse_existing_network: true      # reuse a network with a matching CIDR instead of creating one
       cidr: 10.7.0.0/16                 # must not overlap a cluster you intend to mesh with
-      size: g3.xlarge                   # default size for nodes this provider creates
+      # g4s.kube.large = 4 vCPU / 8 GB / 60 GB disk, sized against the account
+      # quota measured on 2026-10-07: 63 GB RAM and 50 cores in total. Three
+      # nodes is 24 GB and five (maxWorkers) is 40 GB, so the autoscaler has room
+      # it can actually use — the compute-mode cluster hit "RAM MB quota limit
+      # exceeded" trying for a fourth 16 GB node. The 60 GB disk matters because
+      # node-local `adhar-local` is the default StorageClass and platform volumes
+      # live on the node filesystem; the g3.k3s.* sizes carry only 15 GB.
+      size: g4s.kube.large
       disk_image: ubuntu-24.04
       default_node_count: 3
       tags:                             # applied to every instance, on top of the per-cluster tag
@@ -133,6 +151,8 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-dev
+      # COMPUTE MODE ONLY. Under cluster_mode: k3s this key is inert — Civo runs
+      # the control plane and does not bill or expose it as an instance.
       # g3.large (4 vCPU, 8 GB), not g3.medium. A g3.medium control plane
       # bootstraps fine and then stops answering its API and SSH altogether once
       # Argo CD starts reconciling the full profile — measured on a live mum1
@@ -141,9 +161,9 @@ environments:
       - key: controlPlaneMachineType
         value: g3.large
       - key: nodeSize
-        value: g3.xlarge
+        value: g4s.kube.large
       - key: nodeCount
-        value: '2'
+        value: '3'
     autoscaling:
       enabled: true
       minWorkers: 2
@@ -157,6 +177,8 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-test
+      # COMPUTE MODE ONLY. Under cluster_mode: k3s this key is inert — Civo runs
+      # the control plane and does not bill or expose it as an instance.
       # g3.large (4 vCPU, 8 GB), not g3.medium. A g3.medium control plane
       # bootstraps fine and then stops answering its API and SSH altogether once
       # Argo CD starts reconciling the full profile — measured on a live mum1
@@ -165,9 +187,9 @@ environments:
       - key: controlPlaneMachineType
         value: g3.large
       - key: nodeSize
-        value: g3.xlarge
+        value: g4s.kube.large
       - key: nodeCount
-        value: '2'
+        value: '3'
     autoscaling:
       enabled: true
       minWorkers: 2
@@ -181,6 +203,8 @@ environments:
     clusterConfig:
       - key: name
         value: adhar-prod
+      # COMPUTE MODE ONLY. Under cluster_mode: k3s this key is inert — Civo runs
+      # the control plane and does not bill or expose it as an instance.
       # g3.large (4 vCPU, 8 GB), not g3.medium. A g3.medium control plane
       # bootstraps fine and then stops answering its API and SSH altogether once
       # Argo CD starts reconciling the full profile — measured on a live mum1
@@ -189,7 +213,7 @@ environments:
       - key: controlPlaneMachineType
         value: g3.large
       - key: nodeSize
-        value: g3.xlarge
+        value: g4s.kube.large
       - key: nodeCount
         value: '3'
     autoscaling:

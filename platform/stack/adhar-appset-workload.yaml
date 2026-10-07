@@ -1,7 +1,7 @@
 # Thin workload-cluster profile (roadmap P2.2).
 #
 # Deploys the minimal agent set onto every workload cluster that
-# CompositeCluster auto-registered with ArgoCD (roadmap P2.1 — registration
+# Cluster auto-registered with ArgoCD (roadmap P2.1 — registration
 # secrets carry the adhar.io/cluster label this generator selects on). The
 # management cluster stays the hub: Git, GitOps, identity, and observability
 # storage live there (ADR-0001, ADR-0010); workload clusters run only what

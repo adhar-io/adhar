@@ -1,0 +1,67 @@
+# Keycloak realm configuration as a platform object: clients, groups, users,
+# federated identity providers and the password/session policy.
+#
+# The platform's OWN realm (`adhar`, with the ~29 OIDC clients every package
+# signs in through) is managed by the keycloak package, not by this object. Use
+# this for a realm of your own — a customer-facing one, or a second realm for an
+# application that must not share the platform's.
+#
+# Nothing credential-shaped belongs in this file: both the admin credentials and
+# each user's initial password are read from Secrets by reference.
+apiVersion: platform.adhar.io/v1alpha1
+kind: AuthStack
+metadata:
+  name: storefront-auth
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: keycloak
+  parameters:
+    displayName: Storefront identity
+    provider: keycloak
+    realm: storefront
+    adminCredentialsSecretRef:
+      name: keycloak-admin
+      namespace: adhar-system
+    clients:
+      - clientId: storefront-web
+        name: Storefront web
+        description: The customer-facing single-page app
+        protocol: openid-connect
+        publicClient: true
+        redirectUris:
+          - https://storefront.example.com/*
+        webOrigins:
+          - https://storefront.example.com
+        scopes: [openid, profile, email]
+    groups:
+      - name: customers
+      - name: support-agents
+    identityProviders:
+      - alias: google
+        providerId: google
+        displayName: Sign in with Google
+    passwordPolicy:
+      minimumLength: 12
+      requireUppercase: true
+      requireLowercase: true
+      requireDigits: true
+      requireSpecialChars: false
+      expiryDays: 365
+    sessionConfig:
+      # Seconds. The platform's own realm uses 300s access tokens, because an
+      # ID token's lifespan follows accessTokenLifespan and oauth2-proxy
+      # refreshes against it.
+      accessTokenLifespan: 300
+      ssoSessionIdleTimeout: 1800
+      ssoSessionMaxLifespan: 36000
+    mfaConfig:
+      enabled: true
+      required: false
+      otpPolicy:
+        type: totp
+        algorithm: HmacSHA256
+        digits: 6
+        period: 30

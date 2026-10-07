@@ -2,13 +2,13 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeservices.platform.adhar.io
+  name: services.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeService
-    plural: compositeservices
+    kind: Service
+    plural: services
   versions:
   - name: v1alpha1
     served: true

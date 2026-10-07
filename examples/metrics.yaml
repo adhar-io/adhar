@@ -1,0 +1,35 @@
+# A metrics scrape target set. The platform runs kube-prometheus, which selects
+# ServiceMonitors and PodMonitors cluster-wide, so a workload that emits an
+# exporter and a monitor is already graphed (see the observability
+# auto-coverage note in the docs).
+#
+# Use this object for targets that are NOT pods — an appliance, a managed cloud
+# database's exporter, something outside the cluster that still has to appear on
+# the same dashboards.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Metrics
+metadata:
+  name: payments-external
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: metrics
+  name: payments-external
+  type: prometheus
+  scrapeInterval: 30s
+  targets:
+    - name: settlement-gateway
+      endpoints:
+        - http://settlement-gateway.example.internal:9100/metrics
+  alerting:
+    enabled: true
+    rules:
+      - alert: SettlementGatewayDown
+        expr: up{job="settlement-gateway"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: The settlement gateway exporter has been unreachable for 5 minutes

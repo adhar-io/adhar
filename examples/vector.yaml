@@ -1,0 +1,48 @@
+# A Qdrant vector database for a team's embeddings — the store behind retrieval
+# for an AI application.
+#
+# The API keys are GENERATED into Secrets and reach Qdrant as QDRANT__SERVICE__*
+# environment variables; the chart's own `apiKey.valueFrom` resolves with a Helm
+# `lookup` at install time and would silently run the database keyless, so it is
+# deliberately not used. `readOnlyKey` is what the ServiceMonitor and read-only
+# clients use.
+#
+# Collections listed here are created once the database is up by an idempotent
+# Job; existing collections are left alone, so changing `vectorSize` on one that
+# exists does nothing — create a new collection instead.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Vector
+metadata:
+  name: payments-vectors
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        engine: qdrant
+  parameters:
+    displayName: Payments embeddings
+    version: v1.19.1
+    # 1 is a single-node store; 2+ enables Qdrant's distributed (Raft) mode.
+    replicas: 1
+    storageSize: 20Gi
+    resources:
+      cpu: 250m
+      memory: 1Gi
+      memoryLimit: 2Gi
+    readOnlyKey: true
+    metrics: true
+    collections:
+      - name: invoices
+        # 1536 for text-embedding-3-small, 768 for nomic-embed-text.
+        vectorSize: 1536
+        distance: Cosine
+      - name: support-tickets
+        vectorSize: 768
+        distance: Cosine
+        onDisk: true
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev
+    deletionPolicy: Delete

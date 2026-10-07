@@ -37,7 +37,7 @@ The terse rule-book companion is [`platform/controlplane/CONVENTIONS.md`](../pla
 
 An IDP must answer *"my team needs a PostgreSQL database"* with self-service — no ticket, no cloud console, no Terraform PR to a central repo. But the answer differs by context: locally it should be a CNPG PostgreSQL cluster; on AWS, RDS; on GCP, Cloud SQL. And whatever is provisioned must stay continuously managed — drift-corrected, upgradable, deletable — not created once by a script and forgotten.
 
-The Adhar control plane gives the platform its own **Kubernetes-style APIs for infrastructure**. A developer writes a small YAML resource (`CompositeDatabase`) in their own namespace; the control plane decides what that means for the current environment and keeps reality matching the request forever. The engine underneath is [Crossplane](https://crossplane.io).
+The Adhar control plane gives the platform its own **Kubernetes-style APIs for infrastructure**. A developer writes a small YAML resource (`Database`) in their own namespace; the control plane decides what that means for the current environment and keeps reality matching the request forever. The engine underneath is [Crossplane](https://crossplane.io).
 
 ## 2. Crossplane in Five Minutes
 
@@ -46,7 +46,7 @@ Crossplane extends the Kubernetes API server into a **universal control plane**.
 | Concept | What it is | Analogy |
 |---------|-----------|---------|
 | **Managed Resource (MR)** | A Kubernetes object mirroring one external resource (an RDS instance, a VPC, a Helm release). A **provider** reconciles it against the real world | What a `Pod` is to a container, an MR is to a cloud resource |
-| **Composite Resource (XR)** | A higher-level object *you* define — e.g. `CompositeDatabase` — that expands into many MRs | A "meal" that expands into ingredients |
+| **Composite Resource (XR)** | A higher-level object *you* define — e.g. `Database` — that expands into many MRs | A "meal" that expands into ingredients |
 | **CompositeResourceDefinition (XRD)** | Defines an XR type: group/kind and OpenAPI schema (which parameters users may set) | A CRD, plus platform semantics |
 | **Composition** | The recipe: given an XR, which resources to create and how to wire parameters into them | The implementation behind the API |
 
@@ -68,7 +68,7 @@ Adhar runs **Crossplane v2.3.1** and adopts its model everywhere. If you have se
 | Connection secrets via `connectionSecretKeys` | Removed — Compositions that surface credentials **create a `Secret` explicitly** |
 | `spec.deletionPolicy` on every MR | **Namespaced `.m` MRs have no `deletionPolicy`.** Setting it fails schema validation. Express retention as `managementPolicies: ["Observe","Create","Update","LateInitialize"]` — everything except `Delete` |
 
-Why namespacing matters for an IDP: a team's `CompositeDatabase` and the MRs behind it live in the **team's namespace**, so ordinary Kubernetes RBAC and quotas govern who may request what — no custom admission layer ([ADR-0005](adr/0005-crossplane-v2-namespaced.md)).
+Why namespacing matters for an IDP: a team's `Database` and the MRs behind it live in the **team's namespace**, so ordinary Kubernetes RBAC and quotas govern who may request what — no custom admission layer ([ADR-0005](adr/0005-crossplane-v2-namespaced.md)).
 
 One reserved detail: Crossplane injects a `spec.crossplane` stanza into every XR (composition selection, revision policy). XRD schemas must never declare it — Adhar's XRDs expose `spec.compositionSelector` defaults and `spec.parameters` for user input instead.
 
@@ -100,13 +100,13 @@ Each file in `xrd/` defines one platform API in group `platform.adhar.io`. Anato
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositedatabases.platform.adhar.io
+  name: databases.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced                       # v2 model: lives in the user's namespace
-  names: { kind: CompositeDatabase, plural: compositedatabases }
+  names: { kind: Database, plural: databases }
   defaultCompositionRef:
-    name: compositedatabase-aws-rds-postgresql   # used when the user doesn't choose
+    name: database-aws-rds-postgresql   # used when the user doesn't choose
   versions:
     - name: v1alpha1
       served: true
@@ -129,10 +129,10 @@ The schema is deliberately rich in **platform vocabulary** (engine, size, backup
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositedatabase-aws-rds-postgresql
+  name: database-aws-rds-postgresql
   labels: { feature: database, provider: aws, engine: postgresql }
 spec:
-  compositeTypeRef: { apiVersion: platform.adhar.io/v1alpha1, kind: CompositeDatabase }
+  compositeTypeRef: { apiVersion: platform.adhar.io/v1alpha1, kind: Database }
   mode: Pipeline
   pipeline:
     - step: render-rds
@@ -194,7 +194,7 @@ Follow one request end-to-end — a developer wants PostgreSQL:
 ```yaml
 # team-orders namespace
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeDatabase
+kind: Database
 metadata:
   name: orders-db
   namespace: team-orders
@@ -220,7 +220,7 @@ sequenceDiagram
     participant Prov as provider-aws (RDS family)
     participant AWS as AWS
 
-    Dev->>API: apply CompositeDatabase (namespaced XR)
+    Dev->>API: apply Database (namespaced XR)
     API-->>XPC: XR admitted (RBAC + schema validation)
     XPC->>XPC: select Composition by labels<br/>(feature=database, provider=aws, engine=postgresql)
     XPC->>Fn: run pipeline with XR as input
@@ -237,7 +237,7 @@ What makes this an *operating model*, not a provisioning script:
 - **Continuous reconciliation** — edit the RDS instance in the AWS console and the provider reverts it on the next sync; change the XR and the diff propagates down
 - **Environment dispatch** — the same manifest with `provider: gcp` lands on Cloud SQL; locally a Kubernetes-native Composition renders a CNPG cluster instead. The application never changes
 - **Deletion discipline** — deleting the XR cascades to its MRs. Retention is expressed with `managementPolicies` (omit `Delete`), **not** `deletionPolicy`, which namespaced MRs do not have
-- **Tenancy for free** — RBAC decides who may create a `CompositeDatabase` in which namespace; quotas and Kyverno policies apply to XRs like any other resource
+- **Tenancy for free** — RBAC decides who may create a `Database` in which namespace; quotas and Kyverno policies apply to XRs like any other resource
 
 ## 7. Day-2 Automation: Operations
 
@@ -270,11 +270,11 @@ kubectl create namespace demo
 kubectl apply -n demo -f examples/database.yaml
 
 # 4. Watch it converge
-kubectl get compositedatabase -n demo -w                # SYNCED / READY columns
-kubectl describe compositedatabase -n demo orders-db    # events tell the story
+kubectl get database -n demo -w                # SYNCED / READY columns
+kubectl describe database -n demo orders-db    # events tell the story
 
 # 5. See what it composed
-crossplane beta trace compositedatabase orders-db -n demo   # full resource tree
+crossplane beta trace database orders-db -n demo   # full resource tree
 ```
 
 `examples/` contains a ready-made resource for each major API (`cluster.yaml`, `database.yaml`, `application.yaml`, `environment.yaml`, `team.yaml`, `pipeline.yaml`, `registry.yaml`, …) — the fastest way to learn each schema.
@@ -320,17 +320,19 @@ Review checklist for any control-plane PR:
 
 ## 11. Reference: the Platform APIs
 
-**31 XRDs** in `configuration/xrd/`, implemented by **54 Compositions** in `configuration/compositions/<domain>/`. The count in parentheses is the number of implementations available today.
+**37 XRDs** in `configuration/xrd/`, implemented by **60 Compositions** in `configuration/compositions/<domain>/`. The count in parentheses is the number of implementations available today.
+
+Kinds are named after the THING — `Database`, not `CompositeDatabase` (renamed 2026-10-07; the old names are rejected, not aliased). The cost of that is short-name ambiguity with other API groups — `Secret` and `Service` (core), `Cluster` (CNPG), `Application` (Argo CD), `Project` (Kargo), `Release` (provider-helm), `Restore` (Velero) — so qualify them when it matters: `kubectl get applications.platform.adhar.io`.
 
 | Domain | API (kind) — file | Implementations |
 |--------|-----------|---|
-| **Workloads** | `CompositeApplication` (apps), `CompositeService` (service), `CompositePipeline` (pipeline), `CompositeWebhook` (webhook), `CompositeProject` (project) | apps (3: ArgoCD app, multi-env, local) · pipeline (3: Argo Workflows, Tekton, local) · service, webhook, project (1 each) |
-| **Infrastructure** | `CompositeCluster` (cluster), `CompositeNetwork` (network), `CompositeStorage` (storage), `CompositeDatabase` (database), `CompositeMessaging` (messaging) | cluster (6: EKS, AKS, GKE, DOKS, Civo K3s, Kind) · database (6: RDS, Azure SQL, Cloud SQL, CNPG, Redis, Valkey) · network (3: AWS VPC, Azure VNet, GCP VPC) · storage (2) · messaging (1: Strimzi) |
-| **Data services** | `CompositeSearch` (search), `CompositeVector` (vector) | search (1: OpenSearchCluster through the platform's opensearch-k8s-operator — generated credentials, ISM policy, daily snapshot to RustFS) · vector (1: Qdrant via provider-helm — generated API keys, declared collections, ServiceMonitor) |
-| **Environments** | `CompositeEnvironment` (env), `CompositePlatformConfig` (config), `CompositeGitOps` (gitops) | env (2) · config, gitops (1 each) |
-| **Security** | `CompositeAuthStack` (auth), `CompositeSecret` (secrets), `CompositeSecretRotation` (secretrotation), `CompositeCompliancePolicy` (compliancepolicy) | auth (1: Keycloak) · secrets (2: ESO, local) · secretrotation (2: AWS Secrets Manager, local) · compliance (3: Kyverno, OPA Gatekeeper, local) |
-| **Observability** | `CompositeMetrics` (metrics), `CompositeLogging` (logs), `CompositeTrace` (traces), `CompositeHealth` (health), `CompositeCostTracker` (costtracker) | Prometheus ServiceMonitor · Loki stack · Jaeger · healthcheck · OpenCost (1 each) |
-| **Operations** | `CompositeBackupPolicy` (backup), `CompositeRestore` (restore), `CompositeScale` (scale) | Velero backup · Velero restore · HPA (1 each) |
+| **Workloads** | `Application` (apps), `Service` (service), `Pipeline` (pipeline), `Webhook` (webhook), `Project` (project), `Repository` (repository) | apps (3: ArgoCD app, multi-env, local) · pipeline (3: Argo Workflows, Tekton, local) · service, webhook, project (1 each) · repository (1: Gitea repo + Harbor project + Nexus hosted repos) |
+| **Infrastructure** | `Cluster` (cluster), `Network` (network), `Storage` (storage), `Database` (database), `Messaging` (messaging) | cluster (6: EKS, AKS, GKE, DOKS, Civo K3s, Kind) · database (6: RDS, Azure SQL, Cloud SQL, CNPG, Redis, Valkey) · network (3: AWS VPC, Azure VNet, GCP VPC) · storage (2) · messaging (1: Strimzi) |
+| **Data services** | `Search` (search), `Vector` (vector), `Cache` (cache), `Bucket` (bucket), `Table` (table), `Topic` (topic), `Queue` (queue) | search (1: OpenSearchCluster through the platform's opensearch-k8s-operator — generated credentials, ISM policy, daily snapshot to RustFS) · vector (1: Qdrant via provider-helm — generated API keys, declared collections, ServiceMonitor) · cache (1: Valkey through the valkey-operator) · bucket (1: RustFS, with versioning/quota/lifecycle) · table (1: Iceberg in the lakehouse, created with Trino DDL) · topic (1: KafkaTopic on the shared `adhar-kafka`) · queue (1: RabbitMQ queue + exchange + DLQ through the management API) |
+| **Environments** | `Environment` (env), `PlatformConfig` (config), `GitOps` (gitops) | env (2) · config, gitops (1 each) |
+| **Security** | `AuthStack` (auth), `Secret` (secrets), `SecretRotation` (secretrotation), `CompliancePolicy` (compliancepolicy) | auth (1: Keycloak) · secrets (2: ESO, local) · secretrotation (2: AWS Secrets Manager, local) · compliance (3: Kyverno, OPA Gatekeeper, local) |
+| **Observability** | `Metrics` (metrics), `Logging` (logs), `Trace` (traces), `Health` (health), `CostTracker` (costtracker) | Prometheus ServiceMonitor · Loki stack · Jaeger · healthcheck · OpenCost (1 each) |
+| **Operations** | `BackupPolicy` (backup), `Restore` (restore), `Scale` (scale) | Velero backup · Velero restore · HPA (1 each) |
 
 *(Exact kinds and schemas: `platform/controlplane/configuration/xrd/`; maturity tracked in the [Roadmap](ROADMAP.md).)*
 

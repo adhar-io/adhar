@@ -1,0 +1,29 @@
+# Synthetic health checks: probe an endpoint from inside the cluster on a
+# schedule and alert on it.
+#
+# This is black-box monitoring, which is the half that pod readiness cannot give
+# you — a Deployment can be perfectly Ready while the thing it serves is broken
+# behind the Gateway, the certificate, or DNS.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Health
+metadata:
+  name: payments-api-health
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: health
+  name: payments-api-health
+  targets:
+    - name: public-edge
+      type: http
+      # Through the platform edge, so the check covers DNS, TLS and the Gateway.
+      endpoint: https://payments.platform.example.com/healthz
+    - name: in-cluster
+      type: http
+      endpoint: http://payments-api.payments-api-prod.svc.cluster.local:8080/healthz
+  checks:
+    - name: liveness
+      interval: 60s
+      timeout: 5s

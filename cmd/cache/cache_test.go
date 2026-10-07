@@ -15,7 +15,7 @@ import (
 )
 
 // The one mistake this command must never make is provisioning something other
-// than a cache — the CompositeDatabase XRD also backs Postgres, MySQL and MongoDB,
+// than a cache — the Database XRD also backs Postgres, MySQL and MongoDB,
 // and its engine default is postgresql. So engine handling is tested exhaustively.
 
 func TestEngineNeverFallsThroughToADatabase(t *testing.T) {
@@ -66,7 +66,7 @@ func TestEngineVersionIsNeverThePostgresDefault(t *testing.T) {
 
 func TestCacheListOnlyClaimsCaches(t *testing.T) {
 	t.Parallel()
-	// A Postgres CompositeDatabase in the same namespace must not appear as a
+	// A Postgres Database in the same namespace must not appear as a
 	// cache, and `adhar cache delete` must not be able to drop it.
 	postgres := &unstructured.Unstructured{Object: map[string]interface{}{
 		"metadata": map[string]interface{}{"name": "orders-db"},

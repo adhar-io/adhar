@@ -73,7 +73,7 @@ func TestEnsureClusterSpecConfigMapExcludesCredentials(t *testing.T) {
 		},
 		Autoscaling: &config.AutoscalingConfig{Enabled: true, MinWorkers: 3, MaxWorkers: 10},
 	}
-	if err := ensureClusterSpecConfigMap(context.Background(), c, env, "dev"); err != nil {
+	if err := ensureClusterSpecConfigMap(context.Background(), c, env, "dev", nil); err != nil {
 		t.Fatal(err)
 	}
 

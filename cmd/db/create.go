@@ -13,7 +13,7 @@ import (
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create new database",
-	Long: `Create a new managed database (Crossplane CompositeDatabase).
+	Long: `Create a new managed database (Crossplane Database).
 
 The database engine is taken from --type (or --engine); --version and --size
 configure the engine version and storage size.
@@ -74,7 +74,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Provider-aware, engine-discriminated selection — the same contract the
 	// Console uses, so `adhar database create` resolves to exactly one composition
 	// (e.g. local CNPG for postgresql, or AWS RDS on a cloud platform).
-	obj := helpers.NewXR("CompositeDatabase", dbName, ns, "database",
+	obj := helpers.NewXR("Database", dbName, ns, "database",
 		map[string]string{"engine": engine},
 		map[string]interface{}{"parameters": parameters})
 
@@ -83,7 +83,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	if err := helpers.ApplyXR(ctx, "compositedatabases", obj); err != nil {
+	if err := helpers.ApplyXR(ctx, "databases", obj); err != nil {
 		return fmt.Errorf("create database: %w", err)
 	}
 

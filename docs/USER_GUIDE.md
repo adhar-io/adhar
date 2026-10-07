@@ -28,7 +28,7 @@ Four facts explain almost everything you will hit.
 - **Git is the write path.** The platform's desired state lives in three Gitea repositories under the `adhar` org — `packages` (rendered manifests for every package), `environments` (the package set per environment) and `templates` (service scaffolding). ArgoCD reconciles from them with `selfHeal` on, so a `kubectl edit` on a managed object is reverted within a minute. Change Git instead.
 - **Everything is a package behind an `enabled` flag.** 91 packages, wired as **94 ApplicationSet entries** (three packages ship more than one variant). The local profile enables a curated **32**; production enables **76**.
 - **One namespace.** Every platform package installs into `adhar-system` (ADR-0011). The single exception is `buildpack` (kpack), which keeps `kpack-system` because kpack's and Cosign's webhooks both hardcode the same Secret name. Your applications get their own namespaces.
-- **Self-service infrastructure is a Kubernetes API.** Databases, clusters, networks and environments are requested as namespaced Crossplane composite resources (`CompositeDatabase`, `CompositeCluster`, …) in *your* namespace, so ordinary RBAC decides who may ask for what.
+- **Self-service infrastructure is a Kubernetes API.** Databases, clusters, networks and environments are requested as namespaced Crossplane composite resources (`Database`, `Cluster`, …) in *your* namespace, so ordinary RBAC decides who may ask for what.
 
 ## 2. Find your way around
 
@@ -317,7 +317,7 @@ Fastest way to get something running. The cluster now depends on that repo being
 adhar application deploy my-app --template microservice --namespace my-app
 ```
 
-Fetches `<template>.yaml` from the Gitea `templates` repo (`basic-git`, `microservice`, `frontend`), substitutes `${APP_NAME}` / `${APP_NAMESPACE}` and creates a `CompositeApplication`. Crossplane expands it into the ArgoCD Application. The Console instantiates the same templates, so CLI and portal agree.
+Fetches `<template>.yaml` from the Gitea `templates` repo (`basic-git`, `microservice`, `frontend`), substitutes `${APP_NAME}` / `${APP_NAMESPACE}` and creates a `Application`. Crossplane expands it into the ArgoCD Application. The Console instantiates the same templates, so CLI and portal agree.
 
 ### c) Scaffold a golden path in the Console
 
@@ -334,7 +334,7 @@ Every skeleton also emits a Backstage `catalog-info.yaml` (Component + System, T
 
 The Console executes a scaffold through its own `POST /api/scaffold`, which creates the Gitea repo, commits the generated tree and opens the ArgoCD Application. That endpoint lives in the separate `adhar-io/adhar-console` image, so its request body is not documented here; the underlying mechanism in this repo is the Backstage scaffolder actions each template declares — `publish:gitea` (creates the repo, default branch `main`) and `adhar:create-argocd-app` (`argoInstance: in-cluster`, `projectName: default`, `path: manifests`).
 
-**The `ml` golden path in detail.** It is the one path that does *not* use `adhar:create-argocd-app`; instead the skeleton ships `.adhar/app.yaml`, a `CompositeApplication`, and the platform's `adhar-services` ApplicationSet adopts any org repo carrying that descriptor. You get:
+**The `ml` golden path in detail.** It is the one path that does *not* use `adhar:create-argocd-app`; instead the skeleton ships `.adhar/app.yaml`, a `Application`, and the platform's `adhar-services` ApplicationSet adopts any org repo carrying that descriptor. You get:
 
 - `pipelines/pipeline.py` — a KFP v2 pipeline (`kfp==2.11.0`) with two components: `load_data` (a scikit-learn sample dataset → parquet, **the placeholder you replace** with a real extract, e.g. the Iceberg table from the `data-pipeline` path) and `train_model` (RandomForest, logging `accuracy` / `f1` / `roc_auc`, `joblib.dump` to `Output[Model]`). Compile with `python pipelines/pipeline.py`; submit with `kfp --endpoint "$KFP_ENDPOINT" run create --experiment-name <modelName> --package-file pipelines/pipeline.yaml`.
 - **Artifacts on the platform MinIO.** KFP v2's pipeline root is the shared `data/minio`, so `Output[Model]` *is* the model registry entry — versioned per run, addressable as an `s3://` URI on the run's artifact page. No MLflow package ships; wiring one is a single `MLFLOW_TRACKING_URI` in the ConfigMap plus uncommenting the `mlflow.log_*` calls.
@@ -433,7 +433,7 @@ Ask for what you need in *your* namespace; the platform decides how to provision
 
 ```yaml
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeDatabase
+kind: Database
 metadata:
   name: orders-db
   namespace: team-orders
@@ -443,7 +443,7 @@ spec:
     size: small
 ```
 
-Locally this becomes a CNPG PostgreSQL cluster; on AWS the same request becomes RDS. The shipped APIs include `CompositeCluster`, `CompositeApplication`, `CompositeDatabase`, `CompositeNetwork`, `CompositeLogging`, `CompositeEnvironment` and `CompositePlatformConfig`, each backed by one composition per implementation. Working examples are in `examples/`; the full catalogue and conventions are in [Control Plane](CONTROL_PLANE.md).
+Locally this becomes a CNPG PostgreSQL cluster; on AWS the same request becomes RDS. The shipped APIs include `Cluster`, `Application`, `Database`, `Network`, `Logging`, `Environment` and `PlatformConfig`, each backed by one composition per implementation. Working examples are in `examples/`; the full catalogue and conventions are in [Control Plane](CONTROL_PLANE.md).
 
 Or ask through the CLI, which fills in the boilerplate and the composition
 selection for the three requests developers make most:
@@ -730,11 +730,11 @@ curl -s https://ai.<host>/v1/chat/completions -H "Authorization: Bearer $(adhar 
 
 ### AI applications: `type: ai`
 
-A `CompositeApplication` declares what kind of application it is, and the platform decides how it runs:
+A `Application` declares what kind of application it is, and the platform decides how it runs:
 
 ```yaml
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeApplication
+kind: Application
 metadata: {name: vision-agent, namespace: team-ml}
 spec:
   parameters:

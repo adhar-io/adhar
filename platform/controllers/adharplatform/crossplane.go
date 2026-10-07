@@ -117,7 +117,7 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 	// RBAC first — the crossplane-compose-local ClusterRole aggregates into the
 	// Crossplane service account so it may create the composed resources our
 	// local compositions render (CNPG Clusters, Valkey, ArgoCD Applications, …).
-	// Without it every local self-service request (e.g. CompositeDatabase) fails
+	// Without it every local self-service request (e.g. Database) fails
 	// with "cannot patch resource ... forbidden". Cluster-scoped + dependency-free,
 	// so it applies before anything composes.
 	if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/rbac", resource, "Compose RBAC", false, false); err != nil {

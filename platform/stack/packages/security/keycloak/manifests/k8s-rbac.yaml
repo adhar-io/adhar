@@ -13,7 +13,7 @@
 # APPLICATION TEAMS are NOT in the table above. There is exactly one
 # organisation on a platform, and teams are the unit of onboarding and the unit
 # of isolation. A team's authority is granted per-namespace by the
-# CompositeProject composition, binding `oidc:ws-team-<team>` to `admin` in that
+# Project composition, binding `oidc:ws-team-<team>` to `admin` in that
 # team's own namespace only -- "Platform Admin of your own tenant". The
 # platform-* groups above are the platform team, whose shared services every
 # application team consumes.
@@ -105,7 +105,7 @@ metadata:
   # written; this is that tightening.
   #
   # An application team's authority is now granted where the team actually
-  # lives: the CompositeProject composition
+  # lives: the Project composition
   # (platform/controlplane/configuration/compositions/project/local.yaml) emits
   # a RoleBinding of `oidc:ws-team-<team>` to `admin` IN THAT TEAM'S NAMESPACE,
   # plus a default-deny-ingress NetworkPolicy. Onboarding a team is what grants

@@ -116,7 +116,7 @@ type DestinationsConfig struct {
 // Provider implements the DigitalOcean provider via the godo API, in either of
 // two modes: kubeadm on raw droplets (the DEFAULT, and the path the platform is
 // designed around) or the managed DOKS service, opted into with
-// `useManagedK8s: true` / `cluster_mode: doks`. See Config.ClusterMode.
+// `clusterMode: managed`. See Config.ClusterMode.
 type Provider struct {
 	client   *godo.Client
 	config   *Config
@@ -259,10 +259,13 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 	if useEnv, ok := configMap["useEnvironment"].(bool); ok {
 		doConfig.UseEnvironment = useEnv
 	}
-	// Canonical mode switch: raw compute (default) vs the managed service.
-	if managed, ok := configMap["useManagedK8s"].(bool); ok && managed {
-		doConfig.ClusterMode = "doks"
+	// Default: kubeadm on droplets. `clusterMode: managed` opts into DOKS;
+	// everything above the cluster behaves the same either way.
+	mode, err := provider.ParseClusterMode(configMap)
+	if err != nil {
+		return nil, err
 	}
+	doConfig.ClusterMode = mode
 	// `adhar cluster delete --purge-orphaned-volumes`: see deleteComputeVolumes.
 	if purge, ok := configMap["purgeOrphanedVolumes"].(bool); ok && purge {
 		doConfig.PurgeOrphanedVolumes = true

@@ -1,6 +1,6 @@
 ---
 # Local object-storage (bucket) composition — creates a bucket in the platform's
-# primary object store, RustFS, for self-service storage. CompositeStorage with
+# primary object store, RustFS, for self-service storage. Storage with
 # type: object; selected via the `provider: local, type: object` labels or an
 # explicit compositionRef.
 #
@@ -16,7 +16,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositestorage-local-rustfs
+  name: storage-local-rustfs
   labels:
     feature: storage
     provider: local
@@ -24,7 +24,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeStorage
+    kind: Storage
   mode: Pipeline
   pipeline:
     - step: render

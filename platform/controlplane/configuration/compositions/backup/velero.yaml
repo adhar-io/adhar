@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositebackuppolicy-velero
+  name: backuppolicy-velero
   labels:
     feature: backup
     tool: velero
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeBackupPolicy
+    kind: BackupPolicy
   mode: Pipeline
   pipeline:
     - step: render-velero
@@ -219,7 +219,7 @@ spec:
 
             items = _items + [{
                 apiVersion: "platform.adhar.io/v1alpha1"
-                kind: "CompositeBackupPolicy"
+                kind: "BackupPolicy"
                 metadata: oxr.metadata
                 status: {
                     phase: _phase

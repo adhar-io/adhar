@@ -1,0 +1,108 @@
+---
+# Topic — a Kafka topic on the platform's shared Strimzi cluster.
+#
+# Two namespaces on purpose. The KafkaTopic goes to the CLUSTER's namespace
+# because Strimzi's topic operator only watches there (a KafkaTopic in a team
+# namespace is silently ignored — it exists, it is never created on the broker,
+# and nothing reports why), while the connection Secret goes to the requester's
+# namespace, which is where the workload mounts it from.
+#
+# The topic's Kubernetes object is named `<xr>-<namespace>` so two teams can both
+# ask for `events` without colliding in the shared namespace; the topic on the
+# WIRE is whatever was asked for.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: topic-local-strimzi
+  labels:
+    feature: topic
+    provider: local
+    engine: kafka
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Topic
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $topic := dig "topicName" $name $p -}}
+            {{- $cluster := dig "cluster" "adhar-kafka" $p -}}
+            {{- $partitions := dig "partitions" 3 $p -}}
+            {{- $replicas := dig "replicas" 1 $p -}}
+            {{- $retentionMs := mul (dig "retentionHours" 168 $p) 3600000 -}}
+            {{- $retentionBytes := dig "retentionBytes" -1 $p -}}
+            {{- $cleanup := dig "cleanupPolicy" "delete" $p -}}
+            {{- $minIsr := dig "minInsyncReplicas" 1 $p -}}
+            {{- $extra := dig "config" dict $p -}}
+            {{- $bootstrap := printf "%s-kafka-bootstrap.adhar-system.svc.cluster.local:9092" $cluster -}}
+            ---
+            apiVersion: kafka.strimzi.io/v1beta2
+            kind: KafkaTopic
+            metadata:
+              name: {{ printf "%s-%s" $name $ns }}
+              namespace: adhar-system
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: topic
+              labels:
+                # The label the topic operator selects on. Without it the object
+                # is inert.
+                strimzi.io/cluster: {{ $cluster }}
+                platform.adhar.io/topic: {{ $name }}
+                adhar.io/organisation: {{ dig "organisation" "adhar" $p | quote }}
+                adhar.io/team: {{ dig "team" "platform" $p | quote }}
+                {{- if dig "project" "" $p }}
+                adhar.io/project: {{ dig "project" "" $p | quote }}
+                {{- end }}
+                adhar.io/environment: {{ dig "environment" "dev" $p | quote }}
+                adhar.io/plane: workload
+            spec:
+              topicName: {{ $topic | quote }}
+              partitions: {{ $partitions }}
+              replicas: {{ $replicas }}
+              config:
+                retention.ms: "{{ $retentionMs }}"
+                retention.bytes: "{{ $retentionBytes }}"
+                cleanup.policy: {{ $cleanup | quote }}
+                min.insync.replicas: "{{ $minIsr }}"
+                {{- range $k, $v := $extra }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-topic
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: topic-conn
+              labels:
+                platform.adhar.io/topic: {{ $name }}
+            stringData:
+              bootstrapServers: "{{ $bootstrap }}"
+              topic: {{ $topic | quote }}
+              # The shared cluster's in-cluster listener is PLAINTEXT, reachable
+              # only through the cluster network; TLS/SCRAM listeners are a
+              # cluster-level decision, not a per-topic one.
+              securityProtocol: "PLAINTEXT"
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Topic
+            status:
+              topic: {{ $topic | quote }}
+              bootstrapServers: "{{ $bootstrap }}"
+              connectionSecret: "{{ $name }}-topic"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

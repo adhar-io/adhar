@@ -74,7 +74,7 @@ func CompositionSelector(feature string, discriminators map[string]string) map[s
 }
 
 // XRGVR returns the GroupVersionResource for a composite resource plural, e.g.
-// XRGVR("compositedatabases").
+// XRGVR("databases").
 func XRGVR(plural string) schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: XRGroup, Version: XRVersion, Resource: plural}
 }

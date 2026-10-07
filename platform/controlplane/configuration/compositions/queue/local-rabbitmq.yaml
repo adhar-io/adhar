@@ -1,0 +1,175 @@
+---
+# Queue — a RabbitMQ queue, its exchange binding and its dead-letter queue, on
+# the platform's shared broker.
+#
+# Declared through the management API rather than a CRD: this platform runs the
+# RabbitMQ chart, not the cluster operator, so there is nothing to compose. PUT
+# on an existing queue is a no-op in RabbitMQ, which makes the Job idempotent —
+# and it is a Job rather than a one-shot script because a broker that is still
+# booting must be retried, not failed.
+#
+# The dead-letter queue is created by default. A queue without one either retries
+# a poison message forever or drops it silently, and both are discovered in
+# production.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: queue-local-rabbitmq
+  labels:
+    feature: queue
+    provider: local
+    engine: rabbitmq
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Queue
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $queue := dig "queueName" $name $p -}}
+            {{- $vhost := dig "vhost" "/" $p -}}
+            {{- $durable := dig "durable" true $p -}}
+            {{- $autoDelete := dig "autoDelete" false $p -}}
+            {{- $quorum := dig "quorum" false $p -}}
+            {{- $ex := dig "exchange" dict $p -}}
+            {{- $exName := dig "name" "" $ex -}}
+            {{- $exType := dig "type" "topic" $ex -}}
+            {{- $routingKey := dig "routingKey" "#" $ex -}}
+            {{- $dl := dig "deadLetter" dict $p -}}
+            {{- $dlEnabled := dig "enabled" true $dl -}}
+            {{- $dlQueue := dig "queueName" (printf "%s-dlq" $queue) $dl -}}
+            {{- $ttl := dig "messageTTLSeconds" 0 $p -}}
+            {{- $maxLen := dig "maxLength" 0 $p -}}
+            {{- $host := "rabbitmq.adhar-system.svc.cluster.local" -}}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ $name }}-queue
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: queue-job
+              labels:
+                platform.adhar.io/queue: {{ $name }}
+                adhar.io/organisation: {{ dig "organisation" "adhar" $p | quote }}
+                adhar.io/team: {{ dig "team" "platform" $p | quote }}
+                {{- if dig "project" "" $p }}
+                adhar.io/project: {{ dig "project" "" $p | quote }}
+                {{- end }}
+                adhar.io/environment: {{ dig "environment" "dev" $p | quote }}
+                adhar.io/plane: workload
+            spec:
+              backoffLimit: 10
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: declare
+                      image: curlimages/curl:8.10.1
+                      env:
+                        - name: RABBIT_USER
+                          value: "admin"
+                        - name: RABBIT_PASS
+                          valueFrom:
+                            secretKeyRef: { name: rabbitmq, key: rabbitmq-password }
+                        # Payloads as environment variables, never spliced into
+                        # the shell string: a routing key is full of characters a
+                        # shell would read.
+                        - name: QUEUE_PAYLOAD
+                          value: {{ dict "durable" $durable "auto_delete" $autoDelete "arguments" (merge
+                                    (dict)
+                                    (ternary (dict "x-queue-type" "quorum") (dict) $quorum)
+                                    (ternary (dict "x-dead-letter-exchange" "" "x-dead-letter-routing-key" $dlQueue) (dict) $dlEnabled)
+                                    (ternary (dict "x-message-ttl" (mul $ttl 1000)) (dict) (gt (int $ttl) 0))
+                                    (ternary (dict "x-max-length" $maxLen) (dict) (gt (int $maxLen) 0))
+                                  ) | toJson | quote }}
+                        - name: DLQ_PAYLOAD
+                          value: {{ dict "durable" true "auto_delete" false | toJson | quote }}
+                        - name: EXCHANGE_PAYLOAD
+                          value: {{ dict "type" $exType "durable" true | toJson | quote }}
+                        - name: BINDING_PAYLOAD
+                          value: {{ dict "routing_key" $routingKey | toJson | quote }}
+                      command: ["/bin/sh", "-c"]
+                      args:
+                        - |
+                          set -e
+                          API="http://{{ $host }}:15672/api"
+                          VH="{{ $vhost | urlquery }}"
+                          AUTH="-u $RABBIT_USER:$RABBIT_PASS -H Content-Type:application/json"
+                          echo "waiting for the broker"
+                          i=0
+                          until curl -sf $AUTH "$API/overview" >/dev/null; do
+                            i=$((i+1)); [ "$i" -ge 60 ] && { echo "RabbitMQ management API not ready"; exit 1; }
+                            sleep 5
+                          done
+                          put() {
+                            code=$(curl -s -o /tmp/out -w "%{http_code}" $AUTH -X PUT "$1" -d "$2")
+                            echo "$1 -> $code"
+                            case "$code" in 201|204) : ;; *) cat /tmp/out; echo; return 1 ;; esac
+                          }
+                          {{- if $dlEnabled }}
+                          put "$API/queues/$VH/{{ $dlQueue | urlquery }}" "$DLQ_PAYLOAD"
+                          {{- end }}
+                          put "$API/queues/$VH/{{ $queue | urlquery }}" "$QUEUE_PAYLOAD"
+                          {{- if $exName }}
+                          put "$API/exchanges/$VH/{{ $exName | urlquery }}" "$EXCHANGE_PAYLOAD"
+                          code=$(curl -s -o /tmp/out -w "%{http_code}" $AUTH -X POST \
+                            "$API/bindings/$VH/e/{{ $exName | urlquery }}/q/{{ $queue | urlquery }}" -d "$BINDING_PAYLOAD")
+                          echo "binding -> $code"
+                          case "$code" in 201|204) : ;; *) cat /tmp/out; echo; exit 1 ;; esac
+                          {{- end }}
+                          echo "queue {{ $queue }} ready"
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 64Mi }
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-queue
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: queue-conn
+              labels:
+                platform.adhar.io/queue: {{ $name }}
+            stringData:
+              host: "{{ $host }}"
+              port: "5672"
+              vhost: {{ $vhost | quote }}
+              queue: {{ $queue | quote }}
+              {{- if $exName }}
+              exchange: {{ $exName | quote }}
+              routingKey: {{ $routingKey | quote }}
+              {{- end }}
+              {{- if $dlEnabled }}
+              deadLetterQueue: {{ $dlQueue | quote }}
+              {{- end }}
+              # The credential is the broker's, in Secret `rabbitmq` (key
+              # rabbitmq-password) — referenced, not copied, so there is one
+              # thing to rotate.
+              username: "admin"
+              passwordSecret: "rabbitmq"
+              passwordKey: "rabbitmq-password"
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Queue
+            status:
+              queue: {{ $queue | quote }}
+              amqpURI: "amqp://{{ $host }}:5672{{ if ne $vhost "/" }}/{{ $vhost }}{{ end }}"
+              connectionSecret: "{{ $name }}-queue"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

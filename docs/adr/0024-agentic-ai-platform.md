@@ -30,7 +30,7 @@ Build **Adhar AI**: an agentic control layer that exposes every Adhar capability
 |---|---|---|
 | `mcp-cluster` | pods/events/logs, describe, health across the fleet | — |
 | `mcp-gitops` | ArgoCD app status/sync/diff | open Gitea PRs against `packages`/`environments` |
-| `mcp-provision` | Crossplane XR/claim state | author `CompositeCluster`/`Database`/… XRs as PRs |
+| `mcp-provision` | Crossplane XR/claim state | author `Cluster`/`Database`/… XRs as PRs |
 | `mcp-observability` | PromQL/LogQL/TraceQL, SLO burn-rate, correlation | — |
 | `mcp-security` | Kyverno/Trivy/Kubescape findings, policy explain | draft policy exceptions as PRs |
 | `mcp-cost` | OpenCost queries, showback | — |

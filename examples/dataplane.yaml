@@ -1,0 +1,50 @@
+# A workload cluster joined to this platform's fleet. CLUSTER-SCOPED: a data
+# plane is not owned by a namespace.
+#
+# Three modes, and they differ in who builds the cluster:
+#
+#   vcluster  — the controller creates a virtual cluster on this platform's own
+#               nodes. Cheapest; shares the host's kernel and nodes.
+#   composite — the controller creates a Cluster XR, so Crossplane
+#               builds a real cloud cluster (see cluster.yaml).
+#   adopt     — the cluster already exists; point at a kubeconfig Secret. This
+#               is the data-plane equivalent of `clusterMode: provided`.
+#
+# Whichever mode, the controller then mirrors its kubeconfig, registers it with
+# Argo CD, wires it into the observability hub, optionally joins it to the Cilium
+# mesh, and rolls it up onto AdharPlatform.status.fleet (`adhar fleet list`).
+apiVersion: platform.adhar.io/v1alpha1
+kind: DataPlane
+metadata:
+  name: payments-edge
+spec:
+  infrastructure:
+    mode: adopt
+    kubeconfigSecretRef:
+      name: payments-edge-kubeconfig
+      namespace: adhar-system
+
+  # The thin agent bundle this data plane runs:
+  #   standard — the usual set
+  #   edge     — trimmed, for constrained sites
+  #   gpu      — adds the GPU operator and the inference stack
+  #   isolated — no egress to the hub; telemetry is collected locally
+  profile: standard
+
+  mesh:
+    # Cilium Cluster Mesh. Needs non-overlapping pod CIDRs and a distinct
+    # cluster name/id on BOTH sides, so it is off unless you have arranged that.
+    enabled: false
+
+  observability:
+    # The mesh identity that stores this cluster's telemetry.
+    hub: adhar-mgmt
+
+  placement:
+    # Stamped on the Argo CD cluster secret, so ApplicationSet cluster
+    # generators and Sveltos ClusterProfiles can select this cluster. This is how
+    # a fleet-wide ApplicationSet decides what lands here (see gitops.yaml).
+    labels:
+      adhar.io/team: payments
+      adhar.io/environment: prod
+      region: blr1

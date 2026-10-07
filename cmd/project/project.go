@@ -20,7 +20,7 @@ import "github.com/spf13/cobra"
 
 // ProjectCmd is the parent for project hierarchy operations. A Project is owned
 // by a Team (within an Organisation) and, via the Adhar control plane
-// (Crossplane CompositeProject), provisions a guard-railed namespace, an ArgoCD
+// (Crossplane Project), provisions a guard-railed namespace, an ArgoCD
 // AppProject, and its own Gitea repository. This is the same control-plane path
 // the Adhar Console uses, so CLI and Console behave identically.
 var ProjectCmd = &cobra.Command{

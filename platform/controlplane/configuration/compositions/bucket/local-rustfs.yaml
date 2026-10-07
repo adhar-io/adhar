@@ -1,0 +1,138 @@
+---
+# Bucket — an S3 bucket on RustFS, the platform's primary object store.
+#
+# RustFS, not MinIO: MinIO is disabled in every profile, so a bucket created
+# there would land in a store nothing else can reach. `mc` is only a client and
+# speaks to any S3 endpoint, which is why the tool is unchanged.
+#
+# Everything the Job does is idempotent (`mb --ignore-existing`, and setting a
+# policy/lifecycle/quota to the value it already has), because this runs again on
+# every reconcile.
+#
+# The lifecycle rule is the one setting worth arguing about: a bucket of build
+# artefacts with no expiry grows until the store's volume is full, which takes
+# the WHOLE object store down — not just this bucket. That happened on a live
+# cluster (61 GiB of a backup copying itself), which is why the field exists and
+# why the quota does too.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: bucket-local-rustfs
+  labels:
+    feature: bucket
+    provider: local
+    store: rustfs
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Bucket
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $bucket := dig "bucketName" $name $p -}}
+            {{- $versioning := dig "versioning" false $p -}}
+            {{- $public := dig "public" false $p -}}
+            {{- $quota := dig "quotaGB" 0 $p -}}
+            {{- $expire := dig "expireAfterDays" 0 $p -}}
+            {{- $endpoint := "http://rustfs.adhar-system.svc.cluster.local:9000" -}}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ $name }}-bucket
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: bucket-job
+              labels:
+                platform.adhar.io/bucket: {{ $name }}
+                adhar.io/organisation: {{ dig "organisation" "adhar" $p | quote }}
+                adhar.io/team: {{ dig "team" "platform" $p | quote }}
+                {{- if dig "project" "" $p }}
+                adhar.io/project: {{ dig "project" "" $p | quote }}
+                {{- end }}
+                adhar.io/environment: {{ dig "environment" "dev" $p | quote }}
+                adhar.io/plane: workload
+            spec:
+              backoffLimit: 6
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: mc
+                      image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+                      env:
+                        - name: S3_USER
+                          valueFrom: { secretKeyRef: { name: root-creds, key: rootUser } }
+                        - name: S3_PASS
+                          valueFrom: { secretKeyRef: { name: root-creds, key: rootPassword } }
+                      command: [sh, -c]
+                      args:
+                        - |
+                          set -e
+                          mc alias set local {{ $endpoint }} "$S3_USER" "$S3_PASS"
+                          mc mb --ignore-existing "local/{{ $bucket }}"
+                          {{- if $versioning }}
+                          mc version enable "local/{{ $bucket }}"
+                          {{- else }}
+                          mc version suspend "local/{{ $bucket }}" || true
+                          {{- end }}
+                          {{- if gt (int $quota) 0 }}
+                          mc quota set "local/{{ $bucket }}" --size {{ $quota }}gi
+                          {{- end }}
+                          {{- if gt (int $expire) 0 }}
+                          mc ilm rule add --expire-days {{ $expire }} "local/{{ $bucket }}" 2>/dev/null \
+                            || echo "lifecycle rule already present"
+                          {{- end }}
+                          {{- if $public }}
+                          mc anonymous set download "local/{{ $bucket }}"
+                          {{- else }}
+                          mc anonymous set none "local/{{ $bucket }}"
+                          {{- end }}
+                          echo "bucket {{ $bucket }} ready"
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 128Mi }
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-bucket
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: bucket-conn
+              labels:
+                platform.adhar.io/bucket: {{ $name }}
+            stringData:
+              endpoint: "{{ $endpoint }}"
+              bucket: {{ $bucket | quote }}
+              # Every S3 client insists on a region whether or not the store
+              # cares; this is the value RustFS answers to.
+              region: "us-east-1"
+              # The credential is the object store's root, in Secret `root-creds`
+              # — referenced, not copied.
+              credentialsSecret: "root-creds"
+              accessKeyKey: "rootUser"
+              secretKeyKey: "rootPassword"
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Bucket
+            status:
+              bucket: {{ $bucket | quote }}
+              endpoint: "{{ $endpoint }}"
+              connectionSecret: "{{ $name }}-bucket"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

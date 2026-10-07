@@ -19,7 +19,7 @@
 #       memory: 256Gi
 #       projects: 40
 #
-# The sum is taken across every CompositeProject owned by the team, so the
+# The sum is taken across every Project owned by the team, so the
 # ceiling constrains the TOTAL rather than each project. A project being updated
 # is not counted twice, so re-applying an unchanged project never trips the limit.
 apiVersion: v1

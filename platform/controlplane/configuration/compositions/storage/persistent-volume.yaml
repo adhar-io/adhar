@@ -9,7 +9,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeStorage
+    kind: Storage
   mode: Pipeline
   pipeline:
     - step: render-storage

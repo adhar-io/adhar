@@ -216,14 +216,63 @@ hard failure. A token that cannot read the quota logs a warning and proceeds.
   instances, CPU, RAM, disk and networks before provisioning anything (see the
   quota preflight above) and names what is short, so this surfaces as a refusal
   in the first seconds rather than a half-built cluster ten minutes in.
-- **Cloud integration on `compute`.** After the first joins the control plane
-  gets the Civo cloud-controller-manager and the Civo CSI driver
-  (`kube-system/civo-api-access` carries the API key), `civo-volume` becomes
-  the default StorageClass and the CSI DaemonSet tolerates the startup taint
-  (`civo/cloud_integration.go`, pinned).
-- **`cluster_mode`.** `compute` is the Adhar-managed kubeadm path this
-  documentation describes. `k3s` hands cluster lifecycle to Civo and behaves
-  differently; do not mix expectations between the two.
+- **No cloud integration on `compute`, by design.** The Civo
+  cloud-controller-manager resolves `CIVO_CLUSTER_ID` against the MANAGED
+  Kubernetes API, which a kubeadm cluster on plain instances does not have: it
+  nil-panics and never clears `node.cloudprovider.kubernetes.io/uninitialized`.
+  The Civo CSI plugin then needs `.spec.providerID`, which only the CCM sets. So
+  compute mode runs with no CCM and no CSI: node-local `adhar-local` is the only
+  StorageClass, and block storage needs `clusterMode: managed`
+  (`civo/cloud_integration.go`).
+- **The platform edge comes from the NODES on `compute`.** No CCM means no
+  `LoadBalancer` Service, so the Cilium Gateway runs in **host-network mode**:
+  Envoy binds :80 and :443 in each node's own network namespace, the firewall
+  opens both ports, and external-dns publishes the instances' public IPs as the
+  platform's A records (see §4.1). `clusterMode: managed` keeps the ordinary
+  Service + load-balancer path.
+- **`clusterMode`.** Three values, the same on every cloud: `compute` (the
+  Adhar-managed kubeadm path this documentation describes), `managed` (Civo's
+  own k3s — Civo owns the control plane, and the node sizes come from a
+  different family: `g4s.kube.*`, not `g3.*`) and `provided` (a cluster that
+  already exists; Adhar installs onto it and never deletes it). The old
+  `cluster_mode: k3s` spelling is rejected rather than mapped.
+
+### 4.1 The edge in compute mode (host-network Gateway)
+
+Compute mode has no load balancer, so the Gateway is reachable on the nodes
+themselves. Three things inside Cilium have to agree, and the platform sets all
+three (`rewriteCiliumGatewayHostNetwork`) — the first attempt set only the first
+and produced a Gateway that reported `Programmed` while nothing listened on 443:
+
+1. `gateway-api-hostnetwork-enabled: "true"` in `cilium-config`,
+2. `NET_BIND_SERVICE` on the `cilium-envoy` container — a port below 1024 cannot
+   be bound without it,
+3. `--keep-cap-net-bind-service` on `cilium-envoy-starter`, which otherwise drops
+   that capability before it execs Envoy.
+
+And three outside it:
+
+- the cluster firewall opens **80** and **443** (`gateway-http`/`gateway-https`
+  rules; an existing firewall is reconciled, so re-running `adhar up` adds them
+  to a cluster built before they existed),
+- external-dns publishes the instances' **public** IPs, handed to it as
+  `external-dns.alpha.kubernetes.io/target` on the Gateway. Its own status
+  carries the PRIVATE addresses, and `--policy=upsert-only` means a private
+  record is never retracted — 140 of them had to be deleted through the API on
+  2026-10-06,
+- CoreDNS resolves `*.<host>` in-cluster to a selector-less shim Service whose
+  EndpointSlice lists the nodes' internal addresses. Pods must not be sent to
+  the public address: it is NAT'd back to a node and hairpinning generally fails,
+  and every oauth2-proxy does OIDC discovery against `https://keycloak.<host>`
+  at start-up and exits if it cannot resolve.
+
+TLS is unaffected: the certificate comes from the Civo DNS-01 webhook solver, so
+`*.<host>` is a real Let's Encrypt wildcard in both modes.
+
+Trade-off worth knowing: there is one Envoy per node and DNS round-robins
+between them, so losing a node removes one A record's worth of capacity until
+the next reconcile rewrites the target list. A cloud load balancer
+(`clusterMode: managed`) health-checks instead.
 
 ## 5. Related
 

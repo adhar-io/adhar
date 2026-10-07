@@ -361,12 +361,19 @@
         "useEnvironment": {
           "type": "boolean"
         },
-        "useManagedK8s": {
-          "type": "boolean"
-        },
         "clusterMode": {
           "type": "string",
-          "description": "How clusters are created: compute (default, kubeadm on raw instances) or the cloud's managed service (eks, aks, gke, doks, k3s). useManagedK8s: true is the same switch."
+          "enum": ["compute", "managed", "provided"],
+          "default": "compute",
+          "description": "Where the cluster comes from: compute (the default, kubeadm on raw instances this platform creates), managed (this cloud's hosted Kubernetes - EKS, AKS, GKE, DOKS, Civo k3s, created and owned by the platform) or provided (the cluster ALREADY EXISTS; the platform only installs itself onto it through the kubeconfig below, creates no infrastructure, and never deletes the cluster - adhar down leaves it running). The same three values for every provider; the service name is implied by the provider. The removed useManagedK8s boolean and the per-cloud spellings (eks/aks/gke/doks/k3s) are rejected rather than mapped, so a stale config fails loudly instead of quietly building the other mode."
+        },
+        "kubeconfig": {
+          "type": "string",
+          "description": "clusterMode: provided only - path to the kubeconfig that reaches the existing cluster. Defaults to $KUBECONFIG and then ~/.kube/config. Ignored in the other modes, where the platform writes its own kubeconfig."
+        },
+        "kubeContext": {
+          "type": "string",
+          "description": "clusterMode: provided only - the context inside that kubeconfig to install onto. Defaults to the file's current context. It is reduced to this one context before anything uses it, so the rest of your kubeconfig is never carried into the platform."
         },
         "config": {
           "type": "object",

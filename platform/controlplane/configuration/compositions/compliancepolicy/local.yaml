@@ -1,5 +1,5 @@
 ---
-# Local Compliance Policy composition — turns a CompositeCompliancePolicy into
+# Local Compliance Policy composition — turns a CompliancePolicy into
 # Kyverno ClusterPolicies, all GitOps/control-plane managed.
 #
 # Kyverno ClusterPolicy is cluster-scoped, and a Crossplane v2 *namespaced* XR
@@ -14,7 +14,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositecompliancepolicy-local
+  name: compliancepolicy-local
   labels:
     feature: compliance
     provider: local
@@ -22,7 +22,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCompliancePolicy
+    kind: CompliancePolicy
   mode: Pipeline
   pipeline:
     - step: render
@@ -213,7 +213,7 @@ spec:
             ---
             # Publish resolved status back on the XR.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeCompliancePolicy
+            kind: CompliancePolicy
             status:
               phase: Provisioned
               policyEngine: kyverno

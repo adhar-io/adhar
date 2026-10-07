@@ -5,19 +5,20 @@ import (
 	"testing"
 )
 
+// The per-cloud aliases are gone: one vocabulary, two values. Anything that is
+// not exactly "managed" is the default kubeadm mode, and a config carrying an
+// old service name is refused by NormalizeClusterMode rather than reaching here
+// (see clustermode_test.go).
 func TestClusterModeIsManagedDefaultsToKubeadm(t *testing.T) {
-	for _, mode := range []string{"", "compute", "droplets", "self-managed", "instances"} {
-		if ClusterModeIsManaged(mode, "eks") {
+	for _, mode := range []string{"", "compute", "droplets", "self-managed", "instances", "eks", "aks"} {
+		if ClusterModeIsManaged(mode) {
 			t.Errorf("mode %q must be the default kubeadm mode", mode)
 		}
 	}
-	for _, mode := range []string{"managed", "EKS", "eks"} {
-		if !ClusterModeIsManaged(mode, "eks") {
+	for _, mode := range []string{"managed", "MANAGED", " managed "} {
+		if !ClusterModeIsManaged(mode) {
 			t.Errorf("mode %q must select the managed service", mode)
 		}
-	}
-	if ClusterModeIsManaged("aks", "eks") {
-		t.Error("another cloud's alias must not select managed mode")
 	}
 }
 

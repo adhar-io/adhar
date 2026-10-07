@@ -15,7 +15,7 @@ import (
 var rotateCmd = &cobra.Command{
 	Use:   "rotate",
 	Short: "Rotate an existing secret",
-	Long: `Rotate a secret through the control plane by creating a CompositeSecretRotation
+	Long: `Rotate a secret through the control plane by creating a SecretRotation
 XR (platform.adhar.io). Crossplane reconciles it — locally by running a Job that
 generates a fresh value and patches the target Secret's key; on a cloud platform
 the same XR drives the cloud secret-manager's rotation (external-secrets/KMS).
@@ -73,9 +73,9 @@ func runRotate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Provider-aware selection — identical contract to the Console. Locally this
-	// resolves to compositesecretrotation-local; on a cloud platform (ADHAR_PROVIDER)
+	// resolves to secretrotation-local; on a cloud platform (ADHAR_PROVIDER)
 	// it resolves to that cloud's secret-manager rotation composition.
-	obj := helpers.NewXR("CompositeSecretRotation", rotationName, ns, "secretrotation", nil,
+	obj := helpers.NewXR("SecretRotation", rotationName, ns, "secretrotation", nil,
 		map[string]interface{}{"parameters": parameters})
 
 	ctx := cmd.Context()
@@ -88,7 +88,7 @@ func runRotate(cmd *cobra.Command, args []string) error {
 		return unreachable(err)
 	}
 
-	if _, err := dyn.Resource(compositeSecretRotationGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if _, err := dyn.Resource(secretRotationGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
 			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲ Rotation policy %q already exists; re-run rotation by deleting and recreating it", rotationName)))
 			return nil
@@ -97,6 +97,6 @@ func runRotate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Rotation requested for secret %q (XR %s in namespace %s)", secretName, rotationName, ns)))
-	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get compositesecretrotation %s", ns, rotationName)))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get secretrotation %s", ns, rotationName)))
 	return nil
 }

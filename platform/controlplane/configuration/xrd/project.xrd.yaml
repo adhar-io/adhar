@@ -1,5 +1,5 @@
 ---
-# CompositeProject — the keystone of the Adhar ownership hierarchy:
+# Project — the keystone of the Adhar ownership hierarchy:
 #
 #   Organisation ─owns─► Team ─owns─► Project ─holds─► Application(s)
 #                                        │
@@ -10,20 +10,20 @@
 #
 # Organisation and Team are catalog metadata (Backstage Groups). A Project is the
 # first level that provisions real infrastructure, so it is a Crossplane XR: one
-# CompositeProject fans out into a guard-railed namespace, an ArgoCD AppProject
+# Project fans out into a guard-railed namespace, an ArgoCD AppProject
 # scoped to it, and (optionally) its own Gitea repository — all GitOps-managed.
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeprojects.platform.adhar.io
+  name: projects.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeProject
-    plural: compositeprojects
+    kind: Project
+    plural: projects
   defaultCompositionRef:
-    name: compositeproject-local
+    name: project-local
   versions:
   - name: v1alpha1
     served: true
@@ -75,7 +75,7 @@ spec:
                     default: true
                   environments:
                     type: array
-                    description: "The project's environments, each composed as a CompositeEnvironment with its own\
+                    description: "The project's environments, each composed as a Environment with its own\
                       \ namespace, quota, network boundary and team access. Default dev \u2192 test \u2192 prod.\
                       \ `namespace` defaults to `<project>-<name>`; the platform's own project pins `dev`/`test`/`prod`."
                     default:

@@ -1,0 +1,44 @@
+# A Kafka topic on the platform's SHARED Strimzi cluster (`adhar-kafka`).
+#
+# This is the object a team normally wants: every package on the platform already
+# wires to that cluster, and asking for a topic should not stand up a second
+# broker. `messaging.yaml` is the other object — a whole Kafka cluster, for the
+# rare workload that needs isolation the shared one cannot give.
+#
+# The KafkaTopic lands in the cluster's namespace (Strimzi's topic operator only
+# watches there — a KafkaTopic anywhere else is silently ignored); the connection
+# Secret lands here, next to the workload.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Topic
+metadata:
+  name: payments-captured
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: topic
+  parameters:
+    displayName: Captured payments
+    # The name on the wire. A dotted name is a perfectly good topic name and a
+    # perfectly bad Kubernetes object name, which is why the two are separate.
+    topicName: payments.captured
+    cluster: adhar-kafka
+    # Partitions are the unit of parallelism and can only be INCREASED later: a
+    # topic that starts at 1 caps its consumer group at one member forever.
+    partitions: 6
+    # Must not exceed the cluster's broker count, or Strimzi reports the topic
+    # NotReady. 1 means a broker restart loses the partition.
+    replicas: 3
+    minInsyncReplicas: 2
+    retentionHours: 168
+    retentionBytes: -1
+    # `compact` keeps the last record per key — right for a changelog, wrong for
+    # an event stream.
+    cleanupPolicy: delete
+    config:
+      max.message.bytes: "2097152"
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev

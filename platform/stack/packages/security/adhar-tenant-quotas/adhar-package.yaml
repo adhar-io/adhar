@@ -19,7 +19,7 @@ dependencies:
   # Issues and rotates the webhook serving certificate, and injects the CA.
   - name: cert-manager
     category: security
-  # The ceiling is enforced on CompositeProject, which Crossplane serves.
+  # The ceiling is enforced on Project, which Crossplane serves.
   - name: crossplane
     category: infrastructure
 provenance:

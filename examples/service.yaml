@@ -1,0 +1,33 @@
+# A Service for a workload, with its ServiceMonitor.
+#
+# Most applications get their Service from their own chart or manifests; this
+# object is for the ones that do not — an external endpoint you want named
+# inside the cluster, or a Service that has to exist before the workload does.
+#
+# `type: LoadBalancer` costs a cloud load balancer per Service. The platform
+# edge is ONE Gateway: route to a ClusterIP through an HTTPRoute instead unless
+# the protocol is not HTTP.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Service
+metadata:
+  name: payments-api
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: service
+  name: payments-api
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: payments-api
+  monitoring:
+    enabled: true
+    scrapeInterval: 30s

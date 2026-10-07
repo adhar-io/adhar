@@ -6,7 +6,7 @@ cluster) — URLs, kubeconfig, credentials, DNS/TLS, and a post-install checklis
 
 It applies to both provisioning modes — the default
 **kubeadm-on-raw-compute** control plane and the opt-in managed-Kubernetes mode
-(`useManagedK8s: true`) — because everything below is identical in both.
+(`clusterMode: managed`) — because everything below is identical in both.
 
 > Local development (`adhar up` with the Kind provider) is different: it uses
 > `*.adhar.localtest.me:8443`, which resolves to your own machine. Nothing here

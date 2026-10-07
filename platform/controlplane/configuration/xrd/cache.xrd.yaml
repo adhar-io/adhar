@@ -1,0 +1,110 @@
+# Cache — a Valkey instance for a team.
+#
+# Valkey, not Redis: it is the BSD-3 fork every package on this platform wires
+# to, and `redis` is the opt-in alternative that is disabled in every profile.
+# Clients do not need to care — valkey:// and redis:// are the same protocol.
+#
+# This gives the team its OWN instance, managed by the valkey-operator, with the
+# exporter and ServiceMonitor the platform's Grafana dashboards already select.
+# For a shared cache, use the platform's `adhar-cache` and a key prefix.
+#
+# NOTE `adhar cache create` still makes a `Database` with a cache engine, because
+# it also offers `--engine redis` and this kind deliberately does not. The two
+# paths coexist; this one is what a manifest should say.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: caches.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Cache
+    plural: caches
+  defaultCompositionRef:
+    name: cache-local-valkey
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: cache
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                    engine:
+                      type: string
+                      enum: [valkey]
+                      default: valkey
+                    nodes:
+                      type: integer
+                      default: 1
+                      minimum: 1
+                      maximum: 6
+                      description: >-
+                        Primary nodes. More than one shards the keyspace
+                        (cluster mode), which not every client library supports.
+                    replicas:
+                      type: integer
+                      default: 0
+                      minimum: 0
+                      maximum: 5
+                      description: Replicas per node. 0 is a single instance with no failover.
+                    password:
+                      type: boolean
+                      default: false
+                      description: >-
+                        Generate a password and require it. Off by default
+                        because an in-cluster cache is reachable only through a
+                        NetworkPolicy-gated Service, and every client then has to
+                        be given the credential.
+                    tls:
+                      type: boolean
+                      default: false
+                    maxMemory:
+                      type: string
+                      default: 256Mi
+                      description: >-
+                        Memory limit per node. A cache that hits it evicts; one
+                        that has no limit is killed by the kubelet instead.
+                    cpu:
+                      type: string
+                      default: 25m
+                    metrics:
+                      type: boolean
+                      default: true
+                      description: Operator-managed exporter + ServiceMonitor for kube-prometheus.
+                    organisation: { type: string, default: adhar }
+                    team: { type: string, default: platform }
+                    project: { type: string, default: "" }
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+                    deletionPolicy:
+                      type: string
+                      enum: [Delete, Orphan]
+                      default: Delete
+            status:
+              type: object
+              properties:
+                host: { type: string }
+                port: { type: integer }
+                connectionSecret: { type: string }

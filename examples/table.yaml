@@ -1,0 +1,45 @@
+# An Iceberg table in the platform lakehouse.
+#
+# The lakehouse is Iceberg-on-RustFS (the REST catalog is RustFS S3 Tables,
+# warehouse `lakehouse`) and Trino is the engine everything else queries it
+# through. This object hides all of that: declare the columns, get a table that
+# Spark, Dagster, Metabase and OpenMetadata can all see.
+#
+# Created with `CREATE TABLE IF NOT EXISTS`, so re-applying is safe — and
+# deliberately NOT altered afterwards. Schema evolution on a table with data is a
+# decision (add nullable, rename, widen a type), not a diff to apply on
+# reconcile: change the columns here and run the ALTER yourself.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Table
+metadata:
+  name: settlements
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: table
+  parameters:
+    displayName: Settlements
+    catalog: iceberg
+    # The Iceberg namespace (Trino calls it a schema), created if absent. One per
+    # team or per domain, not per table.
+    schema: payments
+    tableName: settlements
+    columns:
+      - { name: settlement_id, type: varchar, comment: "The processor's settlement id" }
+      - { name: captured_at, type: "timestamp(6)" }
+      - { name: settled_at, type: "timestamp(6)" }
+      - { name: amount, type: "decimal(18,2)" }
+      - { name: currency, type: "varchar(3)" }
+      - { name: status, type: varchar }
+    # Partitioning is the single biggest lever on query cost and cannot be chosen
+    # well without knowing the queries — which is why nothing defaults it.
+    partitionBy: ["day(captured_at)"]
+    sortedBy: ["settlement_id"]
+    format: PARQUET
+    comment: "Settled payments, one row per settlement"
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev

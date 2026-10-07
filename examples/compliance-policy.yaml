@@ -1,0 +1,69 @@
+# Guardrails as policy, enforced by Kyverno. The platform ships its own policy
+# packs (security/kyverno-policies, security/policy-packs in audit and enforce
+# variants); this object is for a team's or a regulator's additions.
+#
+# `enforcementMode: audit` reports violations, `enforce` BLOCKS admission. Start
+# in audit, read policy-reporter, then promote. Note that Kyverno here admits
+# `adhar-system` (every package installs there), so an enforcing rule without a
+# namespace scope can block the platform's own pods.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompliancePolicy
+metadata:
+  name: payments-pci
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        policy.adhar.io/engine: kyverno
+  parameters:
+    displayName: Payments PCI guardrails
+    policyEngine: kyverno
+    complianceStandards: [PCI-DSS]
+    enforcementMode: audit
+    predefinedPolicies:
+      requireResourceLimits: true
+      disallowPrivilegedContainers: true
+      requireNonRootUser: true
+      disallowHostPath: true
+      requireReadOnlyRootFS: false
+      requireNetworkPolicy: true
+      requireLabels:
+        - adhar.io/team
+        - adhar.io/project
+      limitImageRegistries:
+        - harbor-core.adhar-system.svc.cluster.local/library
+    policies:
+      - name: no-latest-tag
+        description: Images must be pinned; :latest is not a version
+        type: security
+        severity: high
+        action: audit
+        scope:
+          namespaces:
+            - payments-api-prod
+    scanning:
+      enabled: true
+      schedule: "0 2 * * *"
+      imageScanning: true
+      configScanning: true
+    reporting:
+      enabled: true
+      destination: dashboard
+      retentionDays: 90
+    exceptions:
+      - policy: require-non-root-user
+        namespace: payments-api-dev
+        reason: "Legacy settlement batch runs as uid 0; tracked in CHANGE-4702"
+        approvedBy: platform-security
+        expiresAt: "2026-12-31"
+    notifications:
+      enabled: true
+      onViolation: true
+      channels:
+        - type: slack
+          config:
+            channel: "#payments-alerts"
+    remediation:
+      autoRemediate: false
+      requireApproval: true

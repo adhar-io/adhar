@@ -31,7 +31,34 @@ providers:
     region: blr1
     primary: true                       # only the primary cloud's Crossplane providers are installed
     useEnvironment: true                # read the token from DIGITALOCEAN_ACCESS_TOKEN
-    # useManagedK8s: true               # opt in to DOKS instead of kubeadm on droplets.
+    # clusterMode: the platform has THREE modes, the same three for every
+    # provider — `compute` (kubeadm on raw instances), `managed` (this
+    # cloud's hosted Kubernetes, here DOKS) and `provided` (an existing
+    # cluster, see below). The service name is implied by the provider, so the
+    # old per-cloud spellings (eks/aks/gke/doks/k3s) and the `useManagedK8s`
+    # boolean are gone; both are now rejected rather than mapped,
+    # so a stale config fails loudly instead of quietly building the other mode.
+    #
+    # managed, because that is the mode where the cloud runs a
+    # cloud-controller-manager: the Gateway gets a real load-balancer address,
+    # external-dns can publish an A record for it, and the platform's URLs answer
+    # on 443. Compute mode has none of that (measured on Civo, 2026-10-06) and is
+    # reached through node ports.
+    #
+    # The THIRD mode is `provided`: the cluster ALREADY EXISTS and the platform
+    # only installs itself onto it, reached through the kubeconfig named below.
+    # Nothing is created, and — the part that matters — nothing is ever deleted:
+    # `adhar down` removes nothing and leaves the cluster running. The cluster
+    # must either already run Cilium with gatewayAPI.enabled=true (the platform
+    # leaves that Cilium exactly as configured), or have no CNI at all, in which
+    # case the platform installs Cilium itself. A cluster running a different CNI
+    # is REFUSED by the preflight rather than having its networking replaced.
+    #
+    #   clusterMode: provided
+    #   kubeconfig: ~/.kube/config       # default: $KUBECONFIG, then ~/.kube/config
+    #   kubeContext: my-existing-cluster # default: the file's current context
+    #
+    clusterMode: managed
                                         # The control plane becomes DigitalOcean's
                                         # (free, managed, no SSH) and the token then
                                         # also needs the Kubernetes scope. Everything

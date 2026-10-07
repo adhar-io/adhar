@@ -1,8 +1,8 @@
 ---
 # Local secret-rotation composition — rotates the values of in-cluster
 # Kubernetes Secrets on demand, without an external secret-manager backend. It is
-# the local counterpart of the cloud `compositesecretrotation-*` compositions, so
-# a CompositeSecretRotation request written for local runs unchanged on a cloud
+# the local counterpart of the cloud `secretrotation-*` compositions, so
+# a SecretRotation request written for local runs unchanged on a cloud
 # platform (which rotates via external-secrets/KMS) by switching ADHAR_PROVIDER.
 #
 # For each secretReference it emits a batch/v1 Job that generates a fresh random
@@ -11,14 +11,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositesecretrotation-local
+  name: secretrotation-local
   labels:
     feature: secretrotation
     provider: local
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeSecretRotation
+    kind: SecretRotation
   mode: Pipeline
   pipeline:
     - step: render
@@ -108,7 +108,7 @@ spec:
             ---
             # Publish rotation status back on the XR.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeSecretRotation
+            kind: SecretRotation
             status:
               {{- if $auto }}
               phase: Active

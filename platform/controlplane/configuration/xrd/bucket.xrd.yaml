@@ -1,0 +1,103 @@
+# Bucket — an S3 bucket on the platform's object store.
+#
+# RustFS is that store (MinIO is disabled in every profile), and `Storage` with
+# `type: object` has always been able to make a bucket — which is still what
+# `adhar bucket create` produces, since that command also covers block and file
+# storage. The two paths coexist; this one is what a manifest should say. This is the same thing
+# with the name people actually use, plus the two settings a bucket is useless
+# without: a lifecycle rule, so a bucket of build artefacts does not grow until
+# the volume fills, and versioning.
+#
+# The credential the Job uses is the object store's root (`root-creds`), the
+# contract every consumer on this platform reads. The connection Secret it
+# emits carries the endpoint, the bucket and a region, because every S3 client
+# insists on a region whether or not the store cares.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: buckets.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Bucket
+    plural: buckets
+  defaultCompositionRef:
+    name: bucket-local-rustfs
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: bucket
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                parameters:
+                  type: object
+                  properties:
+                    displayName: { type: string }
+                    bucketName:
+                      type: string
+                      description: >-
+                        The bucket as S3 sees it; defaults to the object's name.
+                        Must be a valid S3 bucket name (lower case, no
+                        underscores) — the object's own name usually already is.
+                    versioning:
+                      type: boolean
+                      default: false
+                      description: >-
+                        Keep every version of an object. Protects against an
+                        overwrite, and doubles the space a rewritten object uses.
+                    quotaGB:
+                      type: integer
+                      description: >-
+                        Hard size limit. Unset means the bucket may grow until
+                        the store's volume is full, which takes the whole object
+                        store down, not just this bucket.
+                    expireAfterDays:
+                      type: integer
+                      description: >-
+                        Lifecycle rule: delete objects this many days after they
+                        are written. Unset means keep forever.
+                    public:
+                      type: boolean
+                      default: false
+                      description: >-
+                        Anonymous read access. The store is reachable in-cluster
+                        only, so this is "anyone in the cluster", not "the
+                        internet" — but it is still a deliberate choice.
+                    organisation: { type: string, default: adhar }
+                    team: { type: string, default: platform }
+                    project: { type: string, default: "" }
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+                    deletionPolicy:
+                      type: string
+                      enum: [Delete, Orphan]
+                      default: Orphan
+                      description: >-
+                        Orphan is the default here, unlike everywhere else: a
+                        bucket holds DATA, and deleting the request should not
+                        delete the contents. Set Delete to remove the bucket with
+                        the object.
+            status:
+              type: object
+              properties:
+                bucket: { type: string }
+                endpoint: { type: string }
+                connectionSecret: { type: string }

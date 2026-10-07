@@ -8,10 +8,10 @@
 #     insists on a namespace named after the project, and the promotion
 #     policy (ProjectConfig: dev and test promote themselves, prod never) and
 #     the credentials Kargo discovers by label live there;
-#   • one CompositeEnvironment per entry of `environments` — a namespaced XR
+#   • one Environment per entry of `environments` — a namespaced XR
 #     composing namespaced XRs, which Crossplane v2 allows — each a namespace
 #     with quota, network boundary and the team's access (admin in dev/test,
-#     view in prod: production changes arrive through a CompositeRelease);
+#     view in prod: production changes arrive through a Release);
 #   • the Argo CD AppProject `<project>`, whose destinations are the home and
 #     every environment namespace, and whose sources are the organisation's
 #     Gitea repositories (plus `allowedSourceRepos`) — guardrails on WHAT may be
@@ -26,14 +26,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeproject-local
+  name: project-local
   labels:
     feature: project
     provider: local
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeProject
+    kind: Project
   mode: Pipeline
   pipeline:
     - step: render
@@ -140,7 +140,7 @@ spec:
             ---
             # Team RBAC on the home namespace — the isolation boundary between
             # application teams. `ws-team-<team>` is the Keycloak group the
-            # Console creates for a team (CompositeTeam publishes it on its
+            # Console creates for a team (Team publishes it on its
             # status); `org-<org>-admin` is the organisation's owner, who reaches
             # every namespace in their tenant. `oidc:` is the apiserver's
             # --oidc-groups-prefix; the realm mapper emits bare names, not paths.
@@ -204,7 +204,7 @@ spec:
             ---
             # One environment of the project: an XR composing an XR.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeEnvironment
+            kind: Environment
             metadata:
               name: {{ $name }}-{{ .name }}
               namespace: {{ $xrns }}
@@ -231,7 +231,7 @@ spec:
             {{- end }}
             ---
             # Kargo: the project's promotion pipeline container. Stages and
-            # Warehouses are added per application (CompositeApplication).
+            # Warehouses are added per application (Application).
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -449,7 +449,7 @@ spec:
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeProject
+            kind: Project
             status:
               namespace: {{ $name }}
               appProject: {{ $name }}

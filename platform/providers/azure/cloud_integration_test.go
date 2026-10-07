@@ -55,8 +55,11 @@ func TestAKSPoolNameFitsAgentPoolRules(t *testing.T) {
 			t.Errorf("aksPoolName(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if (&Provider{config: &Config{}}).isManagedMode() || !(&Provider{config: &Config{ClusterMode: "aks"}}).isManagedMode() {
-		t.Error("clusterMode must default to kubeadm and opt into AKS with \"aks\"")
+	if (&Provider{config: &Config{}}).isManagedMode() || !(&Provider{config: &Config{ClusterMode: "managed"}}).isManagedMode() {
+		t.Error("clusterMode must default to kubeadm and opt into AKS with \"managed\"")
+	}
+	if (&Provider{config: &Config{ClusterMode: "aks"}}).isManagedMode() {
+		t.Error("the old \"aks\" spelling must not select managed mode; it is refused at parse time")
 	}
 }
 

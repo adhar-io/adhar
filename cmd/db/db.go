@@ -65,7 +65,7 @@ var (
 
 func init() {
 	// Identity flags shared across subcommands (create/delete/status/…) that all
-	// operate on a named CompositeDatabase XR, so they are persistent.
+	// operate on a named Database XR, so they are persistent.
 	DatabaseCmd.PersistentFlags().StringVarP(&dbName, "name", "n", "", "Database name")
 	DatabaseCmd.PersistentFlags().StringVarP(&dbType, "type", "t", "", "Database type (postgresql, mysql, mongodb, redis)")
 
@@ -78,7 +78,7 @@ func init() {
 	DatabaseCmd.Flags().BoolVar(&restore, "restore", false, "Perform restore operation")
 	DatabaseCmd.Flags().BoolVar(&health, "health", false, "Check database health")
 
-	// Persistent flags shared across subcommands operating on CompositeDatabase XRs.
+	// Persistent flags shared across subcommands operating on Database XRs.
 	DatabaseCmd.PersistentFlags().StringVar(&dbNS, "namespace", "default", "Namespace for the database resources")
 	DatabaseCmd.PersistentFlags().StringVarP(&dbOutput, "output", "o", "table", "Output format (table, json, yaml)")
 

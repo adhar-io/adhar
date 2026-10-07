@@ -1,0 +1,41 @@
+# An S3 bucket on RustFS, the platform's primary object store.
+#
+# `adhar bucket create` makes this object. `storage.yaml` is the lower-level
+# alternative (block, file, object or database); this is the bucket with the name
+# people use, plus the two settings a bucket is useless without.
+#
+# The lifecycle rule is the one worth arguing about: a bucket of build artefacts
+# with no expiry grows until the store's volume is full, which takes the WHOLE
+# object store down — not just this bucket. That happened on a live cluster
+# (a backup copying itself, 61 GiB), which is why both the expiry and the quota
+# are here.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Bucket
+metadata:
+  name: payments-invoices
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: bucket
+  parameters:
+    displayName: Payment invoices
+    # Defaults to the object's name. Must be a valid S3 bucket name (lower case,
+    # no underscores).
+    bucketName: payments-invoices
+    # Keeps every version of an object: protects against an overwrite, and
+    # doubles the space a rewritten object uses.
+    versioning: true
+    quotaGB: 50
+    expireAfterDays: 365
+    # Anonymous read. The store is reachable in-cluster only, so this means
+    # "anyone in the cluster", not "the internet" — still a deliberate choice.
+    public: false
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev
+    # Orphan is the default for a bucket, unlike every other object: a bucket
+    # holds DATA, and deleting the request should not delete the contents.
+    deletionPolicy: Orphan

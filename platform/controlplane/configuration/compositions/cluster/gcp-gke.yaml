@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositecluster-gcp-gke
+  name: cluster-gcp-gke
   labels:
     feature: cluster
     provider: gcp
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCluster
+    kind: Cluster
   mode: Pipeline
   pipeline:
     - step: render-gke

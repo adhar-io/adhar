@@ -3,7 +3,7 @@
 # daily base backup; on `ADHAR_PROVIDER=aws` the same request becomes RDS — the
 # request does not change, the composition behind it does.
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeDatabase
+kind: Database
 metadata:
   name: payments-db
   namespace: team-payments

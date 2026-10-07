@@ -148,7 +148,7 @@ bootstrapPlatformOnCluster ── GetKubeconfig ──▶ create AdharPlatform C
                                     ApplicationSet stack   Crossplane control plane
                                     (91 packages)          (25 XRDs / 47 Compositions)
                                                      │
-                              Developer applies CompositeCluster / CompositeDatabase …
+                              Developer applies Cluster / Database …
                                     (declarative, drift-corrected — ADR-0005)
 ```
 
@@ -158,13 +158,13 @@ Everything after the hand-off is the Crossplane control plane — fully covered 
 [design 0005](0005-crossplane-v2-namespaced.md). What matters for ADR-0007 is the **scope split and
 the parity contract**:
 
-- Workload clusters are a namespaced **`CompositeCluster`** XR
+- Workload clusters are a namespaced **`Cluster`** XR
   (`platform/controlplane/configuration/xrd/cluster.xrd.yaml`), implemented by one Composition per
   cloud in `configuration/compositions/cluster/`: `aws-eks.yaml`, `azure-aks.yaml`, `gcp-gke.yaml`,
   `digitalocean-doks.yaml`, `civo-k3s.yaml`, `kind-kubernetes.yaml`. A developer requesting a cluster
   applies a namespaced XR; Crossplane reconciles and corrects drift — exactly what the imperative path
   cannot do.
-- Databases/networks/storage/etc. are likewise XRs (`CompositeDatabase`, `CompositeNetwork`, …), never
+- Databases/networks/storage/etc. are likewise XRs (`Database`, `Network`, …), never
   the imperative interface. The imperative `CreateVPC`/`CreateStorage`/`CreateLoadBalancer` methods
   exist to support bootstrap and standalone CLI use, **not** as the steady-state API.
 
@@ -177,7 +177,7 @@ doc are where per-provider capability gaps between the two paths get recorded.
 
 - **Ordering** is enforced by the hand-off: imperative `CreateCluster` must fully succeed (API server
   answering) before `bootstrapPlatformOnCluster` runs; the `AdharPlatform` controller must finish the
-  foundation install before any `CompositeCluster` can be applied (Crossplane is the *last* foundation
+  foundation install before any `Cluster` can be applied (Crossplane is the *last* foundation
   component).
 - **Idempotency**: imperative cluster state is tracked per-provider (e.g. Kind persists a cluster
   registry; kubeadm providers keep SSH keys/state via `ClusterStateDir`/`RemoveClusterState`).
@@ -220,7 +220,7 @@ doc are where per-provider capability gaps between the two paths get recorded.
 | `cmd/up/bootstrap.go` | `bootstrapPlatformOnCluster` — **the hand-off** (kubeconfig → CRDs/TLS → `AdharPlatform` CR) |
 | `cmd/cluster/*.go` | day-2 imperative CLI (create/list/status/scale/upgrade/delete/kubeconfig/debug/investigate) |
 | `platform/config/config.go` | `UseManagedK8s` + provider config → `ToProviderMap` |
-| `platform/controlplane/configuration/xrd/cluster.xrd.yaml` | declarative `CompositeCluster` API |
+| `platform/controlplane/configuration/xrd/cluster.xrd.yaml` | declarative `Cluster` API |
 | `platform/controlplane/configuration/compositions/cluster/*.yaml` | six per-cloud cluster Compositions (declarative path) |
 | `platform/controllers/adharplatform/` | consumes the hand-off's `AdharPlatform` CR; drives foundation + installs Crossplane |
 
@@ -230,7 +230,7 @@ doc are where per-provider capability gaps between the two paths get recorded.
   path defaults to **raw compute + kubeadm** (ADR-0022) and treats AWS EKS as explicitly unsupported.
   The declarative `compositions/cluster/` implementations are all **managed services**
   (`aws-eks.yaml`, `azure-aks.yaml`, `gcp-gke.yaml`, `digitalocean-doks.yaml`, `civo-k3s.yaml`). So a
-  cluster created by `adhar up` on AWS (EC2+kubeadm) is *not* reproducible via `CompositeCluster` on
+  cluster created by `adhar up` on AWS (EC2+kubeadm) is *not* reproducible via `Cluster` on
   AWS (EKS) — the "parity" ADR-0007 asks for is API-surface parity (both paths know each cloud), not
   provisioning-strategy parity. Worth documenting per-provider as ADR-0007's "capability gaps" note
   anticipates.

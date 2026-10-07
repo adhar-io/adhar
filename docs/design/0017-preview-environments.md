@@ -92,9 +92,9 @@ No `adhar` CLI verb and no CI step touches this transition — the `requeueAfter
 
 The ADR splits previews by what the PR changes:
 
-- **Application PRs (common case) → namespace-scoped preview.** The `Application` targets a fresh namespace `preview-<app>-pr-<n>` on the management cluster. Standard tenant guardrails apply through the **`CompositeEnvironment`** control-plane API (ADR-0005): `configuration/xrd/env.xrd.yaml` + composition `configuration/compositions/env/kubernetes-namespace.yaml` emit the `Namespace`, a `ResourceQuota`, a `LimitRange`, and (opt-in) a `NetworkPolicy` from one KCL program. Baseline PodSecurity and image/supply-chain admission come from the **Kyverno pack** (`platform/stack/packages/security/{kyverno,kyverno-policies}`) that already guards every namespace. A preview therefore inherits the identical guardrails as a real tenant namespace — nothing preview-specific to maintain (INV-4).
+- **Application PRs (common case) → namespace-scoped preview.** The `Application` targets a fresh namespace `preview-<app>-pr-<n>` on the management cluster. Standard tenant guardrails apply through the **`Environment`** control-plane API (ADR-0005): `configuration/xrd/env.xrd.yaml` + composition `configuration/compositions/env/kubernetes-namespace.yaml` emit the `Namespace`, a `ResourceQuota`, a `LimitRange`, and (opt-in) a `NetworkPolicy` from one KCL program. Baseline PodSecurity and image/supply-chain admission come from the **Kyverno pack** (`platform/stack/packages/security/{kyverno,kyverno-policies}`) that already guards every namespace. A preview therefore inherits the identical guardrails as a real tenant namespace — nothing preview-specific to maintain (INV-4).
 
-  Two ways to attach the guardrails: (a) the app's `manifests/` include a `CompositeEnvironment` for the preview namespace, or (b) the copied ApplicationSet is extended to render one. Today the example leaves quota to the app manifests; wiring an automatic `CompositeEnvironment` per preview is a §7 milestone.
+  Two ways to attach the guardrails: (a) the app's `manifests/` include a `Environment` for the preview namespace, or (b) the copied ApplicationSet is extended to render one. Today the example leaves quota to the app manifests; wiring an automatic `Environment` per preview is a §7 milestone.
 
 - **Cluster-scoped PRs (operators, CRDs, webhooks) → vcluster-backed preview (🔜).** A namespace cannot contain a CRD or a validating webhook, so these previews target a disposable **vcluster** (ADR-0016, `platform/stack/packages/core/vcluster/`) instead. Design: the PR carries a second label (e.g. `preview-vcluster`); a matching ApplicationSet first syncs a vcluster into `preview-<app>-pr-<n>`, registers it as an ArgoCD cluster, and points the app Application's `destination.server` at that vcluster. This reuses the ADR-0016 vcluster package end-to-end; only the appset matrix that provisions-then-targets is new.
 
@@ -126,7 +126,7 @@ spec:
 
 Previews get ephemeral dependencies, never production data (ADR-0017): a per-preview PostgreSQL from the **CNPG** package (`platform/stack/packages/data/cnpg/`) seeded with fixtures, torn down when the namespace is pruned. Secrets flow through **ESO** like everything else (ADR-0009) — a `preview` `ExternalSecret` referencing dev-grade secret stores; committing "harmless" preview credentials to Git is exactly the anti-pattern the ADR calls out (INV-1). Previews that need shared services consume the platform's dev-grade instances, not prod.
 
-> Drift: there is **no Kubernetes-native `CompositeDatabase` composition** yet — `configuration/compositions/database/` ships `aws-rds-postgresql`, `azure-sql`, `gcp-cloudsql` only. So "a CNPG database from a template" locally means an app-authored CNPG `Cluster` manifest (from the cnpg package), not a `CompositeDatabase` XR. Adding a `database/kubernetes-cnpg.yaml` composition would let previews request `CompositeDatabase` uniformly (see ADR-0005 design).
+> Drift: there is **no Kubernetes-native `Database` composition** yet — `configuration/compositions/database/` ships `aws-rds-postgresql`, `azure-sql`, `gcp-cloudsql` only. So "a CNPG database from a template" locally means an app-authored CNPG `Cluster` manifest (from the cnpg package), not a `Database` XR. Adding a `database/kubernetes-cnpg.yaml` composition would let previews request `Database` uniformly (see ADR-0005 design).
 
 ## 6. Push→preview latency and webhooks
 
@@ -138,7 +138,7 @@ The generator has two clocks:
 ## 7. Milestones
 
 - **M1 — namespace previews (shipped).** `examples/preview-environments-appset.yaml`, PR generator against Gitea, `gitea-credential` token, `preview` label gating, prune-on-close. Documented in `USER_GUIDE §4`.
-- **M2 — first-class routing + guardrails.** Extend the template to inject a per-PR `HTTPRoute` (`pr-<n>.<app>.<domain>`) and a `CompositeEnvironment` (quota/limits/netpol) so a copied appset yields a governed, HTTPS-routable preview with zero app-manifest changes. CI posts the resolved URL to the PR.
+- **M2 — first-class routing + guardrails.** Extend the template to inject a per-PR `HTTPRoute` (`pr-<n>.<app>.<domain>`) and a `Environment` (quota/limits/netpol) so a copied appset yields a governed, HTTPS-routable preview with zero app-manifest changes. CI posts the resolved URL to the PR.
 - **M3 — TTL reaper.** A `CronOperation` (ADR-0005, modelled on `configuration/operations/backup-cronoperation.yaml`) that lists namespaces labeled `adhar.io/preview: "true"`, and deletes those whose backing PR is closed or whose last sync is older than N days — a backstop for missed forge webhooks (structural cost control, ADR-0017). Requires the `--enable-operations` core flag already set in `hack/crossplane/values.yaml`.
 - **M4 — vcluster-backed previews.** Second label + appset matrix that provisions a vcluster (ADR-0016), registers it with ArgoCD, and targets the app Application at it — enabling PRs that change CRDs/operators/webhooks.
 - **M5 — `enabled`-gating per environment.** Ship a preview ApplicationSet as a gated package in the stack (matchLabels `enabled` selector, like `adhar-appset-local.yaml`) so previews are off by default on prod clusters and on by policy elsewhere.
@@ -167,7 +167,7 @@ The generator has two clocks:
 | `platform/utils/gitea.go` | `GiteaAdminSecret = "gitea-credential"` — the secret the generator's `tokenRef` reads |
 | `platform/controllers/adharplatform/resources/gitea/post-install.yaml` | `gitea-token-gen` Job — ensures `gitea-credential` carries the `token` key the generator needs; also the model `HTTPRoute` shape |
 | `platform/controllers/adharplatform/resources/gateway/{gateway.yaml,gateway-cloud.yaml}` | `adhar-gateway` listeners (`allowedRoutes.from: All`), cloud wildcard host `*.{{ .Host }}` — where preview `HTTPRoute`s attach |
-| `platform/controlplane/configuration/xrd/env.xrd.yaml` + `compositions/env/kubernetes-namespace.yaml` | `CompositeEnvironment` — Namespace + ResourceQuota + LimitRange + NetworkPolicy guardrails for a preview namespace |
+| `platform/controlplane/configuration/xrd/env.xrd.yaml` + `compositions/env/kubernetes-namespace.yaml` | `Environment` — Namespace + ResourceQuota + LimitRange + NetworkPolicy guardrails for a preview namespace |
 | `platform/stack/packages/security/{kyverno,kyverno-policies}/` | baseline PodSecurity / supply-chain admission over preview namespaces |
 | `platform/stack/packages/data/cnpg/` | ephemeral per-preview PostgreSQL |
 | `platform/stack/packages/core/vcluster/` | disposable virtual cluster for cluster-scoped PRs (M4, ADR-0016) |
@@ -179,5 +179,5 @@ The generator has two clocks:
 - **Namespace name.** ADR text says `preview-pr-<number>`; the shipped example uses `preview-<app>-pr-<number>` (app-qualified — necessary when multiple repos preview into one cluster). The `<app>`-qualified form is the correct one.
 - **Repo owner.** The example points at `owner: gitea_admin` and `repoURL .../gitea_admin/<app>`, i.e. the admin user's namespace — not the platform org `adhar` (`globals.GiteaPlatformOrg`). Repos created via the golden path live under the `adhar` org; adjust `owner`/`repoURL` accordingly per repo.
 - **Routing is convention, not yet automated.** The shipped appset does not template the `HTTPRoute` hostname with the PR number (§4 gap); stable per-PR URLs need M2.
-- **CNPG-from-template.** No Kubernetes-native `CompositeDatabase` composition exists yet (§5); ephemeral DBs are app-authored CNPG `Cluster`s for now.
+- **CNPG-from-template.** No Kubernetes-native `Database` composition exists yet (§5); ephemeral DBs are app-authored CNPG `Cluster`s for now.
 - **TTL reaper / vcluster previews are 🔜.** The ADR lists both as part of the decision; they are designed here (M3/M4) but not implemented — consistent with the ADR's "namespace-scoped previews first" status.

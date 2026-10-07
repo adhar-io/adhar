@@ -220,7 +220,7 @@ func TestApplicationReadsEnvironmentsFromItsProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, want := range []string{`managementPolicies: ["Observe"]`, "kind: CompositeProject", `dig "environments" (list) $projStatus`, `namespace: {{ quote $ns }}`} {
+	for _, want := range []string{`managementPolicies: ["Observe"]`, "kind: Project", `dig "environments" (list) $projStatus`, `namespace: {{ quote $ns }}`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("application composition lost %q — it must observe the project and use its namespaces", want)
 		}

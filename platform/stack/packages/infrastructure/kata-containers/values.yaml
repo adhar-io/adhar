@@ -3,7 +3,7 @@
 # Kata Containers runs a pod inside its own lightweight VM (QEMU + a guest
 # kernel) so that a container escape ends at a hypervisor boundary instead of
 # at the node. On this platform it is the isolation an ApplicationType `ai`
-# workload gets by default (CompositeApplication `parameters.type: ai`,
+# workload gets by default (Application `parameters.type: ai`,
 # `parameters.ai.isolation: microvm`): the `ai-workload-isolation` Kyverno
 # policy (security/adhar-kyverno-policies) stamps those pods with one of the
 # RuntimeClasses this DaemonSet creates.

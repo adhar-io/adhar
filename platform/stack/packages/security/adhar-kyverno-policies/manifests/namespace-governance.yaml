@@ -2,7 +2,7 @@
 # (ADR-0023 placement contract — `adhar.io/plane: control|data`, plus `preview`
 # for the ephemeral per-PR namespaces of ADR-0017). Platform
 # namespaces are created with the label; tenant/application namespaces get it
-# from CompositeEnvironment / the golden-path templates. Audit only: it reports,
+# from Environment / the golden-path templates. Audit only: it reports,
 # never blocks. Kubernetes' own namespaces are excluded.
 #
 # This is also the platform's cluster-scoped policy: Kyverno writes per-namespace

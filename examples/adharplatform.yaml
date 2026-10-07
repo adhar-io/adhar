@@ -1,0 +1,71 @@
+# The platform itself. `adhar up` creates this object and the AdharPlatform
+# controller reconciles it: Gateway API CRDs → Cilium → the Cilium Gateway →
+# ArgoCD → Gitea → Crossplane, then the GitOps repos and the ApplicationSet that
+# installs everything else.
+#
+# You rarely write this file. It is here because the object is worth reading: it
+# is where the node autoscaler's limits live, where this cluster's Cilium Cluster
+# Mesh identity is set, and where the host/email/DNS the whole foundation is
+# rendered from are recorded.
+#
+# `buildCustomization` CANNOT be changed after the cluster is created — the
+# foundation manifests, the ClusterIssuers and every URL were rendered from it at
+# bootstrap. To change the host, rebuild.
+apiVersion: platform.adhar.io/v1alpha1
+kind: AdharPlatform
+metadata:
+  name: adhar
+  namespace: adhar-system
+spec:
+  # kind | aws | azure | gcp | do | civo — the infrastructure this platform runs
+  # on. The in-cluster controllers read it back; it is not a request to create
+  # anything.
+  provider: civo
+
+  # The platform's own node autoscaler. There is no upstream cluster-autoscaler
+  # provider for kubeadm-on-raw-compute, so this is it: a worker is added when
+  # pods are Pending for capacity, and the emptiest worker is drained and removed
+  # when the cluster stays idle.
+  #
+  # maxWorkers is the spend limit. It is the one number here worth arguing about.
+  autoscaling:
+    enabled: true
+    minWorkers: 2
+    maxWorkers: 5
+    nodeGroup: workers
+    scaleUpUtilizationThreshold: 90%
+    scaleUpCooldown: 3m
+    scaleDownUtilizationThreshold: 50%
+    scaleDownDelay: 10m
+
+  # This cluster's identity in a Cilium Cluster Mesh. Every cluster in a mesh
+  # needs a UNIQUE name and id — two clusters that both claim adhar-mgmt/1 cannot
+  # be connected at all. The management cluster is 1; data planes take 2 upwards.
+  clusterMesh:
+    name: adhar-mgmt
+    id: 1
+    apiServer:
+      # Peers have to reach this, so ClusterIP is not enough: a real mesh needs
+      # NodePort (pin it, so firewall rules and host aliases stay stable) or a
+      # LoadBalancer.
+      enabled: false
+      serviceType: NodePort
+      nodePort: 32379
+
+  # Written by `adhar up` from config.yaml. Immutable — see above.
+  buildCustomization:
+    protocol: https
+    host: platform.example.com
+    ingressHost: platform.example.com
+    port: "443"
+    portSuffix: ""
+    clusterName: adhar-prod
+    email: admin@example.com
+    enableHAMode: true
+    dnsProvider: civo
+
+  packageConfigs:
+    argoPackageConfigs:
+      enabled: true
+    embeddedArgoApplicationsPackageConfigs:
+      enabled: true

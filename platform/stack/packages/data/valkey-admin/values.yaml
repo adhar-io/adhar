@@ -21,7 +21,7 @@ image:
 # Connections the UI offers in its sidebar: label:host:port[:db[:password]].
 # The shared cache is unauthenticated inside the cluster (anonymousAuth in
 # data/valkey/manifests/valkey-cache.yaml), so no password travels here.
-# Caches a team composes through CompositeDatabase engine=valkey land in the
+# Caches a team composes through Database engine=valkey land in the
 # team's namespace and are added with the "Add server" button in the UI; they
 # are not pre-wired because their names are not known at render time.
 connections:

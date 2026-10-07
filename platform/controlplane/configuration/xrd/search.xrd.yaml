@@ -1,5 +1,5 @@
 ---
-# CompositeSearch — a managed OpenSearch cluster for a team, as one object.
+# Search — a managed OpenSearch cluster for a team, as one object.
 #
 # The platform runs the opensearch-k8s-operator (data/opensearch) for its own
 # shared cluster; this API lets a project ask for a cluster OF ITS OWN in its
@@ -16,15 +16,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositesearches.platform.adhar.io
+  name: searches.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeSearch
-    plural: compositesearches
+    kind: Search
+    plural: searches
   defaultCompositionRef:
-    name: compositesearch-opensearch
+    name: search-opensearch
   versions:
     - name: v1alpha1
       served: true

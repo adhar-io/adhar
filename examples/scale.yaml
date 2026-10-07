@@ -1,0 +1,36 @@
+# Horizontal autoscaling for a workload. This scales PODS; the cluster's own
+# node count is the platform's node autoscaler (AdharPlatform.spec.autoscaling —
+# see adharplatform.yaml), and the two work together: pods that go Pending for
+# capacity are what makes the node autoscaler add a worker.
+#
+# `behavior` is worth setting whenever a workload is slow to start — the default
+# scale-down window is 5 minutes, which for a JVM is long enough to thrash.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Scale
+metadata:
+  name: payments-api-hpa
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: scale
+  name: payments-api-hpa
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payments-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 0

@@ -2,7 +2,7 @@
 # the environments the platform defines. `adhar application deploy --repo …`
 # creates exactly this object; the Console's Create wizard does too.
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeApplication
+kind: Application
 metadata:
   name: payments-api
   namespace: team-payments

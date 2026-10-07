@@ -474,7 +474,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	logger.Info("● Successfully applied platform stack ApplicationSet")
 
 	// The workload-cluster ApplicationSet (thin agent profile, roadmap P2.2)
-	// generates nothing until CompositeCluster registrations appear (P2.1),
+	// generates nothing until Cluster registrations appear (P2.1),
 	// so applying it unconditionally is harmless on single-cluster platforms.
 	workloadAppSetPath := filepath.Join(r.StackDir, "adhar-appset-workload.yaml")
 	if workloadBytes, err := os.ReadFile(workloadAppSetPath); err == nil {

@@ -114,6 +114,7 @@ func ensureClusterSpecConfigMap(
 	c client.Client,
 	envConfig *config.ResolvedEnvironmentConfig,
 	clusterName string,
+	gatewayAddresses []string,
 ) error {
 	providerName := ""
 	if envConfig != nil {
@@ -123,7 +124,25 @@ func ensureClusterSpecConfigMap(
 	if canonical == "" {
 		canonical = strings.ToLower(strings.TrimSpace(providerName))
 	}
-	if canonical == "" {
+
+	// The cluster mode, recorded for the in-cluster controllers. It is the one
+	// fact they CANNOT work out for themselves: a provided cluster looks exactly
+	// like a cluster the platform built, and getting it wrong means reapplying
+	// the platform's Cilium over the operator's own, or an autoscaler creating
+	// cloud instances for a cluster nobody asked it to grow.
+	clusterMode := pfactory.ClusterModeCompute
+	if envConfig != nil && envConfig.ProviderConfig != nil {
+		parsed, err := pfactory.ParseClusterMode(envConfig.ProviderConfig.ToProviderMap())
+		if err != nil {
+			return fmt.Errorf("recording the cluster mode: %w", err)
+		}
+		clusterMode = parsed
+	}
+
+	// No provider name at all: nothing in the ConfigMap would be actionable —
+	// EXCEPT for a provided cluster, where the mode itself has to reach the
+	// controllers whether or not a cloud was named.
+	if canonical == "" && pfactory.ClusterLifecycleIsOurs(clusterMode) {
 		return nil
 	}
 
@@ -133,9 +152,10 @@ func ensureClusterSpecConfigMap(
 	}
 
 	data := map[string]string{
-		keyProvider:   canonical,
-		"clusterName": clusterName,
-		"nodeGroup":   nodeGroup,
+		keyProvider:                       canonical,
+		globals.ClusterSpecClusterModeKey: clusterMode,
+		"clusterName":                     clusterName,
+		"nodeGroup":                       nodeGroup,
 		"size": firstNonEmpty(
 			clusterConfigValue(envConfig, "nodeSize", "nodeInstanceType", "instanceType", "machineType"),
 			providerConfigValue(envConfig, "droplet_size", "vm_size", "machine_type", "instance_type"),
@@ -152,6 +172,13 @@ func ensureClusterSpecConfigMap(
 	}
 	if envConfig != nil {
 		data["region"] = envConfig.ResolvedRegion
+	}
+	// The edge addresses, for the clusters that have no load balancer to give
+	// the Gateway one. Recorded here because only the CLI can ask the cloud:
+	// from inside the cluster the nodes' public IPs are not visible at all (no
+	// cloud-controller-manager means no ExternalIP on any Node).
+	if len(gatewayAddresses) > 0 {
+		data[globals.ClusterSpecGatewayAddressesKey] = strings.Join(gatewayAddresses, ",")
 	}
 
 	// The provider map, minus credentials, so the controller constructs the

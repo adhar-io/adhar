@@ -1,0 +1,56 @@
+# An Argo CD AppProject plus the ApplicationSets that generate its Applications.
+#
+# A Project already creates an AppProject for the project it owns, so
+# reach for this when you need GitOps wiring that is NOT a project — a fleet-wide
+# ApplicationSet driven by a cluster generator, say, or an AppProject with
+# narrower cluster-resource permissions than the default.
+apiVersion: platform.adhar.io/v1alpha1
+kind: GitOps
+metadata:
+  name: payments-fleet
+  namespace: adhar-system
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: gitops
+  parameters:
+    project:
+      name: payments-fleet
+      description: Fleet-wide delivery for the payments platform
+      sourceRepos:
+        - http://gitea-http.adhar-system.svc.cluster.local:3000/acme/payments-api
+      destinations:
+        - namespace: "payments-api-*"
+          server: "*"
+      clusterResourceWhitelist:
+        - group: ""
+          kind: Namespace
+      namespaceResourceBlacklist:
+        - group: ""
+          kind: ResourceQuota
+      roles:
+        - name: payments-deployer
+          policies:
+            - "p, proj:payments-fleet:payments-deployer, applications, sync, payments-fleet/*, allow"
+          groups:
+            - ws-team-payments
+    applicationSets:
+      - name: payments-every-cluster
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  adhar.io/team: payments
+        template:
+          metadata:
+            name: "payments-api-{{name}}"
+          spec:
+            project: payments-fleet
+            source:
+              repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/acme/payments-api
+              targetRevision: main
+              path: deploy
+            destination:
+              server: "{{server}}"
+              namespace: payments-api-prod

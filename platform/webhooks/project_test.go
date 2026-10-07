@@ -31,21 +31,21 @@ func projectObj(name, team, cpu, mem string, pods int64) *unstructured.Unstructu
 	}
 	u := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "platform.adhar.io/v1alpha1",
-		"kind":       "CompositeProject",
+		"kind":       "Project",
 		"metadata":   map[string]interface{}{"name": name, "namespace": testNS},
 		"spec":       map[string]interface{}{"parameters": params},
 	}}
 	return u
 }
 
-// scheme that knows the unstructured CompositeProject list, so the fake client
+// scheme that knows the unstructured Project list, so the fake client
 // can serve List() for it.
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
 	gv := schema.GroupVersion{Group: "platform.adhar.io", Version: "v1alpha1"}
-	s.AddKnownTypeWithName(gv.WithKind("CompositeProject"), &unstructured.Unstructured{})
-	s.AddKnownTypeWithName(gv.WithKind("CompositeProjectList"), &unstructured.UnstructuredList{})
+	s.AddKnownTypeWithName(gv.WithKind("Project"), &unstructured.Unstructured{})
+	s.AddKnownTypeWithName(gv.WithKind("ProjectList"), &unstructured.UnstructuredList{})
 	return s
 }
 

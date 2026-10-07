@@ -27,7 +27,7 @@ var bindSecretFlag string
 
 // bindCmd wires a backing service's connection Secret into an application, the
 // way `cf bind-service` connects an app to a service instance. Adhar's
-// CompositeDatabase/CompositeStorage compositions emit a `<service>-app` Secret
+// Database/Storage compositions emit a `<service>-app` Secret
 // with ready connection details (uri/host/port/...); binding injects it into the
 // app's container as envFrom, then the app rolls to pick it up.
 var bindCmd = &cobra.Command{
@@ -36,8 +36,8 @@ var bindCmd = &cobra.Command{
 	Long: `Inject a backing service's connection Secret into an application as
 environment variables (envFrom), then roll the app so it picks them up.
 
-By convention the Secret is '<service>-app' (produced by CompositeDatabase /
-CompositeStorage); override with --secret.
+By convention the Secret is '<service>-app' (produced by Database /
+Storage); override with --secret.
 
 Examples:
   adhar application bind my-api my-postgres

@@ -2,14 +2,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeplatformconfig-default
+  name: platformconfig-default
   labels:
     feature: config
     provider: kubernetes
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositePlatformConfig
+    kind: PlatformConfig
   mode: Pipeline
   pipeline:
     - step: render-platform-config
@@ -60,7 +60,7 @@ spec:
 
             statusItem = {
                 apiVersion = "platform.adhar.io/v1alpha1"
-                kind = "CompositePlatformConfig"
+                kind = "PlatformConfig"
                 metadata = oxr.metadata
                 status = {
                     phase = "Available"

@@ -1065,7 +1065,7 @@ data:
     # be recognised, and holds no Kubernetes authority anywhere. It gains real
     # rights only by being onboarded onto a TEAM, which binds `oidc:ws-team-<x>`
     # to `admin` in that team's own namespace and nowhere else (see
-    # k8s-rbac.yaml, and the CompositeProject composition that emits it).
+    # k8s-rbac.yaml, and the Project composition that emits it).
     #
     # This is the "tenant-scoped only" half of the model: full authority inside
     # your own tenant, none outside it, and nothing at all until you have one.

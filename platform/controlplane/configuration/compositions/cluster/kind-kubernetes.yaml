@@ -1,7 +1,7 @@
 ---
 # Kind and On-Premises Kubernetes Cluster Composition
 # Manages existing Kubernetes clusters (Kind, on-prem) via provider-kubernetes /
-# provider-helm. Reads from spec.parameters.* per the CompositeCluster XRD schema,
+# provider-helm. Reads from spec.parameters.* per the Cluster XRD schema,
 # and targets the shared kubernetes-provider / helm-provider ClusterProviderConfigs.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
@@ -15,7 +15,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCluster
+    kind: Cluster
 
   mode: Pipeline
   pipeline:

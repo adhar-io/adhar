@@ -45,7 +45,7 @@ def load_data(dataset: Output[Dataset]) -> None:
 
     Replace the bundled sample with your real extract — typically a read from the
     platform lakehouse (the `data-pipeline` golden path writes those Iceberg
-    tables) or a query against a CompositeDatabase. The rest of the pipeline does
+    tables) or a query against a Database. The rest of the pipeline does
     not care where the frame came from.
     """
     import pandas as pd

@@ -1,0 +1,25 @@
+# Platform-wide settings as an object teams can read: the host every URL derives
+# from, the default cloud, and the feature flags the Console and the CLI check.
+#
+# This does not CONFIGURE the platform — `adhar up` does that from config.yaml,
+# and the foundation is rendered from it at bootstrap. This publishes the result
+# into the cluster so a workload can ask "what host am I on?" without being told.
+apiVersion: platform.adhar.io/v1alpha1
+kind: PlatformConfig
+metadata:
+  name: platform
+  namespace: adhar-system
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: config
+  parameters:
+    namespace: adhar-system
+    domain: platform.example.com
+    defaultProvider: civo
+    features:
+      previewEnvironments: "true"
+      aiGateway: "true"
+    settings:
+      supportEmail: platform@example.com

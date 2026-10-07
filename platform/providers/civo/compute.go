@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,6 +35,10 @@ const (
 
 	// Ubuntu 22.04 disk image name in Civo's catalogue.
 	computeDiskImage = "ubuntu-jammy"
+
+	// civoInstanceActive is the Civo instance state in which an instance has an
+	// address and answers.
+	civoInstanceActive = "ACTIVE"
 )
 
 // computeClusterName normalizes a cluster ID/name for compute-mode resources.
@@ -116,29 +121,47 @@ func (p *Provider) ensureComputeNetwork(clusterName string) (string, error) {
 }
 
 // ensureComputeFirewall creates the cluster firewall on the given network:
-// SSH + Kubernetes API + NodePort range from anywhere, everything between
-// cluster members (network CIDR), all egress.
+// SSH + Kubernetes API + HTTP/HTTPS + NodePort range from anywhere, everything
+// between cluster members (network CIDR), all egress.
+//
+// 80 and 443 are open because compute mode reaches the platform edge on the
+// NODES: there is no Civo CCM in this mode and therefore no load balancer, so
+// the Cilium Gateway runs in host-network mode and Envoy binds those two ports
+// in the node's own network namespace (see provider.GatewayHostNetworkRequired).
+// Without these rules the first live bring-up produced a healthy platform whose
+// every URL timed out (2026-10-06) — the firewall opened 22, 6443 and the
+// node-port range only, and nothing in the output connected the two facts.
 func (p *Provider) ensureComputeFirewall(clusterName, networkID string) (string, error) {
 	fwName := fmt.Sprintf("adhar-%s-fw", clusterName)
 
+	// An EXISTING firewall is reconciled, not accepted as-is. Returning early
+	// here meant a cluster built before a rule was added never got it: the
+	// gateway-http/gateway-https rules below would have reached new clusters
+	// only, and `adhar up` on the cluster that needed them most — one already
+	// built and unreachable — would have changed nothing.
+	var fwID string
 	if fws, err := p.client.ListFirewalls(); err == nil {
 		for _, fw := range fws {
 			if fw.Name == fwName {
-				return fw.ID, nil
+				fwID = fw.ID
+				break
 			}
 		}
 	}
 
-	// Create without Civo's default rules; explicit rules follow.
-	noDefaults := false
-	fw, err := p.client.NewFirewall(&civogo.FirewallConfig{
-		Name:        fwName,
-		Region:      p.config.Region,
-		NetworkID:   networkID,
-		CreateRules: &noDefaults,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to create firewall %s: %w", fwName, err)
+	if fwID == "" {
+		// Create without Civo's default rules; explicit rules follow.
+		noDefaults := false
+		fw, err := p.client.NewFirewall(&civogo.FirewallConfig{
+			Name:        fwName,
+			Region:      p.config.Region,
+			NetworkID:   networkID,
+			CreateRules: &noDefaults,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to create firewall %s: %w", fwName, err)
+		}
+		fwID = fw.ID
 	}
 
 	// Intra-cluster traffic is scoped to the network CIDR (etcd, kubelet,
@@ -153,6 +176,9 @@ func (p *Provider) ensureComputeFirewall(clusterName, networkID string) (string,
 	rules := []civogo.FirewallRuleConfig{
 		{Protocol: "tcp", StartPort: "22", EndPort: "22", Cidr: anywhere, Label: "ssh"},
 		{Protocol: "tcp", StartPort: "6443", EndPort: "6443", Cidr: anywhere, Label: "kubernetes-api"},
+		// The platform edge, served by the host-network Cilium Gateway.
+		{Protocol: "tcp", StartPort: "80", EndPort: "80", Cidr: anywhere, Label: "gateway-http"},
+		{Protocol: "tcp", StartPort: "443", EndPort: "443", Cidr: anywhere, Label: "gateway-https"},
 		{Protocol: "tcp", StartPort: "30000", EndPort: "32767", Cidr: anywhere, Label: "nodeports-tcp"},
 		{Protocol: "udp", StartPort: "30000", EndPort: "32767", Cidr: anywhere, Label: "nodeports-udp"},
 		{Protocol: "tcp", StartPort: "1", EndPort: "65535", Cidr: []string{networkCIDR}, Label: "cluster-internal-tcp"},
@@ -160,8 +186,20 @@ func (p *Provider) ensureComputeFirewall(clusterName, networkID string) (string,
 		{Direction: "egress", Protocol: "tcp", StartPort: "1", EndPort: "65535", Cidr: anywhere, Label: "egress-tcp"},
 		{Direction: "egress", Protocol: "udp", StartPort: "1", EndPort: "65535", Cidr: anywhere, Label: "egress-udp"},
 	}
+	// Which rules this firewall already has, by label. Civo has no upsert, and
+	// creating a duplicate rule is an error, so existing labels are skipped.
+	existing := map[string]bool{}
+	if current, err := p.client.ListFirewallRules(fwID); err == nil {
+		for _, rule := range current {
+			existing[rule.Label] = true
+		}
+	}
+
 	for i := range rules {
-		rules[i].FirewallID = fw.ID
+		if existing[rules[i].Label] {
+			continue
+		}
+		rules[i].FirewallID = fwID
 		rules[i].Region = p.config.Region
 		rules[i].Action = "allow"
 		if rules[i].Direction == "" {
@@ -171,7 +209,7 @@ func (p *Provider) ensureComputeFirewall(clusterName, networkID string) (string,
 			return "", fmt.Errorf("failed to create firewall rule %s: %w", rules[i].Label, err)
 		}
 	}
-	return fw.ID, nil
+	return fwID, nil
 }
 
 // computeDiskImageID resolves the Ubuntu 22.04 disk image for instances.
@@ -792,4 +830,41 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 	}
 	p.clearClustersFromCache(clusterID)
 	return nil
+}
+
+// GatewayAddresses returns the addresses the platform edge is reachable on in
+// compute mode: the PUBLIC IP of every ACTIVE instance in the cluster.
+//
+// Compute mode has no Civo cloud-controller-manager (see cloud_integration.go),
+// so the Cilium Gateway runs in host-network mode and Envoy binds :80/:443 on
+// each node. These are the addresses external-dns must publish — the Gateway's
+// own status carries the instances' PRIVATE IPs, and a private address in a
+// public zone, under `--policy=upsert-only`, is a record that resolves forever
+// and connects never (140 of them, live, on 2026-10-06).
+//
+// Civo NATs each instance's public IP 1:1 to its private IP, so every node's
+// public address reaches that node's host network.
+//
+// Managed mode does not use this: there the cloud gives the Gateway Service a
+// real load-balancer address and external-dns publishes that.
+func (p *Provider) GatewayAddresses(_ context.Context, clusterID string) ([]string, error) {
+	if provider.ClusterModeIsManaged(p.config.ClusterMode) {
+		return nil, nil
+	}
+	name := computeClusterName(clusterID)
+	instances, err := p.computeClusterInstances(name)
+	if err != nil {
+		return nil, err
+	}
+	var addresses []string
+	for i := range instances {
+		if instances[i].Status == civoInstanceActive && instances[i].PublicIP != "" {
+			addresses = append(addresses, instances[i].PublicIP)
+		}
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("no ACTIVE instance of cluster %s has a public IP, so the platform edge has no address", name)
+	}
+	sort.Strings(addresses)
+	return addresses, nil
 }

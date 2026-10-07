@@ -26,7 +26,7 @@ import (
 // the Secret once from the same configuration the cluster itself was created
 // with (providers.<name> in config.yaml, then the provider's conventional
 // environment variables), exactly like the edge DNS credentials. Without it
-// every CompositeCluster / CompositeDatabase on that cloud would sit at
+// every Cluster / Database on that cloud would sit at
 // "credentials not found".
 
 // crossplaneCredentialSecretName returns the Secret name the ProviderConfigs

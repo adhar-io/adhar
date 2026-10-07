@@ -144,7 +144,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 // These are Backstage software templates, not deployable manifests: the template
 // file declares parameters and a skeleton, and instantiating it means RENDERING
 // that skeleton into the application's own Gitea repository. The rendered repo is
-// then handed to the same CompositeApplication path a --repo deploy takes, so the
+// then handed to the same Application path a --repo deploy takes, so the
 // control-plane behaviour is identical and the generated service is editable in
 // git from its first commit.
 func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace, template string) (string, string, error) {
@@ -250,9 +250,9 @@ func deployFromRepo(ctx context.Context, kubeconfigPath, appName, namespace stri
 		source["targetRevision"] = versionFlag
 	}
 
-	// Provider-aware CompositeApplication XR — the same control-plane path the
+	// Provider-aware Application XR — the same control-plane path the
 	// Console uses. helpers.NewXR sets spec.crossplane.compositionSelector.
-	appObj := helpers.NewXR("CompositeApplication", appName, namespace, "application", nil,
+	appObj := helpers.NewXR("Application", appName, namespace, "application", nil,
 		map[string]interface{}{
 			"parameters": map[string]interface{}{
 				"project": projectFlag,
@@ -324,11 +324,11 @@ func deployFromFile(ctx context.Context, kubeconfigPath, appName, namespace, fil
 	}
 	params["source"] = source
 
-	// Normalise to a CompositeApplication XR and ensure a provider-aware
+	// Normalise to a Application XR and ensure a provider-aware
 	// composition is selected, so file-based deploys take the same control-plane
 	// path as repo-based ones.
 	appObj.Object["apiVersion"] = helpers.XRGroup + "/" + helpers.XRVersion
-	appObj.Object["kind"] = "CompositeApplication"
+	appObj.Object["kind"] = "Application"
 	crossplane := mapFrom(spec, "crossplane")
 	if _, ok := crossplane["compositionSelector"]; !ok {
 		crossplane["compositionSelector"] = helpers.CompositionSelector("application", nil)
@@ -364,7 +364,16 @@ func loadApplicationFromFile(path string) (*unstructured.Unstructured, error) {
 
 		kind := strings.ToLower(fmt.Sprint(doc["kind"]))
 		apiVersion := fmt.Sprint(doc["apiVersion"])
+		// The legacy spelling is accepted too: `Composite*` kinds were renamed on
+		// 2026-10-07 and a manifest written before that still describes the same
+		// object. Applying it would fail at the API server, so matching it here
+		// is what lets the error name the rename instead of "no Application
+		// resource found".
 		if (kind == "application" || kind == "compositeapplication") && strings.HasPrefix(apiVersion, "platform.adhar.io/") {
+			if kind == "compositeapplication" {
+				return nil, fmt.Errorf("%s declares kind CompositeApplication, which was renamed to Application "+
+					"(platform.adhar.io/v1alpha1) on 2026-10-07 — change the kind and re-run", path)
+			}
 			return &unstructured.Unstructured{Object: doc}, nil
 		}
 	}

@@ -12,7 +12,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositePipeline
+    kind: Pipeline
   mode: Pipeline
   pipeline:
     - step: render-pipeline-resources

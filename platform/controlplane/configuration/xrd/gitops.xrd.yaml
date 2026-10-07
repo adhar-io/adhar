@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositegitops.platform.adhar.io
+  name: gitops.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeGitOps
-    plural: compositegitops
+    kind: GitOps
+    plural: gitops
   defaultCompositionRef:
-    name: compositegitops-argocd
+    name: gitops-argocd
   versions:
     - name: v1alpha1
       served: true

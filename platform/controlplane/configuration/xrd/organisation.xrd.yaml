@@ -1,4 +1,4 @@
-# CompositeOrganisation — the tenant, top of the Adhar hierarchy (ADR-0026).
+# Organisation — the tenant, top of the Adhar hierarchy (ADR-0026).
 #
 #   Organisation → Team → Project → Application → Environment → Release
 #
@@ -11,16 +11,16 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeorganisations.platform.adhar.io
+  name: organisations.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeOrganisation
-    plural: compositeorganisations
+    kind: Organisation
+    plural: organisations
     shortNames: [org, orgs]
   defaultCompositionRef:
-    name: compositeorganisation-local
+    name: organisation-local
   versions:
     - name: v1alpha1
       served: true

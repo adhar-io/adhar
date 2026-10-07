@@ -174,3 +174,27 @@ func TestComputeClusterReportsAdharOwnership(t *testing.T) {
 			"Adhar created is not Adhar-managed, on every teardown", got)
 	}
 }
+
+// Civo installs marketplace applications on a managed cluster unless told not
+// to, and "no applications specified" means "all the defaults", not "none".
+//
+// As of 2026-10-07 `GET /v2/kubernetes/applications` marks two as default:
+// traefik2-nodeport and metrics-server. Both duplicate something the platform
+// installs itself — the Cilium Gateway is the ingress here, and
+// observability/metrics-server owns v1beta1.metrics.k8s.io — so a cluster that
+// takes the defaults comes up with two ingress controllers and two
+// metrics-servers racing for one aggregated APIService.
+func TestManagedClusterOptsOutOfCivoDefaultApps(t *testing.T) {
+	for _, app := range []string{"traefik2-nodeport", "metrics-server"} {
+		if !strings.Contains(civoRemovedDefaultApps, "-"+app) {
+			t.Errorf("the managed create does not remove Civo's default %q; it would run alongside the platform's own", app)
+		}
+	}
+	// Every entry must be a REMOVAL. An entry without the leading "-" installs
+	// that application instead of removing it, which is the opposite of intent.
+	for _, entry := range strings.Split(civoRemovedDefaultApps, ",") {
+		if !strings.HasPrefix(strings.TrimSpace(entry), "-") {
+			t.Errorf("%q does not start with '-', so Civo would INSTALL it rather than remove it", entry)
+		}
+	}
+}

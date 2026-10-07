@@ -1,0 +1,57 @@
+# A Velero backup schedule for a team's namespaces, with its own retention and
+# its own bucket.
+#
+# Two things this platform learned the hard way. First, `defaultVolumesToRestic`
+# (filesystem backup of every volume) once copied the platform object store into
+# itself — 61 GiB — so leave it off and name the volumes you mean. Second, the
+# default StorageClass here is NODE-LOCAL, which no volume snapshotter can
+# snapshot: durability for a database is its own replication plus its logical
+# backups, and this object covers the Kubernetes objects around it.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BackupPolicy
+metadata:
+  name: payments-nightly
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        tool: velero
+  parameters:
+    displayName: Payments nightly backup
+    backupTool: velero
+    schedule: "0 2 * * *"
+    retentionDays: 30
+    paused: false
+    storageLocation:
+      # minio is the S3-compatible path, which on this platform is RustFS.
+      provider: minio
+      bucket: adhar-backups
+      prefix: payments
+      credentialsSecretRef:
+        name: rustfs-root-creds
+        namespace: adhar-system
+        key: credentials
+    includedNamespaces:
+      - payments-api-dev
+      - payments-api-test
+      - payments-api-prod
+    excludedResources:
+      - events
+      - events.events.k8s.io
+    snapshotVolumes: true
+    defaultVolumesToRestic: false
+    encryption:
+      enabled: true
+    verification:
+      enabled: true
+      schedule: "0 5 * * 0"
+      restoreNamespace: payments-restore-test
+    notifications:
+      enabled: true
+      onFailure: true
+      onSuccess: false
+      channels:
+        - type: slack
+          config:
+            channel: "#payments-alerts"

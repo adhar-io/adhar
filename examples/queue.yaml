@@ -1,0 +1,44 @@
+# A RabbitMQ queue, its exchange binding and its dead-letter queue, on the
+# platform's shared broker.
+#
+# Kafka and RabbitMQ are not interchangeable and this platform runs both: a Topic
+# is a durable, replayable log; a Queue is work handed to exactly one consumer
+# and acknowledged. Choose by the semantics you need.
+#
+# The dead-letter queue is on by default. A queue without one either retries a
+# poison message forever or drops it silently, and both are discovered in
+# production.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Queue
+metadata:
+  name: settlement-work
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: queue
+  parameters:
+    displayName: Settlement work
+    queueName: settlement.work
+    vhost: "/"
+    # A non-durable queue is gone when the broker restarts.
+    durable: true
+    autoDelete: false
+    exchange:
+      name: payments
+      type: topic
+      routingKey: "settlement.#"
+    deadLetter:
+      enabled: true
+      # Defaults to <queue>-dlq.
+      queueName: settlement.work-dlq
+    messageTTLSeconds: 3600
+    maxLength: 100000
+    # Quorum queues are replicated (Raft) and only useful on a multi-node
+    # broker; the platform's default install is one replica.
+    quorum: false
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev

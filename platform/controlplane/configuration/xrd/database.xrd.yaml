@@ -1,18 +1,18 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositedatabases.platform.adhar.io
+  name: databases.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeDatabase
-    plural: compositedatabases
-  # Local-safe default: an unqualified CompositeDatabase provisions an in-cluster
+    kind: Database
+    plural: databases
+  # Local-safe default: an unqualified Database provisions an in-cluster
   # CloudNativePG Postgres (no cloud credentials needed). Pick a cloud provider by
   # setting spec.compositionSelector.matchLabels.provider to aws|gcp|azure.
   defaultCompositionRef:
-    name: compositedatabase-local-cnpg
+    name: database-local-cnpg
   versions:
     - name: v1alpha1
       served: true

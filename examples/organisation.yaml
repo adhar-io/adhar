@@ -1,0 +1,26 @@
+# The tenant root. ONE organisation exists per platform and it is created by the
+# platform, not by a team — everything else (teams, projects, environments,
+# applications) hangs off it (ADR-0026, the tenancy model in docs/).
+#
+# Creating it gives you: a home namespace with its own quota, the Keycloak group
+# `ws-org-<name>`, and the Gitea organisation that will hold the tenant's
+# repositories. Projects carry their own quotas; the ones here apply to the
+# organisation's HOME namespace only.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Organisation
+metadata:
+  name: acme
+  namespace: adhar-system
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+  parameters:
+    name: acme
+    displayName: ACME Corporation
+    description: The platform tenant that owns every team below it
+    cpuQuota: "8"
+    memoryQuota: 16Gi
+    podQuota: 50
+    createGiteaOrganisation: true

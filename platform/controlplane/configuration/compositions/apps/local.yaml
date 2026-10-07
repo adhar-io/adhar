@@ -1,18 +1,18 @@
 ---
-# Local Application composition — turns a CompositeApplication into an ArgoCD
+# Local Application composition — turns a Application into an ArgoCD
 # Application (GitOps deploy). Same XRD as cloud; developers describe source +
 # destination and the control plane wires the GitOps deployment.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeapplication-local-argocd
+  name: application-local-argocd
   labels:
     feature: application
     provider: local
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeApplication
+    kind: Application
   mode: Pipeline
   pipeline:
     - step: render

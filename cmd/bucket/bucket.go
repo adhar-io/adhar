@@ -7,7 +7,7 @@ you may not use this file except in compliance with the License.
 
 // Package bucket provides `adhar bucket` — self-service S3 object storage.
 //
-// A bucket is requested as a namespaced Crossplane CompositeStorage with
+// A bucket is requested as a namespaced Crossplane Storage with
 // `type: object`, which is the same contract the Console uses. On this platform
 // that resolves to a bucket in RustFS, the primary in-cluster S3 store; on a cloud
 // platform the same request resolves to the cloud's object store. The application
@@ -34,12 +34,12 @@ import (
 )
 
 const (
-	// xrKind and xrPlural address the CompositeStorage XRD.
-	xrKind   = "CompositeStorage"
-	xrPlural = "compositestorages"
+	// xrKind and xrPlural address the Storage XRD.
+	xrKind   = "Storage"
+	xrPlural = "storages"
 	// feature is the composition-selector category, matching the XRD's labels.
 	feature = "storage"
-	// objectType is what makes a CompositeStorage a bucket rather than a volume.
+	// objectType is what makes a Storage a bucket rather than a volume.
 	objectType = "object"
 )
 
@@ -126,7 +126,7 @@ if the data matters.`,
 			parameters["versioning"] = true
 		}
 
-		// The discriminator is the storage TYPE. Without it a CompositeStorage
+		// The discriminator is the storage TYPE. Without it a Storage
 		// request is ambiguous — block, file and object storage are composed very
 		// differently — and Crossplane would either pick arbitrarily or refuse.
 		obj := helpers.NewXR(xrKind, bucketName, ns(), feature,
@@ -332,7 +332,7 @@ func listBuckets(c context.Context) ([]bucketInfo, error) {
 	var out []bucketInfo
 	for i := range list.Items {
 		b := flatten(&list.Items[i])
-		// A CompositeStorage may be a volume rather than a bucket; only object
+		// A Storage may be a volume rather than a bucket; only object
 		// storage belongs in this command's output.
 		if b.isObject {
 			out = append(out, b.bucketInfo)

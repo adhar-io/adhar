@@ -318,7 +318,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	// Crossplane cloud credentials: the control plane's ProviderConfig for this
 	// cloud reads `<provider>-credentials`; materialise it from the same
-	// configuration the cluster was created with so CompositeCluster and
+	// configuration the cluster was created with so Cluster and
 	// friends work out of the box (nothing credential-shaped enters Git).
 	if cp := canonicalProvider(providerName); crossplaneCredentialSecretName(cp) != "" {
 		var pc *config.ConfigProviderConfig
@@ -338,7 +338,14 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// Cloud facts + kubeadm SSH key for the in-cluster controllers: without
 	// them nothing inside the cluster can call back to the provider (the node
 	// autoscaler is the first consumer).
-	if err := ensureClusterSpecConfigMap(ctx, kubeClient, envConfig, clusterName); err != nil {
+	// The addresses the platform edge will answer on, for a cluster whose
+	// Gateway has no load balancer to get one from (Civo compute, bring-your-own
+	// hosts). Asked of the PROVIDER because only it knows: a node on a cluster
+	// with no cloud-controller-manager has no ExternalIP, so nothing inside the
+	// cluster can discover its own public address, and the Gateway's status
+	// carries the private ones.
+	gatewayAddresses := resolveGatewayAddresses(ctx, result, envConfig)
+	if err := ensureClusterSpecConfigMap(ctx, kubeClient, envConfig, clusterName, gatewayAddresses); err != nil {
 		logger.Warnf("Cluster spec not recorded: %v (node autoscaling will be inactive)", err)
 	}
 	if err := ensureClusterSSHSecret(ctx, kubeClient, clusterName); err != nil {
@@ -549,4 +556,46 @@ func logAppConvergence(ctx context.Context, c client.Client, name string, stop <
 			}
 		}
 	}
+}
+
+// resolveGatewayAddresses asks the provider which addresses the platform edge
+// is reachable on, for the clusters that need it.
+//
+// Only for a cluster with no cloud load balancer — see
+// provider.GatewayHostNetworkRequired. Everywhere else the Gateway Service gets
+// a real address and external-dns publishes that, so asking would be noise.
+//
+// Best effort: an empty result means external-dns falls back to the Gateway's
+// own status addresses. On a host-network cluster those are the nodes' private
+// IPs, which external-dns is configured to refuse to publish
+// (--exclude-target-net on all three RFC1918 ranges), so the failure mode is a
+// missing record rather than a wrong one.
+func resolveGatewayAddresses(ctx context.Context, result *pfactory.ProvisionResult, envConfig *config.ResolvedEnvironmentConfig) []string {
+	if result == nil || result.Provider == nil || result.Cluster == nil || envConfig == nil {
+		return nil
+	}
+	mode := ""
+	if envConfig.ProviderConfig != nil {
+		parsed, err := pfactory.ParseClusterMode(envConfig.ProviderConfig.ToProviderMap())
+		if err != nil {
+			return nil
+		}
+		mode = parsed
+	}
+	if !pfactory.GatewayHostNetworkRequired(envConfig.ResolvedProvider, mode) {
+		return nil
+	}
+	source, ok := result.Provider.(pfactory.GatewayAddressProvider)
+	if !ok {
+		logger.Warnf("Provider %s needs the Gateway on the host network but cannot report the node addresses; "+
+			"the platform hostnames will have no public DNS record", envConfig.ResolvedProvider)
+		return nil
+	}
+	addresses, err := source.GatewayAddresses(ctx, result.Cluster.ID)
+	if err != nil {
+		logger.Warnf("Could not determine the platform edge addresses: %v (the platform hostnames may not resolve)", err)
+		return nil
+	}
+	logger.Debugf("Platform edge on the host network, addresses %v", addresses)
+	return addresses
 }

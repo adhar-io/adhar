@@ -46,11 +46,26 @@ type ConfigProviderConfig struct {
 	// Common authentication fields
 	CredentialsFile string `mapstructure:"credentials_file" json:"credentialsFile"`
 	UseEnvironment  bool   `mapstructure:"useEnvironment" json:"useEnvironment"`
-	// UseManagedK8s selects the cloud's managed Kubernetes service (DOKS,
-	// Civo k3s) instead of the default: raw compute instances with adhar
-	// provisioning Kubernetes itself via kubeadm. All other platform
-	// behaviour is identical in both modes.
-	UseManagedK8s bool `mapstructure:"useManagedK8s" json:"useManagedK8s,omitempty"`
+
+	// ClusterMode is how this provider's clusters come into being: "compute"
+	// (kubeadm on raw instances, the default), "managed" (the cloud's hosted
+	// Kubernetes) or "provided" (the cluster already exists; the platform only
+	// installs itself onto it and never creates or deletes it).
+	//
+	// It MUST be carried into the provider map below. It was a provider-level
+	// key in every example config while this struct had no field for it, so
+	// mapstructure dropped it and every provider parsed the default — a file
+	// that plainly said `clusterMode: managed` quietly built kubeadm on raw
+	// compute.
+	ClusterMode string `mapstructure:"clusterMode" json:"clusterMode,omitempty"`
+
+	// Kubeconfig and KubeContext locate the EXISTING cluster in
+	// `clusterMode: provided`. Both are optional: the path falls back to
+	// $KUBECONFIG and then ~/.kube/config, and an empty context means the
+	// file's current one. Ignored in the other two modes, where the platform
+	// creates the cluster and writes its own kubeconfig.
+	Kubeconfig  string `mapstructure:"kubeconfig" json:"kubeconfig,omitempty"`
+	KubeContext string `mapstructure:"kubeContext" json:"kubeContext,omitempty"`
 
 	// AWS authentication
 	AccessKeyID     string `mapstructure:"accessKeyId" json:"accessKeyId"`

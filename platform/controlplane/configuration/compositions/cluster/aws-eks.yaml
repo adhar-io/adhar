@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositecluster-aws-eks
+  name: cluster-aws-eks
   labels:
     feature: cluster
     provider: aws
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCluster
+    kind: Cluster
   mode: Pipeline
   pipeline:
     - step: render-eks

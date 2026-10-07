@@ -65,7 +65,7 @@ rules:
     resources: ["projects", "projectconfigs", "warehouses", "stages", "promotions"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Kargo's admission webhook lets a Promotion be CREATED only by a subject that
-  # may `promote` to its Stage (a Kargo-specific verb); a CompositeRelease is
+  # may `promote` to its Stage (a Kargo-specific verb); a Release is
   # created by the provider, so the provider needs it.
   - apiGroups: ["kargo.akuity.io"]
     resources: ["stages"]
@@ -76,7 +76,7 @@ rules:
   # An application OBSERVES its project (managementPolicies: [Observe]) to learn
   # where the environments live; read-only on the XR kinds it looks up.
   - apiGroups: ["platform.adhar.io"]
-    resources: ["compositeprojects", "compositeenvironments", "compositeapplications"]
+    resources: ["projects", "environments", "applications"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["agentgateway.dev"]
     resources: ["agentgatewaypolicies"]
@@ -84,9 +84,9 @@ rules:
   - apiGroups: ["monitoring.coreos.com"]
     resources: ["prometheusrules", "servicemonitors", "podmonitors"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # CompositeSearch (compositions/search) composes an OpenSearchCluster and the
+  # Search (compositions/search) composes an OpenSearchCluster and the
   # users, roles, index-lifecycle and snapshot policies around it, run by the
-  # opensearch-k8s-operator in data/opensearch; CompositeVector
+  # opensearch-k8s-operator in data/opensearch; Vector
   # (compositions/vector) composes a collections Job and the ESO Password
   # generators both use to mint credentials.
   - apiGroups: ["opensearch.org"]
@@ -96,7 +96,7 @@ rules:
     resources: ["passwords"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # The Qdrant chart (provider-helm, same ClusterRole) emits a
-  # PodDisruptionBudget when a CompositeVector asks for more than one replica.
+  # PodDisruptionBudget when a Vector asks for more than one replica.
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -1,6 +1,6 @@
 # The platform's own tenancy, as the same objects every tenant gets (ADR-0026).
 #
-#   CompositeOrganisation adhar → CompositeTeam platform → CompositeProject adhar
+#   Organisation adhar → Team platform → Project adhar
 #
 # `adhar up` creates the namespaces dev, test and prod; this project adopts them
 # as its environments (each entry pins `namespace:` to the existing name) and
@@ -20,7 +20,7 @@
 # still race the CRD becoming established.
 ---
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeOrganisation
+kind: Organisation
 metadata:
   name: adhar
   namespace: adhar-system
@@ -36,7 +36,7 @@ spec:
     createGiteaOrganisation: true
 ---
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeTeam
+kind: Team
 metadata:
   name: platform
   namespace: adhar-system
@@ -52,7 +52,7 @@ spec:
     description: Operates the platform; owns the adhar project.
 ---
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeProject
+kind: Project
 metadata:
   name: adhar
   namespace: adhar-system

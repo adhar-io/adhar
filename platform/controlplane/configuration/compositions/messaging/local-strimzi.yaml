@@ -6,7 +6,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositemessaging-local-strimzi
+  name: messaging-local-strimzi
   labels:
     feature: messaging
     provider: local
@@ -14,7 +14,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeMessaging
+    kind: Messaging
   mode: Pipeline
   pipeline:
     - step: render

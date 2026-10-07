@@ -1,0 +1,208 @@
+---
+# Repository — a Gitea repository, the Harbor project its images are pushed to,
+# and (optionally) its Nexus hosted repositories.
+#
+# These are one request because on this platform they are one thing. A team given
+# only the git repo finds out about the other two the first time CI pushes, which
+# is both the worst moment and the least obvious error: kpack reports
+# `UNAUTHORIZED` for a Harbor project that does not exist, and npm publish
+# reports a 404.
+#
+# All three are created through their HTTP APIs in one Job, because none of them
+# has a CRD to compose. Every call is idempotent — the "already exists" status of
+# each API is treated as success — so this converges on re-apply and on systems
+# that were set up by hand.
+#
+# Harbor is HTTPS-only in-cluster (internalTLS), so curl needs its CA; the Secret
+# is mounted `optional` and the Job fails loudly if the CA is not there yet,
+# which the backoff turns into a retry rather than a wrong answer.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: repository-local
+  labels:
+    feature: repository
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Repository
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $desc := dig "description" "" $p -}}
+            {{- $private := dig "private" false $p -}}
+            {{- $branch := dig "defaultBranch" "main" $p -}}
+            {{- $autoInit := dig "autoInit" true $p -}}
+            {{- $container := dig "container" dict $p -}}
+            {{- $containerOn := dig "enabled" true $container -}}
+            {{- $containerPublic := dig "public" false $container -}}
+            {{- $quotaGB := dig "quotaGB" 10 $container -}}
+            {{- $packages := dig "packages" dict $p -}}
+            {{- $packagesOn := dig "enabled" false $packages -}}
+            {{- $formats := dig "formats" (list "npm") $packages -}}
+            {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            {{- $harbor := "https://harbor-core.adhar-system.svc.cluster.local/api/v2.0" -}}
+            {{- $nexus := "http://nexus.adhar-system.svc.cluster.local:8081" -}}
+            {{- $registry := "harbor-core.adhar-system.svc.cluster.local" -}}
+            {{- $labels := dict
+                  "platform.adhar.io/repository" $name
+                  "adhar.io/organisation" (dig "organisationLabel" "adhar" $p)
+                  "adhar.io/team" (dig "team" "platform" $p)
+                  "adhar.io/plane" "workload" -}}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ $name }}-repository
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: repository-job
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+                {{- if dig "project" "" $p }}
+                adhar.io/project: {{ dig "project" "" $p | quote }}
+                {{- end }}
+            spec:
+              backoffLimit: 10
+              ttlSecondsAfterFinished: 900
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  volumes:
+                    - name: harbor-ca
+                      secret:
+                        secretName: harbor-core-internal-tls
+                        optional: true
+                        items: [{key: ca.crt, path: harbor-ca.crt}]
+                  containers:
+                    - name: provision
+                      image: curlimages/curl:8.10.1
+                      volumeMounts:
+                        - name: harbor-ca
+                          mountPath: /var/harbor-ca
+                          readOnly: true
+                      env:
+                        - name: GITEA_USER
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
+                        - name: GITEA_PASSWORD
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                        - name: HARBOR_PASSWORD
+                          valueFrom: { secretKeyRef: { name: harbor-core, key: HARBOR_ADMIN_PASSWORD, optional: true } }
+                        - name: NEXUS_USER
+                          valueFrom: { secretKeyRef: { name: nexus-credentials, key: username, optional: true } }
+                        - name: NEXUS_PASSWORD
+                          valueFrom: { secretKeyRef: { name: nexus-credentials, key: password, optional: true } }
+                        # Payloads as environment variables, never spliced into
+                        # the shell string: an apostrophe in a description is an
+                        # unterminated quote.
+                        - name: ORG_PAYLOAD
+                          value: {{ dict "username" $org "full_name" $org "visibility" "private" | toJson | quote }}
+                        - name: REPO_PAYLOAD
+                          value: {{ dict "name" $name "description" $desc "private" $private "auto_init" $autoInit "default_branch" $branch | toJson | quote }}
+                        - name: HARBOR_PAYLOAD
+                          value: {{ dict "project_name" $org "public" $containerPublic "storage_limit" (mul $quotaGB 1073741824) | toJson | quote }}
+                      command: ["/bin/sh", "-c"]
+                      args:
+                        - |
+                          set -e
+                          API="http://{{ $giteaHost }}/api/v1"
+                          GAUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
+
+                          # ── Gitea: the organisation, then the repository ──
+                          code=$(curl -s -o /tmp/out -w "%{http_code}" $GAUTH -X POST "$API/orgs" -d "$ORG_PAYLOAD")
+                          echo "gitea org -> $code"
+                          case "$code" in 201|422|409) : ;; *) cat /tmp/out; echo; exit 1 ;; esac
+                          code=$(curl -s -o /tmp/out -w "%{http_code}" $GAUTH -X POST "$API/orgs/{{ $org }}/repos" -d "$REPO_PAYLOAD")
+                          echo "gitea repo -> $code"
+                          case "$code" in 201|409) : ;; *) cat /tmp/out; echo; exit 1 ;; esac
+
+                          {{- if $containerOn }}
+                          # ── Harbor: the project images are pushed to ──
+                          CA=/var/harbor-ca/harbor-ca.crt
+                          if [ -s "$CA" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
+                            HAUTH="--cacert $CA -u admin:$HARBOR_PASSWORD -H Content-Type:application/json"
+                            code=$(curl -s -o /tmp/out -w "%{http_code}" $HAUTH -X POST "{{ $harbor }}/projects" -d "$HARBOR_PAYLOAD")
+                            echo "harbor project -> $code"
+                            case "$code" in 201|409) : ;; *) cat /tmp/out; echo; exit 1 ;; esac
+                          else
+                            # Not fatal: the repository is usable without it, and
+                            # the next reconcile retries. Silence here would be
+                            # worse than a late image push failure.
+                            echo "harbor CA or admin credential not available yet; skipping the project (will retry)"
+                            exit 1
+                          fi
+                          {{- end }}
+
+                          {{- if $packagesOn }}
+                          # ── Nexus: one hosted repository per declared format ──
+                          if [ -n "${NEXUS_USER:-}" ]; then
+                            NAUTH="-u $NEXUS_USER:$NEXUS_PASSWORD -H Content-Type:application/json"
+                            {{- range $fmt := $formats }}
+                            BODY='{"name":"{{ $name }}-{{ $fmt }}","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
+                            code=$(curl -s -o /tmp/out -w "%{http_code}" $NAUTH -X POST \
+                              "{{ $nexus }}/service/rest/v1/repositories/{{ $fmt }}/hosted" -d "$BODY")
+                            echo "nexus {{ $fmt }} -> $code"
+                            case "$code" in 201|400) : ;; *) cat /tmp/out; echo; exit 1 ;; esac
+                            {{- end }}
+                          else
+                            echo "nexus credentials not available yet; skipping package repositories (will retry)"
+                            exit 1
+                          fi
+                          {{- end }}
+                          echo "repository {{ $org }}/{{ $name }} ready"
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 64Mi }
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-repository
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: repository-conn
+              labels:
+                platform.adhar.io/repository: {{ $name }}
+            stringData:
+              cloneURL: "http://{{ $giteaHost }}/{{ $org }}/{{ $name }}.git"
+              defaultBranch: {{ $branch | quote }}
+              {{- if $containerOn }}
+              imageRepository: "{{ $registry }}/{{ $org }}/{{ $name }}"
+              {{- end }}
+              # Credentials are the platform's CI identities, referenced rather
+              # than copied: gitea-ci-creds for git, harbor-core for the registry.
+              gitCredentialsSecret: "gitea-ci-creds"
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Repository
+            status:
+              cloneURL: "http://{{ $giteaHost }}/{{ $org }}/{{ $name }}.git"
+              webURL: "http://{{ $giteaHost }}/{{ $org }}/{{ $name }}"
+              {{- if $containerOn }}
+              imageRepository: "{{ $registry }}/{{ $org }}/{{ $name }}"
+              {{- end }}
+              {{- if $packagesOn }}
+              packageRepositories:
+                {{- range $fmt := $formats }}
+                - "{{ $nexus }}/repository/{{ $name }}-{{ $fmt }}/"
+                {{- end }}
+              {{- end }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

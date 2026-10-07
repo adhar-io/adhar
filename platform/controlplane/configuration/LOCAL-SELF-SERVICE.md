@@ -9,7 +9,7 @@ the request is portable.
 
 ```
 Console (template)  ┐
-                    ├─► CompositeX (XR, namespaced) ─► Crossplane ─► backing resource
+                    ├─► <Kind> (XR, namespaced) ─► Crossplane ─► backing resource
 adhar CLI (create)  ┘         provider-aware               (local / cloud composition)
                               compositionSelector
 ```
@@ -26,7 +26,7 @@ XR.
   `spec.crossplane.compositionSelector.matchLabels` keyed on the **active
   provider** (default `local`, override with `ADHAR_PROVIDER`). Switching the
   provider swaps the entire backing implementation with no change to the request —
-  e.g. `CompositeDatabase{engine: postgresql}` resolves to CloudNativePG locally
+  e.g. `Database{engine: postgresql}` resolves to CloudNativePG locally
   and AWS RDS on `ADHAR_PROVIDER=aws`.
 - **CLI:** `cmd/helpers/controlplane.go` (`NewXR`, `CompositionSelector`,
   `ApplyXR`) is the single path all `adhar <resource> create` commands use.
@@ -42,15 +42,15 @@ XR.
 
 | Resource | XR kind | Local composition | Composes | Observability | Template |
 |---|---|---|---|---|---|
-| PostgreSQL | `CompositeDatabase` (engine: postgresql) | `compositedatabase-local-cnpg` | CloudNativePG `Cluster` | PodMonitor → CNPG dashboard | `postgres-database` |
-| Valkey (operator) | `CompositeDatabase` (engine: valkey) | `compositedatabase-local-valkey` | Hyperspike `Valkey` CR + Secret | operator exporter + ServiceMonitor → Valkey/Redis dashboard | `valkey-cache` |
-| Redis/Valkey (raw) | `CompositeDatabase` (engine: redis) | `compositedatabase-local-redis` | Deployment + Service + Secret | redis_exporter + ServiceMonitor → Redis dashboard | `redis-cache` |
-| Object bucket | `CompositeStorage` (type: object) | `compositestorage-local-rustfs` | RustFS bucket (Job) + Secret | platform RustFS dashboard | `object-bucket` |
-| Kafka | `CompositeMessaging` | `compositemessaging-local-strimzi` | Strimzi Kafka (KRaft) + topics | JMX + kafka-exporter + PodMonitor → Kafka dashboards | `kafka-cluster` |
-| Secret | `CompositeSecret` | `compositesecret-local` | Kubernetes Secret | — | `secret` |
-| Environment | `CompositeEnvironment` | `compositeenvironment-local` | Namespace + ResourceQuota + LimitRange + NetworkPolicy | quota/limits visible in namespace dashboards | `environment` |
-| Application | `CompositeApplication` | `compositeapplication-local-argocd` | ArgoCD `Application` (GitOps deploy) | ArgoCD dashboard | `application` |
-| Project | `CompositeProject` | `compositeproject-local` | Namespace + quota/limits + ArgoCD AppProject + Gitea repo | auto (namespace in all dashboards) | `project` |
+| PostgreSQL | `Database` (engine: postgresql) | `database-local-cnpg` | CloudNativePG `Cluster` | PodMonitor → CNPG dashboard | `postgres-database` |
+| Valkey (operator) | `Database` (engine: valkey) | `database-local-valkey` | Hyperspike `Valkey` CR + Secret | operator exporter + ServiceMonitor → Valkey/Redis dashboard | `valkey-cache` |
+| Redis/Valkey (raw) | `Database` (engine: redis) | `database-local-redis` | Deployment + Service + Secret | redis_exporter + ServiceMonitor → Redis dashboard | `redis-cache` |
+| Object bucket | `Storage` (type: object) | `storage-local-rustfs` | RustFS bucket (Job) + Secret | platform RustFS dashboard | `object-bucket` |
+| Kafka | `Messaging` | `messaging-local-strimzi` | Strimzi Kafka (KRaft) + topics | JMX + kafka-exporter + PodMonitor → Kafka dashboards | `kafka-cluster` |
+| Secret | `Secret` | `secret-local` | Kubernetes Secret | — | `secret` |
+| Environment | `Environment` | `environment-local` | Namespace + ResourceQuota + LimitRange + NetworkPolicy | quota/limits visible in namespace dashboards | `environment` |
+| Application | `Application` | `application-local-argocd` | ArgoCD `Application` (GitOps deploy) | ArgoCD dashboard | `application` |
+| Project | `Project` | `project-local` | Namespace + quota/limits + ArgoCD AppProject + Gitea repo | auto (namespace in all dashboards) | `project` |
 
 Each data composition emits a **connection Secret** (`<name>-app` /
 `<name>-bucket`) the requesting app consumes.
@@ -69,17 +69,17 @@ Organisation ─owns─► Team ─owns─► Project ─holds─► Application
 - **Organisation** and **Team** are catalog metadata (Backstage `Group`s) — the
   `organisation` / `team` templates register them.
 - **Project** is the first level that provisions real infrastructure, so it is a
-  Crossplane XR (`CompositeProject`). One project request fans out — via the
+  Crossplane XR (`Project`). One project request fans out — via the
   control plane — into a guard-railed namespace, an ArgoCD `AppProject` scoped to
   it, and its own Gitea repository (the org is auto-created on first use).
   Create from either frontend:
 
   ```sh
   adhar project create --org acme --team payments --name acme-shop --tier dev
-  # …or the "Project" template in the Console — same CompositeProject XR.
+  # …or the "Project" template in the Console — same Project XR.
   ```
 
-- **Application** (`CompositeApplication`) is created *inside* a Project and
+- **Application** (`Application`) is created *inside* a Project and
   deploys into its namespace under its AppProject. Monitoring needs no wiring:
   the project namespace appears in every dashboard (incl. the **Adhar Platform**
   overview) automatically.
@@ -122,7 +122,7 @@ but note:
 ## How to add a new local composition (the pattern)
 
 1. **Pick or add an XRD** in `configuration/xrd/` (v2, `scope: Namespaced`). Reuse
-   an existing one where it fits (e.g. Redis reuses `CompositeDatabase`).
+   an existing one where it fits (e.g. Redis reuses `Database`).
 2. **Write a composition** in `configuration/compositions/<feature>/local-*.yaml`
    with `function-go-templating` → native resources (or provider-kubernetes
    `Object`s for cluster-scoped targets) → `function-auto-ready`. Label it
@@ -150,7 +150,7 @@ Or apply the XR directly:
 ```sh
 kubectl apply -f - <<'EOF'
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeDatabase
+kind: Database
 metadata: { name: my-db, namespace: my-team }
 spec:
   crossplane: { compositionSelector: { matchLabels: { provider: local, feature: database, engine: postgresql } } }
@@ -161,7 +161,7 @@ EOF
 
 ## Cloud portability
 
-The same XR kinds have cloud compositions (`compositedatabase-aws-rds-postgresql`,
-`compositedatabase-azure-sql`, `compositedatabase-gcp-cloudsql`, …). Selection is by
+The same XR kinds have cloud compositions (`database-aws-rds-postgresql`,
+`database-azure-sql`, `database-gcp-cloudsql`, …). Selection is by
 the provider-keyed `compositionSelector`, so a request written for local runs
 unchanged on a cloud platform by switching `ADHAR_PROVIDER`.

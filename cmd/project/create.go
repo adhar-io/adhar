@@ -84,14 +84,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Same provider-aware control-plane path the Console uses.
-	xr := helpers.NewXR("CompositeProject", projName, projNamespace, "project", nil,
+	xr := helpers.NewXR("Project", projName, projNamespace, "project", nil,
 		map[string]interface{}{"parameters": parameters})
 
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := helpers.ApplyXR(ctx, "compositeprojects", xr); err != nil {
+	if err := helpers.ApplyXR(ctx, "projects", xr); err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
 

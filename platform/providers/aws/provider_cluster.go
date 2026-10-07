@@ -27,7 +27,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}
 
 	// Default mode: self-managed Kubernetes on EC2. EKS is the explicit
-	// opt-in (`useManagedK8s: true` / clusterMode: eks).
+	// opt-in (`clusterMode: managed`).
 	if p.isManagedMode() {
 		return p.createManagedCluster(ctx, spec)
 	}

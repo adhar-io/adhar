@@ -173,16 +173,16 @@ spec:
                   project:
                     type: string
                     default: adhar
-                    description: Owning CompositeProject (label adhar.io/project). The agent keeps its own isolated
+                    description: Owning Project (label adhar.io/project). The agent keeps its own isolated
                       namespace; this is attribution and policy scope, not placement.
                   team:
                     type: string
                     default: platform
-                    description: Owning CompositeTeam (label adhar.io/team).
+                    description: Owning Team (label adhar.io/team).
                   organisation:
                     type: string
                     default: adhar
-                    description: Owning CompositeOrganisation (label adhar.io/organisation).
+                    description: Owning Organisation (label adhar.io/organisation).
           status:
             type: object
             properties:

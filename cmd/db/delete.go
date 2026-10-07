@@ -18,7 +18,7 @@ import (
 var deleteCmd = &cobra.Command{
 	Use:   "delete [name]",
 	Short: "Delete a database",
-	Long: `Delete a managed database (Crossplane CompositeDatabase).
+	Long: `Delete a managed database (Crossplane Database).
 
 The name can be supplied as an argument or via --name.
 
@@ -68,7 +68,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	err = client.Resource(compositeDatabaseGVR).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{})
+	err = client.Resource(databaseGVR).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return fmt.Errorf("database %q not found in namespace %q", name, ns)

@@ -1,7 +1,7 @@
 # ApplicationType `ai` → isolated, GPU-placed pods (ADR-0024, roadmap: AI
 # workloads as first-class tenants).
 #
-# A CompositeApplication with `parameters.type: ai` composes its namespace
+# A Application with `parameters.type: ai` composes its namespace
 # with these labels (compositions/apps/*.yaml, from `parameters.ai`):
 #
 #   platform.adhar.io/application-type: ai

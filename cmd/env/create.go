@@ -19,8 +19,8 @@ var createCmd = &cobra.Command{
 	Use:   "create [environment-name]",
 	Short: "Create new environment",
 	Long: `Create a new environment. An environment is a namespace labelled
-` + "`adhar.io/environment`" + `. If the CompositeEnvironment XRD (platform.adhar.io)
-is installed, a CompositeEnvironment XR is also created (best-effort) so that
+` + "`adhar.io/environment`" + `. If the Environment XRD (platform.adhar.io)
+is installed, a Environment XR is also created (best-effort) so that
 Crossplane provisions quotas and network policies; otherwise a plain namespace
 is created.
 
@@ -67,34 +67,34 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Namespace %q created (tier %q)", envName, createTier)))
 	}
 
-	// Best-effort CompositeEnvironment XR for Crossplane-managed quotas/policies.
-	if err := tryCreateCompositeEnvironment(ctx, envName, createTier); err != nil {
+	// Best-effort Environment XR for Crossplane-managed quotas/policies.
+	if err := tryCreateEnvironment(ctx, envName, createTier); err != nil {
 		if crdMissing(err) {
-			fmt.Println(helpers.CreateMuted("   CompositeEnvironment XRD not installed; created a plain namespace."))
+			fmt.Println(helpers.CreateMuted("   Environment XRD not installed; created a plain namespace."))
 		} else {
-			fmt.Println(helpers.CreateMuted("   CompositeEnvironment XR not created: " + err.Error()))
+			fmt.Println(helpers.CreateMuted("   Environment XR not created: " + err.Error()))
 		}
 	} else {
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● CompositeEnvironment %q created", envName)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Environment %q created", envName)))
 	}
 
 	return nil
 }
 
-// tryCreateCompositeEnvironment creates a namespaced CompositeEnvironment XR.
-func tryCreateCompositeEnvironment(ctx context.Context, name, tier string) error {
+// tryCreateEnvironment creates a namespaced Environment XR.
+func tryCreateEnvironment(ctx context.Context, name, tier string) error {
 	dyn, err := getDynamicClient()
 	if err != nil {
 		return err
 	}
-	xr := helpers.NewXR("CompositeEnvironment", name, name, "environment", nil,
+	xr := helpers.NewXR("Environment", name, name, "environment", nil,
 		map[string]interface{}{
 			"parameters": map[string]interface{}{
 				"name": name,
 				"tier": tier,
 			},
 		})
-	_, err = dyn.Resource(compositeEnvironmentGVR).Namespace(name).Create(ctx, xr, metav1.CreateOptions{})
+	_, err = dyn.Resource(environmentGVR).Namespace(name).Create(ctx, xr, metav1.CreateOptions{})
 	if k8serrors.IsAlreadyExists(err) {
 		return nil
 	}

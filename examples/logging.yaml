@@ -1,0 +1,19 @@
+# A log stack for a team or a workload cluster. The PLATFORM's own logging is
+# the observability/loki-stack package; this object is for an additional,
+# independently-sized stack — a data plane with its own retention, say.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Logging
+metadata:
+  name: payments-logs
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: logs
+  parameters:
+    stack: loki
+    namespace: team-payments
+    retentionDays: 14
+    storageSize: 50Gi
+    replicas: 1

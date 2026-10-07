@@ -21,6 +21,7 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/logger"
+	pfactory "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/providers/kind"
 	"adhar-io/adhar/platform/utils"
 	"bufio"
@@ -223,6 +224,11 @@ type teardownOutcome struct {
 	// Absent are environments where every configured provider was consulted and
 	// none had the cluster. Nothing was deleted, and nothing needed to be.
 	Absent []string
+	// Preserved are environments whose cluster was PROVIDED (clusterMode:
+	// provided). The platform never created them, so it never deletes them; they
+	// are reported separately because "nothing was deleted" and "there was
+	// nothing to delete" must not look the same on a teardown.
+	Preserved []string
 	// Searched are the providers that actually answered, across all environments.
 	Searched []string
 	// PurgedVolumes counts orphaned volumes removed by --purge-orphaned-volumes,
@@ -356,6 +362,22 @@ func (m downModel) View() string {
 		// tick (2026-09-25). See teardownOutcome.
 		var successBox string
 		switch {
+		case downConfigFile != "" && len(m.outcome.Deleted) == 0 && len(m.outcome.Preserved) > 0:
+			// A provided cluster was found and deliberately left alone. Reporting
+			// this as "nothing was deleted — check your config file" would send the
+			// operator looking for a bug that is the mode working as asked.
+			successBox = helpers.BorderStyle.Width(boxWidth).Render(
+				fmt.Sprintf("%s %s\n\n%s\n\n%s\n",
+					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("Cluster left running"),
+					helpers.SubtitleStyle.Render(wrapText(fmt.Sprintf(
+						"%s uses clusterMode: provided, so the platform never created the cluster and has not deleted it. "+
+							"Nothing in your infrastructure was removed.",
+						strings.Join(m.outcome.Preserved, ", ")), boxTextWidth)),
+					helpers.InfoStyle.Render(wrapText(
+						"To remove the platform from it: kubectl delete adharplatform --all -n "+
+							globals.AdharSystemNamespace, boxTextWidth))))
+
 		case downConfigFile != "" && len(m.outcome.Deleted) == 0 && m.outcome.PurgedVolumes > 0:
 			// A volume sweep with no cluster left to delete is a real result, not
 			// "nothing happened".
@@ -391,6 +413,10 @@ func (m downModel) View() string {
 			removed := "Cloud resources for " + strings.Join(m.outcome.Deleted, ", ") + " have been removed"
 			if m.outcome.PurgedVolumes > 0 {
 				removed += fmt.Sprintf(", including %d orphaned volume(s)", m.outcome.PurgedVolumes)
+			}
+			if len(m.outcome.Preserved) > 0 {
+				removed += ". " + strings.Join(m.outcome.Preserved, ", ") +
+					" use clusterMode: provided and were left running"
 			}
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
@@ -803,6 +829,27 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		emit(logger.StatusMsg(fmt.Sprintf("locating '%s'", clusterName)))
 		detail("→ environment %s: provider=%s cluster candidates=%v", envName, env.ResolvedProvider, candidates)
 
+		// A PROVIDED cluster is never deleted. Checked before the cluster is even
+		// located, because the lookup below ends in DeleteCluster and the only
+		// reliable way not to delete someone else's cluster is not to go looking
+		// for it. `adhar down` on a provided cluster removes nothing: the platform
+		// it installed is removed with kubectl, and the cluster keeps running.
+		{
+			mode, modeErr := environmentClusterMode(env)
+			switch {
+			case modeErr != nil:
+				detail("  ✖ %v", modeErr)
+				failures = append(failures, fmt.Sprintf("%s: %v", envName, modeErr))
+				continue
+			case !pfactory.ClusterLifecycleIsOurs(mode):
+				detail("  ● clusterMode: %s — the platform did not create this cluster, so nothing is deleted", mode)
+				detail("    remove the platform from it with: kubectl delete adharplatform --all -n %s", globals.AdharSystemNamespace)
+				emit(logger.StatusMsg(fmt.Sprintf("'%s' is a provided cluster — left running", envName)))
+				outcome.Preserved = append(outcome.Preserved, envName)
+				continue
+			}
+		}
+
 		// The environment's provider must actually be configured in this file.
 		// When it is not, ResolveEnvironments quietly falls back to whichever
 		// provider IS configured — so a cloud environment in a kind-only file
@@ -1044,6 +1091,14 @@ func runTeardownPlain() {
 			}
 			os.Exit(1)
 		case logger.DoneMsg:
+			if downConfigFile != "" && len(outcome.Deleted) == 0 && len(outcome.Preserved) > 0 {
+				fmt.Printf("\nNothing was deleted, and nothing should have been: %s use clusterMode: provided.\n",
+					strings.Join(outcome.Preserved, ", "))
+				fmt.Printf("  The platform did not create those clusters, so it did not destroy them.\n")
+				fmt.Printf("  Remove the platform from a provided cluster with:\n")
+				fmt.Printf("    kubectl delete adharplatform --all -n %s\n", globals.AdharSystemNamespace)
+				return
+			}
 			if downConfigFile != "" && len(outcome.Deleted) == 0 {
 				target := downEnv
 				if target == "" {
@@ -1071,6 +1126,9 @@ func runTeardownPlain() {
 				msg := "\nTeardown complete — removed: " + strings.Join(outcome.Deleted, ", ")
 				if outcome.PurgedVolumes > 0 {
 					msg += fmt.Sprintf(" (plus %d orphaned volume(s))", outcome.PurgedVolumes)
+				}
+				if len(outcome.Preserved) > 0 {
+					msg += "; left running (clusterMode: provided): " + strings.Join(outcome.Preserved, ", ")
 				}
 				fmt.Printf("%s\n", msg)
 				return
@@ -1311,4 +1369,18 @@ func teardownTargetDescription(configFile, envName string) string {
 	}
 	sort.Strings(parts) // stable, so the prompt reads the same way every run
 	return strings.Join(parts, ", ")
+}
+
+// environmentClusterMode is how a teardown decides whether the cluster is the
+// platform's to delete. Separated from the loop so the decision is testable on
+// its own: everything after it in that loop ends in DeleteCluster.
+//
+// An environment with no provider block resolves to the default, compute — the
+// mode the platform has always had. Unknown modes are an ERROR rather than a
+// default, because the safe-looking default here is the destructive one.
+func environmentClusterMode(env *config.ResolvedEnvironmentConfig) (string, error) {
+	if env == nil || env.ProviderConfig == nil {
+		return pfactory.ClusterModeCompute, nil
+	}
+	return pfactory.ParseClusterMode(env.ProviderConfig.ToProviderMap())
 }

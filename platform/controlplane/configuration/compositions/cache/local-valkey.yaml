@@ -1,0 +1,112 @@
+---
+# Cache — a team's own Valkey, through the Hyperspike valkey-operator.
+#
+# The operator owns failover, scaling, TLS and the exporter; this composition
+# owns the request. It emits a connection Secret with a `uri` clients can use
+# unchanged (valkey:// and redis:// are the same protocol), and leaves the
+# password out of it entirely unless one was asked for — a cache with a
+# credential nobody passes is a cache nothing can reach.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: cache-local-valkey
+  labels:
+    feature: cache
+    provider: local
+    engine: valkey
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Cache
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $nodes := dig "nodes" 1 $p -}}
+            {{- $replicas := dig "replicas" 0 $p -}}
+            {{- $auth := dig "password" false $p -}}
+            {{- $tls := dig "tls" false $p -}}
+            {{- $mem := dig "maxMemory" "256Mi" $p -}}
+            {{- $cpu := dig "cpu" "25m" $p -}}
+            {{- $metrics := dig "metrics" true $p -}}
+            {{- $host := printf "%s.%s.svc.cluster.local" $name $ns -}}
+            {{- $scheme := ternary "valkeys" "valkey" $tls -}}
+            ---
+            apiVersion: hyperspike.io/v1
+            kind: Valkey
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: cache
+              labels:
+                app.kubernetes.io/managed-by: crossplane
+                app.kubernetes.io/component: cache
+                platform.adhar.io/cache: {{ $name }}
+                adhar.io/organisation: {{ dig "organisation" "adhar" $p | quote }}
+                adhar.io/team: {{ dig "team" "platform" $p | quote }}
+                {{- if dig "project" "" $p }}
+                adhar.io/project: {{ dig "project" "" $p | quote }}
+                {{- end }}
+                adhar.io/environment: {{ dig "environment" "dev" $p | quote }}
+                adhar.io/plane: workload
+            spec:
+              nodes: {{ $nodes }}
+              replicas: {{ $replicas }}
+              tls: {{ $tls }}
+              # anonymousAuth is the inverse of "require a password": the
+              # operator generates and requires one when this is false.
+              anonymousAuth: {{ not $auth }}
+              prometheus: {{ $metrics }}
+              serviceMonitor: {{ $metrics }}
+              resources:
+                requests:
+                  cpu: {{ $cpu | quote }}
+                  memory: 64Mi
+                limits:
+                  memory: {{ $mem | quote }}
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-cache
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: cache-conn
+              labels:
+                platform.adhar.io/cache: {{ $name }}
+            stringData:
+              host: "{{ $host }}"
+              port: "6379"
+              engine: "valkey"
+              {{- if $auth }}
+              # The operator generates the credential into its own Secret
+              # (`{{ $name }}`, key `password`); it is NOT copied here, because a
+              # second copy is a second thing to rotate.
+              uri: "{{ $scheme }}://{{ $host }}:6379"
+              passwordSecret: "{{ $name }}"
+              passwordKey: "password"
+              {{- else }}
+              uri: "{{ $scheme }}://{{ $host }}:6379"
+              {{- end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Cache
+            status:
+              host: "{{ $host }}"
+              port: 6379
+              connectionSecret: "{{ $name }}-cache"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

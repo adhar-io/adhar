@@ -20,7 +20,7 @@
 #     one GPU per pod (NVIDIA's stated limits for this mode).
 #
 # The `ai-workload-isolation` Kyverno policy (security/adhar-kyverno-policies)
-# turns a CompositeApplication's `ai.isolation` / `ai.gpu.sharing` into the
+# turns a Application's `ai.isolation` / `ai.gpu.sharing` into the
 # nodeSelector that lands a pod on the right kind of node.
 #
 # Chart v26.7.1. Everything is pinned by the chart; nothing here is :latest.

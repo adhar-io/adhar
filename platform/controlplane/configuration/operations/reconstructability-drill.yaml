@@ -6,16 +6,16 @@
 # decays into fiction, so this pair of Operations turns it into a scheduled,
 # measured drill:
 #
-#   1. The CronOperation creates a small drill CompositeCluster (kind-backed
+#   1. The CronOperation creates a small drill Cluster (kind-backed
 #      composition, so it runs on the management cluster without cloud spend)
 #      on the first Sunday cadence of every month.
-#   2. The WatchOperation observes every CompositeCluster labeled
+#   2. The WatchOperation observes every Cluster labeled
 #      adhar.io/drill=true and, on each status change, records elapsed time
 #      since creation and whether the Ready condition was reached — pass/fail
 #      against the 1-hour SLO lands in the operation output history.
 #
 # Teardown is deliberate (a human reviews the result, then deletes):
-#   kubectl -n adhar-system delete compositecluster drill-reconstructability
+#   kubectl -n adhar-system delete cluster drill-reconstructability
 # Deleting the XR before the next monthly run is part of the drill runbook;
 # the CronOperation refuses to double-create (server-side apply is idempotent
 # on the same name).
@@ -59,7 +59,7 @@ spec:
 
                   rsp.desired.resources["drill-cluster"].resource.update({
                       "apiVersion": "platform.adhar.io/v1alpha1",
-                      "kind": "CompositeCluster",
+                      "kind": "Cluster",
                       "metadata": {
                           "name": "drill-reconstructability",
                           "namespace": "adhar-system",
@@ -115,7 +115,7 @@ spec:
 
                   rsp.output["drillStartedAt"] = stamp
                   rsp.output["message"] = (
-                      "Requested drill CompositeCluster "
+                      "Requested drill Cluster "
                       "adhar-system/drill-reconstructability; the drill "
                       "observer records time-to-Ready against the 1h SLO"
                   )
@@ -130,7 +130,7 @@ metadata:
 spec:
   watch:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCluster
+    kind: Cluster
     namespace: adhar-system
     matchLabels:
       adhar.io/drill: "true"

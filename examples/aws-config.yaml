@@ -87,7 +87,34 @@ providers:
     # SSO, autoscaling, teardown — behaves the same either way. Left off because
     # the kubeadm path is what the platform is designed around, and because EKS
     # adds a control-plane charge plus its own IAM surface.
-    # useManagedK8s: true
+    # clusterMode: the platform has THREE modes, the same three for every
+    # provider — `compute` (kubeadm on raw instances), `managed` (this
+    # cloud's hosted Kubernetes, here Amazon EKS) and `provided` (an existing
+    # cluster, see below). The service name is implied by the provider, so the
+    # old per-cloud spellings (eks/aks/gke/doks/k3s) and the `useManagedK8s`
+    # boolean are gone; both are now rejected rather than mapped,
+    # so a stale config fails loudly instead of quietly building the other mode.
+    #
+    # managed, because that is the mode where the cloud runs a
+    # cloud-controller-manager: the Gateway gets a real load-balancer address,
+    # external-dns can publish an A record for it, and the platform's URLs answer
+    # on 443. Compute mode has none of that (measured on Civo, 2026-10-06) and is
+    # reached through node ports.
+    #
+    # The THIRD mode is `provided`: the cluster ALREADY EXISTS and the platform
+    # only installs itself onto it, reached through the kubeconfig named below.
+    # Nothing is created, and — the part that matters — nothing is ever deleted:
+    # `adhar down` removes nothing and leaves the cluster running. The cluster
+    # must either already run Cilium with gatewayAPI.enabled=true (the platform
+    # leaves that Cilium exactly as configured), or have no CNI at all, in which
+    # case the platform installs Cilium itself. A cluster running a different CNI
+    # is REFUSED by the preflight rather than having its networking replaced.
+    #
+    #   clusterMode: provided
+    #   kubeconfig: ~/.kube/config       # default: $KUBECONFIG, then ~/.kube/config
+    #   kubeContext: my-existing-cluster # default: the file's current context
+    #
+    clusterMode: managed
 
     # Node image. Defaults to the newest Ubuntu 24.04 LTS (noble) from Canonical
     # for x86_64 — the same LTS the GCP provider boots, which it did not used to

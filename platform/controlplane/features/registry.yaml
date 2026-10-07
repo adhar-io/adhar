@@ -9,7 +9,7 @@ commands:
   - name: apps
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeApplication
+    compositeKind: Application
     claimKind: Application
     status: in-progress
     compositions:
@@ -20,7 +20,7 @@ commands:
   - name: auth
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeAuthStack
+    compositeKind: AuthStack
     claimKind: AuthStack
     status: pending
     compositions: []
@@ -28,7 +28,7 @@ commands:
   - name: backup
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeBackupPolicy
+    compositeKind: BackupPolicy
     claimKind: BackupPolicy
     status: pending
     compositions: []
@@ -36,7 +36,7 @@ commands:
   - name: cluster
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeCluster
+    compositeKind: Cluster
     claimKind: Cluster
     status: in-progress
     compositions:
@@ -59,7 +59,7 @@ commands:
   - name: config
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositePlatformConfig
+    compositeKind: PlatformConfig
     claimKind: PlatformConfig
     status: pending
     compositions: []
@@ -67,7 +67,7 @@ commands:
   - name: db
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeDatabase
+    compositeKind: Database
     claimKind: Database
     status: pending
     compositions: []
@@ -75,7 +75,7 @@ commands:
   - name: down
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeTeardown
+    compositeKind: Teardown
     claimKind: Teardown
     status: pending
     compositions: []
@@ -83,7 +83,7 @@ commands:
   - name: env
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeEnvironment
+    compositeKind: Environment
     claimKind: Environment
     status: pending
     compositions: []
@@ -91,7 +91,7 @@ commands:
   - name: get
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeQuery
+    compositeKind: Query
     claimKind: Query
     status: pending
     compositions: []
@@ -99,7 +99,7 @@ commands:
   - name: gitops
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeGitOps
+    compositeKind: GitOps
     claimKind: GitOps
     status: in-progress
     compositions:
@@ -110,7 +110,7 @@ commands:
   - name: health
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeHealth
+    compositeKind: Health
     claimKind: Health
     status: production-ready
     compositions:
@@ -121,7 +121,7 @@ commands:
   - name: logs
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeLogging
+    compositeKind: Logging
     claimKind: Logging
     status: pending
     compositions: []
@@ -129,7 +129,7 @@ commands:
   - name: metrics
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeMetrics
+    compositeKind: Metrics
     claimKind: Metrics
     status: production-ready
     compositions:
@@ -140,7 +140,7 @@ commands:
   - name: network
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeNetwork
+    compositeKind: Network
     claimKind: Network
     status: pending
     compositions: []
@@ -148,7 +148,7 @@ commands:
   - name: pipeline
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositePipeline
+    compositeKind: Pipeline
     claimKind: Pipeline
     status: production-ready
     compositions:
@@ -162,7 +162,7 @@ commands:
   - name: policy
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeCompliancePolicy
+    compositeKind: CompliancePolicy
     claimKind: CompliancePolicy
     status: production-ready
     compositions:
@@ -176,7 +176,7 @@ commands:
   - name: restore
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeRestore
+    compositeKind: Restore
     claimKind: Restore
     status: production-ready
     compositions:
@@ -187,7 +187,7 @@ commands:
   - name: scale
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeScale
+    compositeKind: Scale
     claimKind: Scale
     status: production-ready
     compositions:
@@ -198,7 +198,7 @@ commands:
   - name: secrets
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeSecret
+    compositeKind: Secret
     claimKind: Secret
     status: production-ready
     compositions:
@@ -212,7 +212,7 @@ commands:
   - name: security
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeSecurityStack
+    compositeKind: SecurityStack
     claimKind: SecurityStack
     status: pending
     compositions: []
@@ -220,7 +220,7 @@ commands:
   - name: service
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeService
+    compositeKind: Service
     claimKind: Service
     status: production-ready
     compositions:
@@ -231,7 +231,7 @@ commands:
   - name: storage
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeStorage
+    compositeKind: Storage
     claimKind: Storage
     status: production-ready
     compositions:
@@ -242,7 +242,7 @@ commands:
   - name: traces
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeTrace
+    compositeKind: Trace
     claimKind: Trace
     status: production-ready
     compositions:
@@ -253,7 +253,7 @@ commands:
   - name: up
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeBootstrap
+    compositeKind: Bootstrap
     claimKind: Bootstrap
     status: pending
     compositions: []
@@ -261,7 +261,7 @@ commands:
   - name: version
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositePlatformVersion
+    compositeKind: PlatformVersion
     claimKind: PlatformVersion
     status: pending
     compositions: []
@@ -269,7 +269,7 @@ commands:
   - name: webhook
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeWebhook
+    compositeKind: Webhook
     claimKind: Webhook
     status: production-ready
     compositions:
@@ -280,7 +280,7 @@ commands:
   - name: costtracker
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeCostTracker
+    compositeKind: CostTracker
     claimKind: CostTracker
     status: production-ready
     compositions:
@@ -291,7 +291,7 @@ commands:
   - name: compliance
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeCompliancePolicy
+    compositeKind: CompliancePolicy
     claimKind: CompliancePolicy
     status: production-ready
     compositions:
@@ -302,7 +302,7 @@ commands:
   - name: servicemesh
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeServiceMesh
+    compositeKind: ServiceMesh
     claimKind: ServiceMesh
     status: production-ready
     compositions:
@@ -313,7 +313,7 @@ commands:
   - name: observability
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeObservabilityStack
+    compositeKind: ObservabilityStack
     claimKind: ObservabilityStack
     status: production-ready
     compositions:
@@ -324,7 +324,7 @@ commands:
   - name: disasterrecovery
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeDisasterRecovery
+    compositeKind: DisasterRecovery
     claimKind: DisasterRecovery
     status: production-ready
     compositions:
@@ -335,7 +335,7 @@ commands:
   - name: federation
     group: platform.adhar.io
     version: v1alpha1
-    compositeKind: CompositeClusterFederation
+    compositeKind: ClusterFederation
     claimKind: ClusterFederation
     status: production-ready
     compositions:

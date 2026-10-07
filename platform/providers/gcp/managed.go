@@ -16,7 +16,7 @@ import (
 
 // Managed mode: Google Kubernetes Engine. The default (`clusterMode:
 // compute`) provisions Kubernetes with kubeadm on Compute Engine;
-// `useManagedK8s: true` (or `clusterMode: gke`) hands the control plane to
+// `clusterMode: managed` hands the control plane to
 // GKE. The VPC network and subnet come from the same helpers as compute mode
 // and are tracked the same way, so `adhar down` cleans both modes up alike.
 
@@ -32,7 +32,7 @@ const (
 )
 
 func (p *Provider) isManagedMode() bool {
-	return provider.ClusterModeIsManaged(p.config.ClusterMode, clusterModeGKE)
+	return provider.ClusterModeIsManaged(p.config.ClusterMode)
 }
 
 // gkeParent is the location GKE clusters are created in (zonal, the

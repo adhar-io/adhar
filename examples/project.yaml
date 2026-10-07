@@ -5,7 +5,7 @@
 # The team's TOTAL across projects is capped by the hierarchical tenant quota
 # (security/adhar-tenant-quotas) when an allowance is declared for it.
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeProject
+kind: Project
 metadata:
   name: payments-api
   namespace: team-payments

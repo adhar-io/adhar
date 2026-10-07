@@ -12,7 +12,7 @@
 #
 # This is mandatory, not cosmetic: a namespaced XR may not own cluster-scoped
 # composed resources, so the legacy kinds cannot be composed from
-# CompositeCluster (scope: Namespaced) at all.
+# Cluster (scope: Namespaced) at all.
 #
 # Shape differences from the old provider worth knowing:
 #   * forProvider.nodePool is a LIST of blocks (was a single object)
@@ -32,14 +32,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositecluster-digitalocean-doks
+  name: cluster-digitalocean-doks
   labels:
     feature: cluster
     provider: digitalocean
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCluster
+    kind: Cluster
   mode: Pipeline
   pipeline:
     - step: render-doks
@@ -362,7 +362,7 @@ spec:
             # XR status (schema: cluster.xrd.yaml → phase/message/ready/
             # endpoint/kubeconfigSecret).
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeCluster
+            kind: Cluster
             status:
               {{- $endpoint := default $server (dig "endpoint" "" $at) }}
               {{- $doStatus := dig "status" "" $at }}

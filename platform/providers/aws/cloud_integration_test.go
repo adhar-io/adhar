@@ -41,9 +41,17 @@ func TestClusterModeDefaultsToComputeAndOptsIntoEKS(t *testing.T) {
 	if (&Provider{config: &Config{}}).isManagedMode() {
 		t.Error("empty clusterMode must be kubeadm on EC2")
 	}
-	for _, mode := range []string{"eks", "managed", "EKS"} {
+	// One vocabulary, two words: only "managed" selects EKS. The old per-cloud
+	// spelling is refused at parse time (provider.NormalizeClusterMode), so it
+	// must NOT quietly select the managed service here either.
+	for _, mode := range []string{"managed", "MANAGED"} {
 		if !(&Provider{config: &Config{ClusterMode: mode}}).isManagedMode() {
 			t.Errorf("clusterMode %q must select EKS", mode)
+		}
+	}
+	for _, mode := range []string{"eks", "EKS", "compute"} {
+		if (&Provider{config: &Config{ClusterMode: mode}}).isManagedMode() {
+			t.Errorf("clusterMode %q must not select EKS", mode)
 		}
 	}
 	clusterRole, nodeRole := eksRoleNames("dev")

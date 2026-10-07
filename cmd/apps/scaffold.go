@@ -474,7 +474,7 @@ type scaffoldedRepo struct {
 
 // scaffoldTemplate renders a template's skeleton into a new Gitea repository
 // owned by the platform org and returns where the manifests landed, so the
-// caller can hand the repo to the same CompositeApplication path a --repo deploy
+// caller can hand the repo to the same Application path a --repo deploy
 // takes. The application's source therefore lives in git from the first commit,
 // which is the point of a golden path: the generated service is editable.
 func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateID, appName, namespace string, overrides map[string]string) (*scaffoldedRepo, error) {

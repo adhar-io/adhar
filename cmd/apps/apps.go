@@ -41,7 +41,7 @@ This command provides:
 Templates are the platform's golden paths, served from the curated
 adhar/adhar-templates repo in Gitea. Instantiating one renders its skeleton into
 the application's own Gitea repo, then deploys that repo through the
-CompositeApplication control plane — the same path the Adhar Console uses.
+Application control plane — the same path the Adhar Console uses.
 
 Examples:
   adhar application templates

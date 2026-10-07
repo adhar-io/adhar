@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// CompositeSearch (OpenSearch through the platform's operator) and
-// CompositeVector (Qdrant through provider-helm) are the two managed data
+// Search (OpenSearch through the platform's operator) and
+// Vector (Qdrant through provider-helm) are the two managed data
 // services a team can ask for by name. These pin the agreements between the
 // XRDs, their compositions, the RBAC the providers need and the packages they
 // lean on — none of which anything at apply time would report clearly.
 
-var datastoreXRDs = map[string]string{"search": "CompositeSearch", "vector": "CompositeVector"}
+var datastoreXRDs = map[string]string{"search": "Search", "vector": "Vector"}
 
 // The two RBAC files every composition's grants must appear in, and the literals
 // the assertions below repeat.
@@ -66,7 +66,7 @@ func TestDatastoreXRDsHaveTheirCompositions(t *testing.T) {
 // start. The platform's shared cluster (data/opensearch) is the version that
 // has been proven live, so a composed cluster defaults to the same one — in
 // the XRD default and in the composition's fallback alike.
-func TestCompositeSearchTracksThePlatformOpenSearchVersion(t *testing.T) {
+func TestSearchTracksThePlatformOpenSearchVersion(t *testing.T) {
 	var platformVersion string
 	for _, doc := range readYAMLDocs(t, filepath.Join(stackPackagesDir(t), "data/opensearch/manifests/cluster.yaml")) {
 		if doc["kind"] == "OpenSearchCluster" {
@@ -120,7 +120,7 @@ func TestDatastoreComposedKindsAreGranted(t *testing.T) {
 // with none and never notices. The key must reach Qdrant as an environment
 // variable with a secretKeyRef instead, which holds the pod until the Secret
 // exists and then starts it.
-func TestCompositeVectorAPIKeyNeverRidesHelmLookup(t *testing.T) {
+func TestVectorAPIKeyNeverRidesHelmLookup(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(controlPlaneDir(t), "compositions/vector/qdrant.yaml"))
 	if err != nil {
 		t.Fatal(err)

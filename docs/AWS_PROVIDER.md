@@ -27,7 +27,7 @@ is live-verified on DigitalOcean.
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on EC2 instances (default); EKS via `useManagedK8s: true` |
+| Provisioning model | kubeadm on EC2 instances (default); EKS via `clusterMode: managed`; an existing cluster via `clusterMode: provided` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Route 53, or any zone you point at the load balancer |
 
@@ -378,7 +378,7 @@ Add these only for the modes you use:
 
 | Mode | Extra permissions |
 |---|---|
-| `useManagedK8s: true` (EKS) | `eks:*` on the cluster and node groups, plus `iam:CreateRole`, `iam:GetRole`, `iam:DeleteRole`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`, `iam:ListAttachedRolePolicies`, `iam:PassRole` |
+| `clusterMode: managed` (EKS) | `eks:*` on the cluster and node groups, plus `iam:CreateRole`, `iam:GetRole`, `iam:DeleteRole`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`, `iam:ListAttachedRolePolicies`, `iam:PassRole` |
 | `roleArn` (assume-role) | `sts:AssumeRole` on that role |
 
 ## 2. Configuration
@@ -476,7 +476,7 @@ plane to EKS instead; every other operation (`adhar up`, node groups,
 providers:
   aws:
     type: aws
-    useManagedK8s: true      # or clusterMode: eks
+    clusterMode: managed     # EKS instead of kubeadm on EC2
 ```
 
 What it creates: the same VPC/subnets/security group as compute mode, two IAM

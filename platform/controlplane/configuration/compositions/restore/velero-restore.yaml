@@ -9,7 +9,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeRestore
+    kind: Restore
   mode: Pipeline
   pipeline:
     - step: render-restore

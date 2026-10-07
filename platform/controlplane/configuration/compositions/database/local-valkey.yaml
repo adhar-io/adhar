@@ -1,7 +1,7 @@
 ---
 # Local Valkey composition — provisions an operator-managed Valkey cache in the
 # requester's namespace via the Hyperspike valkey-operator (kind: Valkey), the
-# fully open-source (BSD-3) drop-in for Redis. Same CompositeDatabase XRD as the
+# fully open-source (BSD-3) drop-in for Redis. Same Database XRD as the
 # cloud (AWS/Azure/GCP) and other local engines, so a developer's self-service
 # request stays portable across environments.
 #
@@ -20,7 +20,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositedatabase-local-valkey
+  name: database-local-valkey
   labels:
     feature: database
     provider: local
@@ -28,7 +28,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeDatabase
+    kind: Database
   mode: Pipeline
   pipeline:
     - step: render

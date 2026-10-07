@@ -7,7 +7,7 @@ you may not use this file except in compliance with the License.
 
 // Package cache provides `adhar cache` — self-service in-memory caching.
 //
-// A cache is requested as a namespaced Crossplane CompositeDatabase with a cache
+// A cache is requested as a namespaced Crossplane Database with a cache
 // ENGINE (valkey by default, redis for the raw-Deployment path), which is the same
 // contract the Console and `adhar database` use. On this platform that resolves to
 // an operator-managed Valkey in the requester's namespace — Valkey being the
@@ -48,10 +48,10 @@ import (
 )
 
 const (
-	// xrKind and xrPlural address the CompositeDatabase XRD — a cache is a
+	// xrKind and xrPlural address the Database XRD — a cache is a
 	// database request with a cache engine, not a separate API.
-	xrKind   = "CompositeDatabase"
-	xrPlural = "compositedatabases"
+	xrKind   = "Database"
+	xrPlural = "databases"
 	// feature is the composition-selector category.
 	feature = "database"
 
@@ -162,7 +162,7 @@ with a NetworkPolicy.`,
 			return err
 		}
 		if cacheReplicas < 0 || cacheReplicas > 5 {
-			return fmt.Errorf("--replicas must be between 0 and 5 (the CompositeDatabase XRD's bounds), got %d", cacheReplicas)
+			return fmt.Errorf("--replicas must be between 0 and 5 (the Database XRD's bounds), got %d", cacheReplicas)
 		}
 		if cacheReplicas > 0 && engine == engineRedis {
 			// The redis composition is a single Deployment with no replication, so
@@ -312,7 +312,7 @@ it as a store rather than a cache loses what was in it.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		// Refuse to delete a CompositeDatabase that is not a cache: the same XRD
+		// Refuse to delete a Database that is not a cache: the same XRD
 		// backs Postgres, and `adhar cache delete` must not be a way to drop a
 		// database by mistake.
 		c, err := getCache(ctx(cmd), name)

@@ -222,7 +222,7 @@ file-driven:
 
 ## 8. Integration with `adhar up` and the platform bootstrap
 
-Day-0 uses the **Go provider interface**, not Crossplane compositions (the ADR's CompositeCluster swap is
+Day-0 uses the **Go provider interface**, not Crossplane compositions (the ADR's Cluster swap is
 future — see Drift). `createProductionCluster` → `ProviderManager.ProvisionEnvironment`
 ([platform/providers/provider.go](../../platform/providers/provider.go)) builds the provider from
 `buildProviderConfig(envConfig)`, `Authenticate`s, `ValidatePermissions`, and calls `CreateCluster(spec)` —
@@ -275,8 +275,8 @@ data path.
   byte-parity with the Kind flow). "k3s" survives only as Civo's *managed* opt-in (`useManagedK8s → "k3s"`),
   i.e. the opposite of what the ADR intended. This is the single largest divergence and should be reconciled
   in the ADR text.
-- **Provisioning is the Go provider interface, not Crossplane CompositeCluster compositions.** The ADR frames
-  workload clusters as `CompositeCluster` compositions that "swap" under an unchanged API; today day-0
+- **Provisioning is the Go provider interface, not Crossplane Cluster compositions.** The ADR frames
+  workload clusters as `Cluster` compositions that "swap" under an unchanged API; today day-0
   provisioning is imperative Go (`ProvisionEnvironment`/`CreateCluster`). The composition path is not yet
   built.
 - **Managed-K8s is not "supported until parity" — it is removed for AWS/Azure/GCP.** The ADR says managed

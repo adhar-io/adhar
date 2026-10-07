@@ -8,7 +8,7 @@ workers** and autoscaled to **9**. Timings are from that run.
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on plain Ubuntu droplets (DOKS is opt-in, `useManagedK8s: true`) |
+| Provisioning model | kubeadm on plain Ubuntu droplets (DOKS is opt-in, `clusterMode: managed`; an existing cluster is `clusterMode: provided`) |
 | Kubernetes | v1.37.0 (see [version precedence](#kubernetes-version)) |
 | Verified result | 76/76 enabled applications Healthy; Phase 1 and Phase 2 roadmap items live-verified |
 | Cost shape | 1 × control plane + 3–10 × `s-8vcpu-16gb`, 1 load balancer, ~55 block volumes |
@@ -91,7 +91,7 @@ To build it again afterwards, the exact sequence — including the two day-2 ste
 
 **API token.** A DigitalOcean token that can read/write **droplets, VPCs,
 firewalls, load balancers, block storage, SSH keys, DNS** and — only if you use
-`useManagedK8s` or provision workload clusters through Crossplane —
+`clusterMode: managed` or provision workload clusters through Crossplane —
 **Kubernetes**.
 
 > A **scoped** token is fine and is what the verified run used. Scoped tokens
@@ -175,7 +175,7 @@ providers:
     region: blr1
     primary: true                       # the cloud whose Crossplane provider gets installed
     useEnvironment: true                # token from DIGITALOCEAN_ACCESS_TOKEN
-    # useManagedK8s: true               # opt-in DOKS instead of kubeadm on droplets
+    # clusterMode: managed              # opt-in DOKS instead of kubeadm on droplets
     config:
       reuse_existing_vpc: true          # reuse a VPC with the same CIDR instead of creating one
       vpc_cidr: 10.3.0.0/16             # must not overlap another cluster you intend to mesh with
@@ -250,7 +250,7 @@ providers:
     region: blr1
     primary: true
     useEnvironment: true
-    useManagedK8s: true          # DOKS instead of kubeadm on droplets
+    clusterMode: managed         # DOKS instead of kubeadm on droplets
 ```
 
 `config.cluster_mode: doks` is the equivalent lower-level spelling; accepted
@@ -261,7 +261,7 @@ ignored.
 **Everything above the cluster is identical.** The same foundation, the same
 GitOps stack, the same packages. What changes is who owns the control plane.
 
-| | Droplets + kubeadm (default) | DOKS (`useManagedK8s: true`) |
+| | Droplets + kubeadm (default) | DOKS (`clusterMode: managed`) |
 |---|---|---|
 | Control plane | A droplet you pay for and manage | Managed by DigitalOcean, free |
 | Kubernetes version | `globals.DefaultKubernetesVersion`, or your pin | Resolved to a DOKS **version slug** (e.g. `1.33.1-do.3`) |
@@ -280,13 +280,16 @@ resolves rather than failing. Check what exists with:
 doctl --context default -t "$TOKEN" kubernetes options versions
 ```
 
-**Not available on AWS, Azure or GCP.** Those providers reject `useManagedK8s`
-with an explicit error rather than quietly ignoring it: EKS, AKS and GKE
-integration is not offered, and Adhar provisions raw compute there. Civo has the
-same switch, where it selects Civo's managed k3s.
+**The same switch on every cloud.** `clusterMode: managed` selects EKS on AWS,
+AKS on Azure, GKE on GCP, DOKS here and Civo's k3s on Civo — one word, with the
+service implied by the provider (added for AWS/Azure/GCP on 2026-09-17; the
+`useManagedK8s` boolean it replaced was removed on 2026-10-07 and is now
+rejected with an explicit error rather than ignored). `clusterMode: provided`
+is the third option: the cluster already exists and Adhar only installs onto
+it — see [PROVIDER_GUIDE §2.2](PROVIDER_GUIDE.md).
 
 > The verified run used the **default droplet path**. DOKS mode is exercised by
-> the `CompositeCluster` workload-cluster flow ([§4.4](#44-workload-clusters-doks-through-crossplane)),
+> the `Cluster` workload-cluster flow ([§4.4](#44-workload-clusters-doks-through-crossplane)),
 > which provisions real DOKS clusters, but a full platform bootstrap **onto**
 > DOKS has not been run end to end.
 
@@ -598,7 +601,7 @@ kubectl -n adhar-system get applications -l adhar.io/cluster=dp-local   # kyvern
 # reconstructability drill (Crossplane Operations)
 kubectl get cronoperation adhar-reconstructability-drill -o jsonpath='{.spec.operationTemplate}' | \
   jq '{apiVersion:"ops.crossplane.io/v1alpha1",kind:"Operation",metadata:{generateName:"drill-manual-"},spec:.spec}' | kubectl create -f -
-kubectl -n adhar-system get compositecluster drill-reconstructability   # Ready in seconds
+kubectl -n adhar-system get cluster drill-reconstructability   # Ready in seconds
 kubectl get operations -o jsonpath='{range .items[*]}{.status.pipeline[*].output.verdict}{"\n"}{end}'   # pass
 ```
 
@@ -875,7 +878,7 @@ the Postgres rows stay empty.
 
 ### 4.4 Workload clusters (DOKS through Crossplane)
 
-A `CompositeCluster` XR provisions a **managed DOKS** cluster and registers it
+A `Cluster` XR provisions a **managed DOKS** cluster and registers it
 with ArgoCD automatically — this is the self-service path for workload clusters,
 distinct from the kubeadm droplets the platform itself runs on. Verified
 2026-09-12: apply → `Ready` in ~11 minutes, ArgoCD cluster Secret created, the
@@ -885,11 +888,11 @@ external-secrets) Healthy on it ~3 minutes later.
 ```bash
 kubectl apply -f - <<'EOF'
 apiVersion: platform.adhar.io/v1alpha1
-kind: CompositeCluster
+kind: Cluster
 metadata: {name: wl-blr1, namespace: adhar-scratch}
 spec:
   crossplane:
-    compositionRef: {name: compositecluster-digitalocean-doks}
+    compositionRef: {name: cluster-digitalocean-doks}
   parameters:
     provider: DigitalOcean
     region: blr1
@@ -897,7 +900,7 @@ spec:
     nodePools: [{name: default, size: s-2vcpu-4gb, count: 2}]
 EOF
 
-kubectl -n adhar-scratch get compositecluster wl-blr1 -w
+kubectl -n adhar-scratch get cluster wl-blr1 -w
 kubectl -n adhar-system get secret cluster-wl-blr1                  # ArgoCD registration
 kubectl -n adhar-system get applications -l adhar.io/cluster=wl-blr1
 ```

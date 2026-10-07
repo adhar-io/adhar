@@ -19,7 +19,7 @@ label selector, with persistent volumes restored.
 For a CloudNativePG cluster (the local default engine), a namespace-scoped
 Velero restore brings back the CNPG Cluster CR and its PVCs. For a
 point-in-time recovery instead, use CNPG's bootstrap.recovery on a new
-CompositeDatabase referencing the backup object store.
+Database referencing the backup object store.
 
 Examples:
   adhar restore database my-backup --namespace=team-a

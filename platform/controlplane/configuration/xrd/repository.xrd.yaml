@@ -1,0 +1,130 @@
+# Repository — a place for a team's code and the artefacts built from it.
+#
+# One request, three systems, because on this platform they are one thing: a
+# Gitea repository (where the code lives), a Harbor project (where its container
+# images are pushed) and the Nexus hosted repositories its language packages go
+# to. A team that gets only the git repo discovers the other two the first time
+# CI tries to push, which is the worst moment to find out.
+#
+# Idempotent: every one of the three is created only if absent, so re-applying
+# this object — or pointing it at systems that were set up by hand — converges
+# instead of failing.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: repositories.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Repository
+    plural: repositories
+  defaultCompositionRef:
+    name: repository-local
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: repository
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                      description: Human-friendly name shown in the console (defaults to the resource name).
+                    description:
+                      type: string
+                      default: ""
+                    organisation:
+                      type: string
+                      default: adhar
+                      description: >-
+                        The Gitea organisation that owns the repository, and the
+                        Harbor project name. One organisation per platform is the
+                        tenancy model, so the default is almost always right.
+                    private:
+                      type: boolean
+                      default: false
+                      description: >-
+                        Private repositories need credentials in every CI step
+                        that reads them; the platform's own CI uses the
+                        gitea-ci-creds secret either way.
+                    defaultBranch:
+                      type: string
+                      default: main
+                    autoInit:
+                      type: boolean
+                      default: true
+                      description: >-
+                        Create the repository with an initial commit. A repo with
+                        no commits has no default branch, which Argo CD reports as
+                        `unknown revision` rather than as an empty repository.
+                    container:
+                      type: object
+                      description: The Harbor project images are pushed to.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        public:
+                          type: boolean
+                          default: false
+                        quotaGB:
+                          type: integer
+                          default: 10
+                          description: Storage limit for the project; -1 means unlimited.
+                    packages:
+                      type: object
+                      description: Nexus hosted repositories for language packages.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        formats:
+                          type: array
+                          default: [npm]
+                          description: >-
+                            Which hosted repositories to create, named
+                            `<repository>-<format>`. The platform's shared
+                            maven-hosted/npm-hosted/pypi-hosted repositories
+                            already exist; these are for a team that wants its own.
+                          items:
+                            type: string
+                            enum: [npm, maven2, pypi, raw, docker, nuget, helm]
+                    organisationLabel:
+                      type: string
+                      default: adhar
+                      description: Owning organisation (label adhar.io/organisation).
+                    team:
+                      type: string
+                      default: platform
+                      description: Owning team (label adhar.io/team).
+                    project:
+                      type: string
+                      default: ""
+                      description: Owning project (label adhar.io/project).
+            status:
+              type: object
+              properties:
+                cloneURL: { type: string }
+                webURL: { type: string }
+                imageRepository: { type: string }
+                packageRepositories:
+                  type: array
+                  items: { type: string }

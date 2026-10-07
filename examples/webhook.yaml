@@ -1,0 +1,27 @@
+# An outbound webhook: platform events delivered to an endpoint of your own.
+#
+# The secret for signing or authenticating the call is referenced, never
+# inlined. A retry policy matters more than it looks — an endpoint that is down
+# for a deploy will miss every event in that window without one.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Webhook
+metadata:
+  name: payments-deploy-notify
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: webhook
+  name: payments-deploy-notify
+  endpoint: https://hooks.example.com/adhar/payments
+  events:
+    - application.synced
+    - application.degraded
+    - release.promoted
+  authentication:
+    type: bearer
+    secretRef: payments-webhook-token
+  retryPolicy:
+    attempts: 5
+    backoff: exponential

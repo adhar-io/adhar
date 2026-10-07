@@ -1,5 +1,5 @@
 ---
-# CompositeMessaging — self-service Kafka (and future messaging engines). v2
+# Messaging — self-service Kafka (and future messaging engines). v2
 # namespaced composite (no claims); developers create it directly in their
 # namespace and Crossplane composes the backing resources. On local it composes
 # a single-node Strimzi Kafka (KRaft); the same XRD can map to MSK / Event Hubs
@@ -7,13 +7,13 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositemessagings.platform.adhar.io
+  name: messagings.platform.adhar.io
 spec:
   scope: Namespaced
   group: platform.adhar.io
   names:
-    kind: CompositeMessaging
-    plural: compositemessagings
+    kind: Messaging
+    plural: messagings
   versions:
     - name: v1alpha1
       served: true

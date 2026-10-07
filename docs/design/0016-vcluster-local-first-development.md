@@ -11,7 +11,7 @@ images. It gives a developer a clean, disposable cluster in seconds for the thin
 cannot isolate — CRDs, admission webhooks, cluster-scoped RBAC, and API-server version — while
 reusing the host's capacity. It is the isolation boundary for *Kubernetes itself* (namespaces
 isolate workloads; vclusters isolate the cluster), the **local data plane** of ADR-0023, and the
-laptop-weight backing for a `CompositeCluster` "give me a cluster" claim (ADR-0005 / ADR-0007).
+laptop-weight backing for a `Cluster` "give me a cluster" claim (ADR-0005 / ADR-0007).
 This doc documents the shipped `core/vcluster` package as built and how it wires into the rest of
 the platform.
 
@@ -174,10 +174,10 @@ vcluster is the **T1 (local) data plane** in the fleet design. In [ADR-0023](../
 
 ## 7. Relationship to ADR-0005 / ADR-0007 (one API across sizes)
 
-The vcluster is the ephemeral/local realization of the durable `CompositeCluster` abstraction.
+The vcluster is the ephemeral/local realization of the durable `Cluster` abstraction.
 `platform/controlplane/configuration/xrd/cluster.xrd.yaml` defines
-`compositeclusters.platform.adhar.io` (`kind: CompositeCluster`, `scope: Namespaced`, `v1alpha1`).
-Per ADR-0016, `CompositeCluster` gains a vcluster-backed Composition so the same claim shape
+`clusters.platform.adhar.io` (`kind: Cluster`, `scope: Namespaced`, `v1alpha1`).
+Per ADR-0016, `Cluster` gains a vcluster-backed Composition so the same claim shape
 resolves to a **vcluster** locally / for ephemeral needs and to **EKS/AKS/GKE** for durable
 workload clusters — provider-appropriate weight on ADR-0007's declarative path. That Composition
 is the "Composition wiring" the ADR defers to Roadmap Phase 2; the *package* (this control-plane
@@ -227,7 +227,7 @@ chart) is what ships today.
 | `platform/stack/adhar-appset-local.yaml` (≈L212) | ApplicationSet generator element (`enabled: "false"`). |
 | `platform/stack/environments/{local,production}/config.yaml` (≈L198) | Env generator elements (`enabled: "false"`). |
 | `platform/stack/environments/dev/config.yaml` (≈L14) | Dev generator element (`enabled: true`). |
-| `platform/controlplane/configuration/xrd/cluster.xrd.yaml` | `CompositeCluster` XRD the vcluster Composition will back (ADR-0005). |
+| `platform/controlplane/configuration/xrd/cluster.xrd.yaml` | `Cluster` XRD the vcluster Composition will back (ADR-0005). |
 | `platform/controllers/dataplane/infra.go` (planned, design 0023) | `ensureInfra` `mode: vcluster` — renders this chart as the T1 data plane. |
 | `platform/stack/packages/core/Kamaji/` | Hosted-control-plane alternative for node-pool multi-tenancy. |
 </content>

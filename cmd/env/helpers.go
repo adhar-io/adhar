@@ -15,10 +15,10 @@ import (
 // envLabel marks a namespace as an Adhar-managed environment.
 const envLabel = "adhar.io/environment"
 
-// compositeEnvironmentGVR is the GVR for the CompositeEnvironment XR. Creation
+// environmentGVR is the GVR for the Environment XR. Creation
 // is best-effort: when the XRD is absent we fall back to a plain namespace.
-var compositeEnvironmentGVR = schema.GroupVersionResource{
-	Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositeenvironments",
+var environmentGVR = schema.GroupVersionResource{
+	Group: "platform.adhar.io", Version: "v1alpha1", Resource: "environments",
 }
 
 // veleroBackupGVR / veleroRestoreGVR identify Velero resources used to back up

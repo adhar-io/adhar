@@ -1,0 +1,47 @@
+# Cost attribution and budget alerts, on top of the platform's OpenCost install
+# (observability/opencost). Aggregating by namespace is what makes a shared
+# cluster chargeable: every platform object is labelled with its organisation,
+# team, project and environment, so a namespace maps to an owner.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CostTracker
+metadata:
+  name: payments-costs
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        engine: opencost
+  parameters:
+    displayName: Payments cost tracking
+    costEngine: opencost
+    providers: [civo]
+    aggregationLevel: namespace
+    currency: USD
+    budgets:
+      - name: payments-monthly
+        amount: 1500
+        period: monthly
+        # Alert at 80% of the budget, not at 100% — by then it is spent.
+        threshold: 80
+        scope:
+          namespaces:
+            - payments-api-dev
+            - payments-api-test
+            - payments-api-prod
+    optimizationRules:
+      - name: find-idle
+        type: idle-resources
+        enabled: true
+        autoApply: false
+      - name: rightsize-requests
+        type: rightsize
+        enabled: true
+        autoApply: false
+    alerting:
+      enabled: true
+      channels:
+        - type: slack
+          config:
+            channel: "#payments-alerts"
+    retentionDays: 90

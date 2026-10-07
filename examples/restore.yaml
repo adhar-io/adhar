@@ -1,0 +1,26 @@
+# Restore from a backup taken by a BackupPolicy.
+#
+# `backupName` is the Velero backup, not the schedule: list them with
+# `velero backup get` (or `kubectl -n adhar-system get backups.velero.io`). A
+# `selective` restore needs `resources`; `full` ignores it.
+#
+# Restoring INTO a different namespace is the safe way to verify a backup — it
+# is what the verification block in backup-policy.yaml automates.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Restore
+metadata:
+  name: payments-restore-2026-10-07
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: velero
+  name: payments-restore-2026-10-07
+  backupName: payments-nightly-20261007020014
+  restoreType: selective
+  targetNamespace: payments-restore-test
+  resources:
+    - persistentvolumeclaims
+    - configmaps
+    - secrets

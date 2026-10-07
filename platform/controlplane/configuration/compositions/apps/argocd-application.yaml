@@ -1,13 +1,13 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeapplication-argocd
+  name: application-argocd
   labels:
     feature: apps
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeApplication
+    kind: Application
   mode: Pipeline
   pipeline:
     - step: render-application
@@ -222,7 +222,7 @@ spec:
             # resource is v1-only), so the application coordinates that used to be
             # emitted as connection details are surfaced through status instead.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositeApplication
+            kind: Application
             status:
               phase: {{ quote $phase }}
               message: {{ quote $joinedMessages }}

@@ -1,0 +1,42 @@
+# A team's own Valkey, managed by the valkey-operator.
+#
+# Valkey, not Redis: it is the BSD-3 fork every package on this platform wires
+# to, and `redis` is the opt-in alternative that ships disabled. Clients do not
+# need to care — valkey:// and redis:// are the same protocol.
+#
+# For a SHARED cache, use the platform's `adhar-cache` with a key prefix; this
+# object is for a team that wants its own eviction policy, its own memory and its
+# own blast radius.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Cache
+metadata:
+  name: payments-cache
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: cache
+  parameters:
+    displayName: Payments cache
+    engine: valkey
+    # More than one node shards the keyspace (cluster mode), which not every
+    # client library supports.
+    nodes: 1
+    # Replicas per node; 0 is a single instance with no failover.
+    replicas: 1
+    # The operator generates the credential into Secret `payments-cache`
+    # (key `password`) — the connection Secret points at it rather than copying
+    # it, so there is one thing to rotate.
+    password: true
+    tls: false
+    # A cache that hits its limit EVICTS. One with no limit is killed by the
+    # kubelet instead, which is not eviction — it is an outage.
+    maxMemory: 512Mi
+    cpu: 50m
+    metrics: true
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev
+    deletionPolicy: Delete

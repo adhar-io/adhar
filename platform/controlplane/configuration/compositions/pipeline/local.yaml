@@ -1,22 +1,22 @@
 ---
-# Local Pipeline composition — turns a CompositePipeline into a runnable CI/CD
+# Local Pipeline composition — turns a Pipeline into a runnable CI/CD
 # pipeline on the local cluster. It emits a Tekton TaskRun (tekton.dev/v1, the
 # supply-chain CI engine installed in the local profile) with an inline taskSpec,
 # wrapped in a provider-kubernetes Object (the same pattern the local Project
 # composition uses to manage namespaced resources reliably through the stable
-# provider SA). On a cloud platform the identical CompositePipeline XR resolves to
+# provider SA). On a cloud platform the identical Pipeline XR resolves to
 # the cloud pipeline composition instead — the request is portable.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositepipeline-local
+  name: pipeline-local
   labels:
     feature: pipeline
     provider: local
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositePipeline
+    kind: Pipeline
   mode: Pipeline
   pipeline:
     - step: render
@@ -77,7 +77,7 @@ spec:
             ---
             # Publish the pipeline identity on the XR status.
             apiVersion: platform.adhar.io/v1alpha1
-            kind: CompositePipeline
+            kind: Pipeline
             status:
               pipelineId: {{ $name | quote }}
     - step: ready

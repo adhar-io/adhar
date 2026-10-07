@@ -29,7 +29,7 @@ import (
 // platform/stack/packages/security/adhar-tenant-quotas, so they are named here
 // rather than spelled twice.
 const (
-	PathValidateProject = "/validate-platform-adhar-io-v1alpha1-compositeproject"
+	PathValidateProject = "/validate-platform-adhar-io-v1alpha1-project"
 	// DefaultCertDir is where cert-manager mounts the serving certificate.
 	DefaultCertDir = "/tmp/k8s-webhook-server/serving-certs"
 )

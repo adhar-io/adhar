@@ -40,8 +40,8 @@ cluster is [PRODUCTION_ACCESS.md](PRODUCTION_ACCESS.md); per-cloud setup is
 | **T3 — management + workload clusters** | Multiple environments/teams, compliance boundaries, cluster-level blast-radius isolation | More clusters to pay for and operate (the management cluster automates most of it) |
 
 Start with T2; the move to T3 is additive (provision workload clusters via a
-`CompositeCluster` XR, shift apps over) because all platform state is already in
-Git. The T3 path is live-verified: a `CompositeCluster` provisioned a real DOKS
+`Cluster` XR, shift apps over) because all platform state is already in
+Git. The T3 path is live-verified: a `Cluster` provisioned a real DOKS
 cluster in ~11 minutes, auto-registered it with ArgoCD (labels
 `adhar.io/cluster`, `adhar.io/dataplane`, `adhar.io/dataplane-mode`), the thin
 workload profile landed 5/5 Healthy on it, and teardown left no paid resources.
@@ -338,19 +338,19 @@ they require the core `--enable-operations` flag and an object store.
 - **Quarterly** — full management-cluster restore into an isolated VPC.
 - **Monthly** — the shipped reconstructability drill
   (`platform/controlplane/configuration/operations/reconstructability-drill.yaml`,
-  requires `--enable-operations`) creates a drill `CompositeCluster` on the 1st
+  requires `--enable-operations`) creates a drill `Cluster` on the 1st
   of each month; its observer WatchOperation records time-to-Ready against the
   1-hour SLO in the operation output. Review the verdict, then delete the drill
   XR:
 
   ```bash
-  kubectl -n adhar-system delete compositecluster drill-reconstructability
+  kubectl -n adhar-system delete cluster drill-reconstructability
   ```
 
 - **Monthly, T3** — additionally destroy and reprovision one non-prod *cloud*
   workload cluster from Git: same SLO, real provider. Prune its Applications
   **before** deleting the XR
-  ([TROUBLESHOOTING §4.3](TROUBLESHOOTING.md#43-applications-hang-terminating-after-a-compositecluster-is-deleted)).
+  ([TROUBLESHOOTING §4.3](TROUBLESHOOTING.md#43-applications-hang-terminating-after-a-cluster-is-deleted)).
 
 ## 9. Upgrades
 
@@ -386,7 +386,7 @@ grep the output for foreign namespaces
 adhar cluster upgrade <cluster> --version 1.37.2 -p digitalocean -f config.yaml
 ```
 
-On `useManagedK8s` clusters follow the provider's managed-upgrade process
+On `clusterMode: managed` clusters follow the provider's managed-upgrade process
 instead. Do the management cluster **last**, after workload clusters prove the
 version.
 

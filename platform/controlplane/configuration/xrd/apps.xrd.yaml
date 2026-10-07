@@ -1,15 +1,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeapplications.platform.adhar.io
+  name: applications.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeApplication
-    plural: compositeapplications
+    kind: Application
+    plural: applications
   defaultCompositionRef:
-    name: compositeapplication-multienv
+    name: application-multienv
   versions:
   - name: v1alpha1
     served: true
@@ -116,7 +116,7 @@ spec:
                           requestsPerMinute: {type: integer, default: 60}
                   project:
                     type: string
-                    description: The CompositeProject this application belongs to. Its environments, AppProject
+                    description: The Project this application belongs to. Its environments, AppProject
                       and Kargo project are read from that object; `default` means the platform project `adhar`.
                   description:
                     type: string

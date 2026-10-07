@@ -73,7 +73,7 @@ spec:
         repoUrl: gitea.adhar.localtest.me:8443?repo=${{parameters.name}}
         defaultBranch: main
     # NOTE: unlike the older templates there is no `adhar:create-argocd-app`
-    # step here. This skeleton ships `.adhar/app.yaml` — a CompositeApplication
+    # step here. This skeleton ships `.adhar/app.yaml` — a Application
     # — and the platform's `adhar-services` ApplicationSet adopts any org repo
     # carrying that descriptor, so the control plane creates the ArgoCD
     # Application itself. Creating one here as well would leave two Applications

@@ -573,7 +573,7 @@ packages:
     namespace: "adhar-system"
     category: "infrastructure"
     manifestPath: "infrastructure/terraform/manifests"
-  # ApplicationType `ai` isolation (CompositeApplication parameters.type: ai).
+  # ApplicationType `ai` isolation (Application parameters.type: ai).
   # kata-containers installs the Kata microVM runtime on nodes labelled
   # adhar.io/microvm=true and creates the kata-qemu / kata-qemu-nvidia-gpu
   # RuntimeClasses; gpu-operator advertises nvidia.com/gpu on container nodes

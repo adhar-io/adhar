@@ -86,6 +86,11 @@ func (v *SchemaValidator) validateGlobalSettings(settings *GlobalSettingsConfig)
 	}
 }
 
+// clusterModeProvided mirrors provider.ClusterModeProvided. It is duplicated
+// rather than imported because platform/providers imports this package, and the
+// validator needs to know the one mode in which a cluster is not being built.
+const clusterModeProvided = "provided"
+
 // validateProviders validates provider configurations
 func (v *SchemaValidator) validateProviders(providers map[string]ConfigProviderConfig) {
 	if len(providers) == 0 {
@@ -103,8 +108,14 @@ func (v *SchemaValidator) validateProviders(providers map[string]ConfigProviderC
 				fmt.Sprintf("invalid provider type, must be one of: %s", strings.Join(validProviderTypes, ", ")))
 		}
 
-		// Validate region
-		if provider.Region == "" {
+		// Validate region.
+		//
+		// Not required in `clusterMode: provided`: the cluster already exists, the
+		// platform creates nothing, and no resource is placed anywhere — so a
+		// region would be a value the operator has to invent and that nothing
+		// reads. It stays required in the two modes that build infrastructure,
+		// where it decides where that infrastructure goes.
+		if provider.Region == "" && !strings.EqualFold(strings.TrimSpace(provider.ClusterMode), clusterModeProvided) {
 			v.addError(fmt.Sprintf("providers.%s.region", name), provider.Region, "region is required")
 		}
 

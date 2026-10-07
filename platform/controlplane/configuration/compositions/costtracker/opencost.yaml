@@ -1,14 +1,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositecosttracker-opencost
+  name: costtracker-opencost
   labels:
     feature: costtracker
     engine: opencost
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeCostTracker
+    kind: CostTracker
   mode: Pipeline
   pipeline:
     - step: render-opencost
@@ -420,7 +420,7 @@ spec:
 
             items = _items + [{
                 apiVersion: "platform.adhar.io/v1alpha1"
-                kind: "CompositeCostTracker"
+                kind: "CostTracker"
                 metadata: oxr.metadata
                 status: {
                     phase: _phase

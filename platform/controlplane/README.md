@@ -144,7 +144,7 @@ Example providers supported:
 
 ## Composite Resources
 
-### Cluster (CompositeCluster)
+### Cluster (Cluster)
 
 Provisions Kubernetes clusters across multiple cloud providers and platforms with extensive configuration options.
 
@@ -244,7 +244,7 @@ spec:
     namespace: crossplane-system
 ```
 
-### Application (CompositeApplication)
+### Application (Application)
 
 Manages application deployments through ArgoCD with structured condition mapping and detailed status reporting.
 
@@ -293,7 +293,7 @@ spec:
         - CreateNamespace=true
 ```
 
-### GitOps (CompositeGitOps)
+### GitOps (GitOps)
 
 Manages ArgoCD Projects and ApplicationSets for multi-environment deployments.
 
@@ -304,7 +304,7 @@ Manages ArgoCD Projects and ApplicationSets for multi-environment deployments.
 - Cluster resource whitelisting
 - ApplicationSet support for templated applications
 
-### Database (CompositeDatabase)
+### Database (Database)
 
 Provisions managed database instances with backup, monitoring, and security.
 
@@ -317,7 +317,7 @@ Provisions managed database instances with backup, monitoring, and security.
 - Enhanced monitoring
 - Network isolation
 
-### Network (CompositeNetwork)
+### Network (Network)
 
 Creates and manages cloud networking infrastructure.
 
@@ -330,7 +330,7 @@ Creates and manages cloud networking infrastructure.
 - Flow logs for traffic analysis
 - Multi-provider support
 
-### AuthStack (CompositeAuthStack)
+### AuthStack (AuthStack)
 
 Deploys and configures identity and access management systems.
 
@@ -343,7 +343,7 @@ Deploys and configures identity and access management systems.
 - MFA configuration
 - Session management
 
-### BackupPolicy (CompositeBackupPolicy)
+### BackupPolicy (BackupPolicy)
 
 Manages backup and disaster recovery policies.
 
@@ -375,7 +375,7 @@ Manages backup and disaster recovery policies.
    ```yaml
    commands:
      - name: mycommand
-       compositeKind: CompositeMyResource
+       compositeKind: MyResource
        status: in-progress
        compositions:
          - name: provider-implementation
@@ -574,57 +574,57 @@ See `examples/` directory for complete samples:
 ### ✅ Production-Ready Features (11 Total)
 
 #### 1. Pipeline (CI/CD)
-**XRD**: `compositepipelines.platform.adhar.io`
+**XRD**: `pipelines.platform.adhar.io`
 - **Compositions**: `argo-workflows`, `tekton`
 - **Features**: Multi-stage pipelines, Git/schedule/manual triggers, artifact storage, notifications, timeout management
 
 #### 2. Policy (Compliance & Security)
-**XRD**: `compositecompliancepolicies.platform.adhar.io`
+**XRD**: `compliancepolicies.platform.adhar.io`
 - **Compositions**: `kyverno`, `opa-gatekeeper`
 - **Features**: Resource limits enforcement, privileged container prevention, compliance standards (CIS, NIST, PCI-DSS, HIPAA), audit/enforce modes
 
 #### 3. Secrets Management
-**XRD**: `compositesecrets.platform.adhar.io`
+**XRD**: `secrets.platform.adhar.io`
 - **Compositions**: `external-secrets`
 - **Features**: Multi-provider secret stores (AWS, Azure, GCP, Vault), automatic rotation, encryption, access auditing
 
 #### 4. Storage Management
-**XRD**: `compositestorages.platform.adhar.io`
+**XRD**: `storages.platform.adhar.io`
 - **Compositions**: `persistent-volume`
 - **Features**: Block/file/object/database storage, configurable storage classes, access modes, backup scheduling, encryption
 
 #### 5. Service Management
-**XRD**: `compositeservices.platform.adhar.io`
+**XRD**: `services.platform.adhar.io`
 - **Compositions**: `kubernetes-service`
 - **Features**: All service types (ClusterIP, NodePort, LoadBalancer, ExternalName), port configuration, monitoring integration
 
 #### 6. Metrics Collection
-**XRD**: `compositemetrics.platform.adhar.io`
+**XRD**: `metrics.platform.adhar.io`
 - **Compositions**: `prometheus-servicemonitor`
 - **Features**: Configurable scrape intervals, multi-target support, AlertManager integration, custom metrics endpoints
 
 #### 7. Health Monitoring
-**XRD**: `compositehealths.platform.adhar.io`
+**XRD**: `healths.platform.adhar.io`
 - **Compositions**: `healthcheck`
 - **Features**: HTTP/TCP/gRPC health probes, configurable intervals/timeouts, multi-target checks, CronJob-based scheduling
 
 #### 8. Distributed Tracing
-**XRD**: `compositetraces.platform.adhar.io`
+**XRD**: `traces.platform.adhar.io`
 - **Compositions**: `jaeger`
 - **Features**: Jaeger, Tempo, Zipkin, Datadog support, sampling rate configuration, trace retention policies
 
 #### 9. Webhook Management
-**XRD**: `compositewebhooks.platform.adhar.io`
+**XRD**: `webhooks.platform.adhar.io`
 - **Compositions**: `kubernetes-webhook`
 - **Features**: Event-driven webhooks, authentication (bearer token, mTLS), retry policies, success rate tracking
 
 #### 10. Auto-scaling
-**XRD**: `compositescales.platform.adhar.io`
+**XRD**: `scales.platform.adhar.io`
 - **Compositions**: `hpa`
 - **Features**: CPU/memory-based scaling, custom metrics, min/max replica configuration, KEDA integration ready, scaling behavior customization
 
 #### 11. Restore Operations
-**XRD**: `compositerestores.platform.adhar.io`
+**XRD**: `restores.platform.adhar.io`
 - **Compositions**: `velero-restore`
 - **Features**: Full/selective/database/config restores, namespace-scoped restores, resource filtering, PersistentVolume restoration
 
@@ -668,17 +668,17 @@ Each XRD maps to a CLI command:
 
 | CLI Command | XRD | Status |
 |-------------|-----|--------|
-| `adhar pipeline` | CompositePipeline | ✅ Production |
-| `adhar policy` | CompositeCompliancePolicy | ✅ Production |
-| `adhar secrets` | CompositeSecret | ✅ Production |
-| `adhar storage` | CompositeStorage | ✅ Production |
-| `adhar service` | CompositeService | ✅ Production |
-| `adhar metrics` | CompositeMetrics | ✅ Production |
-| `adhar health` | CompositeHealth | ✅ Production |
-| `adhar traces` | CompositeTrace | ✅ Production |
-| `adhar webhook` | CompositeWebhook | ✅ Production |
-| `adhar scale` | CompositeScale | ✅ Production |
-| `adhar restore` | CompositeRestore | ✅ Production |
+| `adhar pipeline` | Pipeline | ✅ Production |
+| `adhar policy` | CompliancePolicy | ✅ Production |
+| `adhar secrets` | Secret | ✅ Production |
+| `adhar storage` | Storage | ✅ Production |
+| `adhar service` | Service | ✅ Production |
+| `adhar metrics` | Metrics | ✅ Production |
+| `adhar health` | Health | ✅ Production |
+| `adhar traces` | Trace | ✅ Production |
+| `adhar webhook` | Webhook | ✅ Production |
+| `adhar scale` | Scale | ✅ Production |
+| `adhar restore` | Restore | ✅ Production |
 
 ### Build Status
 

@@ -36,7 +36,7 @@ const (
 
 // isManagedMode reports whether the provider config selects EKS.
 func (p *Provider) isManagedMode() bool {
-	return provider.ClusterModeIsManaged(p.config.ClusterMode, clusterModeEKS)
+	return provider.ClusterModeIsManaged(p.config.ClusterMode)
 }
 
 // isManagedCluster probes EKS for the cluster so a compute-mode config can

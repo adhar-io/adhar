@@ -17,7 +17,7 @@ import (
 )
 
 // Managed mode: Azure Kubernetes Service. The default (`clusterMode:
-// compute`) provisions Kubernetes with kubeadm on VMs; `useManagedK8s: true`
+// compute`) provisions Kubernetes with kubeadm on VMs; `clusterMode: managed`
 // (or `clusterMode: aks`) hands the control plane to AKS. The cluster is
 // created with `networkPlugin: none` (BYO CNI) so the platform bootstrap
 // installs Cilium exactly as it does on every other provider.
@@ -45,7 +45,7 @@ func aksPoolName(name string) string {
 }
 
 func (p *Provider) isManagedMode() bool {
-	return provider.ClusterModeIsManaged(p.config.ClusterMode, clusterModeAKS)
+	return provider.ClusterModeIsManaged(p.config.ClusterMode)
 }
 
 // resourceGroupFor returns the resource group a cluster lives in.

@@ -17,7 +17,7 @@ var (
 		Short: "Apply a policy through the control plane (or a raw Kyverno file)",
 		Long: `Apply a compliance policy.
 
-Default (control-plane) mode creates a CompositeCompliancePolicy XR. The
+Default (control-plane) mode creates a CompliancePolicy XR. The
 Crossplane control plane reconciles it into Kyverno ClusterPolicies — the same
 declarative path the Adhar Console uses, so a policy request is identical
 regardless of entry point.
@@ -60,7 +60,7 @@ func runApplyPolicy(cmd *cobra.Command, args []string) error {
 		return applyPolicyFile(ctx, policyFile)
 	}
 
-	// Control-plane path: create a CompositeCompliancePolicy XR.
+	// Control-plane path: create a CompliancePolicy XR.
 	return applyPolicyXR(ctx)
 }
 
@@ -99,7 +99,7 @@ func applyPolicyFile(ctx context.Context, file string) error {
 	return nil
 }
 
-// applyPolicyXR creates a CompositeCompliancePolicy composite resource.
+// applyPolicyXR creates a CompliancePolicy composite resource.
 func applyPolicyXR(ctx context.Context) error {
 	if applyName == "" {
 		return fmt.Errorf("--name is required (control-plane mode), or use --file to apply a raw policy manifest")
@@ -127,18 +127,18 @@ func applyPolicyXR(ctx context.Context) error {
 		},
 	}
 
-	xr := helpers.NewXR("CompositeCompliancePolicy", applyName, ns, "compliance", nil, spec)
+	xr := helpers.NewXR("CompliancePolicy", applyName, ns, "compliance", nil, spec)
 
 	if dryRun {
-		fmt.Println(helpers.CreateMuted("   Dry run — would create CompositeCompliancePolicy:"))
+		fmt.Println(helpers.CreateMuted("   Dry run — would create CompliancePolicy:"))
 		return helpers.PrintYAML(xr.Object)
 	}
 
-	if err := helpers.ApplyXR(ctx, "compositecompliancepolicies", xr); err != nil {
+	if err := helpers.ApplyXR(ctx, "compliancepolicies", xr); err != nil {
 		return fmt.Errorf("create compliance policy: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("CompositeCompliancePolicy %s created in namespace %s", applyName, ns)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("CompliancePolicy %s created in namespace %s", applyName, ns)))
 	fmt.Println(helpers.CreateMuted("   The control plane will reconcile it into Kyverno ClusterPolicies."))
 	return nil
 }

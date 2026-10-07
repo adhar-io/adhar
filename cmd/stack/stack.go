@@ -7,7 +7,7 @@ you may not use this file except in compliance with the License.
 
 // Package stack is the platform half of the application split.
 //
-// `adhar application` manages what YOU deploy — CompositeApplication XRs, the
+// `adhar application` manages what YOU deploy — Application XRs, the
 // golden paths, your services. `adhar stack` manages what the PLATFORM is made of:
 // the ~90 curated packages (Argo CD, Keycloak, Harbor, Tekton, Grafana, the data
 // and AI stacks) that arrive with `adhar up`. They are different things with

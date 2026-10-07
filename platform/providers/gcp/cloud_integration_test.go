@@ -39,7 +39,7 @@ func TestCloudIntegrationStepsInstallCCMAndPDCSI(t *testing.T) {
 }
 
 func TestClusterModeAndGKENames(t *testing.T) {
-	p := &Provider{config: &Config{ProjectID: "proj", Zone: "europe-west1-b", ClusterMode: "gke"}}
+	p := &Provider{config: &Config{ProjectID: "proj", Zone: "europe-west1-b", ClusterMode: "managed"}}
 	if !p.isManagedMode() || (&Provider{config: &Config{}}).isManagedMode() {
 		t.Error("clusterMode must default to kubeadm and opt into GKE with \"gke\"")
 	}

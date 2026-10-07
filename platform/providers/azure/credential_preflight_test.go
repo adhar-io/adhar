@@ -106,7 +106,7 @@ func TestPreflightRejectsAPartialServicePrincipal(t *testing.T) {
 func TestPreflightExemptsManagedAKS(t *testing.T) {
 	p := &Provider{config: &Config{
 		SubscriptionID: "sub", TenantID: "tenant", Location: "centralindia",
-		ResourceGroup: "adhar-rg", ClusterMode: clusterModeAKS,
+		ResourceGroup: "adhar-rg", ClusterMode: provider.ClusterModeManaged,
 	}}
 	if got := p.preflightCloudCredential(); got.Status != provider.CheckPass {
 		t.Errorf("managed AKS needs no service principal of ours, got %v (%s)", got.Status, got.Detail)

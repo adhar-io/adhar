@@ -15,7 +15,18 @@ func (c *ConfigProviderConfig) ToProviderMap() map[string]interface{} {
 		result["credentials_file"] = c.CredentialsFile
 	}
 	result["useEnvironment"] = c.UseEnvironment
-	result["useManagedK8s"] = c.UseManagedK8s
+	// Cluster mode and, for `provided`, where the existing cluster lives. Only
+	// set when non-empty so provider.ParseClusterMode sees "absent" rather than
+	// an empty string it would have to treat as the default anyway.
+	if c.ClusterMode != "" {
+		result["clusterMode"] = c.ClusterMode
+	}
+	if c.Kubeconfig != "" {
+		result["kubeconfig"] = c.Kubeconfig
+	}
+	if c.KubeContext != "" {
+		result["kubeContext"] = c.KubeContext
+	}
 
 	// AWS authentication
 	if c.AccessKeyID != "" {

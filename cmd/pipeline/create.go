@@ -15,7 +15,7 @@ var createNamespace string
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create new pipeline",
-	Long: `Create a new CI/CD pipeline as a Crossplane CompositePipeline.
+	Long: `Create a new CI/CD pipeline as a Crossplane Pipeline.
 
 The control plane composes the pipeline into the backing CI/CD engine — locally an
 Argo Workflow — the same provider-aware path the Adhar Console uses.
@@ -51,7 +51,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	logger.Info(fmt.Sprintf("⎔ Creating pipeline: %s (type: %s, provider: %s)",
 		pipelineName, pipelineType, helpers.ActiveProvider()))
 
-	// Flat CompositePipeline spec (matches xrd/pipeline.xrd.yaml — spec.name and
+	// Flat Pipeline spec (matches xrd/pipeline.xrd.yaml — spec.name and
 	// spec.type are required). NewXR merges the provider-aware compositionSelector
 	// under spec.crossplane so the CLI selects exactly the way the Console does.
 	spec := map[string]interface{}{
@@ -60,13 +60,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"namespace": ns,
 	}
 
-	xr := helpers.NewXR("CompositePipeline", pipelineName, ns, "pipeline", nil, spec)
+	xr := helpers.NewXR("Pipeline", pipelineName, ns, "pipeline", nil, spec)
 
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := helpers.ApplyXR(ctx, "compositepipelines", xr); err != nil {
+	if err := helpers.ApplyXR(ctx, "pipelines", xr); err != nil {
 		return fmt.Errorf("create pipeline: %w", err)
 	}
 

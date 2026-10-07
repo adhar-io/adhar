@@ -2,15 +2,15 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositeplatformconfigs.platform.adhar.io
+  name: platformconfigs.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositePlatformConfig
-    plural: compositeplatformconfigs
+    kind: PlatformConfig
+    plural: platformconfigs
   defaultCompositionRef:
-    name: compositeplatformconfig-default
+    name: platformconfig-default
   versions:
   - name: v1alpha1
     served: true

@@ -1,0 +1,48 @@
+# A managed OpenSearch cluster for a team: the opensearch-k8s-operator builds it,
+# the platform adds generated admin credentials, a ServiceMonitor, an index
+# lifecycle (ISM) policy and a nightly snapshot into the platform object store.
+#
+# The REST Service is `<name>`; Dashboards (when enabled) is
+# `<name>-dashboards:5601`. One node is a development cluster: no replicas, so a
+# node restart is a short outage.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Search
+metadata:
+  name: payments-search
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        engine: opensearch
+  parameters:
+    displayName: Payments search
+    version: "3.8.0"
+    nodes: 3
+    storageSize: 50Gi
+    # Empty means the cluster default, which on this platform is node-local
+    # (adhar-local). Name adhar-block for a real block device.
+    storageClass: adhar-block
+    resources:
+      cpu: 500m
+      memory: 4Gi
+      # The operator sizes the JVM heap from the memory LIMIT.
+      memoryLimit: 6Gi
+    dashboards:
+      enabled: true
+    snapshots:
+      enabled: true
+      schedule: "30 1 * * *"
+      retentionDays: 14
+      bucket: adhar-backups
+    indexLifecycle:
+      enabled: true
+      indexPatterns: ["payments-logs-*"]
+      warmAfterDays: 7
+      deleteAfterDays: 30
+    organisation: acme
+    team: payments
+    project: payments-api
+    environment: dev
+    # Orphan keeps the OpenSearchCluster and its data if this object is deleted.
+    deletionPolicy: Orphan

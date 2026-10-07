@@ -1,7 +1,7 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositedatabase-aws-rds-postgresql
+  name: database-aws-rds-postgresql
   labels:
     feature: database
     provider: aws
@@ -9,7 +9,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeDatabase
+    kind: Database
   mode: Pipeline
   pipeline:
     - step: render-rds
@@ -241,7 +241,7 @@ spec:
 
             items = _items + [{
                 apiVersion: "platform.adhar.io/v1alpha1"
-                kind: "CompositeDatabase"
+                kind: "Database"
                 metadata: oxr.metadata
                 status: {
                     phase: _phase

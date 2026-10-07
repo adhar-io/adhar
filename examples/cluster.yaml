@@ -1,0 +1,42 @@
+# A real cloud Kubernetes cluster, requested through the platform API instead of
+# from a cloud console. The composition behind it is chosen by provider:
+# EKS, AKS, GKE, DOKS or Civo k3s (compositions/cluster/*).
+#
+# For a cluster the TEAM gets to itself without a cloud bill, see vcluster.yaml —
+# same object, `provider: VCLUSTER`.
+#
+# Once it is up, the DataPlane controller registers it: it appears in
+# `adhar fleet list`, its kubeconfig is mirrored into a Secret, and it becomes a
+# target for ApplicationSet generators and `adhar fleet upgrade`.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Cluster
+metadata:
+  name: payments-staging
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: digitalocean
+  parameters:
+    displayName: "Payments — staging"
+    provider: DIGITALOCEAN_DOKS
+    region: blr1
+    # The cloud's own version slug, not a bare semver: DOKS wants 1.31.1-do.3.
+    version: "1.31.1-do.3"
+    environmentType: staging
+    controlPlane:
+      highAvailability: false
+      endpointAccess: Public
+    nodePools:
+      - name: workers
+        instanceType: s-4vcpu-8gb
+        count: 3
+        minCount: 3
+        maxCount: 6
+    addons:
+      enableMetricsServer: true
+      # Off: the platform brings its own node autoscaler and its own ingress
+      # (the Cilium Gateway).
+      enableClusterAutoscaler: false
+      enableIngress: false

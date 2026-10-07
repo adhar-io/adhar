@@ -2,14 +2,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositelogging-loki
+  name: logging-loki
   labels:
     feature: logs
     provider: kubernetes
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeLogging
+    kind: Logging
   mode: Pipeline
   pipeline:
     - step: render-loki
@@ -107,7 +107,7 @@ spec:
 
             statusItem = {
                 apiVersion = "platform.adhar.io/v1alpha1"
-                kind = "CompositeLogging"
+                kind = "Logging"
                 metadata = oxr.metadata
                 status = {
                     phase = _phase

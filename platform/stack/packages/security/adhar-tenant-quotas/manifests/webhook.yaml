@@ -112,11 +112,11 @@ webhooks:
       service:
         name: adhar-webhook
         namespace: adhar-system
-        path: /validate-platform-adhar-io-v1alpha1-compositeproject
+        path: /validate-platform-adhar-io-v1alpha1-project
         port: 443
     rules:
       - apiGroups: ["platform.adhar.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["compositeprojects"]
+        resources: ["projects"]
         scope: Namespaced

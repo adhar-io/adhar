@@ -1,0 +1,49 @@
+# A cloud network (VPC / VNet) as a platform object. `adhar up` creates the
+# network for the cluster it builds; this is for the networks AROUND it — a VPC
+# for a workload cluster, or one a team's cloud database has to sit in.
+#
+# The CIDR is the one thing to get right first: a network that overlaps a cluster
+# you later want to mesh with (Cilium Cluster Mesh needs non-overlapping pod and
+# node ranges) cannot be re-addressed without rebuilding everything in it.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Network
+metadata:
+  name: payments-vpc
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: aws
+  parameters:
+    displayName: Payments VPC
+    provider: AWS_VPC
+    region: ap-south-1
+    cidrBlock: 10.20.0.0/16
+    enableDnsHostnames: true
+    enableDnsSupport: true
+    subnets:
+      - name: public-a
+        cidrBlock: 10.20.0.0/20
+        availabilityZone: ap-south-1a
+        type: public
+        mapPublicIpOnLaunch: true
+      - name: public-b
+        cidrBlock: 10.20.16.0/20
+        availabilityZone: ap-south-1b
+        type: public
+        mapPublicIpOnLaunch: true
+      - name: private-a
+        cidrBlock: 10.20.32.0/20
+        availabilityZone: ap-south-1a
+        type: private
+      - name: private-b
+        cidrBlock: 10.20.48.0/20
+        availabilityZone: ap-south-1b
+        type: private
+    flowLogs:
+      enabled: true
+      trafficType: REJECT
+    tags:
+      owner: payments
+    deletionPolicy: Delete

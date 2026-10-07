@@ -1,0 +1,47 @@
+# An AI agent as a first-class, governed workload (ADR-0026).
+#
+# It gets its own namespace (`<name>-<environment>`), a ResourceQuota, a
+# default-deny egress policy, and — the part that matters — it may only reach
+# the models and MCP tools named here, because every call goes through the AI
+# gateway (ai/agentgateway) as the agent's own identity. The gateway routes by
+# model NAME, so `allow` is an allowlist of names and RE2 patterns, not of URLs.
+apiVersion: platform.adhar.io/v1alpha1
+kind: AgentWorkload
+metadata:
+  name: invoice-triage
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: kubernetes
+  parameters:
+    name: invoice-triage
+    environment: dev
+    owner: payments
+    organisation: acme
+    team: payments
+    project: payments-api
+    models:
+      # Exact names or RE2 patterns. Empty means the agent may call NOTHING.
+      allow:
+        - claude-.*
+        - local/.*
+    tools:
+      # MCP federation target names (ai/agentgateway mcp-federation.yaml).
+      allow:
+        - gitea
+        - kubernetes-read
+    budget:
+      tokensPerHour: 200000
+      requestsPerMinute: 60
+    resources:
+      cpu: "2"
+      memory: 4Gi
+      pods: 10
+    network:
+      # DNS, the AI gateway and the telemetry collector are always allowed;
+      # everything else has to be named here.
+      allowNamespaces: []
+      allowCIDRs: []
+      allowIngressFrom: []

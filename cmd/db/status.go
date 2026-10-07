@@ -16,7 +16,7 @@ import (
 var statusCmd = &cobra.Command{
 	Use:   "status [name]",
 	Short: "Show database status",
-	Long: `Show the status of a managed database (Crossplane CompositeDatabase).
+	Long: `Show the status of a managed database (Crossplane Database).
 
 The name can be supplied as an argument or via --name.
 
@@ -48,7 +48,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	obj, err := client.Resource(compositeDatabaseGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	obj, err := client.Resource(databaseGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return fmt.Errorf("database %q not found in namespace %q", name, ns)

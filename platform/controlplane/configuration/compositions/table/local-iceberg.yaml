@@ -1,0 +1,169 @@
+---
+# Table — an Iceberg table in the platform lakehouse, created with DDL through
+# Trino.
+#
+# DDL, not the REST catalog API, because DDL is the one path whose result every
+# other engine agrees about: Spark, Dagster, Metabase and OpenMetadata all read a
+# table created this way through the same `iceberg` catalog. Driving the REST
+# catalog directly would need SigV4 signing in a shell script and would still
+# have to tell Trino about it afterwards.
+#
+# `IF NOT EXISTS` on both statements makes the Job idempotent, and it
+# deliberately does NOT alter an existing table: schema evolution on a table with
+# data is a decision (add nullable, rename, reorder, widen a type), not a diff to
+# apply on reconcile. Change the columns here and the Job leaves the table alone;
+# run the ALTER yourself.
+#
+# The Trino image carries the CLI, so no extra image enters the platform.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: table-local-iceberg
+  labels:
+    feature: table
+    provider: local
+    engine: iceberg
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Table
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $catalog := dig "catalog" "iceberg" $p -}}
+            {{- $schema := dig "schema" "" $p -}}
+            {{- $table := dig "tableName" $name $p -}}
+            {{- $cols := dig "columns" (list) $p -}}
+            {{- $partitionBy := dig "partitionBy" (list) $p -}}
+            {{- $sortedBy := dig "sortedBy" (list) $p -}}
+            {{- $format := dig "format" "PARQUET" $p -}}
+            {{- $comment := dig "comment" "" $p -}}
+            {{- $fqtn := printf "%s.%s.%s" $catalog $schema $table -}}
+            {{- $coordinator := "trino.adhar-system.svc.cluster.local:8080" -}}
+            ---
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ $name }}-table-ddl
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: table-ddl
+              labels:
+                platform.adhar.io/table: {{ $name }}
+            data:
+              # Kept as a ConfigMap rather than inlined in the Job's args so the
+              # DDL that ran is readable after the fact — the first question about
+              # a table is always "what was it created as".
+              create.sql: |
+                CREATE SCHEMA IF NOT EXISTS {{ $catalog }}.{{ $schema }};
+                CREATE TABLE IF NOT EXISTS {{ $fqtn }} (
+                {{- range $i, $c := $cols }}
+                  {{ $c.name }} {{ $c.type }}{{ if $c.comment }} COMMENT '{{ $c.comment | replace "'" "''" }}'{{ end }}{{ if lt (add1 $i) (len $cols) }},{{ end }}
+                {{- end }}
+                )
+                WITH (
+                  format = '{{ $format }}'
+                {{- if $partitionBy }},
+                  partitioning = ARRAY[{{ range $i, $e := $partitionBy }}{{ if $i }}, {{ end }}'{{ $e }}'{{ end }}]
+                {{- end }}
+                {{- if $sortedBy }},
+                  sorted_by = ARRAY[{{ range $i, $e := $sortedBy }}{{ if $i }}, {{ end }}'{{ $e }}'{{ end }}]
+                {{- end }}
+                )
+                {{- if $comment }}
+                ;
+                COMMENT ON TABLE {{ $fqtn }} IS '{{ $comment | replace "'" "''" }}'
+                {{- end }}
+                ;
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ $name }}-table
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: table-job
+              labels:
+                platform.adhar.io/table: {{ $name }}
+                adhar.io/organisation: {{ dig "organisation" "adhar" $p | quote }}
+                adhar.io/team: {{ dig "team" "platform" $p | quote }}
+                {{- if dig "project" "" $p }}
+                adhar.io/project: {{ dig "project" "" $p | quote }}
+                {{- end }}
+                adhar.io/environment: {{ dig "environment" "dev" $p | quote }}
+                adhar.io/plane: workload
+            spec:
+              backoffLimit: 10
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  volumes:
+                    - name: ddl
+                      configMap:
+                        name: {{ $name }}-table-ddl
+                  containers:
+                    - name: trino-cli
+                      image: trinodb/trino:480
+                      volumeMounts:
+                        - name: ddl
+                          mountPath: /ddl
+                          readOnly: true
+                      command: [/bin/bash, -c]
+                      args:
+                        - |
+                          set -euo pipefail
+                          TRINO=(trino --server http://{{ $coordinator }} --user adhar-control-plane)
+                          echo "waiting for the Trino coordinator"
+                          i=0
+                          until "${TRINO[@]}" --execute 'SELECT 1' >/dev/null 2>&1; do
+                            i=$((i+1)); [ "$i" -ge 60 ] && { echo "Trino did not answer"; exit 1; }
+                            sleep 5
+                          done
+                          "${TRINO[@]}" --file /ddl/create.sql
+                          echo "table {{ $fqtn }} ready"
+                      resources:
+                        requests: { cpu: 100m, memory: 512Mi }
+                        limits: { memory: 1Gi }
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-table
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: table-conn
+              labels:
+                platform.adhar.io/table: {{ $name }}
+            stringData:
+              # How a workload reaches the table: Trino over HTTP for SQL, or the
+              # Iceberg REST catalog directly for an engine that speaks it.
+              trinoURL: "http://{{ $coordinator }}"
+              catalog: {{ $catalog | quote }}
+              schema: {{ $schema | quote }}
+              table: {{ $table | quote }}
+              qualifiedName: {{ $fqtn | quote }}
+              icebergRestURI: "http://rustfs.adhar-system.svc.cluster.local:9000/iceberg"
+              warehouse: "lakehouse"
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Table
+            status:
+              table: {{ $fqtn | quote }}
+              catalog: {{ $catalog | quote }}
+              location: "s3://lakehouse/{{ $schema }}/{{ $table }}"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,27 @@
+# A promotion: move one piece of freight into one environment. This is the
+# object a release IS on this platform (ADR-0026) — it composes a Kargo
+# Promotion against the Stage `<application>-<environment>`.
+#
+# `freight` is the Kargo Freight NAME — the content hash from
+# `kargo get freight --project <project>` — not its alias. An alias looks like a
+# name and resolves to nothing.
+#
+# Production is deliberately not auto-promoted: the owning team has `view` in
+# its prod namespace, so a change arrives through an object like this one and
+# `reason` is where the change ticket or approver is recorded.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Release
+metadata:
+  name: payments-api-prod-2026-10-07
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: kargo
+  parameters:
+    project: payments-api
+    application: payments-api
+    environment: prod
+    freight: f7c9e2a1b4d8365f0a9c1e7b2d4f6a8c3e5b7d91
+    reason: "CHANGE-4821 — settlement rounding fix, approved by @ops-oncall"

@@ -2,13 +2,13 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: compositehealths.platform.adhar.io
+  name: healths.platform.adhar.io
 spec:
   group: platform.adhar.io
   scope: Namespaced
   names:
-    kind: CompositeHealth
-    plural: compositehealths
+    kind: Health
+    plural: healths
   versions:
   - name: v1alpha1
     served: true

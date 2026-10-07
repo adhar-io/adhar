@@ -2,14 +2,14 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositeenvironment-kubernetes
+  name: environment-kubernetes
   labels:
     feature: env
     provider: kubernetes
 spec:
   compositeTypeRef:
     apiVersion: platform.adhar.io/v1alpha1
-    kind: CompositeEnvironment
+    kind: Environment
   mode: Pipeline
   pipeline:
     - step: render-environment
@@ -120,7 +120,7 @@ spec:
 
             statusItem = {
                 apiVersion = "platform.adhar.io/v1alpha1"
-                kind = "CompositeEnvironment"
+                kind = "Environment"
                 metadata = oxr.metadata
                 status = {
                     phase = "Available"
