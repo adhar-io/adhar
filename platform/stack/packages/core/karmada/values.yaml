@@ -15,8 +15,16 @@
 # apiserver. That is what makes this cluster the FLEET HUB, which is the role
 # Adhar's management cluster plays (see docs/ARCHITECTURE.md).
 #
-# `agent` is the other half, installed on each MEMBER cluster; the data-plane
-# controller handles that when a cluster is registered, so it is not set here.
+# `agent` is the other half — Karmada's PULL mode, installed on each MEMBER
+# cluster. It is deliberately NOT used: a pull-mode agent needs a credential for
+# the FLEET apiserver, so every data plane would hold a key to the control plane
+# that governs all the others. Adhar registers members in PUSH mode instead
+# (`ensureKarmadaRegistration`, platform/controllers/dataplane/karmada.go): the
+# DataPlane controller writes a `cluster.karmada.io` Cluster plus the member's
+# ServiceAccount token into this control plane, carrying the plane's placement
+# labels so a PropagationPolicy's clusterAffinity selects on exactly the labels
+# the Argo CD cluster secret already has. The direction of trust then matches
+# the rest of the platform — the hub reaches out, nothing reaches back in.
 installMode: host
 
 # Every platform package lives in adhar-system (ADR-0011). The chart defaults to

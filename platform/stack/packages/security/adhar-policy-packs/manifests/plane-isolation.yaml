@@ -17,7 +17,7 @@
 # plane / app namespaces (the vcluster syncer namespace, per-team app namespaces)
 # are left unlabeled or labeled `adhar.io/plane: data`, so they are denied here —
 # their workloads belong on a registered DataPlane, placed via the workload
-# ApplicationSet + Sveltos (ADR-0023 §4–5).
+# ApplicationSet + Karmada placement (ADR-0023 §4–5).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:

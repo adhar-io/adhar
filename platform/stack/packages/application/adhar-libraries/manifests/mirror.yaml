@@ -100,11 +100,24 @@ spec:
                 echo "(the release this push triggers cannot publish until nexus-credentials exists)"
                 exit 0
               fi
-              for i in $(seq 1 120); do
+              for i in $(seq 1 30); do
                 kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
                 sleep 10
               done
-              echo "nexus-credentials not published within 20 minutes"; exit 1
+              # NOT FATAL. Mirroring the repository is this Job's actual purpose
+              # and it needs nothing from Nexus — only the release the push
+              # triggers does. Exiting 1 here meant a Nexus that could not boot
+              # took the REPOSITORIES down with it: on the AWS cluster
+              # (2026-10-09) nexus sat Pending for 37 minutes because its
+              # node-local PV pinned it to a node that had run out of CPU, and
+              # because this gate failed, `adhar-kit` and `adhar-ui` were never
+              # created in Gitea at all — no repo, no webhook, no pipeline, and
+              # nothing on screen to explain why. A missing release is a retry;
+              # a missing repository is the library story gone.
+              echo "nexus-credentials not published within 5 minutes — mirroring anyway."
+              echo "The repositories will exist and the webhook will fire; the release"
+              echo "pipeline stays pending on nexus-credentials and runs when Nexus is up."
+              exit 0
       containers:
         - name: mirror
           image: alpine/git:2.45.2
@@ -173,11 +186,24 @@ spec:
                 echo "(the release this push triggers cannot publish until nexus-credentials exists)"
                 exit 0
               fi
-              for i in $(seq 1 120); do
+              for i in $(seq 1 30); do
                 kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
                 sleep 10
               done
-              echo "nexus-credentials not published within 20 minutes"; exit 1
+              # NOT FATAL. Mirroring the repository is this Job's actual purpose
+              # and it needs nothing from Nexus — only the release the push
+              # triggers does. Exiting 1 here meant a Nexus that could not boot
+              # took the REPOSITORIES down with it: on the AWS cluster
+              # (2026-10-09) nexus sat Pending for 37 minutes because its
+              # node-local PV pinned it to a node that had run out of CPU, and
+              # because this gate failed, `adhar-kit` and `adhar-ui` were never
+              # created in Gitea at all — no repo, no webhook, no pipeline, and
+              # nothing on screen to explain why. A missing release is a retry;
+              # a missing repository is the library story gone.
+              echo "nexus-credentials not published within 5 minutes — mirroring anyway."
+              echo "The repositories will exist and the webhook will fire; the release"
+              echo "pipeline stays pending on nexus-credentials and runs when Nexus is up."
+              exit 0
       containers:
         - name: mirror
           image: alpine/git:2.45.2

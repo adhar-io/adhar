@@ -39,10 +39,15 @@ const (
 
 // DataPlane condition types (metav1.Condition.Type values).
 const (
-	DataPlaneInfraReady         = "InfraReady"
-	DataPlaneRegistered         = "Registered"
-	DataPlaneAgentsReady        = "AgentsReady"
-	DataPlaneMeshJoined         = "MeshJoined"
+	DataPlaneInfraReady  = "InfraReady"
+	DataPlaneRegistered  = "Registered"
+	DataPlaneAgentsReady = "AgentsReady"
+	DataPlaneMeshJoined  = "MeshJoined"
+	// DataPlaneFleetJoined reports membership of the Karmada fleet. It is True
+	// when the plane's `Cluster` object in the fleet control plane reports
+	// Ready, and True-with-reason-NotInstalled when Karmada is not part of the
+	// profile — a platform that does not run a fleet hub is not unhealthy.
+	DataPlaneFleetJoined        = "FleetJoined"
 	DataPlaneObservabilityWired = "ObservabilityWired"
 	DataPlaneReady              = "Ready" // aggregate
 )
@@ -54,6 +59,8 @@ const (
 	ReasonRegistering       = "Registering"
 	ReasonAgentsProgressing = "AgentsProgressing"
 	ReasonMeshConnecting    = "MeshConnecting"
+	ReasonFleetJoining      = "FleetJoining"
+	ReasonFleetNotInstalled = "FleetNotInstalled"
 	ReasonReady             = "Ready"
 	ReasonError             = "ReconcileError"
 )
@@ -105,8 +112,9 @@ type DataPlaneObservability struct {
 }
 
 type DataPlanePlacement struct {
-	// Labels are stamped on the ArgoCD cluster secret so ApplicationSet
-	// generators and Sveltos ClusterProfiles can select this plane.
+	// Labels are stamped on the ArgoCD cluster secret AND on this plane's
+	// Karmada member Cluster, so ApplicationSet cluster generators and Karmada
+	// PropagationPolicy cluster affinity can both select this plane.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 }
@@ -135,6 +143,11 @@ type DataPlaneStatus struct {
 	KubernetesVersion string `json:"kubernetesVersion,omitempty"`
 	// +optional
 	ArgoCDCluster string `json:"argocdCluster,omitempty"`
+	// KarmadaCluster is the name this plane carries in the fleet control
+	// plane's `cluster.karmada.io` API, empty when Karmada is not installed in
+	// this profile.
+	// +optional
+	KarmadaCluster string `json:"karmadaCluster,omitempty"`
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
 	// +optional

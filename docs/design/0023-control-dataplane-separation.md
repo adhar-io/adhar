@@ -6,7 +6,7 @@ Detailed design for [ADR-0023](../adr/0023-control-dataplane-separation.md). Thi
 
 - **INV-1** Application workloads run only on data planes; the control plane runs only fleet/platform services.
 - **INV-2** One control plane manages N data planes through a single first-class `DataPlane` API with aggregate status.
-- **INV-3** App→data-plane placement is declared in Git and enforced by Sveltos/ApplicationSet, never implicit.
+- **INV-3** App→data-plane placement is declared in Git and enforced by Karmada/ApplicationSet, never implicit.
 - **INV-4** The separation is exercised at every topology (T1 vcluster data plane → T3 physical fleet); nothing is T3-only.
 - **INV-5** Migration from today's dual-role cluster is reversible and staged — no flag day.
 
@@ -102,8 +102,9 @@ type DataPlaneObservability struct {
 }
 
 type DataPlanePlacement struct {
-	// Labels are stamped on the ArgoCD cluster secret so ApplicationSet
-	// generators and Sveltos ClusterProfiles can select this plane.
+	// Labels are stamped on the ArgoCD cluster secret AND on this plane's
+	// Karmada member Cluster, so ApplicationSet cluster generators and Karmada
+	// PropagationPolicy cluster affinity can both select this plane.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 }
@@ -332,15 +333,15 @@ spec:
                 - { packageName: gitea,     plane: control, manifestPath: "core/gitea/manifests" }
                 - { packageName: keycloak,  plane: control, manifestPath: "security/keycloak/manifests" }
                 - { packageName: adhar-ai,  plane: control, manifestPath: "ai/adhar-ai/manifests" }
-                # …crossplane, vault, external-secrets, cert-manager, hub(grafana/mimir/loki/tempo), harbor, sveltos, kargo, console
+                # …crossplane, vault, external-secrets, cert-manager, hub(grafana/mimir/loki/tempo), harbor, karmada, kargo, console
   template: { … same source/syncPolicy shape as today … }
 ```
 
 ### 4.2 `platform/stack/adhar-appset-workload.yaml` (extend the existing thin-agent appset)
 
-Add the `plane in (workload, both)` app packages, gated by placement labels via the cluster generator selector (already present). The current file delivers metrics-server/kyverno/alloy; extend the `list` with the app catalog and let the **cluster selector** + Sveltos decide which data plane receives which app.
+Add the `plane in (workload, both)` app packages, gated by placement labels via the cluster generator selector (already present). The current file delivers metrics-server/kyverno/alloy; extend the `list` with the app catalog and let the **cluster selector** + Karmada decide which data plane receives which app.
 
-## 5. Placement — environments repo + Sveltos
+## 5. Placement — environments repo + Karmada
 
 ### 5.1 Environment→plane binding (`environments/<env>/placement.yaml`)
 
@@ -351,18 +352,35 @@ placement:
     matchLabels: { tier: production, region: sgp1 }
 ```
 
-### 5.2 Sveltos ClusterProfile (packaged; one per environment)
+### 5.2 Karmada placement (packaged; one policy per environment)
+
+Members are registered by the DataPlane controller (`ensureKarmadaRegistration`),
+which creates the `cluster.karmada.io` `Cluster` in pull mode and copies the
+plane's placement labels onto it — so the selector below reads the same labels
+the ArgoCD cluster secret carries.
 
 ```yaml
-apiVersion: config.projectsveltos.io/v1beta1
-kind: ClusterProfile
-metadata: { name: apps-production }
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata: { name: apps-production, namespace: adhar-system }
 spec:
-  clusterSelector:
-    matchLabels: { tier: production }
-  helmCharts: []            # apps come via ArgoCD; Sveltos enforces membership/add-ons
-  policyRefs: []            # e.g. baseline NetworkPolicies per plane
+  placement:
+    clusterAffinity:
+      labelSelector:
+        matchLabels: { tier: production }
+  # Apps themselves come via ArgoCD. Karmada owns the fleet-wide objects that
+  # must exist identically on every matching plane and that no single
+  # Application should own — the baseline NetworkPolicies, the per-plane pull
+  # secret, team RBAC.
+  resourceSelectors:
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
 ```
+
+**The split is by object, never by cluster**, and it is not negotiable: two
+controllers that both continuously enforce one object fight forever (the CNPG /
+selfHeal failure). ArgoCD owns everything under `packages/`; Karmada owns only
+what is declared under the karmada package's `placement/` directory.
 
 ## 6. Enforcement (`platform/stack/packages/security/adhar-policy-packs/manifests/plane-isolation.yaml`)
 
@@ -448,7 +466,7 @@ platform/stack/adhar-appset-control.yaml                (new)
 platform/stack/adhar-appset-workload.yaml               (extend)
 platform/stack/packages/**/ (add adhar.io/plane labels)  (edit)
 platform/stack/packages/security/adhar-policy-packs/manifests/plane-isolation.yaml (new)
-platform/stack/packages/core/sveltos/manifests/clusterprofiles/*.yaml (new)
+platform/stack/packages/core/karmada/manifests/placement/*.yaml      (new)
 platform/stack/environments/*/placement.yaml            (new)
 docs/PRODUCTION.md                                       (split-plane runbook)
 tests/e2e/bootstrap/bootstrap_test.go                   (T1 assertions)
@@ -463,7 +481,7 @@ tests/e2e/bootstrap/bootstrap_test.go                   (T1 assertions)
 ## 13. Milestones
 
 - **M1 — API + controller skeleton**: `DataPlane` CRD, deepcopy, controller with `mode: adopt` (register an existing kubeconfig), `adhar get dataplanes`. No provisioning yet.
-- **M2 — Package split + placement**: `plane` labels, `adhar-appset-control.yaml`, extended workload appset, Sveltos placement, parity tests. Control plane app-free in CI.
+- **M2 — Package split + placement**: `plane` labels, `adhar-appset-control.yaml`, extended workload appset, Karmada placement, parity tests. Control plane app-free in CI.
 - **M3 — Local vcluster data plane**: T1 provisions a vcluster data plane by default; e2e asserts app placement off the control plane.
 - **M4 — Composite + vcluster infra modes**: controller drives `Cluster`/vcluster; mesh + observability wiring automated; live T3 `DataPlane` reaches `Ready`.
 - **M5 — Migration + enforcement**: `adhar upgrade split-planes`, Kyverno Enforce, `adhar dataplane check`; docs + PRODUCTION runbook.

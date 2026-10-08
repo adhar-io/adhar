@@ -136,8 +136,9 @@ spec:
                     additionalProperties:
                       type: string
                     description: |-
-                      Labels are stamped on the ArgoCD cluster secret so ApplicationSet
-                      generators and Sveltos ClusterProfiles can select this plane.
+                      Labels are stamped on the ArgoCD cluster secret AND on this plane's
+                      Karmada member Cluster, so ApplicationSet cluster generators and Karmada
+                      PropagationPolicy cluster affinity can both select this plane.
                     type: object
                 type: object
               profile:
@@ -220,6 +221,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               endpoint:
+                type: string
+              karmadaCluster:
+                description: |-
+                  KarmadaCluster is the name this plane carries in the fleet control
+                  plane's `cluster.karmada.io` API, empty when Karmada is not installed in
+                  this profile.
                 type: string
               kubernetesVersion:
                 type: string

@@ -41,8 +41,9 @@ spec:
     hub: adhar-mgmt
 
   placement:
-    # Stamped on the Argo CD cluster secret, so ApplicationSet cluster
-    # generators and Sveltos ClusterProfiles can select this cluster. This is how
+    # Stamped on the Argo CD cluster secret AND on the plane's Karmada
+    # member Cluster, so ApplicationSet cluster generators and Karmada
+    # PropagationPolicy cluster affinity can both select this plane. This is how
     # a fleet-wide ApplicationSet decides what lands here (see gitops.yaml).
     labels:
       adhar.io/team: payments

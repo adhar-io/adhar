@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -67,6 +68,10 @@ var clusterGVK = schema.GroupVersionKind{Group: "platform.adhar.io", Version: ap
 type DataPlaneReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// FleetClientFor builds a client for the Karmada apiserver from its admin
+	// kubeconfig. Nil in production (a real client is built); set by tests,
+	// which cannot stand up a second apiserver.
+	FleetClientFor func(*rest.Config) (client.Client, error)
 }
 
 // +kubebuilder:rbac:groups=platform.adhar.io,resources=dataplanes,verbs=get;list;watch;create;update;patch;delete
@@ -117,6 +122,28 @@ func (r *DataPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	dp.Status.ArgoCDCluster = argoName
 	r.setCond(dp, v1alpha1.DataPlaneRegistered, metav1.ConditionTrue, v1alpha1.ReasonReady, "registered")
+
+	// Phase 2b — join the Karmada fleet (push mode), so declared placement has
+	// something to select. Karmada is optional: a platform without a fleet hub
+	// records NotInstalled and is not held back by it.
+	fleetName, fleetReady, err := r.ensureKarmadaRegistration(ctx, dp)
+	if err != nil {
+		return r.fail(ctx, dp, v1alpha1.DataPlaneFleetJoined, err)
+	}
+	dp.Status.KarmadaCluster = fleetName
+	switch {
+	case fleetName == "":
+		r.setCond(dp, v1alpha1.DataPlaneFleetJoined, metav1.ConditionTrue,
+			v1alpha1.ReasonFleetNotInstalled, "no Karmada fleet hub in this profile")
+	case !fleetReady:
+		// Registered but the hub has not confirmed it yet. Not a failure, and
+		// NOT a reason to hold up the agents/mesh/observability phases below —
+		// fleet membership is additive to a plane that already works.
+		r.setCond(dp, v1alpha1.DataPlaneFleetJoined, metav1.ConditionFalse,
+			v1alpha1.ReasonFleetJoining, "fleet member registered; waiting for the hub to report it Ready")
+	default:
+		r.setCond(dp, v1alpha1.DataPlaneFleetJoined, metav1.ConditionTrue, v1alpha1.ReasonReady, "fleet member ready")
+	}
 
 	// Phase 3 — thin-agent profile healthy on the data plane.
 	if ok, err := r.ensureAgents(ctx, dp); err != nil {
@@ -228,6 +255,14 @@ func (r *DataPlaneReconciler) finalize(ctx context.Context, dp *v1alpha1.DataPla
 		if err := r.removeMeshPeering(ctx, dp); err != nil {
 			logger.Error(err, "removing the plane from the cluster mesh during finalize")
 		}
+	}
+
+	// Leave the Karmada fleet before the credential it was registered with goes
+	// away. Best-effort and never fatal: a DataPlane must stay deletable after
+	// the fleet hub itself has been uninstalled, which is exactly when the
+	// member object cannot be reached to tidy up.
+	if err := r.deleteKarmadaRegistration(ctx, dp); err != nil {
+		logger.Error(err, "deregistering the Karmada fleet member during finalize")
 	}
 
 	// Deregister ArgoCD cluster secret (best-effort; ignore if already gone).

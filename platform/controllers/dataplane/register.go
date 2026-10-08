@@ -48,7 +48,8 @@ type argoClusterConfig struct {
 
 // ensureArgoRegistration creates/patches the ArgoCD cluster Secret for this
 // data plane (label `argocd.argoproj.io/secret-type: cluster`), stamping the
-// placement labels so ApplicationSet generators and Sveltos can select it.
+// placement labels so ApplicationSet generators and Karmada placement can
+// select it (the same labels reach Karmada via ensureKarmadaRegistration).
 // Idempotent server-side apply with the `adhar` field manager. Returns the
 // ArgoCD cluster name.
 func (r *DataPlaneReconciler) ensureArgoRegistration(ctx context.Context, dp *v1alpha1.DataPlane, _ client.Client) (string, error) {

@@ -16,6 +16,38 @@ metadata:
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
   accessModes: [ReadWriteOnce]
+  # adhar-block, NOT the node-local default — the one package where naming it
+  # explicitly is not optional.
+  #
+  # Two reasons, and the second one took the platform down.
+  #
+  # 1. DURABILITY. `adhar-local` (local-path-provisioner) is the platform
+  #    default because ~90 PVCs cannot fit in a cloud VM's 7-8 disk attach
+  #    slots, and that trade is fine for anything whose durability comes from
+  #    replication plus backups. Nexus is not that: it holds PUBLISHED release
+  #    versions, and a Nexus hosted repository never accepts the same version
+  #    twice. A node-local volume does not survive its node, so losing it loses
+  #    artefacts that cannot be re-published under the versions everything
+  #    already resolves.
+  #
+  # 2. SCHEDULABILITY. A node-local PV pins its consumer to one node FOREVER,
+  #    and no amount of autoscaling can rescue it. On the AWS cluster
+  #    (2026-10-09) nexus bound a volume on ip-10-0-1-176, that node reached
+  #    3995m of 4000m CPU requests, and the pod then sat Pending for 37 minutes
+  #    reporting `3 node(s) didn't match PersistentVolume's node affinity,
+  #    2 Insufficient cpu` while the autoscaler happily grew the cluster from 3
+  #    nodes to 6. None of the new capacity was reachable. And because nexus
+  #    never booted it never published `nexus-credentials`, so the
+  #    adhar-libraries mirror Jobs failed their gate and `adhar-kit` and
+  #    `adhar-ui` were never created in Gitea at all — one unschedulable pod
+  #    took out the whole library story.
+  #
+  # ⚠️ CHANGING THIS ON A RUNNING NEXUS IS A MIGRATION, not an edit:
+  # `storageClassName` is immutable, so Argo CD cannot sync it in place. On a
+  # cluster whose nexus already holds artefacts, back them up, delete the PVC,
+  # then sync. On a cluster where nexus has never booted (its volume is empty)
+  # deleting the PVC once is enough.
+  storageClassName: adhar-block
   resources:
     requests:
       storage: 8Gi

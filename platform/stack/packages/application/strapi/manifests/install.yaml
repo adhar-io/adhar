@@ -204,6 +204,108 @@ spec:
 
               cd "$APP"
 
+              # ── 1b. Repair a half-installed volume ──
+              #
+              # Step 1 keys off package.json alone, and create-strapi writes
+              # that BEFORE it installs ~700 MB of node_modules. So any
+              # interruption during the first boot — an OOM kill, an eviction, a
+              # node that went away, `adhar up` timing out and the pod being
+              # rescheduled — leaves a volume that looks scaffolded and is not.
+              # Step 1 then skips forever, nothing ever runs npm install again,
+              # and the admin build dies on whatever is missing. On the AWS
+              # cluster (2026-10-09) that surfaced as:
+              #
+              #   ==> existing project found on the volume
+              #   ==> building admin panel (have=none want=5.57.0)
+              #   ✖ Building admin panel
+              #   Error: Failed to load native binding
+              #     at .../node_modules/@swc/core/binding.js:345:11
+              #
+              # @swc/core was on the volume but its platform-specific native
+              # package (@swc/core-linux-x64-gnu) was not — npm installs those as
+              # OPTIONAL dependencies, so they are among the last things written
+              # and the first things lost. The pod had restarted 9 times and
+              # would have restarted forever: a partial first boot poisons the
+              # volume permanently, and no amount of resyncing fixes it because
+              # every retry takes the same `else` branch.
+              #
+              # So prove the dependencies actually load before trusting them. The
+              # probe requires BOTH the framework and the native compiler, which
+              # are the two distinct ways this breaks (missing packages, and a
+              # missing/incompatible native binding for this arch and libc).
+              deps_ok() { node -e 'require("@strapi/strapi");require("@swc/core")' >/dev/null 2>&1; }
+
+              # AN EMPTY PACKAGE DIRECTORY IS NPM REPORTING A FAILURE.
+              #
+              # This is the part that made the volume unrepairable, and it is not
+              # obvious. @swc/core's native binary ships in platform-specific
+              # packages (@swc/core-linux-x64-gnu here: linux, x64, glibc 2.36)
+              # which are declared OPTIONAL. npm treats a failed optional
+              # dependency as a SUCCESS: it creates the directory, fails to
+              # extract into it, says nothing, and exits 0. So the tree ends up
+              # with `node_modules/@swc/core-linux-x64-gnu/` present and `total
+              # 0` inside, `require("@swc/core")` throws "Failed to load native
+              # binding", and every later `npm install` sees the directory in
+              # place and leaves it alone. Measured on the AWS cluster
+              # (2026-10-09): the right package for the right platform, with
+              # nothing in it, 205 GiB free on the volume.
+              #
+              # Deleting the hollow directories is what makes the reinstall
+              # actually refetch them.
+              drop_hollow() {
+                found=""
+                for d in node_modules/@swc/core-linux-* node_modules/@esbuild/*; do
+                  [ -d "$d" ] || continue
+                  if [ -z "$(ls -A "$d" 2>/dev/null)" ]; then
+                    echo "    hollow package: $d"
+                    rm -rf "$d"
+                    found=1
+                  fi
+                done
+                [ -n "$found" ]
+              }
+
+              if ! deps_ok; then
+                echo "==> dependencies on the volume do not load; repairing"
+                drop_hollow || true
+                npm install --no-fund --no-audit --include=optional || true
+              fi
+              if ! deps_ok; then
+                # The npm cache lives on an emptyDir that SURVIVES container
+                # restarts, so a tarball that was truncated during the
+                # interrupted first install is re-read, and re-extracted empty,
+                # on every single retry. Clearing it is what breaks that loop;
+                # without this, `rm -rf node_modules` followed by a reinstall
+                # reproduces the identical broken tree (observed: 1398 packages
+                # "added", same hollow directory, same error).
+                #
+                # Discarding node_modules is safe: it is entirely derived from
+                # package.json + the lockfile, and NONE of the operator's content
+                # lives there (that is in Postgres and in public/uploads).
+                echo "==> still broken; clearing the npm cache and reinstalling from the lockfile"
+                npm cache clean --force >/dev/null 2>&1 || true
+                rm -rf "$npm_config_cache" node_modules
+                mkdir -p "$npm_config_cache"
+                npm install --no-fund --no-audit --include=optional
+                drop_hollow && npm install --no-fund --no-audit --include=optional || true
+                if ! deps_ok; then
+                  # Say WHY, with the underlying dlopen errors. The bare
+                  # "Failed to load native binding" that Strapi's build prints
+                  # names neither the package nor the reason, and this Job is
+                  # the only place that information exists.
+                  echo "dependencies still do not load after a clean install. Diagnostics:"
+                  node -e 'try{require("@swc/core")}catch(e){console.error(String(e));for(const c of (e.cause||[]))console.error("  cause:",String(c))}' 2>&1 | head -20
+                  for d in node_modules/@swc/core-linux-*; do
+                    [ -d "$d" ] && echo "  $d -> $(ls -A "$d" 2>/dev/null | wc -l) file(s)"
+                  done
+                  node -p '"platform: "+process.platform+" "+process.arch+" glibc "+(process.report?process.report.getReport().header.glibcVersionRuntime:"?")' 2>&1
+                  exit 1
+                fi
+                # Force an admin rebuild: the old build was linked against the
+                # modules just thrown away.
+                rm -f /srv/.admin-built
+              fi
+
               # ── 2. Teach the project about its public origin ──
               # Rewritten every start so a changed platform domain takes effect,
               # and so an operator who edits it knows it is managed.

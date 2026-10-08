@@ -266,8 +266,12 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 
 ### GitOps Phase (99 packages / 104 ApplicationSet elements; 77 enabled in production, 15 in the local development core)
 
-**Off by default in EVERY profile, opt-in:** `kubescape`, `n8n`, `beyla`, `llm-d`,
-`redis`, `spark-operator`, `pyroscope`, `argo-workflows`. Most are scope decisions —
+**Off by default in EVERY profile, opt-in:** `kubescape`, `beyla`, `llm-d`,
+`redis`, `spark-operator`, `pyroscope`, `argo-workflows`. (`n8n` was on this
+list until 2026-10-09 and is now **enabled in production**, off locally — it is
+a JVM-free Node service, but it brings its own Postgres-backed queue workers
+and competes for CPU during the identity chain, which is why the local
+development core still leaves it out.) Most are scope decisions —
 llm-d runs vLLM model servers, the heaviest workload here; `redis` is the alternative
 to `valkey`, which is the primary key-value store every package wires to, and the one
 package declaring redis (`libredb-studio`) marks it optional. kubescape
@@ -285,7 +289,7 @@ Categories (count, packages carrying a contract): **ai** (5) · **application** 
 **Observability**: metrics-server, kube-prometheus, loki-stack, alloy, tempo, mimir, opencost, oncall, headlamp, hubble, beyla, faro, fluent-bit, pixie, pyroscope, victoria-metrics
 **Application**: argo-workflows, argo-events, argo-rollout, harbor, kargo, tekton, supply-chain, **strapi** (headless CMS, CNPG-backed, Keycloak SSO; self-scaffolds on first boot, amd64-only image so off in the local profile), **preview-environments** (PR-labelled ephemeral environments), adhar-templates (four golden paths: microservice, frontend, data-pipeline, ml), scorecards, coder, n8n, penpot, plane, posthog, nexus, keda, dapr, k6, **litmus** (the chaos-engineering engine; chaos-mesh is disabled in its favour), buildpack (the one package outside `adhar-system` — see ADR-0011), external-dns, knative, open-function, baserow, tooljet, adhar-libraries
 **Infrastructure**: crossplane, terraform
-**Core**: adhar-console, velero, vcluster, sveltos, **karmada** (multi-cloud/multi-cluster control plane; replaced open-cluster-management on 2026-09-20 — the fleet hub runs `installMode: host`, member clusters get the agent from the DataPlane controller), Kamaji
+**Core**: adhar-console, velero, vcluster, **karmada** (multi-cloud/multi-cluster control plane; replaced open-cluster-management on 2026-09-20 — the fleet hub runs `installMode: host`, member clusters get the agent from the DataPlane controller), Kamaji
 
 ## Important Implementation Notes
 

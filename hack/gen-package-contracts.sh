@@ -199,10 +199,6 @@ CURATED = {
    description="Open Cluster Management cluster-manager (hub) for registering and governing fleets of Kubernetes clusters.",
    license="Apache-2.0", homepage="https://open-cluster-management.io",
    keywords="multicluster fleet hub ocm"),
- "core/sveltos": dict(
-   description="Projectsveltos add-on controller that deploys and continuously enforces Kubernetes add-ons across managed clusters.",
-   license="Apache-2.0", homepage="https://projectsveltos.github.io",
-   keywords="multicluster addons deployment"),
  "core/vcluster": dict(
    description="vcluster virtual Kubernetes clusters, used as lightweight data planes inside the management cluster.",
    license="Apache-2.0", homepage="https://www.vcluster.com",

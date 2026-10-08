@@ -60,7 +60,7 @@ spec:
             # between "leave the operator's template alone" and "push a new
             # version because the platform now ships more IDEs".
             - name: IDE_REVISION
-              value: adhar-ide-v5
+              value: adhar-ide-v6
           command: [/bin/sh, -c]
           args:
             - |
@@ -206,6 +206,31 @@ spec:
                   # ownership does not match (a restored PVC, a changed fsGroup).
                   git config --global --add safe.directory '*'
 
+                  # Open the workspace, not the Welcome tab.
+                  #
+                  # Both IDE apps already pass ?folder=<workspace_folder>, so
+                  # code-server opens the right directory — but VS Code still
+                  # draws "Get Started" over it on every connect, because
+                  # workbench.startupEditor defaults to welcomePage. Clicking
+                  # into a Cloud Development Environment and landing on a
+                  # marketing page is indistinguishable from the environment not
+                  # having opened the project at all.
+                  #
+                  # Written ONLY when the file does not exist: this is the
+                  # person's own settings file on a persistent home volume, and
+                  # a start-up script that rewrites it every time would undo
+                  # their editor preferences once a day.
+                  # printf, not a heredoc: this script is itself inside a
+                  # quoted heredoc that a later `sed` de-indents by 14 columns,
+                  # and a plain `<<JSON` terminator must sit at column 0 — it
+                  # would be shifted and the heredoc would never close.
+                  CS_SETTINGS="$HOME/.local/share/code-server/User/settings.json"
+                  if [ ! -f "$CS_SETTINGS" ]; then
+                    mkdir -p "$(dirname "$CS_SETTINGS")"
+                    printf '%s\n' '{' '  "workbench.startupEditor": "none"' '}' > "$CS_SETTINGS"
+                    echo "code-server: startupEditor set to none"
+                  fi
+
                   REPO='${data.coder_parameter.git_repo.value}'
                   [ -n "$REPO" ] || exit 0
                   DEST='${local.workspace_folder}'
@@ -289,11 +314,26 @@ spec:
                 --directory "/tmp/tpl/${TEMPLATE_NAME}" \
                 --variable "namespace=${WORKSPACE_NAMESPACE}" \
                 --variable "use_kubeconfig=false" \
-                --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo), git identity + Gitea push credentials, code-server + IntelliJ IDEA + VS Code Desktop" \
+                --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo), git identity + Gitea push credentials, code-server + IntelliJ IDEA + VS Code Desktop, no Welcome tab, 1h idle autostop" \
                 --yes
+              # Stop an idle workspace after an hour, and stamp the revision so
+              # step 3 can recognise it.
+              #
+              # --default-ttl is the deadline from start; --activity-bump pushes
+              # that deadline to now+1h on every bit of activity Coder sees
+              # (agent traffic, an open IDE session, a terminal). Together they
+              # mean "stops one hour after the person stops working", not "stops
+              # one hour after it started" — the second would kill a workspace
+              # out from under someone mid-afternoon. A stopped workspace keeps
+              # its home volume, so restarting it is a boot, not a rebuild.
+              #
+              # Both flags are in the AGPL CLI. Dormancy and auto-deletion are
+              # enterprise-only and deliberately not used here.
               /opt/coder templates edit "${TEMPLATE_NAME}" \
                 --description "Adhar cloud development environment (${IDE_REVISION})" \
-                --yes || echo "could not stamp the description; the next sync will re-push"
+                --default-ttl 1h \
+                --activity-bump 1h \
+                --yes || echo "could not stamp the description/TTL; the next sync will re-push"
               echo "template ${TEMPLATE_NAME} pushed at ${IDE_REVISION}"
           resources:
             requests: {cpu: 50m, memory: 128Mi}

@@ -1,0 +1,133 @@
+# Restarts adhar-console once Plane's API token exists.
+#
+# ---------------------------------------------------------------------------
+# THE FAILURE THIS FIXES (live on the AWS cluster, 2026-10-09)
+# ---------------------------------------------------------------------------
+# The Console's Define phase calls Plane through its own BFF proxy:
+#
+#   GET https://console.<host>/api/svc/plane/api/v1/workspaces/adhar/projects/
+#     -> 502 {"error":"upstream_unreachable", … dns error: failed to lookup
+#        address information: plane.dev.adhar.io}
+#
+# Everything the proxy needs was already correct. `plane-instance-setup`
+# (instance-setup.yaml) had written the `plane-api-token` Secret with
+# PLANE_URL=http://plane-api.adhar-system.svc.cluster.local:8000, a real
+# X-API-Key and the `adhar` workspace slug, and the Console Deployment already
+# lists that Secret in `envFrom`.
+#
+# But `envFrom` is resolved ONCE, when the container starts. The Console pod had
+# been up for 40 minutes by the time Plane finished syncing and the setup Job
+# wrote the Secret, so the running process had PLANE_URL unset — and the tool
+# registry's fallback derives the PUBLIC hostname (`toolUrl('plane','PLANE_URL')`
+# -> https://plane.<host>). That hostname is the wrong target twice over: it had
+# no DNS record yet, and once it has one it resolves to the Gateway, where
+# `plane-oauth2-proxy` answers an API call carrying a service token with a 302
+# to Keycloak. Nothing restarts the Console when the Secret appears, so the
+# Define phase stays broken for the life of the pod.
+#
+# Same shape as core/adhar-console/manifests/oidc-reload.yaml (Keycloak's client
+# secret) and application/adhar-supply-chain/manifests/15-kpack-harbor-nudge.yaml:
+# the PRODUCER of the late Secret nudges the consumer, because only the producer
+# knows when it landed. Timestamp-guarded, so a steady-state sync is a no-op and
+# this can never become a restart loop.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plane-console-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: plane-console-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: plane-console-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: plane-console-reload
+    spec:
+      serviceAccountName: plane-console-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/alpine/k8s:1.31.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=adhar-console
+              SECRET=plane-api-token
+
+              # 1. The Console is not in every profile; if it is absent there is
+              #    nothing to reload and this is not a failure.
+              if ! kubectl -n "$NS" get deployment "$DEPLOY" >/dev/null 2>&1; then
+                echo "$DEPLOY is not deployed in this profile; nothing to reload."
+                exit 0
+              fi
+
+              # 2. Bounded wait for the setup Job's Secret to carry a real
+              #    token. It runs in the same sync, so this is short.
+              ok=""
+              for i in $(seq 1 60); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o jsonpath='{.data.PLANE_TOKEN}' 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET PLANE_TOKEN ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "$SECRET not ready yet; leaving the console as-is (retries next sync)"
+                exit 0
+              fi
+
+              # 3. Restart ONLY if the running pod predates the Secret — i.e. it
+              #    started with PLANE_URL unset and fell back to the public
+              #    hostname. Idempotent via timestamp comparison.
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              POD_TS=$(kubectl -n "$NS" get pods -l app=console \
+                         -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
+              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+                echo "console pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
+                exit 0
+              fi
+
+              echo "Restarting $DEPLOY so it picks up PLANE_URL/PLANE_TOKEN/PLANE_WORKSPACE..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=180s || true
+              echo "Console reload complete."
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: plane-console-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: plane-console-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: plane-console-reload
+  apiGroup: rbac.authorization.k8s.io

@@ -233,8 +233,7 @@ Full reference, including day-2 operations and the limits that actually bite:
 - **Kubernetes** - Container orchestration platform
 - **Kamaji** - Multi-tenant Kubernetes control plane
 - **vCluster** - Virtual Kubernetes clusters
-- **Open Cluster Management** - Multi-cluster orchestration
-- **Sveltos** - Kubernetes add-on management
+- **Karmada** - Multi-cluster orchestration and fleet placement
 - **Crossplane** - Cloud-native Infrastructure as Code
 - **ArgoCD** - GitOps continuous delivery
 - **Gitea** - Self-hosted Git service

@@ -67,6 +67,37 @@ spec:
   hostnames:
     - agent.adhar.localtest.me
   rules:
+    # The root is a redirect, because the runtime does not serve one.
+    #
+    # adhar-ai-runtime is an API: /healthz, /config, /chat (POST), /findings,
+    # /operators/{name}/event, and FastAPI's own /docs. There is no handler for
+    # `/`, so opening https://agent.<host>/ in a browser returned a bare 404 —
+    # and a named platform surface answering 404 at its root reads as "adhar-ai
+    # did not come up" even when all ten of its pods are Running and its Argo CD
+    # Application is Synced + Healthy. That is exactly how it was reported on the
+    # AWS cluster (2026-10-09); nothing was wrong with the service.
+    #
+    # So `/` now sends a browser to the OpenAPI explorer the runtime already
+    # serves, which proves the surface is alive and says what it offers. The
+    # redirect sets ONLY the path: a RequestRedirect that omits hostname and port
+    # keeps the ones from the request, so this needs no templating and cannot
+    # repeat the Gitea trap where an unstated port sent local users to :443 while
+    # the platform listens on 8443.
+    #
+    # Exact beats PathPrefix in Gateway API's precedence rules, so this rule wins
+    # for `/` and every other path still reaches the runtime below. The human
+    # chat UI is the Console's /ai page; this hostname stays the machine surface.
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /docs
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix
