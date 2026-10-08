@@ -72,11 +72,23 @@ providers:
     # boolean are gone; both are now rejected rather than mapped,
     # so a stale config fails loudly instead of quietly building the other mode.
     #
-    # managed, because that is the mode where the cloud runs a
-    # cloud-controller-manager: the Gateway gets a real load-balancer address,
-    # external-dns can publish an A record for it, and the platform's URLs answer
-    # on 443. Compute mode has none of that (measured on Civo, 2026-10-06) and is
-    # reached through node ports.
+    # compute is the default: it is the path the platform is designed around, it
+    # pays no managed control-plane charge, and it is the only mode where the
+    # node autoscaler can add a worker — it provisions an instance and
+    # kubeadm-joins it, which a managed node pool does not let it do. It also
+    # keeps the node ours, which two things the platform needs depend on: the
+    # kubelet flags, and the containerd certs.d trust that lets nodes pull
+    # kpack-built images from the in-cluster Harbor.
+    #
+    # Nothing is given up at the edge on THIS cloud. Compute mode installs the
+    # cloud-controller-manager (platform/providers/cloudintegration.go), so the
+    # Gateway still gets a real load-balancer address, external-dns publishes its
+    # A record and the URLs answer on 443. Civo is the one exception — its CCM
+    # only works against Civo's own managed Kubernetes — which is why the Civo
+    # config is the only one that ships `managed`.
+    #
+    # Set `managed` for GKE when you want the cloud to run the control plane;
+    # everything above the cluster is unchanged.
     #
     # The THIRD mode is `provided`: the cluster ALREADY EXISTS and the platform
     # only installs itself onto it, reached through the kubeconfig named below.
@@ -91,7 +103,7 @@ providers:
     #   kubeconfig: ~/.kube/config       # default: $KUBECONFIG, then ~/.kube/config
     #   kubeContext: my-existing-cluster # default: the file's current context
     #
-    clusterMode: managed
+    clusterMode: compute
 
     config:
       project_id: your-gcp-project

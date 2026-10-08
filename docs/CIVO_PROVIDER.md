@@ -237,6 +237,13 @@ hard failure. A token that cannot read the quota logs a warning and proceeds.
   already exists; Adhar installs onto it and never deletes it). The old
   `cluster_mode: k3s` spelling is rejected rather than mapped.
 
+  **Civo is the one cloud whose shipped config sets `managed`** (every other
+  provider's ships `compute`, 2026-10-08). The reason is the CCM above: on AWS,
+  Azure, GCP and DigitalOcean compute mode installs a cloud-controller-manager
+  and the Gateway gets a real load-balancer address, and on Civo it cannot. Civo
+  compute mode works — the edge comes from the nodes instead (§4.1) — but it is
+  the newer path and the managed one is what has been exercised here.
+
 ### 4.1 The edge in compute mode (host-network Gateway)
 
 Compute mode has no load balancer, so the Gateway is reachable on the nodes

@@ -137,12 +137,34 @@ func rewriteCiliumClusterIdentity(ctx context.Context, manifest []byte, resource
 	if name == v1alpha1.DefaultClusterMeshName && id == v1alpha1.DefaultClusterMeshID {
 		return manifest
 	}
+	// The QUOTED form, and only the quoted form: that is cilium-config, where
+	// the agent reads its mesh identity from.
 	manifest = bytes.ReplaceAll(manifest,
 		[]byte(`cluster-name: "`+v1alpha1.DefaultClusterMeshName+`"`),
 		[]byte(`cluster-name: "`+name+`"`))
-	manifest = bytes.ReplaceAll(manifest,
-		[]byte("cluster-name: "+v1alpha1.DefaultClusterMeshName+"\n"),
-		[]byte("cluster-name: "+name+"\n"))
+
+	// The UNQUOTED form is `hubble-relay-config`, and rewriting it broke Hubble
+	// on every cluster not called adhar-mgmt.
+	//
+	// hubble-relay derives the name it expects on the agent's TLS certificate
+	// from this value — `hubble-peer.<cluster-name>.hubble-grpc.cilium.io` — but
+	// the certificate is PRE-GENERATED in this manifest (`hubble-server-certs`,
+	// SAN `*.adhar-mgmt.hubble-grpc.cilium.io`) and a string replace cannot
+	// reissue it. So renaming the cluster made the relay ask for a name the
+	// agent could never present:
+	//
+	//   tls: failed to verify certificate: x509: certificate is valid for
+	//   *.adhar-mgmt.hubble-grpc.cilium.io, not
+	//   hubble-peer.adhar-prod.hubble-grpc.cilium.io
+	//
+	// — measured on a live AWS cluster named `adhar-prod` (2026-10-08), where
+	// hubble-relay had crash-looped six times in ten minutes.
+	//
+	// Hubble's TLS identity is fixed by the baked PKI; the MESH identity is the
+	// thing that varies. Keeping them separate is what makes both work. (The
+	// fuller fix is to reissue the Hubble certificates from the `cilium-ca`
+	// secret — its key ships in this manifest — so the flow labels carry the
+	// real cluster name too; that is a bigger change than this one deserves.)
 	manifest = bytes.ReplaceAll(manifest,
 		[]byte(`cluster-id: "1"`),
 		[]byte(`cluster-id: "`+strconv.Itoa(int(id))+`"`))

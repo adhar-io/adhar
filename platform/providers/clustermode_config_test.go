@@ -48,10 +48,13 @@ func TestClusterModeInAConfigFileReachesTheProvider(t *testing.T) {
 		provider string
 		want     string
 	}{
-		{"examples/aws-config.yaml", "aws", ClusterModeManaged},
-		{"examples/azure-config.yaml", "azure", ClusterModeManaged},
-		{"examples/gcp-config.yaml", "gcp", ClusterModeManaged},
-		{"examples/digitalocean-config.yaml", "digitalocean", ClusterModeManaged},
+		// compute everywhere except Civo, whose cloud-controller-manager only
+		// works against Civo's own managed Kubernetes — so compute mode there has
+		// no load balancer for the Gateway (see GatewayHostNetworkRequired).
+		{"examples/aws-config.yaml", "aws", ClusterModeCompute},
+		{"examples/azure-config.yaml", "azure", ClusterModeCompute},
+		{"examples/gcp-config.yaml", "gcp", ClusterModeCompute},
+		{"examples/digitalocean-config.yaml", "digitalocean", ClusterModeCompute},
 		{"examples/civo-config.yaml", "civo", ClusterModeManaged},
 		{"examples/provided-config.yaml", "custom", ClusterModeProvided},
 	} {
