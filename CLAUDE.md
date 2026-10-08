@@ -147,11 +147,11 @@ adhar/
 ├── globals/                       # Global constants (project name, providers, namespaces, TLS)
 ├── hack/                          # Helm values and generation scripts for core components
 ├── tests/                         # E2E tests + provider-specific test configs
-├── examples/                      # ONE example per platform object (31 XRs + 4 CRDs) + the config templates; indexed in examples/README.md and pinned by TestEveryPlatformObjectHasAnExample / TestExamplesMatchTheirSchema
-├── docs/                          # Documentation (architecture, guides, provider setup)
-│   ├── config.yaml                # the annotated master template
+├── examples/                      # ONE example per platform object (37 XRs + 4 CRDs), indexed in examples/README.md and pinned by TestEveryPlatformObjectHasAnExample / TestExamplesMatchTheirSchema
+│   ├── config.yaml                # the annotated master config template
 │   ├── {aws,azure,gcp,digitalocean,civo}-config.yaml   # `adhar up -f`, one per cloud
 │   └── provided-config.yaml       # clusterMode: provided — install onto an existing cluster
+├── docs/                          # Documentation (architecture, guides, provider setup)
 ├── Makefile                       # Build system
 └── go.mod / go.sum                # Go module dependencies
 ```

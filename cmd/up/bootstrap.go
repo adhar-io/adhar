@@ -47,6 +47,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -164,6 +165,18 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfigStr))
 	if err != nil {
 		return fmt.Errorf("building REST config from kubeconfig: %w", err)
+	}
+
+	// The cluster's API server has to ANSWER before anything else is attempted.
+	//
+	// A cloud saying "ready" is bookkeeping, not a health check. Civo's API
+	// reported a managed cluster ACTIVE with ready=true while nothing listened on
+	// its endpoint: the master node answered ping and SSH, port 6443 was dark,
+	// and `adhar up` sat for twenty minutes in a later stage with no message
+	// naming the cause (2026-10-07). Measured here, that is one clear failure in
+	// a couple of minutes instead.
+	if err := waitForClusterAPI(ctx, restConfig, tracker); err != nil {
+		return err
 	}
 
 	scheme := k8s.GetScheme()
@@ -598,4 +611,83 @@ func resolveGatewayAddresses(ctx context.Context, result *pfactory.ProvisionResu
 	}
 	logger.Debugf("Platform edge on the host network, addresses %v", addresses)
 	return addresses
+}
+
+// clusterAPIWait bounds how long the bootstrap waits for the cluster's API
+// server to answer, and how often it asks.
+//
+// Two minutes is enough for a managed control plane that is still finishing its
+// start-up, and short enough that a dark endpoint is reported while the operator
+// is still watching. Each attempt gets its own short timeout so a silently
+// dropped connection cannot eat the whole budget.
+const (
+	clusterAPIWaitTimeout  = 2 * time.Minute
+	clusterAPIWaitInterval = 5 * time.Second
+	clusterAPIProbeTimeout = 8 * time.Second
+)
+
+// waitForClusterAPI blocks until the cluster's API server answers.
+func waitForClusterAPI(ctx context.Context, cfg *rest.Config, tracker *helpers.StageTracker) error {
+	probeCfg := rest.CopyConfig(cfg)
+	probeCfg.Timeout = clusterAPIProbeTimeout
+	clientset, err := kubernetes.NewForConfig(probeCfg)
+	if err != nil {
+		return fmt.Errorf("building a client for the cluster API: %w", err)
+	}
+	return waitForClusterAPIReachable(ctx, cfg.Host, func(context.Context) error {
+		_, err := clientset.Discovery().ServerVersion()
+		return err
+	}, clusterAPIWaitTimeout, clusterAPIWaitInterval, func(msg string) {
+		if tracker != nil {
+			tracker.Log(msg)
+		}
+	})
+}
+
+// waitForClusterAPIReachable is the loop, separated from the client so the
+// message and the bounds can be tested without a cluster.
+//
+// The error it returns is the whole point of this function: it names the
+// endpoint, says how long it waited, and gives the one diagnosis that fits what
+// was observed — a reachable host with nothing serving the API.
+func waitForClusterAPIReachable(
+	ctx context.Context,
+	endpoint string,
+	probe func(context.Context) error,
+	timeout, interval time.Duration,
+	logf func(string),
+) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	announced := false
+
+	for attempt := 1; ; attempt++ {
+		lastErr = probe(ctx)
+		if lastErr == nil {
+			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("waiting for the cluster API at %s: %w", endpoint, ctxErr)
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		// Said once, not on every attempt: a cluster that needs a few seconds is
+		// normal and should not produce a wall of text.
+		if !announced && logf != nil {
+			logf(fmt.Sprintf("waiting for the cluster API at %s to answer", endpoint))
+			announced = true
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for the cluster API at %s: %w", endpoint, ctx.Err())
+		case <-time.After(interval):
+		}
+	}
+
+	return fmt.Errorf("the cluster's API server at %s did not answer within %s: %w\n\n"+
+		"  → The cloud may report this cluster as ready while its control plane is not serving. "+
+		"If the host answers ping and SSH but the API port does not, the API server itself is down — "+
+		"check the cluster in the provider's dashboard, and recreate it (`adhar up --recreate`) if it stays dark",
+		endpoint, timeout, lastErr)
 }

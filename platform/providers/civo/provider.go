@@ -337,7 +337,17 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		NetworkID:         p.config.NetworkID,
 		Tags:              tags,
 		Pools:             pools,
-		CNIPlugin:         "cilium",
+		// Civo builds the cluster WITH Cilium, which is the platform's data path
+		// (kubeProxyReplacement, and the Gateway is a Cilium Gateway).
+		//
+		// This is also why the controller must never install its own Cilium here:
+		// on 2026-10-07 it did, Server-Side Apply took over the cluster-scoped
+		// ClusterRoleBinding `cilium`, the cluster's own agent lost its
+		// permissions, and a managed cluster ended up with NO working CNI — every
+		// pod Pending, `adhar up` hung at the Argo CD stage. See
+		// `adharplatform/cilium_foreign.go`; the agreement between this line and
+		// that skip is what makes managed mode work.
+		CNIPlugin: "cilium",
 		// Opt OUT of Civo's default marketplace applications. Leaving this empty
 		// does not mean "none": the API applies every application marked default,
 		// and `GET /v2/kubernetes/applications` reports two of them —

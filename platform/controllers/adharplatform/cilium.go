@@ -29,22 +29,30 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Cilium core package")
 
-	// A provided cluster that already runs Cilium keeps it. See the note above
-	// foreignCilium: overwriting the operator's CNI configuration is not
-	// something installing a platform gets to do as a side effect.
-	if provider.ClusterModeIsProvided(r.clusterModeFromSpec(ctx)) {
-		existing, err := r.foreignCilium(ctx)
-		if err != nil {
-			logger.Error(err, "Failed to check for an existing Cilium install")
-			return ctrl.Result{}, fmt.Errorf("checking for an existing Cilium install: %w", err)
-		}
-		if existing != nil {
-			logger.Info("Provided cluster already runs Cilium; leaving it exactly as configured",
-				"daemonSet", existing.Namespace+"/"+existing.Name)
-			return ctrl.Result{}, nil
-		}
-		logger.Info("Provided cluster has no CNI; installing Cilium")
+	// A Cilium THIS PLATFORM DID NOT INSTALL is the cluster's own, in every
+	// mode, and installing ours on top of it does not produce two Ciliums — it
+	// produces none. See the note above foreignCilium for what that cost.
+	mode := r.clusterModeFromSpec(ctx)
+	existing, err := r.foreignCilium(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to check for an existing Cilium install")
+		return ctrl.Result{}, fmt.Errorf("checking for an existing Cilium install: %w", err)
 	}
+	if existing != nil {
+		logger.Info("The cluster already runs Cilium; the platform will not install its own",
+			"daemonSet", existing.Namespace+"/"+existing.Name, "clusterMode", mode)
+		if provider.ClusterLifecycleIsOurs(mode) {
+			// This cluster is ours (we asked the cloud to build it WITH Cilium),
+			// so the one feature the platform needs from it may be turned on, and
+			// the damage an earlier release did may be repaired.
+			if err := r.adoptForeignCilium(ctx, existing.Namespace); err != nil {
+				logger.Info("Could not finish adopting the cluster's Cilium; the Gateway may not program",
+					"error", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+	logger.Info("No CNI on this cluster; installing Cilium", "clusterMode", mode)
 
 	// Apply install.yaml
 	ciliumManifestPath := "resources/cilium/install.yaml"
