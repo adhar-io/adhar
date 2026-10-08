@@ -7,8 +7,8 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: rustfs
 category: data
-version: "1.0.0-rc.6"
-appVersion: "1.0.0-rc.6"
+version: "1.0.1"
+appVersion: "1.0.1"
 description: RustFS — the platform's PRIMARY S3 object store, with S3 Tables (an Apache Iceberg REST catalog inside the store) providing the lakehouse warehouse, and a Keycloak-gated console.
 maintainer:
   name: Adhar Platform Team

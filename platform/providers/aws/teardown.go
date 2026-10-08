@@ -161,8 +161,8 @@ func (p *Provider) sweepOrphanedVolumes(ctx context.Context, clusterName string)
 		}
 	}
 	if kept > 0 {
-		fmt.Printf("   ▲ %d unattached CSI volume(s) left in place; they keep billing.\n", kept)
-		fmt.Printf("       Remove them with: adhar down ... --purge-orphaned-volumes\n")
+		log.Printf("   ▲ %d unattached CSI volume(s) left in place; they keep billing.\n", kept)
+		log.Printf("       Remove them with: adhar down ... --purge-orphaned-volumes\n")
 	}
 	return problems
 }

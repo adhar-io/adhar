@@ -34,7 +34,7 @@ Each script anchors its output to `$(dirname $0)/../../platform/controllers/adha
 |---|---|---|---|---|
 | ArgoCD | `hack/argocd/generate-manifests.sh` | `argo/argo-cd` Helm chart, `--include-crds` | `10.3.3` | `install.yaml`, `install-ha.yaml` (from `values.yaml` / `values-ha.yaml`) |
 | Cilium | `hack/cilium/generate-manifests.sh` | `cilium/cilium` Helm chart, `--include-crds` | `1.20.0` | `install.yaml` |
-| Crossplane | `hack/crossplane/generate-manifests.sh` | `crossplane/crossplane` Helm chart, `--include-crds` | `v2.3.1` | `install.yaml`, `install-ha.yaml` |
+| Crossplane | `hack/crossplane/generate-manifests.sh` | `crossplane/crossplane` Helm chart, `--include-crds` | `v2.4.2` | `install.yaml`, `install-ha.yaml` |
 | Gitea | `hack/gitea/generate-manifests.sh` | `gitea-charts/gitea` Helm chart | `12.7.0` (arg-overridable) | `install.yaml`, `install-ha.yaml` |
 | Gateway API | `hack/gateway-api/generate-manifests.sh` | GitHub release `experimental-install.yaml` | `v1.6.1` | `crds.yaml` |
 

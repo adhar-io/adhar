@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -335,25 +336,25 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	if spec.Domain != nil {
 		// Check if we should suppress output
 		if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
-			fmt.Printf("Setting up domain management...\n")
+			log.Printf("Setting up domain management...\n")
 		}
 		domainManager := domain.NewManager(spec.Domain, "")
 		err = domainManager.SetupDomain(ctx, cluster)
 		if err != nil {
 			// Don't fail cluster creation if domain setup fails, just warn
 			if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
-				fmt.Printf("▲ Warning: Failed to setup domain management: %v\n", err)
-				fmt.Printf("You can set up domain management manually later\n")
+				log.Printf("▲ Warning: Failed to setup domain management: %v\n", err)
+				log.Printf("You can set up domain management manually later\n")
 			}
 		} else {
 			if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
-				fmt.Printf("● Domain management configured!\n")
+				log.Printf("● Domain management configured!\n")
 			}
 		}
 	}
 
 	// The kubectl context is automatically set by Kind to "kind-{cluster-name}"
-	fmt.Printf("kubectl context set to: kind-%s\n", spec.Name)
+	log.Printf("kubectl context set to: kind-%s\n", spec.Name)
 
 	// Store cluster in persistent storage
 	if err := updateClusterStorage(func(clusters map[string]*types.Cluster) error {
@@ -375,7 +376,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	}
 
 	// Delete the actual Kind cluster
-	fmt.Printf("Deleting Kind cluster '%s'...\n", clusterName)
+	log.Printf("Deleting Kind cluster '%s'...\n", clusterName)
 	cmd := exec.CommandContext(ctx, p.config.KindPath, "delete", "cluster", "--name", clusterName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -385,7 +386,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		}
 	}
 
-	fmt.Printf("● Kind cluster '%s' deleted successfully!\n", clusterName)
+	log.Printf("● Kind cluster '%s' deleted successfully!\n", clusterName)
 
 	// Remove cluster from persistent storage
 	err = updateClusterStorage(func(clusters map[string]*types.Cluster) error {
@@ -674,7 +675,7 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// Don't fail if status check fails, just warn
-		fmt.Printf("▲ Could not verify Cilium status, but continuing: %v\n", err)
+		log.Printf("▲ Could not verify Cilium status, but continuing: %v\n", err)
 	}
 
 	return nil

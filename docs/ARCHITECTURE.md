@@ -137,7 +137,7 @@ Bootstrap manifests (Cilium, Gateway API, Gateway, CNPG, ArgoCD, Gitea, Crosspla
 | Cilium | `v1.20.0` | `platform/controllers/adharplatform/resources/cilium/` |
 | ArgoCD | `v3.5.1` (chart 10.3.3) | `.../resources/argocd/` |
 | Gitea | `1.27.0` (chart 12.7.0) | `.../resources/gitea/` |
-| Crossplane | `v2.3.1` | `.../resources/crossplane/` |
+| Crossplane | `v2.4.2` | `.../resources/crossplane/` |
 
 A worker added later by `adhar cluster scale` or the node autoscaler takes its version from the **running control plane**, so a scaled cluster cannot skew.
 

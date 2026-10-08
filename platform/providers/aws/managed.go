@@ -229,7 +229,7 @@ func (p *Provider) clusterSubnets(ctx context.Context, clusterName string) (publ
 // Every step is idempotent so a failed run can be retried.
 func (p *Provider) createManagedCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
 	name := spec.Name
-	fmt.Printf("▣ Creating managed EKS cluster '%s' in %s...\n", name, p.config.Region)
+	log.Printf("▣ Creating managed EKS cluster '%s' in %s...\n", name, p.config.Region)
 
 	vpcID, err := p.createVPCForCluster(ctx, spec)
 	if err != nil {
@@ -282,7 +282,7 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 	default:
 		return nil, fmt.Errorf("describing EKS cluster %s: %w", name, err)
 	}
-	fmt.Printf("◌ Waiting for the EKS control plane to become ACTIVE (this takes ~10 minutes)...\n")
+	log.Printf("◌ Waiting for the EKS control plane to become ACTIVE (this takes ~10 minutes)...\n")
 	c, err := p.waitEKSCluster(ctx, name, ekstypes.ClusterStatusActive, eksCreateTimeout)
 	if err != nil {
 		return nil, err
@@ -312,7 +312,7 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 
 	cluster := p.eksToCluster(c)
 	cluster.Tags = spec.Tags
-	fmt.Printf("● EKS cluster %s is ACTIVE at %s\n", name, cluster.Endpoint)
+	log.Printf("● EKS cluster %s is ACTIVE at %s\n", name, cluster.Endpoint)
 	return cluster, nil
 }
 
@@ -343,7 +343,7 @@ func (p *Provider) ensureEKSNodegroup(ctx context.Context, clusterName, nodeRole
 	if _, err := p.eksClient.CreateNodegroup(ctx, in); err != nil {
 		return fmt.Errorf("creating EKS node group %s: %w", ng.Name, err)
 	}
-	fmt.Printf("◌ Waiting for node group %s (%d × %s)...\n", ng.Name, replicas, instanceType)
+	log.Printf("◌ Waiting for node group %s (%d × %s)...\n", ng.Name, replicas, instanceType)
 	return p.waitEKSNodegroup(ctx, clusterName, ng.Name, ekstypes.NodegroupStatusActive, eksCreateTimeout)
 }
 
@@ -455,7 +455,7 @@ func (p *Provider) deleteManagedControlPlane(ctx context.Context, name string) e
 	}
 	if groups != nil {
 		for _, ng := range groups.Nodegroups {
-			fmt.Printf("✖ Deleting EKS node group %s...\n", ng)
+			log.Printf("✖ Deleting EKS node group %s...\n", ng)
 			if _, err := p.eksClient.DeleteNodegroup(ctx, &eks.DeleteNodegroupInput{ClusterName: aws.String(name), NodegroupName: aws.String(ng)}); err != nil && !isEKSNotFound(err) {
 				return fmt.Errorf("deleting node group %s: %w", ng, err)
 			}
@@ -466,7 +466,7 @@ func (p *Provider) deleteManagedControlPlane(ctx context.Context, name string) e
 			}
 		}
 	}
-	fmt.Printf("✖ Deleting EKS control plane %s...\n", name)
+	log.Printf("✖ Deleting EKS control plane %s...\n", name)
 	if _, err := p.eksClient.DeleteCluster(ctx, &eks.DeleteClusterInput{Name: aws.String(name)}); err != nil && !isEKSNotFound(err) {
 		return fmt.Errorf("deleting EKS cluster %s: %w", name, err)
 	}

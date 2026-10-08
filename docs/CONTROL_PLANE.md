@@ -56,7 +56,7 @@ The power move is the split: the **XRD is the contract** (what users ask for) an
 
 ## 3. What Crossplane v2 Changed
 
-Adhar runs **Crossplane v2.3.1** and adopts its model everywhere. If you have seen v1 content, un-learn these:
+Adhar runs **Crossplane v2.4.2** and adopts its model everywhere. If you have seen v1 content, un-learn these:
 
 | v1 | v2 (what Adhar uses) |
 |----|----------------------|

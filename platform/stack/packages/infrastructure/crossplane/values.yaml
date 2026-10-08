@@ -1,4 +1,4 @@
-# Minimal Crossplane v2.3.1 values for the (redundant) GitOps parity package.
+# Minimal Crossplane v2.4.2 values for the (redundant) GitOps parity package.
 # Mirrors a minimal subset of the bootstrap values at hack/crossplane/values.yaml.
 # See generate-manifests.sh header: this package is redundant with the
 # bootstrap Crossplane install and is kept only for GitOps parity.

@@ -205,12 +205,12 @@ func (p *Provider) deleteClusterSecurityGroups(ctx context.Context, clusterName 
 
 	if len(result.SecurityGroups) == 0 {
 		log.Printf("No security groups found for cluster %s", clusterName)
-		fmt.Printf("▸ No security groups found for cluster %s\n", clusterName)
+		log.Printf("▸ No security groups found for cluster %s\n", clusterName)
 		return nil
 	}
 
 	// First, remove all ingress and egress rules to break dependencies
-	fmt.Printf("⎔ Removing security group rules to break dependencies...\n")
+	log.Printf("⎔ Removing security group rules to break dependencies...\n")
 	for _, sg := range result.SecurityGroups {
 		if sg.GroupName != nil && *sg.GroupName == "default" {
 			continue
@@ -275,13 +275,13 @@ func (p *Provider) deleteClusterSecurityGroups(ctx context.Context, clusterName 
 			}
 
 			log.Printf("Warning: Failed to delete security group %s after %d attempts: %v", *sg.GroupId, attempt+1, err)
-			fmt.Printf("▲ Warning: Failed to delete security group %s: %v\n", *sg.GroupId, err)
+			log.Printf("▲ Warning: Failed to delete security group %s: %v\n", *sg.GroupId, err)
 			break
 		}
 	}
 
 	if deletedCount > 0 {
-		fmt.Printf("● Deleted %d security groups\n", deletedCount)
+		log.Printf("● Deleted %d security groups\n", deletedCount)
 	}
 	log.Printf("● Deleted %d security groups", deletedCount)
 	return nil
@@ -1583,11 +1583,11 @@ func (p *Provider) deleteElasticIPs(ctx context.Context, clusterName string, tra
 	}
 
 	if len(eips) == 0 {
-		fmt.Printf("   No Elastic IPs to release\n")
+		log.Printf("   No Elastic IPs to release\n")
 		return nil
 	}
 
-	fmt.Printf("   Releasing %d Elastic IPs...\n", len(eips))
+	log.Printf("   Releasing %d Elastic IPs...\n", len(eips))
 
 	for _, eip := range eips {
 		_, err := p.ec2Client.ReleaseAddress(ctx, &ec2.ReleaseAddressInput{
@@ -1611,11 +1611,11 @@ func (p *Provider) deleteNATGateways(ctx context.Context, clusterName string, tr
 	}
 
 	if len(natGws) == 0 {
-		fmt.Printf("   No NAT Gateways to delete\n")
+		log.Printf("   No NAT Gateways to delete\n")
 		return nil
 	}
 
-	fmt.Printf("   Deleting %d NAT Gateways...\n", len(natGws))
+	log.Printf("   Deleting %d NAT Gateways...\n", len(natGws))
 
 	for _, natGw := range natGws {
 		_, err := p.ec2Client.DeleteNatGateway(ctx, &ec2.DeleteNatGatewayInput{
@@ -1628,7 +1628,7 @@ func (p *Provider) deleteNATGateways(ctx context.Context, clusterName string, tr
 
 	// Wait for NAT Gateways to be deleted
 	if len(natGws) > 0 {
-		fmt.Printf("   Waiting for NAT Gateways to be deleted...\n")
+		log.Printf("   Waiting for NAT Gateways to be deleted...\n")
 		time.Sleep(30 * time.Second) // NAT Gateways take time to delete
 	}
 
@@ -1645,11 +1645,11 @@ func (p *Provider) deleteNetworkInterfaces(ctx context.Context, clusterName stri
 	}
 
 	if len(enis) == 0 {
-		fmt.Printf("   No orphaned Network Interfaces to clean up\n")
+		log.Printf("   No orphaned Network Interfaces to clean up\n")
 		return nil
 	}
 
-	fmt.Printf("   Cleaning up %d Network Interfaces...\n", len(enis))
+	log.Printf("   Cleaning up %d Network Interfaces...\n", len(enis))
 
 	for _, eni := range enis {
 		_, err := p.ec2Client.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{
@@ -1673,14 +1673,14 @@ func (p *Provider) deleteClusterSecurityGroupsComprehensive(ctx context.Context,
 	}
 
 	if len(sgs) == 0 {
-		fmt.Printf("   No Security Groups to delete\n")
+		log.Printf("   No Security Groups to delete\n")
 		return nil
 	}
 
-	fmt.Printf("   Deleting %d Security Groups...\n", len(sgs))
+	log.Printf("   Deleting %d Security Groups...\n", len(sgs))
 
 	// First, remove all rules from security groups to break dependencies
-	fmt.Printf("   ⎔ Removing security group rules to break dependencies...\n")
+	log.Printf("   ⎔ Removing security group rules to break dependencies...\n")
 	for _, sg := range sgs {
 		// Get security group details
 		result, err := p.ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
@@ -1758,11 +1758,11 @@ func (p *Provider) deleteRouteTables(ctx context.Context, clusterName string, tr
 	}
 
 	if len(routeTables) == 0 {
-		fmt.Printf("   No Route Tables to delete\n")
+		log.Printf("   No Route Tables to delete\n")
 		return nil
 	}
 
-	fmt.Printf("   Deleting %d Route Tables...\n", len(routeTables))
+	log.Printf("   Deleting %d Route Tables...\n", len(routeTables))
 
 	for _, rt := range routeTables {
 		_, err := p.ec2Client.DeleteRouteTable(ctx, &ec2.DeleteRouteTableInput{
@@ -1786,11 +1786,11 @@ func (p *Provider) deleteClusterSubnetsComprehensive(ctx context.Context, cluste
 	}
 
 	if len(subnets) == 0 {
-		fmt.Printf("   No Subnets to delete\n")
+		log.Printf("   No Subnets to delete\n")
 		return nil
 	}
 
-	fmt.Printf("   Deleting %d Subnets...\n", len(subnets))
+	log.Printf("   Deleting %d Subnets...\n", len(subnets))
 
 	for _, subnet := range subnets {
 		_, err := p.ec2Client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
@@ -1817,13 +1817,13 @@ func (p *Provider) deleteVPCAndGateway(ctx context.Context, clusterName string, 
 	}
 
 	if len(vpcs) == 0 && len(igws) == 0 {
-		fmt.Printf("   No VPCs or Internet Gateways to delete\n")
+		log.Printf("   No VPCs or Internet Gateways to delete\n")
 		return nil
 	}
 
 	// First, detach and delete Internet Gateways
 	for _, igw := range igws {
-		fmt.Printf("   Detaching and deleting Internet Gateway %s...\n", igw)
+		log.Printf("   Detaching and deleting Internet Gateway %s...\n", igw)
 
 		// Find VPC this IGW is attached to
 		for _, vpc := range vpcs {
@@ -1846,18 +1846,18 @@ func (p *Provider) deleteVPCAndGateway(ctx context.Context, clusterName string, 
 
 	// Then delete VPCs with comprehensive dependency cleanup
 	for _, vpc := range vpcs {
-		fmt.Printf("   Cleaning up dependencies for VPC %s...\n", vpc)
+		log.Printf("   Cleaning up dependencies for VPC %s...\n", vpc)
 		err := p.cleanupVPCDependencies(ctx, vpc)
 		if err != nil {
 			log.Printf("Warning: Failed to cleanup VPC dependencies: %v", err)
 		}
 
-		fmt.Printf("   Deleting VPC %s...\n", vpc)
+		log.Printf("   Deleting VPC %s...\n", vpc)
 		err = p.deleteVPCWithRetry(ctx, vpc)
 		if err != nil {
 			log.Printf("Warning: Failed to delete VPC %s: %v", vpc, err)
 		} else {
-			fmt.Printf("   ● Successfully deleted VPC %s\n", vpc)
+			log.Printf("   ● Successfully deleted VPC %s\n", vpc)
 		}
 	}
 
@@ -1920,7 +1920,7 @@ func (p *Provider) cleanupVPCNATGateways(ctx context.Context, vpcID string) erro
 
 	for _, natGw := range result.NatGateways {
 		if natGw.NatGatewayId != nil {
-			fmt.Printf("     Deleting NAT Gateway %s...\n", *natGw.NatGatewayId)
+			log.Printf("     Deleting NAT Gateway %s...\n", *natGw.NatGatewayId)
 			_, err := p.ec2Client.DeleteNatGateway(ctx, &ec2.DeleteNatGatewayInput{
 				NatGatewayId: natGw.NatGatewayId,
 			})
@@ -1951,7 +1951,7 @@ func (p *Provider) deleteVPCWithRetry(ctx context.Context, vpcID string) error {
 				return fmt.Errorf("VPC %s still has dependencies after %d attempts: %w", vpcID, maxRetries, err)
 			}
 
-			fmt.Printf("     VPC %s has dependencies, retrying in %ds (attempt %d/%d)...\n", vpcID, attempt*2, attempt, maxRetries)
+			log.Printf("     VPC %s has dependencies, retrying in %ds (attempt %d/%d)...\n", vpcID, attempt*2, attempt, maxRetries)
 			time.Sleep(time.Duration(attempt*2) * time.Second)
 			continue
 		}

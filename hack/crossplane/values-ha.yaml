@@ -143,10 +143,16 @@ runtimeClassName: ""
 resourcesCrossplane:
   limits:
     # -- CPU resource limits for the Crossplane pod.
-    # PRODUCTION HA: Higher limits for production workloads
-    cpu: 1000m
+    # 2 cores / 4Gi, which is what the generated HA manifest carried by hand
+    # until 2026-10-09 (a regeneration reverted it to these comments' old
+    # 1000m/2048Mi). The reason is measured: with the full provider set
+    # registering thousands of CRDs, crossplane was CPU-throttled and
+    # OOM-killed in a loop — 29 restarts on a 10-node cloud cluster — and no
+    # package, XRD or Composition reconciled at all. Limits are caps, not
+    # reservations; the requests below stay small.
+    cpu: "2"
     # -- Memory resource limits for the Crossplane pod.
-    memory: 2048Mi
+    memory: 4Gi
   requests:
     # -- CPU resource requests for the Crossplane pod.
     # PRODUCTION HA: Guaranteed resources for reliability

@@ -28,6 +28,31 @@ The control plane provides:
 - **Advanced provider features** including logging, monitoring, identity, and networking
 - **Kubernetes-native operations** for existing clusters (Kind, on-prem) via provider-kubernetes
 
+## What's New in v2.4
+
+### Crossplane 2.4.2 Upgrade (2026-10-09)
+
+- ✅ Core bumped **v2.3.1 → v2.4.2** (the latest 2.4 patch); all three install manifests
+  re-rendered from the chart — the two embedded ones the bootstrap applies
+  (`platform/controllers/adharplatform/resources/crossplane/install{,-ha}.yaml`) and the
+  GitOps parity copy. Every value this platform sets is still declared by the 2.4 chart.
+- ⚠️ **Package runtimes are now reconciled with server-side apply.** Removing a field from a
+  `DeploymentRuntimeConfig` finally takes effect instead of lingering on the Deployment.
+  Harmless here — ours only set `serviceAccountTemplate.metadata.name` — but it means a
+  runtime config edit is now live rather than advisory.
+- ⚠️ **Safe-start provider runtimes scale to zero** until one of their CRDs is actually used.
+  A provider showing 0 replicas is the new healthy idle state, not a failed install.
+- 🔎 Compositions can now **watch required resources**, so an `environment`/`requirements`
+  lookup re-triggers composition on change rather than waiting for the next poll.
+- 🔎 Cosmetic: the `RUNTIME` printer column was renamed, and the Crossplane CLI is no longer
+  published on `releases.crossplane.io` — fetch it from the GitHub releases instead (the
+  `make build-control-plane` xpkg path is unaffected).
+- 🔒 Two hand-edits of the generated manifests moved into the generator, because this bump
+  reverted both: `enableServiceLinks: false` on each Deployment (cosign's `Service/webhook`
+  injects `WEBHOOK_PORT`, which crossplane misreads as `--webhook-port` and dies) and the
+  raised resource limits (now in `hack/crossplane/values{,-ha}.yaml`). Pinned by
+  `TestCrossplaneManifestsDisableServiceLinks` and `TestCrossplaneCoreKeepsItsRaisedLimits`.
+
 ## What's New in v2.3
 
 ### Crossplane 2.3 Upgrade
@@ -566,7 +591,7 @@ See `examples/` directory for complete samples:
 **November 8, 2025** - All control plane features completed using **KCL-based Crossplane compositions**.
 
 ### Technology Stack
-- **Crossplane**: v2.3.0+ (tested on v2.3.1) 
+- **Crossplane**: v2.3.0+ (tested on v2.4.2) 
 - **Function**: function-kcl v0.9.0+
 - **Language**: KCL (Kubernetes Configuration Language)
 - **Pattern**: Declarative, GitOps-driven infrastructure

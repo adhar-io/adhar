@@ -7,7 +7,7 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: crossplane
 category: infrastructure
-version: "2.3.1"
+version: "2.4.2"
 description: Crossplane control plane (GitOps parity copy of the bootstrap install) for provisioning cloud infrastructure from Kubernetes.
 maintainer:
   name: Adhar Platform Team

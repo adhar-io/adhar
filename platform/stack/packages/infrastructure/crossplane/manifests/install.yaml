@@ -10,13 +10,13 @@ metadata:
   namespace: adhar-system
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 automountServiceAccountToken: true
 ---
 # Source: crossplane/templates/serviceaccount.yaml
@@ -27,13 +27,13 @@ metadata:
   namespace: adhar-system
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 automountServiceAccountToken: true
 ---
 # Source: crossplane/templates/secret.yaml
@@ -76,13 +76,13 @@ metadata:
   name: crossplane
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
@@ -95,13 +95,13 @@ metadata:
   name: crossplane:system:aggregate-to-crossplane
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
     crossplane.io/scope: "system"
     rbac.crossplane.io/aggregate-to-crossplane: "true"
 rules:
@@ -197,13 +197,13 @@ metadata:
   name: crossplane:allowed-provider-permissions
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
@@ -216,13 +216,13 @@ metadata:
   name: crossplane-rbac-manager
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 rules:
 - apiGroups:
   - ""
@@ -357,13 +357,13 @@ metadata:
   name: crossplane-admin
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
@@ -376,13 +376,13 @@ metadata:
   name: crossplane-edit
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
@@ -395,13 +395,13 @@ metadata:
   name: crossplane-view
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
@@ -414,13 +414,13 @@ metadata:
   name: crossplane-browse
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
@@ -434,13 +434,13 @@ metadata:
   labels:
     rbac.crossplane.io/aggregate-to-admin: "true"
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 rules:
 # Crossplane administrators have access to view events.
 - apiGroups: [""]
@@ -496,13 +496,13 @@ metadata:
   labels:
     rbac.crossplane.io/aggregate-to-edit: "true"
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 rules:
 # Crossplane editors have access to view events.
 - apiGroups: [""]
@@ -547,13 +547,13 @@ metadata:
   labels:
     rbac.crossplane.io/aggregate-to-view: "true"
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 rules:
 # Crossplane viewers have access to view events.
 - apiGroups: [""]
@@ -593,13 +593,13 @@ metadata:
   labels:
     rbac.crossplane.io/aggregate-to-browse: "true"
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 rules:
 # Crossplane browsers have access to view events.
 - apiGroups: [""]
@@ -620,13 +620,13 @@ metadata:
   name: crossplane
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -643,13 +643,13 @@ metadata:
   name: crossplane-rbac-manager
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -666,13 +666,13 @@ metadata:
   name: crossplane-admin
   labels:
     app: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -691,13 +691,13 @@ metadata:
   labels:
     app: crossplane
     release: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
   annotations:
 spec:
   selector:
@@ -717,13 +717,13 @@ metadata:
   labels:
     app: crossplane
     release: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 spec:
   replicas: 1
   selector:
@@ -737,19 +737,19 @@ spec:
       labels:
         app: crossplane
         release: crossplane        
-        helm.sh/chart: crossplane-2.3.1
+        helm.sh/chart: crossplane-2.4.2
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: cloud-infrastructure-controller
         app.kubernetes.io/part-of: crossplane
         app.kubernetes.io/name: crossplane
         app.kubernetes.io/instance: crossplane
-        app.kubernetes.io/version: "2.3.1"
+        app.kubernetes.io/version: "2.4.2"
     spec:
       serviceAccountName: crossplane
       hostNetwork: false
       initContainers:
         - name: crossplane-init
-          image: "xpkg.crossplane.io/crossplane/crossplane:v2.3.1"
+          image: "xpkg.crossplane.io/crossplane/crossplane:v2.4.2"
           imagePullPolicy: IfNotPresent
           args:
           - core
@@ -805,7 +805,7 @@ spec:
             value: crossplane-tls-client
       containers:
       - name: crossplane
-        image: "xpkg.crossplane.io/crossplane/crossplane:v2.3.1"
+        image: "xpkg.crossplane.io/crossplane/crossplane:v2.4.2"
         args:
         - core
         - start
@@ -898,13 +898,13 @@ metadata:
   labels:
     app: crossplane-rbac-manager
     release: crossplane    
-    helm.sh/chart: crossplane-2.3.1
+    helm.sh/chart: crossplane-2.4.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: cloud-infrastructure-controller
     app.kubernetes.io/part-of: crossplane
     app.kubernetes.io/name: crossplane
     app.kubernetes.io/instance: crossplane
-    app.kubernetes.io/version: "2.3.1"
+    app.kubernetes.io/version: "2.4.2"
 spec:
   replicas: 1
   selector:
@@ -918,18 +918,18 @@ spec:
       labels:
         app: crossplane-rbac-manager
         release: crossplane        
-        helm.sh/chart: crossplane-2.3.1
+        helm.sh/chart: crossplane-2.4.2
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: cloud-infrastructure-controller
         app.kubernetes.io/part-of: crossplane
         app.kubernetes.io/name: crossplane
         app.kubernetes.io/instance: crossplane
-        app.kubernetes.io/version: "2.3.1"
+        app.kubernetes.io/version: "2.4.2"
     spec:
       serviceAccountName: rbac-manager
       initContainers:
       - name: crossplane-init
-        image: "xpkg.crossplane.io/crossplane/crossplane:v2.3.1"
+        image: "xpkg.crossplane.io/crossplane/crossplane:v2.4.2"
         args:
         - rbac
         - init
@@ -961,7 +961,7 @@ spec:
                 divisor: "1"
       containers:
       - name: crossplane
-        image: "xpkg.crossplane.io/crossplane/crossplane:v2.3.1"
+        image: "xpkg.crossplane.io/crossplane/crossplane:v2.4.2"
         args:
         - rbac
         - start

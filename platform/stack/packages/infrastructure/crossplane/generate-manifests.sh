@@ -6,11 +6,11 @@ set -e
 # =============================================================================
 # This GitOps Crossplane package is REDUNDANT with the Crossplane core that the
 # Adhar BOOTSTRAP installs imperatively (see
-# platform/controllers/adharplatform/resources/crossplane/, currently v2.3.1).
+# platform/controllers/adharplatform/resources/crossplane/, currently v2.4.2).
 # Installing both would conflict on cluster-scoped resources (CRDs, RBAC, the
 # crossplane-system Deployment, etc.).
 #
-# It is pinned to the SAME version as the bootstrap (v2.3.1) and kept ONLY for
+# It is pinned to the SAME version as the bootstrap (v2.4.2) and kept ONLY for
 # GitOps parity / declarative reference. Prefer the bootstrap-managed install.
 # Do NOT enable both simultaneously for the same cluster.
 # =============================================================================
@@ -18,7 +18,7 @@ set -e
 INSTALL_YAML="manifests/install.yaml"
 # Keep in lockstep with the bootstrap Crossplane version
 # (platform/controllers/adharplatform/resources/crossplane/).
-CHART_VERSION="2.3.1"
+CHART_VERSION="2.4.2"
 
 echo "# CROSSPLANE INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/infrastructure/crossplane/generate-manifests.sh'" >>${INSTALL_YAML}

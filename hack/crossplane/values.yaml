@@ -168,10 +168,13 @@ functionCache:
 resourcesRBACManager:
   limits:
     # -- CPU resource limits for the RBAC Manager pod.
-    # LOCAL DEV: Reduced limits for resource efficiency
-    cpu: 50m
+    # 200m, not the 50m a local-dev default suggests: the RBAC manager watches
+    # every CRD the provider packages register, and the generated manifest
+    # carried this value by hand until 2026-10-09 — a regeneration reverted it,
+    # which is why it lives here now.
+    cpu: 200m
     # -- Memory resource limits for the RBAC Manager pod.
-    memory: 256Mi
+    memory: 512Mi
   requests:
     # -- CPU resource requests for the RBAC Manager pod.
     # LOCAL DEV: Minimal resource requests

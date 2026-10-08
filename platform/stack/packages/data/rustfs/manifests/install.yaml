@@ -83,7 +83,18 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: rustfs
-          image: docker.io/rustfs/rustfs:1.0.0-rc.6
+          # 1.0.1 is the first GA line (1.0.0 was 2026-09-16, 1.0.1 2026-10-03);
+          # the platform ran the 1.0.0-rc.6 prerelease until 2026-10-08.
+          # Verified multi-arch (amd64 + arm64) on Docker Hub before pinning.
+          #
+          # NOTE on upgrading an EXISTING store: the GA line runs an IAM
+          # migration at start-up (upstream `retry IAM migration quorum failures
+          # on startup`, `skip IAM migration when legacy volume is absent`, and
+          # `prevent readiness after native migration failures`). The pod stays
+          # unready rather than serving on a half-migrated store, which is the
+          # right behaviour and also means a failed migration shows up as a
+          # readiness failure, not as data loss.
+          image: docker.io/rustfs/rustfs:1.0.1
           env:
             - name: RUSTFS_VOLUMES
               value: "/data"
