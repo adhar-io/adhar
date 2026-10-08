@@ -1008,3 +1008,190 @@ func TestIdentityPathOutranksWorkloads(t *testing.T) {
 		}
 	}
 }
+
+// Plane's object storage is the PLATFORM's, and the three pieces of that have to
+// stay in agreement.
+//
+// The chart bundles MinIO, and its pinned image
+// (`quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z`) can no longer be pulled
+// anonymously: on a live AWS cluster `plane-minio-wl-0` sat in ImagePullBackOff
+// and the plane Application was Degraded for the life of the cluster
+// (2026-10-08). It is also the platform rule — an application uses the shared
+// object store rather than bringing its own.
+//
+// Turning the bundle off is only a third of it. The chart then renders its
+// doc-store Secret WITHOUT credentials (values.yaml leaves `aws_access_key`
+// empty on purpose, so the object store's root credential stays out of git), so
+// generate-manifests.sh adds a second `envFrom` for the ESO-managed
+// `plane-s3-credentials`. A regeneration is exactly where that step gets lost,
+// and the symptom is not a pod that fails to start — it is an upload that fails
+// at runtime.
+func TestPlaneUsesThePlatformObjectStore(t *testing.T) {
+	manifest := filepath.Join(stackRoot(t), "packages", "application", "plane", "manifests", "install.yaml")
+	raw, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatalf("reading the plane manifest: %v", err)
+	}
+	text := string(raw)
+
+	// 1. No bundled MinIO, by workload or by image.
+	if strings.Contains(text, "plane-minio") {
+		t.Error("the plane package still renders its bundled MinIO (plane-minio); its image cannot be pulled " +
+			"anonymously and the Application stays Degraded. Set minio.local_setup: false in values.yaml")
+	}
+	if strings.Contains(text, "minio/minio") {
+		t.Error("the plane package still references a minio/minio image")
+	}
+
+	// 2. The endpoint is the platform store, and MinIO mode is off.
+	if !strings.Contains(text, "rustfs.adhar-system.svc.cluster.local:9000") {
+		t.Error("plane's doc store does not point at the platform object store (RustFS)")
+	}
+	if !strings.Contains(text, `USE_MINIO: "0"`) {
+		t.Error(`plane still runs with USE_MINIO: "1"; with an external S3 endpoint that makes it sign requests wrongly`)
+	}
+
+	// 3. Every workload that reads the doc-store Secret also reads the
+	//    credentials Secret. Counted, not merely present: the chart's own
+	//    indentation is inconsistent and a stricter patch once skipped one
+	//    workload while reporting success.
+	mounts := regexp.MustCompile(`(?m)^[ ]+name:[ ]+plane-doc-store-secrets\n[ ]+optional:`).FindAllString(text, -1)
+	creds := regexp.MustCompile(`(?m)^[ ]+name:[ ]+plane-s3-credentials\n[ ]+optional:`).FindAllString(text, -1)
+	if len(mounts) == 0 {
+		t.Fatal("no workload mounts plane-doc-store-secrets; the chart's secret wiring has changed and this guard " +
+			"no longer describes it")
+	}
+	if len(creds) != len(mounts) {
+		t.Errorf("%d workload(s) mount plane-doc-store-secrets but only %d also mount plane-s3-credentials: "+
+			"those pods start fine and cannot write to the object store",
+			len(mounts), len(creds))
+	}
+
+	// 4. The credentials come from the platform's root Secret, not from git.
+	store := filepath.Join(stackRoot(t), "packages", "application", "plane", "manifests", "platform-storage.yaml")
+	es, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatalf("reading plane's platform-storage.yaml: %v", err)
+	}
+	for _, want := range []string{"kind: ExternalSecret", "plane-s3-credentials", "root-creds", "AWS_ACCESS_KEY_ID"} {
+		if !strings.Contains(string(es), want) {
+			t.Errorf("plane's platform-storage.yaml does not mention %q", want)
+		}
+	}
+
+	// 5. And the bucket it writes to is one the platform actually creates.
+	buckets, err := os.ReadFile(filepath.Join(stackRoot(t), "packages", "data", "rustfs", "manifests", "buckets.yaml"))
+	if err != nil {
+		t.Fatalf("reading the rustfs bucket list: %v", err)
+	}
+	if !regexp.MustCompile(`value: "[^"]*\bplane\b`).Match(buckets) {
+		t.Error("the rustfs package does not provision a `plane` bucket, so every upload fails with NoSuchBucket")
+	}
+}
+
+// A manifest field the CRD does not declare is a PERMANENT failure, not a slow
+// one: Argo CD's server-side apply refuses the typed patch, and the retry limit
+// on these Applications is -1.
+//
+// `User.spec.passwordSecretKeyRef.generate: true` was the live case
+// (2026-10-08). `generate` is a field of the MariaDB kind's own password
+// references, not of a User's — the users.k8s.mariadb.com CRD declares only
+// `key` and `name` — so every sync failed with `field not declared in schema`,
+// 1326 times in 14 hours. The User was never created, its Grant then failed with
+// `Can't find any matching row in the user table`, and the package stayed
+// Degraded with no sign that one extra key was the cause.
+//
+// The check is narrow on purpose: it compares the fields a manifest sets against
+// the CRD schema the SAME package ships, which is the one pairing that can be
+// verified without a cluster.
+func TestMariaDBUserPasswordRefMatchesTheShippedCRD(t *testing.T) {
+	pkg := filepath.Join(stackRoot(t), "packages", "data", "mariadb-operator", "manifests")
+
+	// What the CRD declares.
+	install, err := os.ReadFile(filepath.Join(pkg, "install.yaml"))
+	if err != nil {
+		t.Fatalf("reading the mariadb-operator install manifest: %v", err)
+	}
+	declared := map[string]bool{}
+	for _, doc := range strings.Split(string(install), "\n---\n") {
+		if !strings.Contains(doc, "name: users.k8s.mariadb.com") {
+			continue
+		}
+		var crd struct {
+			Spec struct {
+				Versions []struct {
+					Schema struct {
+						OpenAPIV3Schema struct {
+							Properties struct {
+								Spec struct {
+									Properties struct {
+										PasswordSecretKeyRef struct {
+											Properties map[string]interface{} `yaml:"properties"`
+										} `yaml:"passwordSecretKeyRef"`
+									} `yaml:"properties"`
+								} `yaml:"spec"`
+							} `yaml:"properties"`
+						} `yaml:"openAPIV3Schema"`
+					} `yaml:"schema"`
+				} `yaml:"versions"`
+			} `yaml:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(doc), &crd); err != nil {
+			t.Fatalf("parsing the users CRD: %v", err)
+		}
+		for _, v := range crd.Spec.Versions {
+			for k := range v.Schema.OpenAPIV3Schema.Properties.Spec.Properties.PasswordSecretKeyRef.Properties {
+				declared[k] = true
+			}
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("could not read User.spec.passwordSecretKeyRef from the shipped CRD; this guard no longer " +
+			"describes the package")
+	}
+
+	// What the User manifest sets.
+	cluster, err := os.ReadFile(filepath.Join(pkg, "cluster.yaml"))
+	if err != nil {
+		t.Fatalf("reading the mariadb cluster manifest: %v", err)
+	}
+	for _, doc := range strings.Split(string(cluster), "\n---\n") {
+		var obj struct {
+			Kind string `yaml:"kind"`
+			Spec struct {
+				PasswordSecretKeyRef map[string]interface{} `yaml:"passwordSecretKeyRef"`
+			} `yaml:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil || obj.Kind != "User" {
+			continue
+		}
+		for field := range obj.Spec.PasswordSecretKeyRef {
+			if !declared[field] {
+				t.Errorf("the User sets passwordSecretKeyRef.%s, which the shipped CRD does not declare "+
+					"(it has %v): Argo CD's server-side apply fails with `field not declared in schema` and "+
+					"retries forever", field, sortedKeys(declared))
+			}
+		}
+	}
+
+	// And the Secret it references has to be produced by something.
+	gen, err := os.ReadFile(filepath.Join(pkg, "secret-gen.yaml"))
+	if err != nil {
+		t.Fatalf("reading the mariadb secret generator: %v", err)
+	}
+	for _, want := range []string{"kind: Password", "mariadb-adhar-password", "generatorRef"} {
+		if !strings.Contains(string(gen), want) {
+			t.Errorf("secret-gen.yaml does not mention %q; without a generated password the User has no "+
+				"credential and the Grant fails", want)
+		}
+	}
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

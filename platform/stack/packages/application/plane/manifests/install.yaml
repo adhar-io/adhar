@@ -50,13 +50,11 @@ metadata:
     app.kubernetes.io/version: "1.4.1"
 stringData:
   FILE_SIZE_LIMIT: "5242880"
-  AWS_S3_BUCKET_NAME: "uploads"
-  USE_MINIO: "1"
-  MINIO_ROOT_USER: "admin"
-  MINIO_ROOT_PASSWORD: "password"
-  AWS_ACCESS_KEY_ID: "admin"
-  AWS_SECRET_ACCESS_KEY: "password"
-  AWS_S3_ENDPOINT_URL: http://plane-minio:9000
+  AWS_S3_BUCKET_NAME: "plane"
+  USE_MINIO: "0"
+  
+  AWS_S3_ENDPOINT_URL: "http://rustfs.adhar-system.svc.cluster.local:9000"
+  AWS_REGION: "us-east-1"
 ---
 # Source: plane-ce/templates/config-secrets/live-env.yaml
 apiVersion: v1
@@ -218,33 +216,6 @@ spec:
   selector:
     app.name: adhar-system-plane-live
 ---
-# Source: plane-ce/templates/workloads/minio.stateful.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  namespace: adhar-system
-  name: plane-minio
-  labels:
-    app.name: adhar-system-plane-minio
-    helm.sh/chart: plane-ce-1.8.0
-    app.kubernetes.io/name: plane-ce
-    app.kubernetes.io/instance: plane
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/version: "1.4.1"
-spec:
-  clusterIP: None
-  ports:
-  - name: minio-api-9000
-    port: 9000
-    protocol: TCP
-    targetPort: 9000
-  - name: minio-console-9090
-    port: 9090
-    protocol: TCP
-    targetPort: 9090
-  selector:
-    app.name: adhar-system-plane-minio
----
 # Source: plane-ce/templates/workloads/postgres.stateful.yaml
 apiVersion: v1
 kind: Service
@@ -397,7 +368,7 @@ spec:
       containers:
       - name: plane-admin
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-admin:v1.4.2
+        image: artifacts.plane.so/makeplane/plane-admin:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -464,6 +435,9 @@ spec:
               optional: false
           - secretRef:
               name: plane-doc-store-secrets
+              optional: false
+          - secretRef:
+              name: plane-s3-credentials
               optional: false
         readinessProbe:
           failureThreshold: 30
@@ -532,6 +506,9 @@ spec:
           - secretRef:
               name: plane-doc-store-secrets
               optional: false
+          - secretRef:
+              name: plane-s3-credentials
+              optional: false
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
 ---
@@ -568,7 +545,7 @@ spec:
       containers:
       - name: plane-live
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-live:v1.4.2
+        image: artifacts.plane.so/makeplane/plane-live:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -621,7 +598,7 @@ spec:
       containers:
       - name: plane-space
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-space:v1.4.2
+        image: artifacts.plane.so/makeplane/plane-space:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -667,7 +644,7 @@ spec:
       containers:
       - name: plane-web
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-frontend:v1.4.2
+        image: artifacts.plane.so/makeplane/plane-frontend:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -735,73 +712,11 @@ spec:
           - secretRef:
               name: plane-doc-store-secrets
               optional: false
-      serviceAccount: plane-srv-account
-      serviceAccountName: plane-srv-account
----
-# Source: plane-ce/templates/workloads/minio.stateful.yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  namespace: adhar-system
-  name: plane-minio-wl
-  labels:
-    helm.sh/chart: plane-ce-1.8.0
-    app.kubernetes.io/name: plane-ce
-    app.kubernetes.io/instance: plane
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/version: "1.4.1"
-spec:
-  selector:
-    matchLabels:
-      app.name: adhar-system-plane-minio
-  serviceName:  plane-minio
-  template:
-    metadata:
-      labels:
-        app.name: adhar-system-plane-minio
-        helm.sh/chart: plane-ce-1.8.0
-        app.kubernetes.io/name: plane-ce
-        app.kubernetes.io/instance: plane
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/version: "1.4.1"
-    spec:
-      containers:
-      - image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-        imagePullPolicy: IfNotPresent
-        name: plane-minio
-        stdin: true
-        tty: true
-        # command:
-        args:
-          - server
-          - /data
-          - --console-address 
-          - :9090
-        envFrom:
           - secretRef:
-              name: plane-doc-store-secrets
+              name: plane-s3-credentials
               optional: false
-        volumeMounts:
-        - mountPath: /data
-          name: pvc-plane-minio-vol
-          subPath: ''
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
-  volumeClaimTemplates:
-  - apiVersion: v1
-    kind: PersistentVolumeClaim
-    metadata:
-      creationTimestamp: null
-      namespace: adhar-system
-      name: pvc-plane-minio-vol
-    spec:
-      accessModes:
-      - ReadWriteOnce
-      resources:
-        requests:
-          storage: "1Gi"
-      storageClassName: 
-      volumeMode: Filesystem
 ---
 # Source: plane-ce/templates/workloads/postgres.stateful.yaml
 apiVersion: apps/v1
@@ -1025,51 +940,9 @@ spec:
           - secretRef:
               name:  plane-doc-store-secrets
               optional: false
+          - secretRef:
+              name: plane-s3-credentials
+              optional: false
       restartPolicy: OnFailure
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
----
-# Source: plane-ce/templates/workloads/minio.stateful.yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  namespace: adhar-system
-  name: plane-minio-bucket-1
-  labels:
-    helm.sh/chart: plane-ce-1.8.0
-    app.kubernetes.io/name: plane-ce
-    app.kubernetes.io/instance: plane
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/version: "1.4.1"
-spec:
-  backoffLimit: 6
-  completionMode: NonIndexed
-  template:
-    metadata:
-      namespace: adhar-system
-    spec:
-      restartPolicy: OnFailure
-      initContainers:
-        - name: init
-          image: busybox
-          command: ['sh', '-c', "until nslookup  plane-minio.adhar-system.svc.cluster.local; do echo waiting for  plane-minio; sleep 2; done"]
-      containers:
-        - command:
-            - /bin/sh
-          args:
-            - '-c'
-            - >-
-              /usr/bin/mc alias set plane-app-minio
-              http://plane-minio.adhar-system.svc.cluster.local:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"; 
-              /usr/bin/mc mb plane-app-minio/$AWS_S3_BUCKET_NAME; 
-              /usr/bin/mc anonymous set download plane-app-minio/$AWS_S3_BUCKET_NAME; exit 0;
-          envFrom:
-            - secretRef:
-                name: plane-doc-store-secrets
-                optional: false
-          image: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
-          imagePullPolicy: IfNotPresent
-          name: plane-minio-bucket
-      serviceAccount: plane-srv-account
-      serviceAccountName: plane-srv-account
-      terminationGracePeriodSeconds: 120

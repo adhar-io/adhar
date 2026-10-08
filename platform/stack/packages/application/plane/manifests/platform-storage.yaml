@@ -1,0 +1,47 @@
+# Plane's object storage is the PLATFORM's object store, RustFS — not the MinIO
+# the chart bundles (values.yaml `minio.local_setup: false`, and the reason it is
+# off is written there).
+#
+# The credentials are mirrored from the object store's root Secret by External
+# Secrets over the `gitea` ClusterSecretStore — the platform's
+# Kubernetes-provider store over adhar-system — so a rotation of `root-creds`
+# follows automatically and nothing credential-shaped is in git.
+#
+# WHY A SECOND SECRET rather than filling in the chart's own. The chart renders
+# `plane-doc-store-secrets` itself (bucket, endpoint, region, USE_MINIO=0) and
+# ArgoCD owns it; an ExternalSecret writing to the same name would fight the
+# sync. So the keys the chart leaves blank arrive in a Secret of their own, and
+# generate-manifests.sh adds one `envFrom` entry for it next to every
+# `plane-doc-store-secrets` entry. `TestPlaneUsesThePlatformObjectStore` pins
+# that agreement, because a regeneration is exactly where it would be lost.
+#
+# The `plane` bucket itself is provisioned by the rustfs package.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: plane-s3-credentials
+  namespace: adhar-system
+  annotations:
+    # Ahead of the workloads that mount it; SkipDryRunOnMissingResource because
+    # on a first boot the ExternalSecret CRD may not be registered yet.
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: plane-s3-credentials
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        # The names Plane's Django settings read (plane/settings/common.py).
+        AWS_ACCESS_KEY_ID: '{{ .accessKeyID }}'
+        AWS_SECRET_ACCESS_KEY: '{{ .secretAccessKey }}'
+  data:
+    - secretKey: accessKeyID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: secretAccessKey
+      remoteRef: {key: root-creds, property: rootPassword}

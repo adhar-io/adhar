@@ -94,3 +94,70 @@ src, n = re.subn(r'artifacts\.plane\.so/makeplane/plane-backend:\S+',
 open(path, 'w').write(src)
 print(f"pointed {n} plane-backend reference(s) at ghcr.io/adhar-io")
 PYEOF
+
+# Every workload that reads `plane-doc-store-secrets` also reads the ESO-managed
+# `plane-s3-credentials`.
+#
+# The chart renders the doc-store Secret with the bucket, endpoint, region and
+# USE_MINIO=0, but with NO credentials: `env.aws_access_key` and
+# `env.aws_secret_access_key` are deliberately left empty in values.yaml so the
+# object store's root credential never enters git (see manifests/platform-storage.yaml).
+# ArgoCD owns the chart's Secret, so the credentials cannot be merged into it —
+# they arrive as a second envFrom entry, added here.
+#
+# Pinned by TestPlaneUsesThePlatformObjectStore: a regeneration that loses this
+# step leaves every Plane workload without S3 credentials, and the symptom is an
+# upload that fails at runtime rather than a pod that fails to start.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import re, sys
+
+path = sys.argv[1]
+src = open(path).read()
+
+# Match the envFrom entry for the chart's doc-store Secret, at whatever
+# indentation the template used, and append a sibling entry for ours.
+pattern = re.compile(
+    r'(?P<indent>[ ]*)- secretRef:\n'
+    r'(?P<inner>[ ]*)name:[ ]+plane-doc-store-secrets\n'
+    r'(?P<optindent>[ ]*)optional: false\n')
+
+
+def add_credentials(m):
+    return (m.group(0)
+            + f"{m.group('indent')}- secretRef:\n"
+            + f"{m.group('inner')}name: plane-s3-credentials\n"
+            + f"{m.group('optindent')}optional: false\n")
+
+
+src, n = pattern.subn(add_credentials, src)
+# Every workload that mounts the doc-store Secret must have been matched. The
+# chart's indentation is not uniform (one entry writes `name:` with two spaces),
+# and a stricter pattern silently skipped that workload — which is the failure
+# this check exists to catch, since the result is a pod that starts fine and
+# cannot write to the object store.
+mounts = len(re.findall(r'[ ]+name:[ ]+plane-doc-store-secrets\n[ ]+optional:', src))
+if n == 0 or n != mounts:
+    raise SystemExit(f"matched {n} of {mounts} plane-doc-store-secrets envFrom entries: the chart's "
+                     "secret wiring changed, and some Plane workloads would run without S3 credentials")
+open(path, 'w').write(src)
+print(f"added the platform S3 credentials to {n} workload(s)")
+PYEOF
+
+# Raise the chart's one-second probe timeout.
+#
+# The chart ships `timeoutSeconds: 1` on the API readiness probe. On a loaded
+# node that kills a healthy pod — the platform rule is that no package may ship a
+# one-second probe, enforced by TestNoProbeShipsAOneSecondTimeout.
+#
+# This used to be a hand-edit of the generated file, which meant the FIRST
+# regeneration silently undid it (2026-10-08). Doing it here is the only form
+# that survives.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import re, sys
+
+path = sys.argv[1]
+src = open(path).read()
+src, n = re.subn(r'(?m)^([ ]*)timeoutSeconds: 1$', r'\g<1>timeoutSeconds: 5', src)
+open(path, 'w').write(src)
+print(f"raised {n} one-second probe timeout(s) to 5s")
+PYEOF

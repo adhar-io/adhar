@@ -23,7 +23,6 @@ import (
 	stdlog "log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -66,17 +65,10 @@ func k8sClientFromConfig(restConfig *rest.Config, scheme *runtime.Scheme) (clien
 	return kubeClient, nil
 }
 
-// defaultControllerImage is the released adhar image matching this CLI build
-// (goreleaser tags images without the leading "v"). A development build
-// ("v0.0.1-dev", or any pre-release suffix) has no published image, so it
-// tracks the latest release instead of leaving the in-cluster manager in
-// ImagePullBackOff; pass --controller-image to pin something else.
+// defaultControllerImage is the released adhar image matching this CLI build.
+// The rule lives in cmd/helpers so `adhar upgrade` applies the same one.
 func defaultControllerImage() string {
-	v := strings.TrimPrefix(version.Version, "v")
-	if v == "" || strings.Contains(v, "-dev") || strings.HasPrefix(v, "0.0.1") {
-		return "ghcr.io/adhar-io/adhar:latest"
-	}
-	return "ghcr.io/adhar-io/adhar:" + v
+	return helpers.DefaultControllerImage(version.Version)
 }
 
 // providerNameToEnvironmentProvider maps a resolved provider string from the
@@ -503,10 +495,10 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// Production posture: continuous reconciliation via the in-cluster manager.
 	installCtx, installCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer installCancel()
-	image := controllerImage
-	if image == "" {
-		image = defaultControllerImage()
-	}
+	// The image is CHECKED, not assumed: see helpers.ResolveControllerImage for
+	// what a version tag with no published image did to a live cluster.
+	image := helpers.ResolveControllerImage(installCtx, controllerImage, defaultControllerImage(),
+		helpers.ControllerImageExists, func(msg string) { logger.Warnf("%s", msg) })
 	if err := controllers.EnsureControllerManager(installCtx, kubeClient, controllers.ManagerConfig{
 		Image:        image,
 		Namespace:    globals.AdharSystemNamespace,

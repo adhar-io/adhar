@@ -1,9 +1,9 @@
 # Plane (Community Edition) values for Adhar. The chart's Ingress/IngressRoute is
 # disabled -- routing is handled by the Cilium Gateway API (adhar-gateway) via
 # manifests/httproute.yaml, which mirrors the upstream path-based routing across
-# the web, space, admin, api, live and minio services. Plane bundles its own
-# Postgres, Redis/Valkey, MinIO and RabbitMQ (local_setup), so the package is
-# self-contained.
+# the web, space, admin, api and live services. Plane bundles its own Postgres,
+# Redis/Valkey and RabbitMQ (local_setup); its object store is the PLATFORM's,
+# see `minio:` below.
 ingress:
   enabled: false
   # Even with the Ingress disabled the chart uses appHost to render the app's
@@ -20,3 +20,28 @@ ssl:
   # chart to render WEB_URL/CORS with an https:// scheme. No cert is managed
   # here and no `tls:` block is emitted (ingress.enabled is false anyway).
   externalTermination: true
+
+# The bundled MinIO is OFF, and this is not a preference — the chart's image
+# (`quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z`) can no longer be pulled
+# anonymously, so `plane-minio-wl-0` sat in ImagePullBackOff and the plane
+# Application was Degraded for the life of the cluster (live AWS, 2026-10-08).
+#
+# It is also the platform rule: an application uses the shared object store, it
+# does not bring its own (see the platform-provided capabilities note). RustFS is
+# that store, the `plane` bucket is created by the rustfs package, and the
+# credentials arrive as a Secret from `root-creds` — never from this file — via
+# manifests/platform-storage.yaml.
+minio:
+  local_setup: false
+
+env:
+  # The bucket the rustfs package provisions for this app.
+  docstore_bucket: "plane"
+  # RustFS ignores the region but every S3 client insists on one.
+  aws_region: "us-east-1"
+  aws_s3_endpoint_url: "http://rustfs.adhar-system.svc.cluster.local:9000"
+  # aws_access_key / aws_secret_access_key are deliberately NOT set: with them
+  # empty the chart renders `plane-doc-store-secrets` without credentials, and
+  # generate-manifests.sh adds a second `envFrom` pointing at the ESO-managed
+  # `plane-s3-credentials`. Setting them here would put the object store's root
+  # credential in git.

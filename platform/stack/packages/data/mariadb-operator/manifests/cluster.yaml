@@ -151,7 +151,23 @@ spec:
   host: '%'
   maxUserConnections: 20
   name: adhar
+  # NO `generate: true`. The operator's `User` CRD declares only `key` and
+  # `name` on this field (checked against the installed
+  # users.k8s.mariadb.com CRD): `generate` is a field of the MariaDB kind's own
+  # password references, not of a User's. Sending it made Argo CD's server-side
+  # apply fail with
+  #
+  #   failed to create typed patch object (adhar-system/mariadb-adhar;
+  #   k8s.mariadb.com/v1alpha1, Kind=User):
+  #   .spec.passwordSecretKeyRef.generate: field not declared in schema
+  #
+  # — forever, because the retry limit is -1. Measured on a live AWS cluster:
+  # attempt #1326 after 14 hours. The User was therefore never created, and the
+  # Grant below then failed with `Error 1133 (28000): Can't find any matching row
+  # in the user table`, so the whole package stayed Degraded.
+  #
+  # The password is generated the way every other platform credential is: an ESO
+  # Password generator in secret-gen.yaml, in the SAME wave as this object.
   passwordSecretKeyRef:
-    generate: true
     key: password
     name: mariadb-adhar-password

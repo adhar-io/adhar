@@ -520,18 +520,23 @@ func sanitize(s, secret string) string {
 // today, or this release's default when none is deployed. See the comment at
 // the call site for why the live value wins.
 func liveControllerImage(ctx context.Context, c client.Client, namespace string) string {
+	deployed := ""
 	var dep appsv1.Deployment
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "adhar-controller-manager"}, &dep); err == nil {
 		for _, ct := range dep.Spec.Template.Spec.Containers {
 			if ct.Name == "manager" && ct.Image != "" {
-				return ct.Image
+				deployed = ct.Image
 			}
 		}
 	}
-	// Same rule as `adhar up`: a dev build has no published tag, so track latest.
-	v := strings.TrimPrefix(version.Version, "v")
-	if v == "" || strings.Contains(v, "-dev") || strings.HasPrefix(v, "0.0.1") {
-		return "ghcr.io/adhar-io/adhar:latest"
+	// Preferring the deployed image is right while it WORKS. An image that
+	// cannot be pulled is not a choice worth preserving: an upgrade run to fix a
+	// manager stuck in ImagePullBackOff would otherwise reinstall the same
+	// unpullable tag (see helpers.ResolveControllerImage for the live incident).
+	if deployed != "" {
+		return helpers.ResolveControllerImage(ctx, deployed, helpers.DefaultControllerImage(version.Version),
+			helpers.ControllerImageExists, func(msg string) { fmt.Println(helpers.CreateWarning(msg)) })
 	}
-	return "ghcr.io/adhar-io/adhar:" + v
+	// Same rule as `adhar up`, from the same place.
+	return helpers.DefaultControllerImage(version.Version)
 }
