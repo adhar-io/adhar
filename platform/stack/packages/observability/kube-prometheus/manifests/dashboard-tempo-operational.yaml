@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   tempo-operational.json: |
     {
@@ -5440,7 +5440,7 @@ data:
         }
       ],
       "preload": false,
-      "refresh": "",
+      "refresh": "30s",
       "schemaVersion": 40,
       "tags": [
         "tempo"
@@ -5623,7 +5623,7 @@ data:
           "1d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Tempo Operational",
       "uid": "a6175b9cc7ec20591890117c39580030",
       "version": 2,

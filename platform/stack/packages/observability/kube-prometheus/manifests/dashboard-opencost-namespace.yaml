@@ -7,15 +7,17 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   opencost-namespace.json: |
     {
+      "refresh": "30s",
+      "graphTooltip": 1,
       "annotations": {
         "list": []
       },
       "description": "A detailed namespace-level cost analysis dashboard that breaks down infrastructure spending by pods, containers, persistent volumes, and GPU usage within a selected namespace. Use this dashboard to understand which workloads are driving costs within a namespace, track monthly cost trends over time, and identify optimization opportunities at the pod and container level. This dashboard is ideal for application teams monitoring their own resource consumption and costs. The dashboards were generated using [opencost-mixin](https://github.com/adinhodovic/opencost-mixin). Open issues and create feature requests in the repository.",
-      "editable": false,
+      "editable": true,
       "links": [
         {
           "asDropdown": true,
@@ -1184,7 +1186,7 @@ data:
         "from": "now-2d",
         "to": "now"
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "OpenCost / Namespace",
       "uid": "opencost-mixin-namespace-jkwq",
       "gnetId": 22252,

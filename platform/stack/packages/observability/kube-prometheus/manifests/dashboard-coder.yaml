@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   coder.json: |
     {
@@ -28,7 +28,7 @@ data:
       "schemaVersion": 39,
       "version": 1,
       "id": null,
-      "timezone": "",
+      "timezone": "browser",
       "graphTooltip": 1,
       "refresh": "30s",
       "time": {

@@ -7,10 +7,11 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   loki.json: |
     {
+      "refresh": "30s",
       "annotations": {
         "list": [
           {
@@ -28,7 +29,7 @@ data:
       "description": "Loki metrics via 2.0",
       "editable": true,
       "gnetId": 13407,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [
@@ -3722,7 +3723,7 @@ data:
           "1d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Loki2.0 Global Metrics",
       "uid": "MQHVDmtWk",
       "version": 37

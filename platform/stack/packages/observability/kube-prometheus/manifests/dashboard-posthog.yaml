@@ -14,7 +14,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   posthog.json: |
     {
@@ -5436,7 +5436,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "1m",
+      "refresh": "30s",
       "schemaVersion": 38,
       "style": "dark",
       "tags": [

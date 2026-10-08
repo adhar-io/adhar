@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Security"
 data:
   policy-reporter.json: |
     {
@@ -34,7 +34,7 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "liveNow": false,
@@ -453,7 +453,7 @@ data:
           "type": "table"
         }
       ],
-      "refresh": "",
+      "refresh": "30s",
       "schemaVersion": 38,
       "style": "dark",
       "tags": [
@@ -661,7 +661,7 @@ data:
           "1d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "PolicyReports",
       "uid": "ZkwXrUMnk",
       "version": 1,

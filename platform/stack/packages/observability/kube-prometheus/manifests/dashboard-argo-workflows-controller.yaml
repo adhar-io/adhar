@@ -7,15 +7,17 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   argo-workflows-controller.json: |
     {
+      "refresh": "30s",
+      "graphTooltip": 1,
       "annotations": {
         "list": []
       },
       "description": "Detailed controller monitoring for Argo Workflows. Tracks controller errors, Kubernetes API request patterns, work queue metrics, and worker saturation. Use this dashboard to diagnose controller performance issues, identify API server pressure, and monitor processing backlogs. The dashboards were generated using [argo-workflows-mixin](https://github.com/adinhodovic/argo-workflows-mixin). Open issues and create feature requests in the repository.",
-      "editable": false,
+      "editable": true,
       "links": [
         {
           "asDropdown": true,
@@ -1172,7 +1174,7 @@ data:
         "from": "now-6h",
         "to": "now"
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "Argo Workflows / Controller",
       "uid": "argo-workflows-controller-skj2",
       "gnetId": 25112,

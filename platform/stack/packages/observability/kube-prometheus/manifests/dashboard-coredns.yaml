@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Networking"
 data:
   coredns.json: |
     {
@@ -27,7 +27,7 @@ data:
       "description": "A dashboard for the CoreDNS DNS server with updated metrics for version 1.7.0+.  Based on the CoreDNS 1.7.0+ dashboard by ejkinger",
       "editable": true,
       "gnetId": 14981,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1632672605392,
       "links": [
@@ -1982,7 +1982,7 @@ data:
           "type": "piechart"
         }
       ],
-      "refresh": "5s",
+      "refresh": "30s",
       "schemaVersion": 27,
       "style": "dark",
       "tags": [
@@ -2038,7 +2038,7 @@ data:
           "1d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "CoreDNS",
       "uid": "wY4blRMGz",
       "version": 134

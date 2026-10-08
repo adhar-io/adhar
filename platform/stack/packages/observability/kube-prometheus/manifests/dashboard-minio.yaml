@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   minio.json: |
     {
@@ -37,7 +37,7 @@ data:
       "editable": true,
       "fiscalYearStartMonth": 0,
       "gnetId": 13502,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [
         {
@@ -3795,7 +3795,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "",
+      "refresh": "30s",
       "schemaVersion": 39,
       "tags": [
         "minio"
@@ -3872,7 +3872,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "MinIO Dashboard",
       "uid": "TgmJnqnnk",
       "version": 1,

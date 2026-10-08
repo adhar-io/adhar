@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   beyla.json: |
     {
@@ -35,7 +35,7 @@ data:
       "description": "HTTP and gRPC RED metrics visualization for Grafana Beyla",
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "liveNow": false,
@@ -1261,7 +1261,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Beyla RED Metrics",
       "uid": "e0701985-a623-4e62-9fae-f5094244d065",
       "version": 3,

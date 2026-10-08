@@ -78,11 +78,16 @@ spec:
     # AWS cluster (2026-10-09); nothing was wrong with the service.
     #
     # So `/` now sends a browser to the OpenAPI explorer the runtime already
-    # serves, which proves the surface is alive and says what it offers. The
-    # redirect sets ONLY the path: a RequestRedirect that omits hostname and port
-    # keeps the ones from the request, so this needs no templating and cannot
-    # repeat the Gitea trap where an unstated port sent local users to :443 while
-    # the platform listens on 8443.
+    # serves, which proves the surface is alive and says what it offers.
+    #
+    # THE PORT MUST BE STATED, and this file is a .tmpl for that one reason.
+    # Leaving it out does not "inherit the request's port" — Gateway API
+    # defaults a redirect's port to the listener's, so Cilium emitted
+    # `location: https://agent.<host>:443/docs` (measured on the AWS cluster).
+    # That is right in cloud and wrong locally, where the Gateway listens on 443
+    # inside the cluster but the platform is published on 8443: the browser
+    # would be sent to a port nothing answers on. Exactly the Gitea
+    # `/user/login` trap, which is where this is copied from.
     #
     # Exact beats PathPrefix in Gateway API's precedence rules, so this rule wins
     # for `/` and every other path still reaches the runtime below. The human
@@ -97,6 +102,7 @@ spec:
             path:
               type: ReplaceFullPath
               replaceFullPath: /docs
+            port: {{ .Port }}
             statusCode: 302
     - matches:
         - path:

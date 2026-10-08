@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Application"
+    grafana_folder: "Observability"
 data:
   spring-boot-apm.json: |
     {
@@ -27,7 +27,7 @@ data:
       "description": "Dashboard for Spring Boot Metrics",
       "editable": true,
       "gnetId": 12900,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1598508005369,
       "links": [],
@@ -3608,7 +3608,7 @@ data:
           }
         }
       ],
-      "refresh": false,
+      "refresh": "30s",
       "schemaVersion": 25,
       "style": "dark",
       "tags": [],
@@ -3756,7 +3756,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "SpringBoot APM Dashboard",
       "uid": "X034JGT7Gz",
       "version": 5

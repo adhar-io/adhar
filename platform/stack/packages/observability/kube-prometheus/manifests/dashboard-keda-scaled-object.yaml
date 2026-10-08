@@ -7,10 +7,12 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Kubernetes"
 data:
   keda-scaled-object.json: |
     {
+      "refresh": "30s",
+      "graphTooltip": 1,
       "description": "A dashboard that monitors KEDA Scaled Objects. The dashboards were generated using [kubernetes-autoscaling-mixin](https://github.com/adinhodovic/kubernetes-autoscaling-mixin). Open issues and create feature requests in the repository.",
       "editable": true,
       "links": [
@@ -825,7 +827,7 @@ data:
         "from": "now-6h",
         "to": "now"
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "Kubernetes / Autoscaling / KEDA / Scaled Object",
       "uid": "kubernetes-autoscaling-mixin-kedaso-jkwq",
       "gnetId": 23951,

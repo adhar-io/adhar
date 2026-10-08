@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Application"
+    grafana_folder: "Observability"
 data:
   spring-boot-statistics.json: |
     {
@@ -27,7 +27,7 @@ data:
       "description": "Dashboard for Spring Boot2.1 Statistics(based on Spring Boot2 Statistic by micrometer-prometheus).",
       "editable": true,
       "gnetId": 10280,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1559343735958,
       "links": [],
@@ -3260,7 +3260,7 @@ data:
           }
         }
       ],
-      "refresh": false,
+      "refresh": "30s",
       "schemaVersion": 16,
       "style": "dark",
       "tags": [],
@@ -3407,7 +3407,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Spring Boot 2.1 Statistics",
       "uid": "spring_boot_21",
       "version": 3

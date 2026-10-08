@@ -40,7 +40,7 @@ metadata:
     app.kubernetes.io/part-of: adhar-observability
     adhar.io/component: ai
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "AI"
     # Wave 10: the repo's first-boot ordering rule for every monitoring object.
     argocd.argoproj.io/sync-wave: "10"
 data:

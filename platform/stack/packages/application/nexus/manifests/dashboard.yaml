@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   nexus.json: |
     {
@@ -799,7 +799,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Adhar - Nexus Repository",
       "uid": "adhar-nexus",
       "version": 1,

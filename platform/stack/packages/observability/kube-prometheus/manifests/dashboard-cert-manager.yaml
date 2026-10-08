@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Security"
 data:
   cert-manager.json: |
     {
@@ -27,7 +27,7 @@ data:
       "description": "Monitors Kubernetes deployments in cluster using Prometheus. Shows overall cluster CPU / Memory of deployments, replicas in each deployment. Uses Kube state metrics and cAdvisor metrics (741)",
       "editable": true,
       "gnetId": 11001,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1571233502297,
       "links": [],
@@ -1177,7 +1177,7 @@ data:
           }
         }
       ],
-      "refresh": false,
+      "refresh": "30s",
       "schemaVersion": 19,
       "style": "dark",
       "tags": [

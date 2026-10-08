@@ -7,15 +7,17 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Kubernetes"
 data:
   kubernetes-events.json: |
     {
+      "refresh": "30s",
+      "graphTooltip": 1,
       "annotations": {
         "list": []
       },
       "description": "A dashboard that monitors Kubernetes Events and focuses on giving a overview for events. A pre requisite is configuring Loki, Alloy and Prometheus - it is described in this blog post: https://hodovi.cc/blog/kubernetes-events-monitoring-with-loki-alloy-and-grafana/. The dashboards were generated using [kubernetes-events-mixin](https://github.com/adinhodovic/kubernetes-events-mixin). Open issues and create feature requests in the repository.",
-      "editable": false,
+      "editable": true,
       "links": [
         {
           "asDropdown": false,
@@ -574,7 +576,7 @@ data:
         "from": "now-3h",
         "to": "now"
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "Kubernetes / Events / Overview",
       "uid": "kubernetes-events-mixin-over-jkwq",
       "gnetId": 23100,

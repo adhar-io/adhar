@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   mimir-overview-networking.json: |
     {
@@ -32,7 +32,7 @@ data:
           "type": "dashboards"
         }
       ],
-      "refresh": "5m",
+      "refresh": "30s",
       "rows": [
         {
           "collapse": false,
@@ -820,7 +820,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "Mimir / Overview networking",
       "uid": "e15c71d372cc541367a088f10d9fcd92",
       "version": 0,

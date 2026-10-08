@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Applications"
 data:
   chaos-mesh-daemon.json: |
     {
@@ -37,7 +37,7 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1647424290367,
       "links": [],
@@ -582,7 +582,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "",
+      "refresh": "30s",
       "schemaVersion": 35,
       "style": "dark",
       "tags": [
@@ -638,7 +638,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Chaos Mesh | Chaos Daemon",
       "uid": "rAhJ0KEnz",
       "version": 19,

@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   jupyterhub.json: |
     {
@@ -26,7 +26,7 @@ data:
       },
       "editable": true,
       "gnetId": 5849,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [
@@ -328,7 +328,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "JupyterHub",
       "uid": "AN4KQwWiz",
       "version": 5,

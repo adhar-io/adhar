@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   argo-rollouts.json: |
     {
@@ -31,7 +31,7 @@ data:
       },
       "editable": true,
       "gnetId": null,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1626193355138,
       "links": [],
@@ -1393,7 +1393,7 @@ data:
           "type": "row"
         }
       ],
-      "refresh": "5s",
+      "refresh": "30s",
       "schemaVersion": 27,
       "style": "dark",
       "tags": [
@@ -1515,7 +1515,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Argo Rollouts",
       "uid": "9zNpieqik",
       "version": 1

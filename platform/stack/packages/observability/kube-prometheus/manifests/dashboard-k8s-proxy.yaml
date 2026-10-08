@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Kubernetes"
 data:
   k8s-proxy.json: |
     {
@@ -24,9 +24,9 @@ data:
           }
         ]
       },
-      "editable": false,
+      "editable": true,
       "gnetId": 12129,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1587542986416,
       "links": [],
@@ -1068,7 +1068,7 @@ data:
           }
         }
       ],
-      "refresh": "10s",
+      "refresh": "30s",
       "schemaVersion": 22,
       "style": "dark",
       "tags": [
@@ -1147,7 +1147,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Kubernetes / Proxy",
       "uid": "632e265de029684c40b21cb76bca4f94",
       "version": 1,

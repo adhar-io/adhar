@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   loki-operational.json: |
     {
@@ -16,7 +16,7 @@ data:
       },
       "editable": true,
       "gnetId": null,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "hideControls": false,
       "iteration": 1588704280892,
       "links": [
@@ -5251,7 +5251,7 @@ data:
           "type": "row"
         }
       ],
-      "refresh": "10s",
+      "refresh": "30s",
       "rows": [],
       "schemaVersion": 14,
       "style": "dark",
@@ -5361,7 +5361,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "Loki / Operational",
       "uid": "operational",
       "version": 0,

@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Networking"
 data:
   cilium-network-monitoring.json: |
     {
@@ -31,7 +31,7 @@ data:
       "description": "Comprehensive Cilium network monitoring dashboard for Kubernetes clusters. Features instance filtering by Cilium instances (IP:port), endpoint state monitoring, BPF map usage, API performance metrics, and node connectivity status.",
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [
@@ -1170,7 +1170,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Cilium Network Monitoring",
       "uid": "f59f1926-1654-40ed-a131-5f1c9c0136df",
       "version": 9,

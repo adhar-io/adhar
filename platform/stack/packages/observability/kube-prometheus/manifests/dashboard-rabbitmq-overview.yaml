@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   rabbitmq-overview.json: |
     {
@@ -8242,7 +8242,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "15s",
+      "refresh": "30s",
       "schemaVersion": 41,
       "tags": [
         "rabbitmq-prometheus"
@@ -8344,7 +8344,7 @@ data:
           "10m"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "RabbitMQ-Overview",
       "uid": "Kn5xm-gZk",
       "version": 16,

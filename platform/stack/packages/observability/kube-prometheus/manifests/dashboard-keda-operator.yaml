@@ -7,10 +7,11 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Kubernetes"
 data:
   keda-operator.json: |
     {
+      "refresh": "30s",
       "__elements": {},
       "annotations": {
         "list": [
@@ -30,7 +31,7 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [

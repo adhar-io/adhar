@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   loki-stack.json: |
     {
@@ -29,7 +29,7 @@ data:
       "description": "This dashboard can be used to detect issues on the Loki stack, when deployed in Kubernetes. Shows: some error metrics published by Promtail/Loki. Error and warning logs emitted by Promtail/Loki. Memory and CPU usage of Promtail/Loki compared against the Kubernetes memory/cpu limits and requests.",
       "editable": true,
       "gnetId": 14055,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [
@@ -2363,7 +2363,7 @@ data:
           }
         }
       ],
-      "refresh": "1m",
+      "refresh": "30s",
       "schemaVersion": 26,
       "style": "dark",
       "tags": [
@@ -2401,7 +2401,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Loki stack monitoring (Promtail, Loki)",
       "uid": "loki_stack_monitoring_quortex",
       "version": 5

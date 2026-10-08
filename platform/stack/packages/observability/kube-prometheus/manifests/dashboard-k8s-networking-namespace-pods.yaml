@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Networking"
 data:
   k8s-networking-namespace-pods.json: |
     {
@@ -26,7 +26,7 @@ data:
       },
       "editable": true,
       "gnetId": 12125,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1587542595662,
       "links": [],
@@ -1208,7 +1208,7 @@ data:
           "type": "row"
         }
       ],
-      "refresh": "10s",
+      "refresh": "30s",
       "schemaVersion": 22,
       "style": "dark",
       "tags": [
@@ -1367,7 +1367,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Kubernetes / Networking / Namespace (Pods)",
       "uid": "8b7a8b326d7a6f1f04244066368c67af",
       "version": 1,

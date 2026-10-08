@@ -11,7 +11,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   faro.json: |
     {
@@ -26,7 +26,7 @@ data:
       "editable": true,
       "schemaVersion": 39,
       "version": 1,
-      "timezone": "",
+      "timezone": "browser",
       "refresh": "30s",
       "time": {
         "from": "now-6h",

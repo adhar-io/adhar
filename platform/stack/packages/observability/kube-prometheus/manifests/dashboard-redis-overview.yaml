@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   redis-overview.json: |
     {
@@ -36,7 +36,7 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "liveNow": false,
@@ -2174,7 +2174,7 @@ data:
           }
         }
       ],
-      "refresh": "1m",
+      "refresh": "30s",
       "revision": 1,
       "schemaVersion": 38,
       "style": "dark",
@@ -2234,7 +2234,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Redis Overview",
       "uid": "R7HGKm27k",
       "version": 7,

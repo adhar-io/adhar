@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Kubernetes"
 data:
   k8s-pods-detail.json: |
     {
@@ -29,9 +29,9 @@ data:
           }
         ]
       },
-      "editable": false,
+      "editable": true,
       "gnetId": 12128,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1587542968135,
       "links": [],
@@ -451,7 +451,7 @@ data:
           }
         }
       ],
-      "refresh": "",
+      "refresh": "30s",
       "schemaVersion": 22,
       "style": "dark",
       "tags": [
@@ -595,7 +595,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Kubernetes / Pods",
       "uid": "ab4f13a9892a76a4d21ce8c2445bf4ea",
       "version": 1,

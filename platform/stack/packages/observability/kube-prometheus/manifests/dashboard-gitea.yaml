@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   gitea.json: |
     {
@@ -28,7 +28,7 @@ data:
       "description": "Monitor Gitea server",
       "editable": true,
       "gnetId": 13192,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [
@@ -1075,7 +1075,7 @@ data:
           "type": "stat"
         }
       ],
-      "refresh": "1m",
+      "refresh": "30s",
       "schemaVersion": 22,
       "style": "dark",
       "tags": [],

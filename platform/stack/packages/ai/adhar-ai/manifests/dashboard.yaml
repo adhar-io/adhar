@@ -1,11 +1,34 @@
-# Grafana dashboard for the agentic layer.
+# Adhar AI — the platform's AI plane, end to end.
 #
-# Every query below uses a metric this repo actually exports — the panel list was
-# generated from the live registry rather than written by hand, so there are no
-# panels for metrics that do not exist. An empty panel here means the thing is
-# genuinely not happening, not that the query is wrong.
+# ONE OF EXACTLY TWO DASHBOARDS THAT LIVE OUTSIDE A GRAFANA FOLDER (the other is
+# "Adhar Platform"). Everything else the platform ships is filed under
+# Kubernetes / Networking / Observability / Security / Data / Delivery / AI /
+# Applications. These two are the front doors, so they sit at the root where
+# they are the first thing in the dashboard list rather than three clicks deep.
+# Pinned by TestExactlyTwoDashboardsSitOutsideAFolder — deleting the
+# grafana_folder annotation from a third dashboard fails the build.
 #
-# Loaded by the kube-prometheus Grafana sidecar, which watches for this label.
+# EVERY QUERY HERE WAS CHECKED AGAINST A LIVE PROMETHEUS (metric name AND label
+# set, AWS cluster, 2026-10-09) before it was written. That is not ceremony: the
+# dashboard this replaces had panels for "Realized spend", "Pull requests
+# opened" and "Knowledge base", and no metric by any of those names is exported
+# anywhere on the platform — three panels that could only ever read "No data".
+# A beautiful dashboard full of empty panels is worse than a small honest one,
+# because it teaches people to distrust the whole thing.
+#
+# 47 panels in 8 rows, built on five metric families:
+#
+#   adhar_ai_*            the agent runtime  (runs, steps, LLM calls, circuits)
+#   adhar_ai_tool_*       the seven MCP domain servers (tool, access, decision)
+#   agentgateway_gen_ai_* tokens and GenAI latency at the data plane
+#   agentgateway_*        the data plane itself (status, guardrails, xDS, shed)
+#   k8sgpt_*              AI explanations of unhealthy cluster objects
+#
+# What the first live look showed, and what these panels are for: every
+# `adhar_ai_agent_runs_total` series carried `outcome="error"`, the gateway was
+# answering `status=401 reason=JwtAuth`, the openai→local fallback was itself
+# erroring, and `adhar_ai_mcp_servers_connected` was 0 for all seven domains
+# while all seven MCP pods were Running. None of that was visible before.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,436 +37,3489 @@ metadata:
   labels:
     grafana_dashboard: "1"
     app.kubernetes.io/name: adhar-ai
-    app.kubernetes.io/part-of: adhar-ai
-    adhar.io/component: observability
-    adhar.io/plane: control
-  annotations:
-    argocd.argoproj.io/sync-wave: "10"
-    # Folder the sidecar files it under, matching every other platform dashboard.
-    k8s-sidecar-target-directory: /tmp/dashboards/Platform
+    app.kubernetes.io/part-of: adhar-observability
 data:
   adhar-ai.json: |
     {
-      "uid": "adhar-ai",
-      "title": "Adhar AI \u2014 agent, tools and spend",
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "description": "The platform's AI plane end to end: the agent runtime's reasoning loop, the models and tokens behind it, the seven MCP domain servers it calls tools through, the agentgateway data plane that enforces identity and guardrails, and k8sgpt's findings. Every query is built on metrics verified present on a live cluster.",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": true,
+          "keepTime": true,
+          "tags": [],
+          "targetBlank": false,
+          "title": "Adhar Platform",
+          "tooltip": "The platform overview",
+          "type": "link",
+          "url": "/d/adhar-platform-overview/adhar-platform"
+        }
+      ],
+      "panels": [
+        {
+          "type": "row",
+          "title": "At a glance",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Agent runs (1h)",
+          "description": "Agent loops started in the last hour, every trigger and autonomy level.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 0,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(increase(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\"}[1h]))",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Run success rate",
+          "description": "Share of runs ending `outcome=ok` over 30m. Reads 0 while every run errors.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 3,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.8
+                  },
+                  {
+                    "color": "green",
+                    "value": 0.95
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\",outcome=\"ok\"}[30m])) / clamp_min(sum(rate(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\"}[30m])), 1e-9)",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Run p95",
+          "description": "95th percentile wall-clock duration of an agent run.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 6,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[30m])))",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "LLM calls / min",
+          "description": "Model calls the runtime is making, across every model and outcome.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 9,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(adhar_ai_llm_requests_total{job=\"adhar-ai-runtime\"}[5m])) * 60",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Tokens / min",
+          "description": "Tokens through the AI gateway per minute — input, output and cache combined.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 12,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(agentgateway_gen_ai_client_token_usage_sum{job=~\".*agentgateway.*\"}[5m])) * 60",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Tool calls (1h)",
+          "description": "MCP tool invocations across all seven domain servers.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 15,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(increase(adhar_ai_tool_calls_total{job=~\"adhar-ai-mcp-.*\"}[1h]))",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "MCP servers connected",
+          "description": "Domain servers the runtime currently holds an MCP session to. Zero means the agent has no tools, even while every MCP pod is Running.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 18,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "green",
+                    "value": 7
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(adhar_ai_mcp_servers_connected{job=\"adhar-ai-runtime\"})",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "Guardrail actions (1h)",
+          "description": "Gateway guardrail decisions that were not a plain Allow (Audit, Deny, Mask).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 21,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(increase(agentgateway_guardrail_checks_total{job=~\".*agentgateway.*\",action!=\"Allow\"}[1h]))",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Agent runs",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 10,
+          "panels": []
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Runs by outcome",
+          "description": "Run starts per second, split by how they finished.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 35,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (outcome) (rate(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{outcome}}"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Run duration percentiles",
+          "description": "How long an agent loop takes end to end.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "p50"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.90, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "p90"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "p99"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "piechart",
+          "title": "Runs by trigger",
+          "description": "What starts runs over the selected range — chat, webhook, schedule.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 0,
+            "y": 14
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "value"
+              ]
+            },
+            "pieType": "donut",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (trigger) (increase(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\"}[$__range]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{trigger}}"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "piechart",
+          "title": "Runs by autonomy",
+          "description": "Autonomy level requested: read-only, suggest, or act.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 6,
+            "y": 14
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "value"
+              ]
+            },
+            "pieType": "donut",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (autonomy) (increase(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\"}[$__range]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{autonomy}}"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Steps per run",
+          "description": "Reasoning steps per run. A climbing p95 means the agent is looping.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 12,
+            "y": 14
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(adhar_ai_agent_steps_bucket{job=\"adhar-ai-runtime\"}[10m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "p50"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_steps_bucket{job=\"adhar-ai-runtime\"}[10m])))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "p95"
+            }
+          ]
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Failure share",
+          "description": "Fraction of runs not ending ok.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 14
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 25,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\",outcome!=\"ok\"}[10m])) / clamp_min(sum(rate(adhar_ai_agent_runs_total{job=\"adhar-ai-runtime\"}[10m])), 1e-9)",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "failed"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Models, latency & tokens",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 21
+          },
+          "id": 17,
+          "panels": []
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "LLM requests by model",
+          "description": "Per-model call rate from the runtime.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 35,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (model) (rate(adhar_ai_llm_requests_total{job=\"adhar-ai-runtime\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{model}}"
+            }
+          ]
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "LLM latency p95 by model",
+          "description": "95th percentile model response time as the runtime sees it.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le, model) (rate(adhar_ai_llm_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{model}}"
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "LLM error ratio by model",
+          "description": "Share of each model's calls that failed.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (model) (rate(adhar_ai_llm_requests_total{job=\"adhar-ai-runtime\",outcome!=\"ok\"}[10m])) / clamp_min(sum by (model) (rate(adhar_ai_llm_requests_total{job=\"adhar-ai-runtime\"}[10m])), 1e-9)",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{model}}"
+            }
+          ]
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Token throughput by type",
+          "description": "Tokens/s by kind: input, output, and the two cache classes. Cache reads are the cheap ones — a healthy prompt-cache hit rate shows up here.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 35,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (gen_ai_token_type) (rate(agentgateway_gen_ai_client_token_usage_sum{job=~\".*agentgateway.*\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{gen_ai_token_type}}"
+            }
+          ]
+        },
+        {
+          "id": 22,
+          "type": "bargauge",
+          "title": "Tokens by model ($__range)",
+          "description": "Total tokens per model over the selected range — the spend proxy.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "valueMode": "color"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (gen_ai_request_model) (increase(agentgateway_gen_ai_client_token_usage_sum{job=~\".*agentgateway.*\"}[$__range]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{gen_ai_request_model}}"
+            }
+          ]
+        },
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "Model fallbacks",
+          "description": "Primary model unavailable and the runtime fell back. A fallback that itself carries outcome=error means both tiers are failing.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 37
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (primary, secondary, outcome) (rate(adhar_ai_llm_fallbacks_total{job=\"adhar-ai-runtime\"}[10m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{primary}} → {{secondary}} ({{outcome}})"
+            }
+          ]
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "Gateway GenAI duration p95",
+          "description": "The same calls measured AT the gateway. A gap against the runtime's own p95 is time spent in the platform, not at the provider.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 37
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{job=~\".*agentgateway.*\"}[5m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{gen_ai_request_model}}"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Tools — the seven MCP domain servers",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 44
+          },
+          "id": 25,
+          "panels": []
+        },
+        {
+          "id": 26,
+          "type": "timeseries",
+          "title": "Tool calls by domain",
+          "description": "Call rate per MCP domain: cluster, cost, gitops, observability, provision, security, catalog.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 45
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 35,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (mcp_domain) (rate(adhar_ai_tool_calls_total{job=~\"adhar-ai-mcp-.*\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{mcp_domain}}"
+            }
+          ]
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "Tool latency p95 by domain",
+          "description": "How long tools take. These are live platform queries, so a slow domain is a slow backend (Argo CD, Prometheus, the cloud API).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 45
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le, mcp_domain) (rate(adhar_ai_tool_call_duration_seconds_bucket{job=~\"adhar-ai-mcp-.*\"}[5m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{mcp_domain}}"
+            }
+          ]
+        },
+        {
+          "id": 28,
+          "type": "bargauge",
+          "title": "Top tools ($__range)",
+          "description": "Which individual tools the agent actually reaches for.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 53
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "valueMode": "color"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "topk(12, sum by (tool) (increase(adhar_ai_tool_calls_total{job=~\"adhar-ai-mcp-.*\"}[$__range])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{tool}}"
+            }
+          ]
+        },
+        {
+          "id": 29,
+          "type": "piechart",
+          "title": "Tool decisions",
+          "description": "Authorization outcome per call. Anything other than ok was refused by policy before it touched the platform.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 53
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "value"
+              ]
+            },
+            "pieType": "donut",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (decision) (increase(adhar_ai_tool_calls_total{job=~\"adhar-ai-mcp-.*\"}[$__range]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{decision}}"
+            }
+          ]
+        },
+        {
+          "id": 30,
+          "type": "piechart",
+          "title": "Read vs write",
+          "description": "Access class of the tools being called — the blast-radius view.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 53
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "value"
+              ]
+            },
+            "pieType": "donut",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (access) (increase(adhar_ai_tool_calls_total{job=~\"adhar-ai-mcp-.*\"}[$__range]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{access}}"
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "type": "table",
+          "title": "Tool call detail ($__range)",
+          "description": "Every tool the agent used over the range, with its access class and authorization decision.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 61
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "footer": {
+              "show": false,
+              "reducer": [
+                "sum"
+              ]
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Value"
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (mcp_domain, tool, access, decision) (increase(adhar_ai_tool_calls_total{job=~\"adhar-ai-mcp-.*\"}[$__range]))",
+              "refId": "A",
+              "range": false,
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "endpoint": true,
+                  "job": true,
+                  "service": true,
+                  "container": true,
+                  "namespace": true,
+                  "pod": true
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "AI gateway (agentgateway)",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 69
+          },
+          "id": 32,
+          "panels": []
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "Requests by status",
+          "description": "Everything through the AI data plane, by HTTP status.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 35,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (status) (rate(agentgateway_requests_total{job=~\".*agentgateway.*\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{status}}"
+            }
+          ]
+        },
+        {
+          "id": 34,
+          "type": "timeseries",
+          "title": "Gateway request duration",
+          "description": "End-to-end latency at the gateway.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "p50"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "p95"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "p99"
+            }
+          ]
+        },
+        {
+          "id": 35,
+          "type": "timeseries",
+          "title": "Failures by reason",
+          "description": "Why requests failed. `JwtAuth` is a rejected identity; `NotFound` is a route or backend that does not resolve.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 78
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (reason) (rate(agentgateway_requests_total{job=~\".*agentgateway.*\",status=~\"4..|5..\"}[10m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{reason}}"
+            }
+          ]
+        },
+        {
+          "id": 36,
+          "type": "timeseries",
+          "title": "Guardrail checks",
+          "description": "Guardrail decisions on request and response.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 78
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 35,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (action, phase) (rate(agentgateway_guardrail_checks_total{job=~\".*agentgateway.*\"}[10m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{phase}} / {{action}}"
+            }
+          ]
+        },
+        {
+          "id": 37,
+          "type": "timeseries",
+          "title": "Shed load",
+          "description": "The gateway refusing work to protect itself. Non-zero means it is at capacity.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 78
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(agentgateway_requests_shed_total{job=~\".*agentgateway.*\"}[10m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "requests shed"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(agentgateway_downstream_connections_shed_total{job=~\".*agentgateway.*\"}[10m]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "connections shed"
+            }
+          ]
+        },
+        {
+          "id": 38,
+          "type": "timeseries",
+          "title": "Upstream call duration p95",
+          "description": "Time spent talking to model providers — call duration versus connection setup.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 85
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_upstream_call_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "upstream p95"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_upstream_connect_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "connect p95"
+            }
+          ]
+        },
+        {
+          "id": 39,
+          "type": "timeseries",
+          "title": "Gateway throughput",
+          "description": "Bytes in and out of the AI data plane.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 85
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 20,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(agentgateway_downstream_received_bytes_total{job=~\".*agentgateway.*\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "received"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(agentgateway_downstream_sent_bytes_total{job=~\".*agentgateway.*\"}[5m]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "sent"
+            }
+          ]
+        },
+        {
+          "id": 40,
+          "type": "stat",
+          "title": "Config synchronized",
+          "description": "1 when the gateway's xDS config matches the control plane. 0 means it is serving stale routing or policy.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 4,
+            "x": 0,
+            "y": 92
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "min(agentgateway_config_synchronized{job=~\".*agentgateway.*\"})",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 41,
+          "type": "timeseries",
+          "title": "xDS messages",
+          "description": "Config updates flowing to the data plane.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 10,
+            "x": 4,
+            "y": 92
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (type) (rate(agentgateway_xds_message_total{job=~\".*agentgateway.*\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{type}}"
+            }
+          ]
+        },
+        {
+          "id": 42,
+          "type": "timeseries",
+          "title": "Gateway runtime",
+          "description": "Async runtime health. A growing queue depth is backpressure inside the proxy.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 10,
+            "x": 14,
+            "y": 92
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(agentgateway_tokio_num_alive_tasks{job=~\".*agentgateway.*\"})",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "alive tasks"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(agentgateway_tokio_global_queue_depth{job=~\".*agentgateway.*\"})",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "queue depth"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Circuit breakers & reliability",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 98
+          },
+          "id": 43,
+          "panels": []
+        },
+        {
+          "id": 44,
+          "type": "state-timeline",
+          "title": "Circuit state by target",
+          "description": "Per-target breaker: closed is healthy, open means the runtime has stopped calling it. Each target is a model behind the gateway.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 99
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 80,
+                "lineWidth": 0,
+                "spanNulls": true
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "color": "red",
+                      "index": 0,
+                      "text": "open"
+                    },
+                    "1": {
+                      "color": "orange",
+                      "index": 1,
+                      "text": "half-open"
+                    },
+                    "2": {
+                      "color": "green",
+                      "index": 2,
+                      "text": "closed"
+                    }
+                  },
+                  "type": "value"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "alignValue": "center",
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "mergeValues": true,
+            "rowHeight": 0.9,
+            "showValue": "auto",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "adhar_ai_circuit_state{job=\"adhar-ai-runtime\"}",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{target}}"
+            }
+          ]
+        },
+        {
+          "id": 45,
+          "type": "bargauge",
+          "title": "MCP connectivity by domain",
+          "description": "Live MCP sessions per domain. A domain at 0 is a tool class the agent cannot use.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 106
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "valueMode": "color"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "adhar_ai_mcp_servers_connected{job=\"adhar-ai-runtime\"}",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{mcp_domain}}"
+            }
+          ]
+        },
+        {
+          "id": 46,
+          "type": "table",
+          "title": "Fallback detail ($__range)",
+          "description": "Which model handed off to which, and whether the fallback worked.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 106
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "footer": {
+              "show": false,
+              "reducer": [
+                "sum"
+              ]
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Value"
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (primary, secondary, outcome) (increase(adhar_ai_llm_fallbacks_total{job=\"adhar-ai-runtime\"}[$__range]))",
+              "refId": "A",
+              "range": false,
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "endpoint": true,
+                  "job": true,
+                  "service": true,
+                  "container": true,
+                  "namespace": true,
+                  "pod": true
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "k8sgpt — AI explanations of unhealthy objects",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 113
+          },
+          "id": 47,
+          "panels": []
+        },
+        {
+          "id": 48,
+          "type": "stat",
+          "title": "Findings",
+          "description": "Objects k8sgpt currently has an explanation for.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 5,
+            "x": 0,
+            "y": 114
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 25
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(k8sgpt_number_of_results)",
+              "refId": "A",
+              "range": false,
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 49,
+          "type": "bargauge",
+          "title": "Findings by kind",
+          "description": "Which resource kinds are unhealthy enough to be analysed.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 9,
+            "x": 5,
+            "y": 114
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "valueMode": "color"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "topk(10, sum by (kind) (k8sgpt_number_of_results_by_type))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{kind}}"
+            }
+          ]
+        },
+        {
+          "id": 50,
+          "type": "timeseries",
+          "title": "Backend AI failures",
+          "description": "k8sgpt failing to reach the model through the gateway, or failing to reconcile.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 10,
+            "x": 14,
+            "y": 114
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(k8sgpt_number_of_failed_backend_ai_calls[10m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "failed calls"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(k8sgpt_reconcile_error_count[10m]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "reconcile errors"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "title": "Runtime health",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 120
+          },
+          "id": 51,
+          "panels": []
+        },
+        {
+          "id": 52,
+          "type": "timeseries",
+          "title": "CPU by pod",
+          "description": "CPU across the runtime, the gateway and the MCP servers.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 121
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"adhar-system\", pod=~\"adhar-ai-.*\", container!=\"\"}[5m]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 53,
+          "type": "timeseries",
+          "title": "Memory by pod",
+          "description": "Working-set memory. The RAG pod is the one that grows.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 121
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"adhar-system\", pod=~\"adhar-ai-.*\", container!=\"\"})",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 54,
+          "type": "timeseries",
+          "title": "Container restarts (1h)",
+          "description": "Restarts in the last hour — crash loops in the AI stack.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 128
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "showPoints": "never",
+                "spanNulls": true,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"adhar-system\", pod=~\"adhar-ai-.*\"}[1h]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 55,
+          "type": "table",
+          "title": "Pods not ready",
+          "description": "Any AI pod that is not Ready right now. Empty is the healthy state.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 128
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "footer": {
+              "show": false,
+              "reducer": [
+                "sum"
+              ]
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Value"
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "kube_pod_status_ready{namespace=\"adhar-system\", pod=~\"adhar-ai-.*\", condition=\"true\"} == 0",
+              "refId": "A",
+              "range": false,
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "endpoint": true,
+                  "job": true,
+                  "service": true,
+                  "container": true,
+                  "namespace": true,
+                  "pod": true
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "preload": false,
+      "refresh": "30s",
+      "schemaVersion": 39,
       "tags": [
         "adhar",
         "ai",
-        "agent"
+        "agent",
+        "mcp",
+        "llm"
       ],
-      "timezone": "browser",
-      "schemaVersion": 39,
-      "version": 1,
-      "refresh": "30s",
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "selected": true,
+              "text": "Prometheus",
+              "value": "Prometheus"
+            },
+            "hide": 0,
+            "includeAll": false,
+            "label": "Data source",
+            "multi": false,
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          }
+        ]
+      },
       "time": {
         "from": "now-6h",
         "to": "now"
       },
-      "panels": [
-        {
-          "id": 1,
-          "title": "Agent runs",
-          "type": "timeseries",
-          "description": "How runs end. A rising `error` or `budget_exhausted` share is the first sign something upstream is wrong.",
-          "gridPos": {
-            "x": 0,
-            "y": 0,
-            "w": 12,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (outcome) (rate(adhar_ai_agent_runs_total[5m]))",
-              "legendFormat": "{{outcome}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 2,
-          "title": "Run latency",
-          "type": "timeseries",
-          "description": "Split by trigger: an operator run and a person's question have very different latency expectations.",
-          "gridPos": {
-            "x": 12,
-            "y": 0,
-            "w": 12,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.5, sum by (le, trigger) (rate(adhar_ai_agent_run_duration_seconds_bucket[5m])))",
-              "legendFormat": "p50 {{trigger}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            },
-            {
-              "expr": "histogram_quantile(0.95, sum by (le, trigger) (rate(adhar_ai_agent_run_duration_seconds_bucket[5m])))",
-              "legendFormat": "p95 {{trigger}}",
-              "refId": "B",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 3,
-          "title": "Tokens per second",
-          "type": "timeseries",
-          "description": "Input vs output, per model. Output tokens usually dominate cost.",
-          "gridPos": {
-            "x": 0,
-            "y": 7,
-            "w": 8,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (model, direction) (rate(adhar_ai_tokens_total[5m]))",
-              "legendFormat": "{{model}} {{direction}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 4,
-          "title": "Realized spend",
-          "type": "timeseries",
-          "description": "Only where the gateway reports a cost. An empty panel means it does not \u2014 deliberately not estimated, because somebody would budget against a guessed figure.",
-          "gridPos": {
-            "x": 8,
-            "y": 7,
-            "w": 8,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (model) (increase(adhar_ai_cost_usd_total[1h]))",
-              "legendFormat": "{{model}} / hour",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "currencyUSD"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 5,
-          "title": "Steps per run",
-          "type": "timeseries",
-          "description": "Runs pressed against the step limit are runs that did not converge \u2014 usually a tool returning something the model cannot use.",
-          "gridPos": {
-            "x": 16,
-            "y": 7,
-            "w": 8,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_steps_bucket[5m])))",
-              "legendFormat": "p95 steps",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 6,
-          "title": "Policy refusals",
-          "type": "timeseries",
-          "description": "THE security signal. A steady trickle is the system working; a spike is either a misconfiguration or something trying to make the agent exceed its authority.",
-          "gridPos": {
-            "x": 0,
-            "y": 14,
-            "w": 12,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (reason) (rate(adhar_ai_denied_total[5m]))",
-              "legendFormat": "{{reason}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 7,
-          "title": "Pull requests opened",
-          "type": "timeseries",
-          "description": "The complete record of the agent's effect on the world: opening a pull request is the only way it changes anything.",
-          "gridPos": {
-            "x": 12,
-            "y": 14,
-            "w": 12,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (repo) (increase(adhar_ai_pull_requests_total[1h]))",
-              "legendFormat": "{{repo}} / hour",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 8,
-          "title": "Tool calls",
-          "type": "timeseries",
-          "description": "By domain and outcome. A domain that is all `error` has a backend problem, not an agent problem.",
-          "gridPos": {
-            "x": 0,
-            "y": 21,
-            "w": 12,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (domain, decision) (rate(adhar_ai_tool_calls_total[5m]))",
-              "legendFormat": "{{domain}} {{decision}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 9,
-          "title": "Tool latency p95",
-          "type": "timeseries",
-          "description": "Which backend the agent is waiting on.",
-          "gridPos": {
-            "x": 12,
-            "y": 21,
-            "w": 12,
-            "h": 7
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "histogram_quantile(0.95, sum by (le, domain) (rate(adhar_ai_tool_call_duration_seconds_bucket[5m])))",
-              "legendFormat": "{{domain}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 10,
-          "title": "MCP servers connected",
-          "type": "stat",
-          "description": "Below 7 means the agent has silently lost a domain's tools.",
-          "gridPos": {
-            "x": 0,
-            "y": 28,
-            "w": 6,
-            "h": 5
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "min(adhar_ai_mcp_servers_connected)",
-              "legendFormat": "connected",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 11,
-          "title": "Circuit breakers",
-          "type": "timeseries",
-          "description": "0 closed, 1 half-open, 2 open. Anything above 0 names the failing dependency.",
-          "gridPos": {
-            "x": 6,
-            "y": 28,
-            "w": 9,
-            "h": 5
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "max by (target) (adhar_ai_circuit_state)",
-              "legendFormat": "{{target}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 12,
-          "title": "Knowledge base",
-          "type": "timeseries",
-          "description": "Indexed chunks per source. A source that flatlines at zero has stopped being re-derived.",
-          "gridPos": {
-            "x": 15,
-            "y": 28,
-            "w": 9,
-            "h": 5
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "expr": "sum by (origin) (adhar_ai_knowledge_chunks)",
-              "legendFormat": "{{origin}}",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            },
-            "overrides": []
-          }
-        }
-      ]
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Adhar AI",
+      "uid": "adhar-ai",
+      "version": 1,
+      "weekStart": ""
     }

@@ -644,6 +644,8 @@ kind: ConfigMap
 metadata:
   name: falcosidekick-loki-dashboard-grafana
   namespace: adhar-system
+  annotations:
+    grafana_folder: "Security"
   labels:
     helm.sh/chart: falcosidekick-0.12.1
     app.kubernetes.io/name: falcosidekick
@@ -673,7 +675,7 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": 5,
       "links": [],
       "panels": [
@@ -1222,7 +1224,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "auto",
+      "refresh": "30s",
       "schemaVersion": 39,
       "tags": [],
       "templating": {

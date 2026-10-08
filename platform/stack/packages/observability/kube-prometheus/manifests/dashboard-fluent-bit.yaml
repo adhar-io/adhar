@@ -13,7 +13,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   fluent-bit.json: |
     {
@@ -1464,7 +1464,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "5s",
+      "refresh": "30s",
       "schemaVersion": 38,
       "style": "dark",
       "tags": [],
@@ -1575,7 +1575,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "fluent-bit",
       "uid": "fluent-bit",
       "version": 7,

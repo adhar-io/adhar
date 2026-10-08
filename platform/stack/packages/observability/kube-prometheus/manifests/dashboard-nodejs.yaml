@@ -7,10 +7,11 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Application"
+    grafana_folder: "Observability"
 data:
   nodejs.json: |
     {
+      "refresh": "30s",
       "annotations": {
         "list": [
           {
@@ -27,7 +28,7 @@ data:
       "description": "node.js prometheus client basic metrics",
       "editable": true,
       "gnetId": 11159,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1573392431370,
       "links": [],
@@ -902,7 +903,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "NodeJS Application Dashboard",
       "uid": "PTSqcpJWk",
       "version": 4

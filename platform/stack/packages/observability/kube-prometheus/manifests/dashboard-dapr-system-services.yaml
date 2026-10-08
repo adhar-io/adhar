@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   dapr-system-services.json: |
     {
@@ -27,7 +27,7 @@ data:
       "description": "This dashboard shows the metrics of Dapr control plane services",
       "editable": true,
       "gnetId": null,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "panels": [
@@ -1349,7 +1349,7 @@ data:
           }
         }
       ],
-      "refresh": "5s",
+      "refresh": "30s",
       "schemaVersion": 26,
       "style": "dark",
       "tags": [],
@@ -1371,7 +1371,7 @@ data:
           "1d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Dapr System Services Dashboard",
       "uid": "RHSwiHXWk",
       "version": 7

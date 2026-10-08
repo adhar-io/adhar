@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Delivery"
 data:
   tekton.json: |
     {
@@ -33,7 +33,7 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1657268584290,
       "links": [],
@@ -1591,7 +1591,7 @@ data:
           "type": "table"
         }
       ],
-      "refresh": "5s",
+      "refresh": "30s",
       "schemaVersion": 33,
       "style": "dark",
       "tags": [],
@@ -1646,7 +1646,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Tekton Overview",
       "uid": "Ieunmkunz",
       "version": 133,

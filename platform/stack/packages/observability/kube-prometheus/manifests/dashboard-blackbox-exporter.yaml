@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Networking"
 data:
   blackbox-exporter.json: |
     {
@@ -27,7 +27,7 @@ data:
       "description": "Blackbox exporter HTTP prober dashboard",
       "editable": true,
       "gnetId": 13659,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1609410325853,
       "links": [],
@@ -816,7 +816,7 @@ data:
           "type": "row"
         }
       ],
-      "refresh": "1m",
+      "refresh": "30s",
       "schemaVersion": 26,
       "style": "dark",
       "tags": [
@@ -878,7 +878,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Blackbox Exporter (HTTP prober)",
       "uid": "NEzutrbMk",
       "version": 15

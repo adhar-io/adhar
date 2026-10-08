@@ -34,7 +34,7 @@ metadata:
     app.kubernetes.io/name: ${{values.name}}
     entity-id: ${{values.name}}
   annotations:
-    grafana_folder: "Application"
+    grafana_folder: "Applications"
     # Wave 10: the repo's first-boot ordering rule for every monitoring object.
     argocd.argoproj.io/sync-wave: "10"
 data:

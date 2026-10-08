@@ -6,7 +6,6 @@ metadata:
     grafana_dashboard: '1'
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: Platform
 data:
   adhar-platform.json: |-
     {
@@ -26,11 +25,24 @@ data:
           }
         ]
       },
+      "description": "The platform front page: fleet capacity, the health of every Argo CD application, the core components, and the GitOps, identity, data, observability and security planes in one view. One of exactly two dashboards outside a Grafana folder \u2014 the other is Adhar AI.",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
       "id": null,
       "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": true,
+          "keepTime": true,
+          "tags": [],
+          "targetBlank": false,
+          "title": "Adhar AI",
+          "tooltip": "The AI plane: agent runs, models, tokens, MCP tools and guardrails",
+          "type": "link",
+          "url": "/d/adhar-ai/adhar-ai"
+        },
         {
           "asDropdown": true,
           "icon": "external link",

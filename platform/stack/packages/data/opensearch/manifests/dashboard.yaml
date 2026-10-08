@@ -20,10 +20,11 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   opensearch.json: |
     {
+      "refresh": "30s",
       "annotations": {
         "list": [
           {
@@ -40,7 +41,7 @@ data:
       "description": "OpenSearch cluster monitoring with OpenSearch Prometheus Exporter and Node Exporter",
       "editable": true,
       "gnetId": 15178,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1635775268463,
       "links": [],

@@ -180,6 +180,28 @@ spec:
               APP=/srv/app
               mkdir -p "$npm_config_cache"
 
+              # Restore /tmp's sticky bit. One line, and without it Strapi
+              # cannot build at all on this platform.
+              #
+              # /tmp here is an emptyDir, and Kubernetes creates those 0777 with
+              # NO sticky bit (drwxrwsrwx) — a real /tmp is 1777 (drwxrwxrwt).
+              # @swc/core materializes its native .node payload into a cache
+              # under /tmp/.cache and validates that path first as a
+              # symlink-attack guard; a world-writable parent without sticky
+              # protection is exactly what it refuses:
+              #
+              #   Error: Failed to load native binding
+              #     cause: Cannot find module './swc.linux-x64-gnu.node'
+              #     cause: SWC native addon: validate cache root /tmp/.cache:
+              #            cache root has a parent writable by another user
+              #            without trusted sticky protection.
+              #
+              # Which surfaces several layers up as Strapi's admin build failing
+              # with a bare "Failed to load native binding", naming neither the
+              # cache nor the permission (AWS cluster, 2026-10-09 — 9 restarts).
+              # The container runs as root, so it can simply set the bit back.
+              chmod 1777 /tmp 2>/dev/null || echo "note: could not set the sticky bit on /tmp"
+
               # ── 1. Scaffold, once per volume ──
               if [ ! -f "$APP/package.json" ]; then
                 echo "==> no project on the volume; scaffolding Strapi"

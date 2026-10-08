@@ -7,7 +7,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Kubernetes"
 data:
   k8s-compute-workload.json: |
     {
@@ -26,7 +26,7 @@ data:
       },
       "editable": true,
       "gnetId": 12121,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1587542026628,
       "links": [],
@@ -1888,7 +1888,7 @@ data:
           }
         }
       ],
-      "refresh": "10s",
+      "refresh": "30s",
       "schemaVersion": 22,
       "style": "dark",
       "tags": [
@@ -2097,7 +2097,7 @@ data:
           "30d"
         ]
       },
-      "timezone": "",
+      "timezone": "browser",
       "title": "Kubernetes / Compute Resources / Workload",
       "uid": "a164a7f0339f99e89cea5cb47e9be617",
       "version": 1,

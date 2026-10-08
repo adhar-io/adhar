@@ -7,10 +7,11 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Data"
 data:
   kafka-cluster.json: |
     {
+      "graphTooltip": 1,
       "id": null,
       "title": "Kubernetes Kafka resource metrics",
       "description": "Monitors Kafka metrics from Prometheus. Shows active controllers, partitions, ISR shrink rate, purgatory size etc. Uses JMX exporter.",
@@ -1161,7 +1162,7 @@ data:
       "annotations": {
         "list": []
       },
-      "refresh": "10s",
+      "refresh": "30s",
       "schemaVersion": 12,
       "version": 13,
       "links": [],

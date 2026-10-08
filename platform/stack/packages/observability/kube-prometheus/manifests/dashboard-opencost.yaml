@@ -7,15 +7,17 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Observability"
 data:
   opencost.json: |
     {
+      "refresh": "30s",
+      "graphTooltip": 1,
       "annotations": {
         "list": []
       },
       "description": "A comprehensive overview dashboard for OpenCost that displays cluster-wide cost metrics including hourly and monthly costs broken down by resource type (CPU, RAM, PV, GPU), instance type, namespace, and individual nodes. Use this dashboard to monitor overall infrastructure spending, identify cost trends, and detect cost anomalies across your Kubernetes cluster. The dashboards were generated using [opencost-mixin](https://github.com/adinhodovic/opencost-mixin). Open issues and create feature requests in the repository.",
-      "editable": false,
+      "editable": true,
       "links": [
         {
           "asDropdown": true,
@@ -1205,7 +1207,7 @@ data:
         "from": "now-2d",
         "to": "now"
       },
-      "timezone": "utc",
+      "timezone": "browser",
       "title": "OpenCost / Overview",
       "uid": "opencost-mixin-kover-jkwq",
       "gnetId": 22208,

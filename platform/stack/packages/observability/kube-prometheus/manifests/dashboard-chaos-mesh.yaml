@@ -12,7 +12,7 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/part-of: adhar-observability
   annotations:
-    grafana_folder: "Platform"
+    grafana_folder: "Applications"
 data:
   chaos-mesh.json: |
     {
@@ -38,7 +38,7 @@ data:
       "description": "Overview for monitoring Chaos Mesh. \r\n\r\nProviding active chaos experiments, instances of each components, and experiments activity events. ",
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "iteration": 1647423145146,
       "links": [],
@@ -653,7 +653,7 @@ data:
         "to": "now"
       },
       "timepicker": {},
-      "timezone": "",
+      "timezone": "browser",
       "title": "Chaos Mesh Overview",
       "uid": "LudtvvPnk",
       "version": 52,
