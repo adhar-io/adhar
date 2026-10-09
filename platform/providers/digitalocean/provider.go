@@ -779,6 +779,22 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 
 	log.Printf("Deleting DOKS cluster: %s", clusterID)
 
+	// Sweep what the cluster's own controllers created, BEFORE deleting it. The
+	// CCM's load balancers and the CSI driver's volumes are in no tracker and
+	// are attributed through the cluster's node-pool droplets — delete the
+	// cluster first and those droplets are gone, so nothing can be attributed
+	// and every volume becomes a detached orphan that only
+	// `--purge-orphaned-volumes` would touch.
+	//
+	// deleteComputeCluster has always done this; the DOKS path never did. The
+	// same bug on Civo left 36 volumes / 317 GB on an account and then stalled
+	// the next bring-up on volume quota (2026-10-09).
+	name := clusterID
+	if c, ok := p.clusters[clusterID]; ok && c != nil && c.Name != "" {
+		name = c.Name
+	}
+	p.sweepDOKSClusterResources(ctx, clusterID, name)
+
 	if _, err := p.client.Kubernetes.Delete(ctx, clusterID); err != nil {
 		return fmt.Errorf("failed to delete DOKS cluster %s: %w", clusterID, err)
 	}

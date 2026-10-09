@@ -957,6 +957,28 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		return err
 	}
 
+	// Sweep what the cluster's own controllers created, BEFORE deleting the
+	// cluster. The CSI driver's volumes and the CCM's load balancers are in no
+	// tracker, and both are attributed through the cluster record — its UUID,
+	// its pool instances, its master IP. Delete the cluster first and that
+	// record is gone: every volume it provisioned becomes an unattached,
+	// unclaimed pvc-* that only `--purge-orphaned-volumes` would touch, and no
+	// load balancer can be attributed at all.
+	//
+	// This is the bug that left 36 volumes / 317 GB on the account after a
+	// managed teardown (mum1, 2026-10-09) and then stalled the next bring-up
+	// with `OutOfRange: Requested volume would exceed volume count limit quota
+	// of 40`. deleteComputeCluster has always done this; the managed path never
+	// did. Best-effort: if the cluster cannot be read we still proceed to the
+	// delete rather than refusing to tear down.
+	if cluster, cerr := p.client.GetKubernetesCluster(id); cerr == nil && cluster != nil {
+		p.sweepManagedClusterResources(p.managedClusterIdentity(cluster))
+	} else if cerr != nil {
+		log.Printf("Warning: could not read Civo cluster %s to sweep its volumes and load balancers "+
+			"before deletion (%v); they may be left behind — `adhar down --purge-orphaned-volumes` "+
+			"can sweep volumes afterwards", id, cerr)
+	}
+
 	if _, err := p.client.DeleteKubernetesCluster(id); err != nil {
 		return fmt.Errorf("failed to delete Civo cluster %s: %w", id, err)
 	}

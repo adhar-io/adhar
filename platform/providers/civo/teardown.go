@@ -8,6 +8,7 @@ you may not use this file except in compliance with the License.
 package civo
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -96,7 +97,7 @@ func (p *Provider) sweepClusterVolumes(id clusterIdentity) []string {
 
 	var kept int
 	for _, v := range volumes {
-		action, why := volumeDisposition(v, id.name, id.instanceIDs, p.config.PurgeOrphanedVolumes)
+		action, why := volumeDisposition(v, id.clusterIDForMatching(), id.instanceIDs, p.config.PurgeOrphanedVolumes)
 		if action == volumeKeep {
 			if strings.HasPrefix(v.Name, "pvc-") {
 				kept++
@@ -134,6 +135,26 @@ type clusterIdentity struct {
 	instanceIDs   map[string]bool
 	instanceNames map[string]bool
 	instanceIPs   map[string]bool // public and private
+	// civoClusterID is the Civo Kubernetes cluster UUID, set only in MANAGED
+	// mode (a compute cluster is not a Civo "cluster" and has none).
+	//
+	// It is what makes a managed teardown exact rather than best-effort. Civo's
+	// CSI driver stamps `ClusterID` on every volume it provisions and the CCM
+	// does the same on every load balancer, so with the UUID in hand both
+	// sweeps POSITIVELY identify the cluster's own resources — no
+	// --purge-orphaned-volumes guess required, because nothing is being
+	// inferred from "unattached and named pvc-*".
+	civoClusterID string
+}
+
+// clusterIDForMatching is what the volume and load-balancer predicates compare
+// against `ClusterID`. Managed clusters have a real UUID; compute clusters fall
+// back to the name, which is what the compute path has always passed.
+func (id clusterIdentity) clusterIDForMatching() string {
+	if id.civoClusterID != "" {
+		return id.civoClusterID
+	}
+	return id.name
 }
 
 func (p *Provider) clusterIdentityFor(clusterName string, instances []civogo.Instance) clusterIdentity {
@@ -173,7 +194,7 @@ func loadBalancerBelongsToCluster(lb civogo.LoadBalancer, id clusterIdentity) bo
 	if id.name == "" {
 		return false
 	}
-	if lb.ClusterID != "" && lb.ClusterID == id.name {
+	if lb.ClusterID != "" && lb.ClusterID == id.clusterIDForMatching() {
 		return true
 	}
 	if lb.Name == id.name {
@@ -409,4 +430,146 @@ func (p *Provider) sizeShape(size string) (cpu, ramMB, diskGB int) {
 	}
 	log.Printf("Warning: instance size %q not found in region %s; skipping its part of the quota check", size, p.config.Region)
 	return 0, 0, 0
+}
+
+// PurgeOrphanedVolumes removes unattached pvc-* volumes WITHOUT needing a live
+// cluster, so the advice `sweepClusterVolumes` prints stays usable after the
+// cluster is gone.
+//
+// THE GAP THIS CLOSES. sweepClusterVolumes runs only inside DeleteCluster and
+// needs a clusterIdentity — the cluster's name and the ids of its instances —
+// gathered before those instances are deleted. Once the cluster is gone there is
+// no identity to gather, so there was no path to the purge at all:
+// `adhar down --purge-orphaned-volumes` built the provider, found it did not
+// implement helpers.OrphanVolumeSweeper, printed "provider civo cannot sweep
+// orphaned volumes without a cluster yet" and deleted nothing — at exactly the
+// moment an operator reads the hint and tries it.
+//
+// This is the same gap that left 74 disks / 771 GB billing on GCP (2026-09-26).
+// It was fixed then for GCP, Azure and DigitalOcean; Civo was missed, and on
+// 2026-10-09 a deleted mum1 cluster left **36 volumes / 317 GB** behind —
+// 36 of a 40-volume account quota, which is a hard stop on the next bring-up
+// long before RAM or CPU runs out.
+//
+// WHY THE EMPTY IDENTITY IS CORRECT HERE. volumeDisposition is given a zero
+// clusterIdentity, so no volume can match "belongs to this cluster"; the only
+// action it can return for a pvc-* volume is volumeDeleteOrphan, and only when
+// purging is on. Volumes attached to an instance, bootable root disks, and
+// volumes tagged for another Kubernetes cluster are all still kept by the same
+// pure function the teardown path uses — so a cluster being rebuilt right now
+// does not lose its storage.
+//
+// Reaching this method IS the operator's opt-in (it is only called by
+// --purge-orphaned-volumes), so purging is forced rather than left to depend on
+// how the provider happened to be constructed.
+func (p *Provider) PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs []string) {
+	if p.client == nil {
+		return 0, []string{"civo client is not initialised"}
+	}
+	before := p.countOrphanedVolumes()
+	if before == 0 {
+		return 0, nil
+	}
+
+	prev := p.config.PurgeOrphanedVolumes
+	p.config.PurgeOrphanedVolumes = true
+	errs = p.sweepClusterVolumes(clusterIdentity{instanceIDs: map[string]bool{}})
+	p.config.PurgeOrphanedVolumes = prev
+
+	after := p.countOrphanedVolumes()
+	return before - after, errs
+}
+
+// countOrphanedVolumes counts what PurgeOrphanedVolumes would act on, so the
+// caller can report a real number instead of "done".
+func (p *Provider) countOrphanedVolumes() int {
+	if p.client == nil {
+		return 0
+	}
+	volumes, err := p.client.ListVolumes()
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, v := range volumes {
+		if action, _ := volumeDisposition(v, "", map[string]bool{}, true); action == volumeDeleteOrphan {
+			n++
+		}
+	}
+	return n
+}
+
+// managedClusterIdentity gathers everything needed to attribute a MANAGED
+// cluster's cloud resources, from the cluster record itself.
+//
+// It must be called BEFORE DeleteKubernetesCluster, for the same reason the
+// compute path gathers its identity before deleting instances: once the cluster
+// is gone its pool instances are gone with it, every volume it provisioned is
+// unattached and unclaimed, and no load balancer can be attributed at all.
+func (p *Provider) managedClusterIdentity(cluster *civogo.KubernetesCluster) clusterIdentity {
+	id := clusterIdentity{
+		name:          cluster.Name,
+		tag:           computeClusterTag(cluster.Name),
+		civoClusterID: cluster.ID,
+		instanceIDs:   map[string]bool{},
+		instanceNames: map[string]bool{},
+		instanceIPs:   map[string]bool{},
+	}
+	for _, pool := range cluster.Pools {
+		for _, name := range pool.InstanceNames {
+			if name != "" {
+				id.instanceNames[name] = true
+			}
+		}
+		for i := range pool.Instances {
+			inst := pool.Instances[i]
+			if inst.ID != "" {
+				id.instanceIDs[inst.ID] = true
+			}
+			if inst.Hostname != "" {
+				id.instanceNames[inst.Hostname] = true
+			}
+			if inst.PublicIP != "" {
+				id.instanceIPs[inst.PublicIP] = true
+			}
+		}
+	}
+	if cluster.MasterIP != "" {
+		id.instanceIPs[cluster.MasterIP] = true
+	}
+	return id
+}
+
+// sweepManagedClusterResources removes what the cluster's own in-cluster
+// controllers created and no tracker knows about: CSI block volumes and CCM
+// load balancers.
+//
+// WHY THIS EXISTS AS ITS OWN FUNCTION. Both sweeps were written for the compute
+// teardown (deleteComputeCluster) and wired ONLY there. The managed
+// DeleteCluster called DeleteKubernetesCluster, waited, cleared local state and
+// returned — so on the mode Civo actually ships in, `adhar down` deleted the
+// cluster and left every volume and load balancer behind. The header of this
+// file describes exactly that failure ("both survived `adhar down` — the volumes
+// kept billing, and a load balancer holding a reference to the network stopped
+// the network being deleted at all"); the fix was written and then applied to
+// one of the two modes.
+//
+// Measured consequence (mum1, 2026-10-09): after a managed cluster was deleted,
+// 36 pvc-* volumes totalling 317 GB were still on the account — 36 of a
+// 40-volume quota. The next bring-up then stalled with Gitea's PVCs Pending and
+// the CSI driver answering `OutOfRange: Requested volume would exceed volume
+// count limit quota of 40`, which reads like a storage bug and is a teardown
+// bug.
+//
+// Load balancers are swept FIRST: one holds a reference to the network, and on
+// the compute path that is what blocked the network delete. Problems are logged
+// and collected rather than returned, because a single stubborn resource is not
+// a reason to abandon the cluster delete that follows.
+func (p *Provider) sweepManagedClusterResources(id clusterIdentity) {
+	var problems []string
+	problems = append(problems, p.sweepLoadBalancers(id)...)
+	problems = append(problems, p.sweepClusterVolumes(id)...)
+	for _, problem := range problems {
+		log.Printf("Warning: %s", problem)
+	}
 }

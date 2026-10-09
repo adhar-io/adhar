@@ -405,6 +405,33 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	bootstrapCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// The apps budget needs a watchdog OUTSIDE the reconcile loop, and the cloud
+	// path did not have one.
+	//
+	// `--apps-timeout` is enforced by the AdharPlatform reconciler
+	// (AppsConvergeTimeout), which checks it once per reconcile — and a reconcile
+	// requires a working API server. So when the API server itself disappears,
+	// nothing counts down: the manager logs connection errors forever and
+	// `adhar up` waits with no output and no deadline.
+	//
+	// That is not hypothetical. On the live Civo bring-up of 2026-10-09 the
+	// managed-k3s API server stopped serving ~3 minutes into the GitOps phase
+	// (host still answering ICMP at 61 ms, all four instances ACTIVE, the Civo API
+	// still reporting the cluster ACTIVE/ready=true — this provider's documented
+	// failure mode). `adhar up` sat for 22 minutes against a 15-minute budget and
+	// would have sat indefinitely.
+	//
+	// watchAppsBudget already handles exactly this: it tolerates read blips, then
+	// after maxWatchdogReadFailures polls it cancels the run and prints why. It
+	// was only ever wired into the LOCAL provisioner (local.go) — the one place an
+	// API server does not realistically vanish. Wiring it here is the fix; the
+	// comment on watchAppsBudget describes this cloud case, not the Kind one.
+	stopBudget := make(chan struct{})
+	defer close(stopBudget)
+	if appsTimeout > 0 {
+		go watchAppsBudget(bootstrapCtx, kubeClient, platformName, appsTimeout, appsBudgetPoll, cancel, stopBudget)
+	}
+
 	exitCh := make(chan error)
 	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsTimeout, templateData, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)

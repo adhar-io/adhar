@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1143,4 +1144,110 @@ func ownedByCluster(ids []int, clusterDroplets map[int]bool) bool {
 		}
 	}
 	return true
+}
+
+// doksClusterDroplets returns the droplet ids backing a DOKS cluster's node
+// pools, so a managed teardown can recognise what the cluster's own controllers
+// created for it.
+//
+// It must be called BEFORE Kubernetes.Delete: once the cluster is gone its node
+// pools are gone with it, every volume it provisioned is detached and
+// unclaimed, and no load balancer can be attributed.
+func (p *Provider) doksClusterDroplets(ctx context.Context, clusterID string) map[int]bool {
+	droplets := map[int]bool{}
+	pools, _, err := p.client.Kubernetes.ListNodePools(ctx, clusterID, &godo.ListOptions{PerPage: 200})
+	if err != nil {
+		log.Printf("Warning: could not enumerate DOKS node pools of %s before deletion: %v", clusterID, err)
+		return droplets
+	}
+	for _, pool := range pools {
+		for _, node := range pool.Nodes {
+			if node == nil || node.DropletID == "" {
+				continue
+			}
+			id, convErr := strconv.Atoi(node.DropletID)
+			if convErr != nil {
+				continue
+			}
+			droplets[id] = true
+		}
+	}
+	return droplets
+}
+
+// sweepDOKSClusterResources removes what a managed cluster's own in-cluster
+// controllers created and no tracker knows about: the CCM's load balancers and
+// the CSI driver's block volumes.
+//
+// WHY THIS EXISTS. Both sweeps were written for the compute teardown
+// (deleteComputeCluster) and wired ONLY there. The managed DeleteCluster called
+// Kubernetes.Delete, waited for the cluster to disappear, dropped it from local
+// state and returned — so on DOKS, `adhar down` deleted the cluster and left
+// every load balancer and every pvc-* volume behind, billing.
+//
+// Found by auditing the identical bug on Civo, where a managed teardown left 36
+// volumes / 317 GB on the account (2026-10-09) and the next bring-up then
+// stalled with PVCs Pending and the CSI driver answering `OutOfRange:
+// Requested volume would exceed volume count limit quota`. AWS, Azure and GCP
+// already sweep in their managed paths; Civo and DigitalOcean were the two that
+// did not.
+//
+// MATCHING IS BY ATTACHMENT, deliberately. DOKS tags its resources with its own
+// conventions, and this platform cannot verify those against a live DOKS
+// account in CI — guessing a tag format risks either missing resources or, far
+// worse, deleting another cluster's. A volume attached to a droplet in THIS
+// cluster's node pools, and a load balancer fronting one, are unambiguous.
+// Volumes that are already detached are NOT touched here: those need
+// `--purge-orphaned-volumes`, which is what PurgeOrphanedVolumes is for.
+//
+// Load balancers go first: one holds a reference to the VPC and blocks its
+// deletion.
+func (p *Provider) sweepDOKSClusterResources(ctx context.Context, clusterID, clusterName string) {
+	droplets := p.doksClusterDroplets(ctx, clusterID)
+	if len(droplets) == 0 {
+		log.Printf("Warning: no DOKS node droplets found for %s; its load balancers and volumes "+
+			"cannot be attributed and may be left behind — `adhar down --purge-orphaned-volumes` "+
+			"can sweep detached volumes afterwards", clusterID)
+		return
+	}
+	p.deleteComputeLoadBalancers(ctx, clusterName, droplets)
+	p.deleteDOKSVolumes(ctx, droplets)
+}
+
+// deleteDOKSVolumes removes the block volumes attached to a DOKS cluster's own
+// node droplets. Attachment is the only claim used, for the reason given on
+// sweepDOKSClusterResources.
+func (p *Provider) deleteDOKSVolumes(ctx context.Context, clusterDroplets map[int]bool) {
+	vols, _, err := p.client.Storage.ListVolumes(ctx, &godo.ListVolumeParams{
+		Region:      p.config.Region,
+		ListOptions: &godo.ListOptions{PerPage: 200},
+	})
+	if err != nil {
+		log.Printf("Warning: listing volumes: %v", err)
+		return
+	}
+	for _, v := range vols {
+		ours := false
+		for _, id := range v.DropletIDs {
+			if clusterDroplets[id] {
+				ours = true
+				break
+			}
+		}
+		if !ours {
+			continue
+		}
+		var delErr error
+		for attempt := 0; attempt < 6; attempt++ {
+			if _, delErr = p.client.Storage.DeleteVolume(ctx, v.ID); delErr == nil {
+				break
+			}
+			time.Sleep(10 * time.Second)
+		}
+		if delErr != nil {
+			log.Printf("Warning: deleting volume %s (%s): %v", v.Name, v.ID, delErr)
+			continue
+		}
+		log.Printf("Deleted volume %s (%d GiB) — attached to a node of this DOKS cluster", v.Name, v.SizeGigaBytes)
+	}
 }

@@ -1,6 +1,7 @@
 package civo
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -196,5 +197,53 @@ func TestManagedClusterOptsOutOfCivoDefaultApps(t *testing.T) {
 		if !strings.HasPrefix(strings.TrimSpace(entry), "-") {
 			t.Errorf("%q does not start with '-', so Civo would INSTALL it rather than remove it", entry)
 		}
+	}
+}
+
+// The managed create must ASK Civo for Cilium, and that one line is load-bearing
+// in a way nothing was checking.
+//
+// Civo's k3s offers a choice of CNI. The platform's data path IS Cilium —
+// kubeProxyReplacement, and the Gateway is a Cilium Gateway — so a managed
+// cluster has to be built with it. The controller then RECOGNISES that Cilium
+// and leaves it alone (`adharplatform/cilium_foreign.go`: a `cilium` DaemonSet
+// outside adhar-system is adopted, not replaced), which is what makes managed
+// mode work at all.
+//
+// Drop `CNIPlugin: "cilium"` and Civo builds the cluster with flannel instead.
+// The adoption check looks for a Cilium DaemonSet, finds none, and the platform
+// installs its own Cilium ALONGSIDE flannel — two CNIs on one cluster. That is
+// the 2026-10-07 outage: Server-Side Apply took the cluster-scoped
+// ClusterRoleBinding `cilium`, the agent lost its permissions, every pod went
+// Pending and `adhar up` hung at the Argo CD stage.
+//
+// Verified live on 2026-10-09: the Civo API reported `cni: cilium` and
+// `installed_applications: []` on the cluster this code created.
+func TestManagedClusterRequestsCiliumAsItsCNI(t *testing.T) {
+	raw, err := os.ReadFile("provider.go")
+	if err != nil {
+		t.Fatalf("reading provider.go: %v", err)
+	}
+	src := string(raw)
+
+	if !strings.Contains(src, `CNIPlugin: "cilium"`) {
+		t.Fatal(`the managed cluster create does not set CNIPlugin: "cilium". Civo would build the ` +
+			`cluster with flannel, the controller's foreign-Cilium adoption would not recognise it, ` +
+			`and the platform would install a SECOND CNI on top — the failure mode that left a ` +
+			`managed cluster with no working CNI at all`)
+	}
+
+	// It has to be on the create config, not an unused constant somewhere.
+	create := src[strings.Index(src, "clusterConfig := &civogo.KubernetesClusterConfig{"):]
+	if end := strings.Index(create, "p.client.NewKubernetesClusters("); end > 0 {
+		create = create[:end]
+	}
+	if !strings.Contains(create, `CNIPlugin: "cilium"`) {
+		t.Error(`CNIPlugin: "cilium" is not inside the KubernetesClusterConfig passed to ` +
+			`NewKubernetesClusters, so the create does not actually request it`)
+	}
+	if !strings.Contains(create, "Applications: civoRemovedDefaultApps") {
+		t.Error("the create does not pass civoRemovedDefaultApps, so Civo applies its default " +
+			"applications (traefik2-nodeport, metrics-server) alongside the platform's own")
 	}
 }
