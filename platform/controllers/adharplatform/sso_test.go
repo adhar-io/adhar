@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -256,4 +257,50 @@ func TestSSOProxyManifestDependsOnTheHost(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(broken), "https://keycloak./",
 		"an empty host yields a hostname ending in a dot; reconcileArgoCDSSOProxy must refuse to apply that")
+}
+
+// An operator signed in to Argo CD during the bring-up must not be thrown onto
+// the Keycloak login page the moment the `argocd` client exists. The route
+// keeps session-cookie holders on Argo CD itself, and the SSO switch repoints
+// only the catch-all (2026-10-09).
+func TestArgoCDSessionHoldersAreNotRepointedAtTheSSOProxy(t *testing.T) {
+	docs := decodeDocs(t, "resources/argocd/post-install.yaml")
+	route := findByKind(docs, "HTTPRoute", proxyRouteName)
+	require.NotNil(t, route)
+	spec := route["spec"].(map[string]interface{})
+	rules, _ := spec["rules"].([]interface{})
+	require.Len(t, rules, 2, "expected the session-cookie rule and the catch-all")
+
+	session := rules[0].(map[string]interface{})
+	matches := session["matches"].([]interface{})
+	headers, _ := matches[0].(map[string]interface{})["headers"].([]interface{})
+	require.Len(t, headers, 1, "the first rule must match on the session cookie")
+	header := headers[0].(map[string]interface{})
+	assert.Equal(t, "Cookie", header["name"])
+	assert.Equal(t, "RegularExpression", header["type"])
+	pattern := header["value"].(string)
+	assert.Contains(t, pattern, `argocd\.token=[^;]+`, "a logged-out browser (empty cookie) must NOT match, or it never reaches SSO")
+	re := regexp.MustCompile("^(?:" + pattern + ")$")
+	assert.True(t, re.MatchString("foo=bar; argocd.token=eyJhbGciOi.rest"), "a live session must match")
+	assert.False(t, re.MatchString("argocd.token="), "a cleared cookie must not match")
+	assert.False(t, re.MatchString("foo=bar"), "no cookie must not match")
+
+	require.True(t, repointRulesToProxy(rules), "the catch-all should have been repointed")
+	backend := func(rule interface{}) (string, int64) {
+		ref := rule.(map[string]interface{})["backendRefs"].([]interface{})[0].(map[string]interface{})
+		port, _ := ref["port"].(int64)
+		if port == 0 {
+			if p, ok := ref["port"].(int); ok {
+				port = int64(p)
+			}
+		}
+		return ref["name"].(string), port
+	}
+	name, port := backend(rules[0])
+	assert.Equal(t, "argo-cd-argocd-server", name, "the session rule must still reach Argo CD directly")
+	assert.EqualValues(t, 80, port)
+	name, port = backend(rules[1])
+	assert.Equal(t, proxyServiceName, name, "the catch-all must now reach the SSO proxy")
+	assert.EqualValues(t, proxyServicePort, port)
+	assert.False(t, repointRulesToProxy(rules), "a second pass must be a no-op")
 }

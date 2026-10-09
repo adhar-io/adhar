@@ -67,6 +67,36 @@ spec:
   hostnames:
     - argocd.{{ .Host }}
   rules:
+    # A browser that already holds an Argo CD session keeps it.
+    #
+    # Argo CD's own login (the local `admin`, or its native Keycloak button)
+    # leaves an `argocd.token` cookie, and Argo CD validates that token itself
+    # on every request. Once Keycloak publishes the `argocd` client the
+    # controller repoints the catch-all rule below at the SSO oauth2-proxy
+    # (reconcileArgoCDSSOProxy) — and until 2026-10-09 that repointed THIS
+    # traffic too, so an operator signed in as admin during the bring-up was
+    # thrown onto the Keycloak login page mid-session the moment SSO came up.
+    # Requests carrying a non-empty session cookie therefore route straight to
+    # Argo CD and the controller leaves this rule alone: nothing is trusted
+    # here, the cookie is just a hint about where the request can be judged,
+    # and an invalid or expired token is rejected by Argo CD exactly as before.
+    # Logging out clears the cookie (`argocd.token=`), which the `[^;]+` does
+    # not match, so the next request flows through the proxy and single
+    # sign-on takes over. Header matches rank above path-only matches in the
+    # Gateway API, so this wins whenever both apply.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - type: RegularExpression
+              name: Cookie
+              value: '.*argocd\.token=[^;]+.*'
+      backendRefs:
+        - name: argo-cd-argocd-server
+          port: 80
+    # Everything else. Starts at Argo CD; repointed at the SSO proxy once the
+    # Keycloak client exists.
     - matches:
         - path:
             type: PathPrefix

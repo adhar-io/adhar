@@ -92,6 +92,64 @@ const (
 	proxyRouteName = "argocd-server"
 )
 
+// repointRulesToProxy sends the Argo CD route's CATCH-ALL traffic to the SSO
+// proxy and reports whether anything changed.
+//
+// Only rules with no header match are touched. post-install.yaml carries a
+// rule that keeps requests holding an `argocd.token` session cookie on Argo CD
+// itself — a browser already signed in (the local admin during a bring-up, or
+// anyone who used Argo CD's own login) must not be thrown onto the Keycloak
+// page the instant SSO comes up, and Argo CD validates that token anyway.
+// Until 2026-10-09 this loop rewrote every rule, which is exactly what made
+// Keycloak's readiness look like a forced logout.
+func repointRulesToProxy(rules []interface{}) bool {
+	changed := false
+	for i := range rules {
+		rule, ok := rules[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if ruleHasHeaderMatch(rule) {
+			continue
+		}
+		refs, ok := rule["backendRefs"].([]interface{})
+		if !ok {
+			continue
+		}
+		for j := range refs {
+			ref, ok := refs[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if ref["name"] == proxyServiceName && ref["port"] == int64(proxyServicePort) {
+				continue
+			}
+			ref["name"] = proxyServiceName
+			ref["port"] = int64(proxyServicePort)
+			changed = true
+		}
+		rule["backendRefs"] = refs
+		rules[i] = rule
+	}
+	return changed
+}
+
+// ruleHasHeaderMatch reports whether any match of an HTTPRoute rule constrains
+// request headers — the mark of a rule more specific than the catch-all.
+func ruleHasHeaderMatch(rule map[string]interface{}) bool {
+	matches, _ := rule["matches"].([]interface{})
+	for _, m := range matches {
+		match, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if headers, ok := match["headers"].([]interface{}); ok && len(headers) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // reconcileArgoCDSSOProxy installs the oauth2-proxy that fronts the Argo CD UI
 // and repoints the UI route at it, but only when the identity it needs exists.
 func (r *AdharPlatformReconciler) reconcileArgoCDSSOProxy(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
@@ -158,32 +216,7 @@ func (r *AdharPlatformReconciler) reconcileArgoCDSSOProxy(ctx context.Context, r
 	if err != nil || !found || len(rules) == 0 {
 		return fmt.Errorf("the Argo CD route has no rules to repoint")
 	}
-	changed := false
-	for i := range rules {
-		rule, ok := rules[i].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		refs, ok := rule["backendRefs"].([]interface{})
-		if !ok {
-			continue
-		}
-		for j := range refs {
-			ref, ok := refs[j].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if ref["name"] == proxyServiceName && ref["port"] == int64(proxyServicePort) {
-				continue
-			}
-			ref["name"] = proxyServiceName
-			ref["port"] = int64(proxyServicePort)
-			changed = true
-		}
-		rule["backendRefs"] = refs
-		rules[i] = rule
-	}
-	if !changed {
+	if !repointRulesToProxy(rules) {
 		return nil
 	}
 	if err := unstructured.SetNestedSlice(route.Object, rules, "spec", "rules"); err != nil {

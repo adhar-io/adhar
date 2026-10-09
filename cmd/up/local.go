@@ -424,9 +424,13 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 				// and say why.
 				readFailures++
 				if readFailures >= maxWatchdogReadFailures {
-					fmt.Fprintf(os.Stderr, "  %s\n", helpers.MutedStyle.Render(
-						fmt.Sprintf("could not read platform status for %s (%v) — stopping the wait; ArgoCD keeps converging in the background",
-							time.Duration(readFailures)*interval, err)))
+					// Through the logger, which the live checklist routes above
+					// itself. A write straight to the terminal here moved the
+					// cursor under the tracker's feet and orphaned a copy of the
+					// whole block — two "Provisioning Adhar Platform" headers, 15s
+					// apart, on the 2026-10-09 AWS bring-up.
+					logger.Warnf("could not read platform status for %s (%v) — stopping the wait; ArgoCD keeps converging in the background",
+						time.Duration(readFailures)*interval, err)
 					if cancel != nil {
 						cancel()
 					}
@@ -466,8 +470,7 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 				continue
 			}
 			if time.Since(started) >= budget {
-				fmt.Fprintf(os.Stderr, "  %s\n", helpers.MutedStyle.Render(
-					fmt.Sprintf("apps budget of %s spent — ArgoCD keeps converging in the background", budget)))
+				logger.Infof("apps budget of %s spent — ArgoCD keeps converging in the background", budget)
 				if cancel != nil {
 					cancel()
 				}
