@@ -2,6 +2,7 @@ package up
 
 import (
 	"fmt"
+	"io"
 	stdlog "log"
 	"os"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 	pfactory "adhar-io/adhar/platform/providers"
+	"k8s.io/client-go/rest"
+	klog "k8s.io/klog/v2"
 )
 
 // cloud_progress.go gives a cloud or on-prem `adhar up` the same checklist the
@@ -85,24 +88,74 @@ func cloudStages(clusterName, providerName, region string) []helpers.StageDef {
 // return path (defer it), passing whether the run failed — a failure both dumps the
 // buffered detail and stops the block, and leaving the block live means the next
 // write orphans a copy of it (see the note on tracker.Stop in local.go).
-func startCloudProgress(envName, clusterName, providerName, region string, verbose bool) (*helpers.StageTracker, func(failed bool)) {
+func startCloudProgress(envName, clusterName, providerName, region string, verbose, multiEnv bool) (*helpers.StageTracker, func(failed bool)) {
 	stages := cloudStages(clusterName, providerName, region)
 	if got := stages[cloudControllerStageBase].Label; got != "Cilium & Gateway" {
 		panic(fmt.Sprintf("cloudControllerStageBase points at %q, not the first controller-driven stage", got))
 	}
 
-	// The environment goes in the TITLE: a run with no --env provisions each one in
-	// turn and prints a block per environment, so without it two blocks are
-	// indistinguishable. It also replaces the removed "for environment 'dev'".
-	title := "Provisioning Adhar platform"
-	if envName != "" {
-		title = fmt.Sprintf("Provisioning %s", envName)
+	// What is being provisioned is the PLATFORM, so that is what the title says.
+	//
+	// It used to be "Provisioning <env>", which reads wrong in the normal case and
+	// is actively misleading in the common one. Environments default to
+	// `isolation: namespace`, so dev/test/prod share ONE cluster sized from the
+	// production environment (partitionEnvironments / sharedClusterEnvironment) —
+	// and the title then named only that one, "Provisioning prod", while the run
+	// was in fact standing up the platform that hosts all three.
+	//
+	// The environment is still appended when it actually disambiguates: with two
+	// or more `isolation: cluster` environments the loop in
+	// provisionCompletePlatformNew draws a block per cluster, and those do need
+	// telling apart.
+	title := "Provisioning Adhar Platform"
+	if multiEnv && envName != "" {
+		title = fmt.Sprintf("Provisioning Adhar Platform — %s", envName)
 	}
 	tracker := helpers.NewStageTracker(os.Stderr, title, stages, !verbose)
+
+	// Silence the Kubernetes client loggers BEFORE the tracker draws anything.
+	//
+	// This is the duplicate-checklist bug, and the reason it survived two earlier
+	// fixes to StageTracker's own locking: nothing was racing. The tracker
+	// repositions with "\x1b[<lastLines>A\r\x1b[J" — move up by however many
+	// lines it last drew, then clear — so ANY other writer to the same terminal
+	// makes that count wrong. The next redraw starts too low and the previous
+	// block is orphaned on screen:
+	//
+	//	Provisioning prod  2m16s     <- orphaned, never overwritten
+	//	Provisioning prod  2m16s     <- the live block
+	//
+	// klog (k8s.io/client-go) writes to STDERR by default, which is exactly where
+	// the tracker draws. It was already discarded in bootstrapPlatformOnCluster
+	// and in the local provisioner — but both of those run LATER. On a cloud run
+	// the tracker is started before ProvisionEnvironment, and the provider talks
+	// to the cluster during Preflight and cluster creation, so the window between
+	// tracker.Start() and the bootstrap was unprotected. Observed on the live Civo
+	// bring-up (2026-10-09), seconds after the nodes came up:
+	//
+	//	E1009 06:54:01.956114 memcache.go:287] couldn't get resource list for
+	//	metrics.k8s.io/v1beta1: the server is currently unable to handle the request
+	//
+	// metrics-server is not up yet at that point, so discovery fails and klog says
+	// so — once per client call, straight through the checklist.
+	//
+	// Verbose mode deliberately keeps them: there the tracker degrades to plain
+	// lines and the warnings are the diagnostic.
+	restoreKlog := func() {}
+	if !verbose {
+		klog.SetOutput(io.Discard)
+		// API deprecation warnings travel a different path again, and also land
+		// on stderr. client-go exposes no getter for the handler, so this one is
+		// set and not restored — it is process-global and the process is a CLI
+		// invocation that is about to end either way.
+		rest.SetDefaultWarningHandler(rest.NoWarnings{})
+		restoreKlog = func() { klog.SetOutput(os.Stderr) }
+	}
+
 	tracker.Start()
 
 	if verbose {
-		return tracker, func(bool) { tracker.Stop() }
+		return tracker, func(bool) { tracker.Stop(); restoreKlog() }
 	}
 
 	tw := helpers.NewTrackerWriter(tracker)
@@ -118,6 +171,7 @@ func startCloudProgress(envName, clusterName, providerName, region string, verbo
 		logger.SetOutput(prevLogOut)
 		stdlog.SetOutput(prevStd)
 		tracker.Stop()
+		restoreKlog()
 		if failed && detail.Len() > 0 {
 			// Indented and dimmed: this is evidence attached to the failure above,
 			// not a second stream of output competing with it.

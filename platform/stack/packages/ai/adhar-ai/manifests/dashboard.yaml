@@ -1,12 +1,10 @@
 # Adhar AI — the platform's AI plane, end to end.
 #
-# ONE OF EXACTLY TWO DASHBOARDS THAT LIVE OUTSIDE A GRAFANA FOLDER (the other is
-# "Adhar Platform"). Everything else the platform ships is filed under
-# Kubernetes / Networking / Observability / Security / Data / Delivery / AI /
-# Applications. These two are the front doors, so they sit at the root where
-# they are the first thing in the dashboard list rather than three clicks deep.
-# Pinned by TestExactlyTwoDashboardsSitOutsideAFolder — deleting the
-# grafana_folder annotation from a third dashboard fails the build.
+# Filed under the AI folder, beside the agentgateway and vLLM dashboards, since
+# 2026-10-10. It sat at the Grafana root for a day as a second "front door" next
+# to "Adhar Platform"; in use the platform page is the one front door and the AI
+# plane reads better as the head of its own folder. "Adhar Platform" is now the
+# ONLY dashboard outside a folder — pinned by TestExactlyOneDashboardSitsOutsideAFolder.
 #
 # EVERY QUERY HERE WAS CHECKED AGAINST A LIVE PROMETHEUS (metric name AND label
 # set, AWS cluster, 2026-10-09) before it was written. That is not ceremony: the
@@ -38,6 +36,8 @@ metadata:
     grafana_dashboard: "1"
     app.kubernetes.io/name: adhar-ai
     app.kubernetes.io/part-of: adhar-observability
+  annotations:
+    grafana_folder: "AI"
 data:
   adhar-ai.json: |
     {
@@ -57,7 +57,7 @@ data:
           }
         ]
       },
-      "description": "The platform's AI plane end to end: the agent runtime's reasoning loop, the models and tokens behind it, the seven MCP domain servers it calls tools through, the agentgateway data plane that enforces identity and guardrails, and k8sgpt's findings. Every query is built on metrics verified present on a live cluster.",
+      "description": "The platform's AI plane end to end: the agent runtime's reasoning loop, the models and tokens behind it, the seven MCP domain servers it calls tools through, the agentgateway data plane that enforces identity and guardrails, and k8sgpt's findings. Every query is built on metrics verified present on a live cluster. Filed under the AI folder; the platform front page is Adhar Platform.",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,

@@ -20,6 +20,7 @@ import (
 	"adhar-io/adhar/globals"
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -439,12 +440,20 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	clusterName := ResolveClusterName(opts.ClusterName)
 
 	if opts.DryRun {
+		// log, NOT fmt.Print. A provider must never write to stdout: `adhar up`
+		// draws a checklist that redraws in place by moving the cursor up
+		// `lastLines`, so a bare print scrolls the block and orphans a copy of
+		// it (see TestProvidersDoNotWriteProgressToStdout). log.Printf is
+		// captured by the tracker as stage detail, and falls through to stderr
+		// when there is no tracker — which is the case on both `adhar up`
+		// dry-run paths, since each prints its own plan and returns before
+		// reaching here.
 		if ClusterModeIsProvided(clusterMode) {
-			fmt.Printf("DRY-RUN: Would install the platform onto the EXISTING cluster reached by %s (environment '%s'); no cluster would be created\n",
+			log.Printf("DRY-RUN: Would install the platform onto the EXISTING cluster reached by %s (environment '%s'); no cluster would be created",
 				providedClusterSource(prov), envConfig.Name)
 			return nil, nil
 		}
-		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s' (environment '%s')\n",
+		log.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s' (environment '%s')",
 			envConfig.ResolvedProvider, clusterName, envConfig.ResolvedRegion, envConfig.Name)
 		return nil, nil
 	}

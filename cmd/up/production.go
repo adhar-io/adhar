@@ -99,8 +99,9 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// names the cluster that will actually be built.
 	resolvedName := pfactory.ResolveClusterName(clusterName)
 	clusterTarget := clusterTargetLabel(resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion)
+	// Single environment (--env): one block, so the title needs no suffix.
 	tracker, restoreProgress := startCloudProgress(envConfig.Name, resolvedName,
-		envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose)
+		envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose, false)
 	// The buffered provider detail is only worth printing when something went
 	// wrong, so the deferred restore needs to know the outcome.
 	provisionFailed := false
@@ -489,6 +490,24 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		}
 		applyKubeVersionOverride(envConfig)
 
+		// Dry run prints a plan and provisions nothing, so it must NOT draw a
+		// progress checklist. The single-environment path has always returned
+		// here (see the `if dryRun` above createProductionCluster's tracker);
+		// this loop did not, so it started a tracker and then let
+		// ProvisionEnvironment's own "DRY-RUN: Would create …" lines print
+		// straight through the block — scrolling it and orphaning a copy, the
+		// same duplicate-title corruption any unrouted write causes. Caught by
+		// TestProvidersDoNotWriteProgressToStdout once it was widened to cover
+		// platform/providers' top-level files.
+		if dryRun {
+			if err := showDryRunInfo(envConfig); err != nil {
+				envFailures = append(envFailures, envFailure{envName, err})
+				continue
+			}
+			successCount++
+			continue
+		}
+
 		provisionOpts := pfactory.ProvisionOptions{
 			DryRun:      dryRun,
 			Force:       force,
@@ -500,7 +519,12 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		// block covering all of them would show several clusters' progress on the
 		// same lines.
 		resolvedName := pfactory.ResolveClusterName(envClusterName(clusterName, envName, len(environmentsToProvision)))
-		tracker, restoreProgress := startCloudProgress(envConfig.Name, resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose)
+		// Only append the environment when there is more than one cluster-backed
+		// environment to tell apart; with the namespace default there is exactly
+		// one shared cluster and naming it after `prod` misdescribes the run.
+		tracker, restoreProgress := startCloudProgress(envConfig.Name, resolvedName,
+			envConfig.ResolvedProvider, envConfig.ResolvedRegion, verbose,
+			len(environmentsToProvision) > 1)
 		tracker.Activate(0)
 		provisionOpts.OnPhase = trackPhases(tracker,
 			clusterTargetLabel(resolvedName, envConfig.ResolvedProvider, envConfig.ResolvedRegion))

@@ -80,7 +80,10 @@ data:
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
       "frontchannelLogout": true,
-      "redirectUris": ["https://plane.adhar.localtest.me:8443/auth/keycloak/callback/"],
+      "redirectUris": [
+        "https://plane.adhar.localtest.me:8443/auth/keycloak/callback/",
+        "https://plane.adhar.localtest.me:8443/auth/spaces/keycloak/callback/"
+      ],
       "webOrigins": ["https://plane.adhar.localtest.me:8443"]
     }
 ---

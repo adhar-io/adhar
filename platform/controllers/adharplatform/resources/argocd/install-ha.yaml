@@ -1357,10 +1357,40 @@ data:
   controller.ignore.normalizer.jq.timeout: 1s
   controller.log.format: text
   controller.log.level: info
-  controller.operation.processors: "10"
+  # APPLY CONCURRENCY — the same numbers as the non-HA rendering, and for the
+  # same reason. See the long note beside controller.kubectl.parallelism.limit in
+  # install.yaml; what follows is why it has to be repeated HERE.
+  #
+  # This file had NONE of that tuning. `kubectl.parallelism.limit` was not set at
+  # all, so it fell through to Argo CD's own default of 20 — five times the value
+  # the non-HA path was deliberately pinned to — while operation.processors sat at
+  # the upstream 10. Up to 10 Applications syncing at once, each applying with 20
+  # parallel kubectl workers.
+  #
+  # enableHAMode does NOT mean a bigger API server. On Civo's managed k3s the
+  # control plane runs on a pool node, so HA buys replicas of Argo CD, redis and
+  # CNPG and gives the apiserver nothing — it only adds load. Three Civo clusters
+  # in a row (2026-10-09, g4s.kube.large then g4c.kube.small) lost their API
+  # server within ~1-5 minutes of the GitOps phase starting to reconcile 77
+  # Applications: host still answering ICMP at 62 ms, 6443 closed, the Civo API
+  # still reporting ACTIVE/ready=true. Raising the node size from 4 vCPU to 8
+  # bought about five minutes and ~30 more pods, and did not prevent it — which is
+  # the tell that the pressure is request concurrency, not CPU per node.
+  #
+  # This is the same asymmetry that bit timeout.reconciliation, in the other
+  # direction: that one was tuned only in install-ha.yaml while the common non-HA
+  # path stayed slow (fixed 2026-09-30). Two renderings of one component drift
+  # unless every knob is set in both, which is what
+  # TestHAAndNonHAAgreeOnApplyConcurrency now enforces.
+  #
+  # If these are ever raised it has to be provider-aware — a managed cloud control
+  # plane can take more, a 3-node k3s cannot — which needs a field on
+  # BuildCustomizationSpec, not a bigger constant here.
+  controller.kubectl.parallelism.limit: "4"
+  controller.operation.processors: "8"
   controller.repo.server.timeout.seconds: "60"
   controller.self.heal.timeout.seconds: "5"
-  controller.status.processors: "20"
+  controller.status.processors: "16"
   controller.sync.timeout.seconds: "0"
   dexserver.log.format: text
   dexserver.log.level: info

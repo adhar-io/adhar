@@ -25,7 +25,7 @@ data:
           }
         ]
       },
-      "description": "The platform front page: fleet capacity, the health of every Argo CD application, the core components, and the GitOps, identity, data, observability and security planes in one view. One of exactly two dashboards outside a Grafana folder \u2014 the other is Adhar AI.",
+      "description": "The platform front page: fleet capacity, the health of every Argo CD application, the core components, and the GitOps, identity, data, observability and security planes in one view. The only dashboard outside a Grafana folder; everything else, including Adhar AI, is filed by area.",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,

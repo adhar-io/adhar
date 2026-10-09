@@ -1,0 +1,47 @@
+# The runtime's OWN identity on the AI gateway.
+#
+# Most completions carry the CALLER's token — a person asking in the console —
+# and the gateway's group rules (ai/agentgateway/manifests/security.yaml) admit
+# them: platform-developer may read, platform-admin may write. But the runtime
+# also completes on its own behalf, with a client-credentials token for the
+# `adhar-ai` Keycloak client (oidc-client.yaml): the drift and cost chores,
+# Alertmanager and ArgoCD webhooks, every /chat whose caller presented no
+# usable token, and — on every run — retrieval's query rewrite and rerank.
+# That service-account user is in no platform group, so its token passed
+# authentication and failed authorization:
+#
+#   with bearer    -> 403 authorization failed
+#   without bearer -> 401 authentication failure: no bearer token found
+#
+# Measured on the AWS cluster, 2026-10-09: 229 completions served, all of them
+# k8sgpt's; the runtime answered nothing but `CircuitOpen` with an empty text.
+#
+# Same shape as k8sgpt's grant (ai/k8sgpt/manifests/k8sgpt.yaml): one Allow
+# policy, ONE expression (the gateway OR's an Allow rule's entries), keyed on
+# the identity rather than on a group. `azp` is the client the token was
+# issued to — stable, unlike the service-account user's `sub`, which is a UUID
+# minted per realm. Scoped to the OpenAI-compatible surface; the MCP federation
+# keeps its own rules.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: adhar-ai-runtime-llm
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: adhar-ai, adhar.io/component: ai}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    authorization:
+      action: Allow
+      policy:
+        # ONE expression — the gateway OR's the entries of an Allow rule.
+        matchExpressions:
+          - >-
+            default(jwt.azp, "") == "adhar-ai"
+            && request.path.startsWith("/v1/")

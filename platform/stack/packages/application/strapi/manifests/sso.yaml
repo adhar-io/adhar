@@ -44,6 +44,45 @@ data:
       "webOrigins": ["https://strapi.adhar.localtest.me:8443"]
     }
 ---
+# A SECOND client, for Strapi's OWN admin-panel login rather than the edge
+# proxy. The Adhar build of @strapi/core enables Strapi's Enterprise SSO
+# service without a licence (see install.yaml, STRAPI_CORE_OVERRIDE), and
+# config/admin.js registers a Keycloak OAuth2 strategy against this client.
+# Its own client on purpose: a different redirect URI, and a token minted for
+# Strapi rather than for the proxy — the platform already learned what sharing
+# an audience does when Argo CD rejected a token minted for another app's
+# client (CLAUDE.md, per-app SSO cookies).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: strapi-app-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: strapi-app-keycloak-client
+    app.kubernetes.io/part-of: strapi
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  # The reconciler publishes this as STRAPI_APP_CLIENT_ID / STRAPI_APP_CLIENT_SECRET
+  # in the keycloak-clients Secret (clientId upper-cased, '-' -> '_'); the
+  # Strapi Deployment reads the secret as KEYCLOAK_CLIENT_SECRET.
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "strapi-app",
+      "name": "Strapi Admin Login",
+      "description": "Strapi's own admin-panel Keycloak login (Enterprise SSO service, Adhar build of @strapi/core)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://strapi.adhar.localtest.me:8443/admin/connect/keycloak"],
+      "webOrigins": ["https://strapi.adhar.localtest.me:8443"]
+    }
+---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:

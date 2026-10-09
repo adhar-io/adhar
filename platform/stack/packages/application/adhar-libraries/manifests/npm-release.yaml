@@ -186,9 +186,13 @@ spec:
         - {name: repo, value: adhar-ui}
         - {name: revision, value: $(params.revision)}
       workspaces: [{name: source, workspace: shared}]
+    # Alongside clone, not after it: the clone never needs Nexus. `build` and
+    # everything behind it read nexus-credentials, so they wait on both.
+    - name: wait-for-nexus
+      taskRef: {name: wait-for-nexus-credentials}
     - name: build
       retries: 2
-      runAfter: [clone]
+      runAfter: [clone, wait-for-nexus]
       taskRef: {name: deno-task}
       params: [{name: command, value: "task build"}]
       workspaces: [{name: source, workspace: shared}]

@@ -173,6 +173,44 @@ spec:
             - {name: STRAPI_TELEMETRY_DISABLED, value: "true"}
             - {name: STRAPI_DISABLE_TELEMETRY, value: "true"}
             - {name: STRAPI_DISABLE_UPDATE_NOTIFICATION, value: "true"}
+            # ── Admin-panel SSO (Keycloak) ──
+            # Strapi gates admin SSO behind an Enterprise licence. The Adhar
+            # fork of @strapi/core (github.com/adhar-io/strapi, branch develop,
+            # packages/core/core/src/ee/index.ts) lists `sso` in
+            # ADHAR_BUNDLED_FEATURES so that ONE feature works without a
+            # licence; audit-logs, review-workflows, content-releases and seat
+            # enforcement stay exactly as locked as in Community Edition. It is
+            # published as a release tarball (GitHub Packages cannot host a
+            # package whose scope is not the owner's, and renaming @strapi/core
+            # breaks every internal import) and swapped in through an npm
+            # dependency override. The boot script applies the override, proves
+            # the tarball's version matches the project and that the marker is
+            # in dist, and falls back to the stock package — Strapi up, no SSO
+            # button, a loud log line — when the release does not exist yet.
+            #
+            # STRAPI_VERSION pins the scaffold too: Strapi's packages move in
+            # lockstep, so the fork must be tagged from upstream v<this>, and
+            # the tarball name follows `npm pack` (strapi-core-<version>.tgz).
+            - {name: STRAPI_VERSION, value: "5.57.0"}
+            - name: STRAPI_CORE_OVERRIDE
+              value: https://github.com/adhar-io/strapi/releases/download/adhar-core-v5.57.0-1/strapi-core-5.57.0.tgz
+            # The `strapi-app` Keycloak client (sso.yaml): Strapi's OWN login,
+            # separate from the `strapi` client the edge proxy uses, so each
+            # side receives a token minted for itself (see CLAUDE.md on
+            # per-app audiences). The browser is sent to the public issuer; the
+            # code exchange and userinfo go to the in-cluster one.
+            - {name: KEYCLOAK_ISSUER_URL, value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"}
+            - {name: KEYCLOAK_INTERNAL_ISSUER_URL, value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar"}
+            - {name: KEYCLOAK_CLIENT_ID, value: strapi-app}
+            # Required, like the proxy's own secret: nobody reaches Strapi
+            # without keycloak-clients anyway, and a pod that waits for the key
+            # self-corrects when the client reconciler exports it.
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: keycloak-clients, key: STRAPI_APP_CLIENT_SECRET}}
+            # Role a Keycloak user receives on first sign-in (admin_roles.code:
+            # strapi-super-admin | strapi-editor | strapi-author). A Super
+            # Admin promotes people from Settings → Users.
+            - {name: STRAPI_SSO_DEFAULT_ROLE, value: strapi-editor}
           command: [bash, -c]
           args:
             - |
@@ -212,7 +250,7 @@ spec:
                 # would omit it and the app could never reach Postgres.
                 # The generated config/database.js switches on DATABASE_CLIENT,
                 # so the real credentials come from the environment, not from here.
-                npx -y create-strapi@latest app \
+                npx -y create-strapi@"$STRAPI_VERSION" app \
                   --no-run --skip-cloud --use-npm --javascript \
                   --no-example --no-git-init --install \
                   --dbclient postgres \
@@ -328,6 +366,48 @@ spec:
                 rm -f /srv/.admin-built
               fi
 
+              # ── 1c. The Adhar @strapi/core, for admin-panel SSO ──
+              # See STRAPI_CORE_OVERRIDE in the env for why this is an override
+              # and not a package. Idempotent: a volume that already carries the
+              # wanted override and a dist with the marker is left alone, so a
+              # routine restart costs nothing here.
+              core_is_adhar() { grep -q ADHAR_BUNDLED_FEATURES node_modules/@strapi/core/dist/index.js 2>/dev/null; }
+              core_version() { node -p "require('@strapi/core/package.json').version" 2>/dev/null || echo none; }
+              reachable() { node -e 'fetch(process.argv[1],{method:"HEAD",redirect:"follow"}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))' "$1"; }
+              use_stock_core() {
+                npm pkg delete 'overrides.@strapi/core'
+                npm install --no-fund --no-audit --include=optional
+              }
+              have_override="$(npm pkg get 'overrides.@strapi/core' 2>/dev/null | tr -d '"')"
+              [ "$have_override" = "{}" ] && have_override=""
+              want_override="${STRAPI_CORE_OVERRIDE:-}"
+              if [ -n "$want_override" ] && { [ "$have_override" != "$want_override" ] || ! core_is_adhar; }; then
+                if reachable "$want_override"; then
+                  echo "==> switching @strapi/core to the Adhar build ($want_override)"
+                  npm pkg set "overrides.@strapi/core=$want_override"
+                  npm install --no-fund --no-audit --include=optional
+                  if [ "$(core_version)" != "$STRAPI_VERSION" ] || ! core_is_adhar; then
+                    echo "!! that tarball is @strapi/core $(core_version) (marker $(core_is_adhar && echo present || echo MISSING)); this project is $STRAPI_VERSION."
+                    echo "!! Strapi's packages move in lockstep: tag the fork from upstream v$STRAPI_VERSION. Reverting to the stock package — no admin SSO until then."
+                    use_stock_core
+                  fi
+                else
+                  echo "!! $want_override is not downloadable — the adhar-io/strapi release is not published yet. Stock @strapi/core, no admin SSO."
+                  [ -n "$have_override" ] && use_stock_core
+                fi
+              elif [ -z "$want_override" ] && [ -n "$have_override" ]; then
+                echo "==> no override wanted; back to the stock @strapi/core"
+                use_stock_core
+              fi
+              # The OAuth2 strategy config/admin.js registers. Tiny, and needed
+              # on the stock build too: admin.js requires it unconditionally.
+              node -e 'require("passport-oauth2")' >/dev/null 2>&1 || npm install --no-fund --no-audit passport-oauth2@1
+              if core_is_adhar; then
+                echo "==> admin SSO available (Adhar @strapi/core $(core_version))"
+              else
+                echo "==> admin SSO unavailable on this boot (stock @strapi/core $(core_version))"
+              fi
+
               # ── 2. Teach the project about its public origin ──
               # Rewritten every start so a changed platform domain takes effect,
               # and so an operator who edits it knows it is managed.
@@ -341,6 +421,9 @@ spec:
                 host: env('HOST', '0.0.0.0'),
                 port: env.int('PORT', 1337),
                 url: env('PUBLIC_URL', undefined),
+                // Behind the platform's oauth2-proxy and Gateway: take the
+                // scheme and client address from X-Forwarded-*.
+                proxy: true,
                 app: {
                   keys: env.array('APP_KEYS'),
                 },
@@ -350,6 +433,99 @@ spec:
               });
               JS
               sed -i 's/^              //' config/server.js
+
+              # ── 2b. The admin panel's own Keycloak login ──
+              # Replaces the scaffolded config/admin.js: the same secrets and
+              # flags, plus an `auth.providers` entry. Only the Enterprise SSO
+              # service reads that list — which the Adhar @strapi/core enables
+              # — so on the stock package it is ignored and the login page
+              # shows the password form alone.
+              cat > config/admin.js <<'JS'
+              // Managed by the Adhar platform (packages/application/strapi).
+              const OAuth2Strategy = require('passport-oauth2');
+
+              // Keycloak >= 17 realm endpoint shape (/realms/<realm>/protocol/
+              // openid-connect/...). The browser goes to the public issuer; the
+              // code-for-token exchange and the userinfo call go to the
+              // in-cluster one, so the server never trusts the public ingress
+              // certificate. The admin flow needs `email`, and `username` or
+              // first+last name, to auto-register a user.
+              const keycloakProviders = (env) => {
+                const trim = (v) => (v || '').replace(/\/+$/, '');
+                const issuer = trim(env('KEYCLOAK_ISSUER_URL', ''));
+                const internal = trim(env('KEYCLOAK_INTERNAL_ISSUER_URL', '')) || issuer;
+                const clientID = env('KEYCLOAK_CLIENT_ID', '');
+                const clientSecret = env('KEYCLOAK_CLIENT_SECRET', '');
+                const publicUrl = trim(env('PUBLIC_URL', ''));
+                if (!issuer || !clientID || !clientSecret || !publicUrl) return [];
+                return [
+                  {
+                    uid: 'keycloak',
+                    displayName: 'Keycloak',
+                    createStrategy: (strapi) => {
+                      const strategy = new OAuth2Strategy(
+                        {
+                          authorizationURL: `${issuer}/protocol/openid-connect/auth`,
+                          tokenURL: `${internal}/protocol/openid-connect/token`,
+                          clientID,
+                          clientSecret,
+                          scope: ['openid', 'email', 'profile'],
+                          // Absolute: Strapi hands back a path, and the request
+                          // the strategy sees arrived over plain HTTP from the proxy.
+                          callbackURL:
+                            publicUrl + strapi.service('admin::passport').getStrategyCallbackURL('keycloak'),
+                        },
+                        (accessToken, refreshToken, profile, done) => done(null, profile)
+                      );
+                      // Strapi authenticates by provider uid, so the strategy
+                      // must answer to it (passport-oauth2 names itself 'oauth2').
+                      strategy.name = 'keycloak';
+                      strategy.userProfile = (accessToken, done) => {
+                        fetch(`${internal}/protocol/openid-connect/userinfo`, {
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        })
+                          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`userinfo ${r.status}`))))
+                          .then((u) =>
+                            done(null, {
+                              email: u.email,
+                              username: u.preferred_username,
+                              firstname: u.given_name,
+                              lastname: u.family_name,
+                            })
+                          )
+                          .catch(done);
+                      };
+                      return strategy;
+                    },
+                  },
+                ];
+              };
+
+              module.exports = ({ env }) => ({
+                auth: {
+                  secret: env('ADMIN_JWT_SECRET'),
+                  providers: keycloakProviders(env),
+                },
+                apiToken: {
+                  salt: env('API_TOKEN_SALT'),
+                },
+                transfer: {
+                  token: {
+                    salt: env('TRANSFER_TOKEN_SALT'),
+                  },
+                },
+                secrets: {
+                  encryptionKey: env('ENCRYPTION_KEY'),
+                },
+                flags: {
+                  nps: env.bool('FLAG_NPS', false),
+                  // No upsell banner for a feature this distribution ships.
+                  promoteEE: env.bool('FLAG_PROMOTE_EE', false),
+                  docLinks: env.bool('FLAG_DOC_LINKS', true),
+                },
+              });
+              JS
+              sed -i 's/^              //' config/admin.js
 
               # ── 3. Build the admin panel when it is missing ──
               # A sentinel rather than a guess at Strapi's internal output paths,
@@ -363,6 +539,46 @@ spec:
                 echo "$WANT" > /srv/.admin-built
               else
                 echo "==> admin panel already built for $HAVE"
+              fi
+
+              # ── 3b. Let Keycloak users in without a prior invitation ──
+              # Strapi keeps "auto-register SSO users" and their default role
+              # in its core store (Settings → Single Sign-On), off by default,
+              # with no config-file knob — so the first Keycloak login would
+              # otherwise end in "no account for this email". Written straight
+              # to that store row once the server is up: the row and the roles
+              # only exist after Strapi's own bootstrap. Runs in the background
+              # of this container, idempotent, exits when done.
+              cat > /tmp/adhar-sso-options.js <<'JS'
+              const { Client } = require('pg');
+              (async () => {
+                const want = process.env.STRAPI_SSO_DEFAULT_ROLE || 'strapi-editor';
+                const c = new Client({
+                  host: process.env.DATABASE_HOST, port: Number(process.env.DATABASE_PORT || 5432),
+                  database: process.env.DATABASE_NAME, user: process.env.DATABASE_USERNAME,
+                  password: process.env.DATABASE_PASSWORD, ssl: false,
+                });
+                await c.connect();
+                try {
+                  const role = (await c.query('select id from admin_roles where code = $1', [want])).rows[0];
+                  if (!role) { console.log(`sso options: role ${want} not found; leaving the store alone`); return; }
+                  const row = (await c.query("select id, value from strapi_core_store_settings where key = 'core_admin_auth'")).rows[0];
+                  const current = row && row.value ? JSON.parse(row.value) : {};
+                  const providers = { ssoLockedRoles: [], ...(current.providers || {}), autoRegister: true, defaultRole: role.id };
+                  if (row && current.providers && current.providers.autoRegister === true && String(current.providers.defaultRole) === String(role.id)) {
+                    console.log(`sso options: already auto-registering as ${want}`); return;
+                  }
+                  const value = JSON.stringify({ ...current, providers });
+                  if (row) await c.query('update strapi_core_store_settings set value = $1 where id = $2', [value, row.id]);
+                  else await c.query("insert into strapi_core_store_settings (key, value, type, environment, tag) values ('core_admin_auth', $1, 'object', '', '')", [value]);
+                  console.log(`sso options: auto-register on, default role ${want} (#${role.id})`);
+                } finally { await c.end(); }
+              })().catch((e) => console.error('sso options:', e.message));
+              JS
+              sed -i 's/^              //' /tmp/adhar-sso-options.js
+              if core_is_adhar; then
+                ( until node -e 'fetch("http://127.0.0.1:1337/_health").then(r=>process.exit(r.status===204?0:1),()=>process.exit(1))' 2>/dev/null; do sleep 10; done
+                  NODE_PATH="$APP/node_modules" node /tmp/adhar-sso-options.js ) &
               fi
 
               # ── 4. Serve ──

@@ -270,6 +270,48 @@ spec:
           -DaltDeploymentRepository="nexus::default::$MAVEN_URL" \
           $(params.args) $(params.goals)
 ---
+# Gate every release on the Secret its publish step reads.
+#
+# The maven and pnpm Tasks below mount nexus-credentials as env, and a
+# PipelineRun fired by the mirror webhook BEFORE the nexus package had
+# published that Secret failed at `build` with CreateContainerConfigError and
+# was never retried (2026-10-09 AWS cluster: webhook at 15:23:19Z, Secret at
+# 15:32:52Z). The mirror Jobs already wait five minutes, which that gap
+# exceeded; waiting where the dependency actually is costs nothing when the
+# Secret exists and otherwise holds the run instead of burning it. Thirty
+# minutes, inside the PipelineRun's own timeout: a Nexus that takes longer is
+# unhealthy, and a failed run says so.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: wait-for-nexus-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  description: Block until the nexus-credentials Secret exists (the nexus package publishes it).
+  steps:
+    - name: wait
+      # The pipeline's ServiceAccount (adhar-libraries) holds `get` on exactly
+      # this Secret through Role adhar-libraries-wait (mirror.yaml).
+      image: docker.io/bitnamisecure/kubectl:latest
+      script: |
+        #!/bin/sh
+        i=0
+        while [ $i -lt 180 ]; do
+          kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
+          i=$((i + 1))
+          [ $((i % 6)) -eq 0 ] && echo "waiting for nexus-credentials … $((i * 10))s"
+          sleep 10
+        done
+        echo "nexus-credentials not published within 30 minutes — is the nexus package healthy?"
+        exit 1
+      # tekton.dev/v1 spells this computeResources; the v1beta1 `resources` key
+      # is rejected by the webhook ("unknown field") and the whole package
+      # then fails to sync (observed: 67 retries before anyone noticed).
+      computeResources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+---
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -293,9 +335,13 @@ spec:
         - {name: repo, value: adhar-kit}
         - {name: revision, value: $(params.revision)}
       workspaces: [{name: source, workspace: shared}]
+    # Alongside clone, not after it: the clone never needs Nexus. `build` and
+    # everything behind it read nexus-credentials, so they wait on both.
+    - name: wait-for-nexus
+      taskRef: {name: wait-for-nexus-credentials}
     - name: build
       retries: 2
-      runAfter: [clone]
+      runAfter: [clone, wait-for-nexus]
       taskRef: {name: maven}
       params:
         - {name: goals, value: package}

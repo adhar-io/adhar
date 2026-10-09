@@ -8,8 +8,8 @@ package adharplatform
 // falco's dashboard carried no folder annotation and landed at the root by
 // accident rather than by choice.
 //
-// The rule now: exactly TWO dashboards sit at the root, because they are the
-// front doors people open first. Every other dashboard is filed under one of a
+// The rule now: exactly ONE dashboard sits at the root — the platform front
+// page people open first. Every other dashboard is filed under one of a
 // fixed set of folders. Both halves need a guard: the failure mode of the first
 // is a root that silently fills up until it is as useless as the flat folder
 // was, and the failure mode of the second is a dashboard that vanishes into a
@@ -27,10 +27,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// rootDashboards are the only two allowed outside a folder, by dashboard title.
+// rootDashboards is the only dashboard allowed outside a folder, by title.
+//
+// Adhar AI sat here too for one day (2026-10-09). It moved into the AI folder
+// on 2026-10-10: the platform page is the one front door, and the AI plane
+// reads better as the head of its own folder beside agentgateway and vLLM.
 var rootDashboards = map[string]bool{
 	"Adhar Platform": true,
-	"Adhar AI":       true,
 }
 
 // dashboardFolders is the closed set. Grafana creates a folder on demand, so a
@@ -121,7 +124,7 @@ func shippedDashboards(t *testing.T) []dashboardDoc {
 }
 
 // Named by the header of ai/adhar-ai/manifests/dashboard.yaml.
-func TestExactlyTwoDashboardsSitOutsideAFolder(t *testing.T) {
+func TestExactlyOneDashboardSitsOutsideAFolder(t *testing.T) {
 	var atRoot []string
 	for _, d := range shippedDashboards(t) {
 		if d.hasKey && strings.TrimSpace(d.folder) != "" {

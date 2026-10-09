@@ -817,6 +817,27 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	// state kubeconfig and nothing else.
 	var deletedClusters []string
 	seenProvider := map[string]bool{}
+	// Cluster IDs already dealt with this run, so a cluster SHARED by several
+	// environments is torn down once.
+	//
+	// Environments default to `isolation: namespace`, which means dev, test and
+	// prod live as namespaces on ONE cluster — `adhar up` knows that
+	// (partitionEnvironments / sharedClusterEnvironment in cmd/up/production.go)
+	// and provisions a single cluster. `adhar down` did not: it looped over every
+	// environment name and called DeleteCluster for each, so the same cluster was
+	// deleted three times. On a healthy account the 2nd and 3rd attempts hit a
+	// cluster that no longer exists, which is the "any lookup error counts as
+	// already gone" trap that once let a whole GCP cluster survive a green
+	// teardown. Live proof it was happening (Civo, 2026-10-09) — one cluster id,
+	// reported three times:
+	//
+	//	teardown failed for: dev: failed to delete Civo cluster dc72b5ee-…;
+	//	prod: failed to delete Civo cluster dc72b5ee-…;
+	//	test: failed to delete Civo cluster dc72b5ee-…
+	//
+	// Keyed on the resolved cluster ID rather than the environment, because that
+	// is the thing being deleted and the only identity the environments share.
+	handledCluster := map[string]string{}
 	for _, envName := range envNames {
 		env := cfg.ResolvedEnvironments[envName]
 		// Every name this environment's cluster could be registered under: the
@@ -924,10 +945,31 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 			detail("  ! cluster is not tagged adhar.io/managed-by=adhar; deleting anyway")
 		}
 
+		if owner, done := handledCluster[found.Cluster.ID]; done {
+			// Shared cluster: already torn down for an earlier environment. Say
+			// so rather than attempting it again and reporting the same failure
+			// (or the same success) once per environment.
+			detail("  ● cluster %s is shared with environment %s and was already torn down", found.Cluster.ID, owner)
+			outcome.Deleted = append(outcome.Deleted, envName)
+			continue
+		}
+		handledCluster[found.Cluster.ID] = envName
+
 		emit(logger.StatusMsg(fmt.Sprintf("deleting '%s' on %s", clusterName, found.ProviderName)))
 		if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
 			detail("  ✖ %v", err)
-			failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
+			// Attach the remedy when the provider's message needs translating.
+			// ExplainAccessError was only ever consulted on the `adhar up` path,
+			// so teardown printed raw provider errors — and teardown is where the
+			// ones that matter most show up, because a failed delete leaves
+			// infrastructure billing. A suspended Civo account (2026-10-09) reads
+			// as a permissions or quota fault unless something says otherwise.
+			if remedy := pfactory.ExplainAccessError(err); remedy != "" {
+				detail("  → %s", remedy)
+				failures = append(failures, fmt.Sprintf("%s: %v\n    %s", envName, err, remedy))
+			} else {
+				failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
+			}
 			continue
 		}
 		detail("  ● deleted %s", clusterName)

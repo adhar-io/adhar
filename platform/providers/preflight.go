@@ -137,6 +137,29 @@ func ExplainAccessError(err error) string {
 	case strings.Contains(msg, "AADSTS7000112"):
 		return "The service principal is DISABLED in the directory. Re-enable it, or create " +
 			"a replacement with `az ad sp create-for-rbac`."
+	// Civo suspends the whole ACCOUNT for unpaid invoices, and the failure then
+	// arrives on whatever call you happened to make — here, a cluster delete.
+	// It is worth naming because it looks like nothing else in this list: the
+	// credentials are valid, reads keep working, and only writes are refused, so
+	// an operator reasonably reads it as a permissions or quota problem and goes
+	// looking for the wrong thing.
+	//
+	// It is also, in hindsight, the explanation for a whole day of symptoms
+	// (2026-10-09): four mum1 clusters whose API endpoint went dark while the
+	// Civo API still reported ACTIVE/ready=true, the last one with all three
+	// instances SHUTOFF. Suspended accounts get their instances powered off.
+	// "DatabaseUser" in the code name refers to Civo's own billing records, not
+	// to anything this platform runs.
+	case strings.Contains(msg, "DatabaseUserSuspendedError"),
+		strings.Contains(msg, "account is suspended"):
+		return "The CIVO ACCOUNT is suspended for unpaid invoices, so every write is " +
+			"refused — create, scale and DELETE alike. Reads still succeed, which is why " +
+			"this can look like a permissions or quota fault. Nothing in this " +
+			"configuration will change it: settle the invoice at " +
+			"https://dashboard.civo.com/billing, then ask Civo to re-enable the account " +
+			"and re-run. Note that suspension also POWERS OFF running instances, so a " +
+			"cluster whose API has gone unreachable while the provider still reports it " +
+			"ACTIVE/ready=true is the expected appearance of this, not a cluster fault."
 	case strings.Contains(msg, "explicit deny in a service control policy"):
 		return "An AWS Organizations SCP denies this, which no IAM policy in this " +
 			"account can override — attaching AdministratorAccess will not help. " +

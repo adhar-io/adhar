@@ -1,26 +1,26 @@
 # First-run instance setup for Plane, done for you.
 #
-# Plane Community Edition has NO generic OIDC and NO SAML provider — the
-# only auth providers shipped in the image are
-#   plane/authentication/provider/credentials/{email,magic_code}.py
-#   plane/authentication/provider/oauth/{gitea,github,gitlab,google}.py
-# (`grep -ril oidc /code` and `grep -ril saml /code` in
-# artifacts.plane.so/makeplane/plane-backend both return nothing). Re-checked
-# against the v1.4.2 source tree (the newest CE release): the provider set is
-# unchanged, and no path in the repository matches oidc or saml. This is a
-# capability the Community Edition does not ship, not a version we trail — so
-# the Gitea bridge below is the integration, not a stopgap until an upgrade.
-# So Keycloak reaches Plane two ways, both wired here and in sso.yaml:
+# Keycloak reaches Plane three ways, all wired here and in sso.yaml:
 #
 #  1. ENFORCED EDGE SSO — every request to plane.<host> passes through the
 #     Keycloak oauth2-proxy in sso.yaml first. Nobody sees Plane at all without
 #     a valid Keycloak session.
-#  2. FEDERATED LOGIN INSIDE PLANE — Plane's Gitea OAuth provider pointed at the
-#     platform's own Gitea, which itself authenticates against Keycloak (Gitea
-#     auth source `keycloak`, see the Gitea bootstrap). That gives Plane a real
-#     "Continue with Gitea" button backed by Keycloak identities, using a
-#     provider this edition genuinely implements. Best-effort: if Gitea or its
-#     credentials are not available the Job logs it and carries on.
+#  2. NATIVE KEYCLOAK LOGIN INSIDE PLANE — the Adhar fork of Plane
+#     (ghcr.io/adhar-io/plane-backend) adds a generic OIDC provider,
+#     plane/authentication/provider/oauth/keycloak.py, that upstream Community
+#     Edition does not ship (its providers are email, magic code, gitea,
+#     github, gitlab, google — `grep -ril oidc` in v1.4.2 returns nothing).
+#     The fork reads its settings from InstanceConfiguration (category
+#     KEYCLOAK), and the api-migrate Job seeds those rows from the pod env,
+#     which is "0"/empty here because the client secret does not exist until
+#     the keycloak package has exported the `plane-app` client (sso.yaml) into
+#     the keycloak-clients Secret. So this Job writes the six KEYCLOAK_* rows
+#     itself, from that Secret — a cluster that ran the fork image with
+#     is_keycloak_enabled=False is exactly the gap this closes.
+#  3. FALLBACK: FEDERATED LOGIN VIA GITEA — Plane's Gitea OAuth provider
+#     pointed at the platform's own Gitea, which itself authenticates against
+#     Keycloak (Gitea auth source `keycloak`). Only enabled when (2) cannot be,
+#     so the sign-in page shows ONE button, not two that both go to Keycloak.
 #
 # Plus the instance admin itself: until an instance admin has completed the
 # "god-mode" setup, Plane's sign-in page shows "No authentication methods
@@ -171,6 +171,27 @@ spec:
               valueFrom: {secretKeyRef: {name: gitea-credential, key: password, optional: true}}
             - name: GITEA_ADMIN_TOKEN
               valueFrom: {secretKeyRef: {name: gitea-credential, key: token, optional: true}}
+            # Plane's OWN Keycloak login (method 2 in the header). The realm
+            # issuer the BROWSER is sent to; the controller rewrites
+            # adhar.localtest.me:8443 to the real domain when seeding.
+            - name: KEYCLOAK_ISSUER_URL
+              value: https://keycloak.adhar.localtest.me:8443/realms/adhar
+            # Backchannel — discovery, the code-for-token exchange and userinfo
+            # — stays in-cluster; the fork re-bases those endpoints onto this
+            # URL whatever issuer the discovery document reports.
+            - name: KEYCLOAK_INTERNAL_ISSUER_URL
+              value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar
+            # Where the client id/secret of the `plane-app` client land once the
+            # keycloak package's reconciler has exported them. Read through the
+            # kube API (this SA already holds `get` on Secrets) rather than a
+            # secretKeyRef, so the Job can WAIT for them instead of silently
+            # starting without — see keycloak_login() below.
+            - name: KEYCLOAK_CLIENTS_SECRET
+              value: keycloak-clients
+            - name: KEYCLOAK_CLIENT_ID_KEY
+              value: PLANE_APP_CLIENT_ID
+            - name: KEYCLOAK_CLIENT_SECRET_KEY
+              value: PLANE_APP_CLIENT_SECRET
           command: [sh, -c]
           args:
             - |
@@ -181,6 +202,7 @@ spec:
               from plane.db.models import APIToken, User, Workspace, WorkspaceMember
               from plane.license.models import Instance, InstanceAdmin, InstanceConfiguration
               from plane.license.utils.encryption import decrypt_data, encrypt_data
+              from plane.utils.cache import invalidate_cache_directly
 
               failures = []
 
@@ -227,10 +249,98 @@ spec:
               cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
               print(f"instance setup done; admin {'created' if created else 'updated'}: {email}", flush=True)
 
-              # ── 2. Keycloak-federated login via the platform Gitea ───────────
-              # Plane CE ships no OIDC provider; its Gitea OAuth provider
-              # talks to a Gitea whose own sign-in is the Keycloak auth source,
-              # so this is a real Keycloak login inside Plane. Best effort.
+              # In-cluster kube API, used to read keycloak-clients (2) and to
+              # write the console's token Secret (4).
+              ns = os.environ["NAMESPACE"]
+              sa = "/var/run/secrets/kubernetes.io/serviceaccount"
+              bearer = open(f"{sa}/token").read().strip()
+              ctx = ssl.create_default_context(cafile=f"{sa}/ca.crt")
+              khost = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+              kport = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+              base = f"https://{khost}:{kport}/api/v1/namespaces/{ns}/secrets"
+
+              # ── 2. Plane's OWN Keycloak login (the fork's OIDC provider) ─────
+              # Env is only the provider's FALLBACK: it reads InstanceConfiguration
+              # first, and api-migrate seeded those rows from an env that had no
+              # client secret. Write them here from the keycloak-clients Secret.
+              # WAITS for that Secret rather than skipping: the edge proxy in
+              # front of Plane reads the same Secret, so without it nobody
+              # reaches Plane anyway — and by the time this PostSync hook runs
+              # the proxy is Healthy, which means the Secret is normally there.
+              def keycloak_login():
+                  issuer = (os.environ.get("KEYCLOAK_ISSUER_URL") or "").rstrip("/")
+                  internal = (os.environ.get("KEYCLOAK_INTERNAL_ISSUER_URL") or "").rstrip("/")
+                  if not issuer:
+                      return "skipped (KEYCLOAK_ISSUER_URL unset)", False
+                  secret_name = os.environ.get("KEYCLOAK_CLIENTS_SECRET") or "keycloak-clients"
+                  id_key = os.environ.get("KEYCLOAK_CLIENT_ID_KEY") or "PLANE_APP_CLIENT_ID"
+                  secret_key = os.environ.get("KEYCLOAK_CLIENT_SECRET_KEY") or "PLANE_APP_CLIENT_SECRET"
+                  client_id = client_secret = ""
+                  why = "not attempted"
+                  for attempt in range(120):
+                      try:
+                          req = urllib.request.Request(f"{base}/{secret_name}", headers={
+                              "Authorization": f"Bearer {bearer}", "Accept": "application/json"})
+                          with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+                              data = json.loads(r.read().decode()).get("data") or {}
+                          client_id = base64.b64decode(data.get(id_key) or "").decode().strip()
+                          client_secret = base64.b64decode(data.get(secret_key) or "").decode().strip()
+                          if client_id and client_secret:
+                              break
+                          why = f"Secret {secret_name} has no {id_key}/{secret_key} yet"
+                      except urllib.error.HTTPError as err:
+                          if err.code != 404:
+                              raise
+                          why = f"Secret {secret_name} does not exist yet"
+                      print(f"keycloak login: waiting — {why} … {attempt + 1}/120", flush=True)
+                      time.sleep(5)
+                  if not (client_id and client_secret):
+                      return f"NOT configured — {why} after 10 minutes (the keycloak client reconciler exports it)", False
+
+                  # Prove the realm answers on the backchannel before switching
+                  # the sign-in page over to it. A page whose only button leads
+                  # to KEYCLOAK_NOT_CONFIGURED locks everyone out of workspaces.
+                  needed = ("authorization_endpoint", "token_endpoint", "userinfo_endpoint")
+                  doc = None
+                  for attempt in range(12):
+                      try:
+                          with urllib.request.urlopen(f"{internal or issuer}/.well-known/openid-configuration", timeout=15) as r:
+                              doc = json.loads(r.read().decode())
+                          if all(doc.get(k) for k in needed):
+                              break
+                          doc = None
+                      except Exception as exc:  # noqa: BLE001
+                          print(f"keycloak login: discovery not answering yet ({exc}) … {attempt + 1}/12", flush=True)
+                      time.sleep(5)
+                  if doc is None:
+                      return f"NOT configured — no usable discovery document at {internal or issuer}", False
+
+                  cfg("KEYCLOAK_ISSUER_URL", issuer, "KEYCLOAK")
+                  cfg("KEYCLOAK_INTERNAL_ISSUER_URL", internal, "KEYCLOAK")
+                  cfg("KEYCLOAK_CLIENT_ID", client_id, "KEYCLOAK")
+                  cfg("KEYCLOAK_CLIENT_SECRET", client_secret, "KEYCLOAK", encrypted=True)
+                  cfg("IS_KEYCLOAK_ENABLED", "1", "KEYCLOAK")
+                  cfg("ENABLE_KEYCLOAK_SYNC", "1", "KEYCLOAK")
+                  return f"enabled (client {client_id}, issuer {issuer}, backchannel {internal or issuer})", True
+
+              keycloak_ready = False
+              try:
+                  note, keycloak_ready = keycloak_login()
+                  print(f"keycloak login: {note}", flush=True)
+                  if not keycloak_ready and os.environ.get("KEYCLOAK_ISSUER_URL"):
+                      failures.append(f"keycloak login {note}")
+              except Exception as exc:  # noqa: BLE001 — recorded, and the run still writes the console token
+                  detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
+                  print(f"keycloak login: FAILED ({type(exc).__name__}: {detail})", flush=True)
+                  failures.append(f"keycloak login failed: {type(exc).__name__}: {detail}")
+              if not keycloak_ready:
+                  cfg("IS_KEYCLOAK_ENABLED", "0", "KEYCLOAK")
+
+              # ── 3. Fallback: Keycloak-federated login via the platform Gitea ──
+              # Plane's Gitea OAuth provider talks to a Gitea whose own sign-in
+              # is the Keycloak auth source, so this is also a Keycloak login —
+              # one hop longer. Only offered when the native provider could not
+              # be configured, so the page shows ONE button. Best effort.
               def gitea_bridge():
                   host = (os.environ.get("GITEA_PUBLIC_URL") or "").rstrip("/")
                   token = (os.environ.get("GITEA_ADMIN_TOKEN") or "").strip()
@@ -313,13 +423,17 @@ spec:
                   return f"{note} (client_id {app['client_id']}, redirect {redirect})"
 
               gitea_ready = False
-              try:
-                  print(f"gitea bridge: {gitea_bridge()}", flush=True)
-                  gitea_ready = True
-              except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
-                  detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
-                  print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
-                        "edge SSO + password login still apply", flush=True)
+              if keycloak_ready:
+                  cfg("IS_GITEA_ENABLED", "0", "GITEA")
+                  print("gitea bridge: not offered — the native Keycloak login is on", flush=True)
+              else:
+                  try:
+                      print(f"gitea bridge: {gitea_bridge()}", flush=True)
+                      gitea_ready = True
+                  except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
+                      detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
+                      print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
+                            "edge SSO + password login still apply", flush=True)
 
               # ── Single sign-on means one sign-in, so hide the password form ──
               #
@@ -327,25 +441,28 @@ spec:
               # proxy. Showing an email/password box after that reads as "log in
               # again" and invites people to create a SECOND, local identity that
               # Keycloak knows nothing about — the opposite of single sign-on.
-              # With the bridge up, "Continue with Gitea" is a real Keycloak
-              # login, so it should be the only thing on the page.
+              # "Continue with Keycloak" (or, as the fallback, "Continue with
+              # Gitea", which is also a Keycloak login) should be the only thing
+              # on the page.
               #
-              # Strictly conditional on the bridge: if Gitea is unreachable this
-              # stays on, because an instance with no enabled method shows "No
-              # authentication methods available" and locks everyone out.
+              # Strictly conditional on one of those being on: if neither could
+              # be configured this stays on, because an instance with no enabled
+              # method shows "No authentication methods available" and locks
+              # everyone out.
               #
               # The god-mode instance admin is unaffected. That sign-in posts to
               # /api/instances/admins/sign-in/, which authenticates InstanceAdmin
               # rows directly; ENABLE_EMAIL_PASSWORD governs the WORKSPACE
               # sign-in page only. `adhar get secrets -p plane` still prints the
               # admin credentials, and they still work at /god-mode/.
-              if gitea_ready:
+              if keycloak_ready or gitea_ready:
                   cfg("ENABLE_EMAIL_PASSWORD", "0", "AUTHENTICATION")
-                  print("auth: email/password disabled — Gitea (Keycloak) is the only method", flush=True)
+                  print("auth: email/password disabled — "
+                        f"{'Keycloak' if keycloak_ready else 'Gitea (Keycloak)'} is the only method", flush=True)
               else:
-                  print("auth: keeping email/password — the Gitea bridge is not available", flush=True)
+                  print("auth: keeping email/password — neither Keycloak login nor the Gitea bridge is available", flush=True)
 
-              # ── 3. platform workspace + console API key ──────────────────────
+              # ── 4. platform workspace + console API key ──────────────────────
               slug = os.environ["WORKSPACE_SLUG"]
               ws, ws_created = Workspace.objects.get_or_create(slug=slug, defaults={
                   "name": os.environ.get("WORKSPACE_NAME") or slug, "owner": user})
@@ -361,15 +478,8 @@ spec:
               else:
                   print("console API key present", flush=True)
 
-              # ── 4. hand it to the console through a Secret (kube API, in-cluster SA) ──
-              ns = os.environ["NAMESPACE"]
+              # ── 5. hand it to the console through a Secret (kube API, in-cluster SA) ──
               name = os.environ["TOKEN_SECRET_NAME"]
-              sa = "/var/run/secrets/kubernetes.io/serviceaccount"
-              bearer = open(f"{sa}/token").read().strip()
-              ctx = ssl.create_default_context(cafile=f"{sa}/ca.crt")
-              khost = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-              kport = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
-              base = f"https://{khost}:{kport}/api/v1/namespaces/{ns}/secrets"
               b64 = lambda s: base64.b64encode(s.encode()).decode()
               body = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
                       "metadata": {"name": name, "namespace": ns,
@@ -388,12 +498,22 @@ spec:
                   st = kube("PATCH", f"{base}/{name}", body, "application/merge-patch+json")
               print(f"secret {ns}/{name} written (http {st})", flush=True)
 
-              # ── 5. VERIFY through the API the web app actually reads ─────────
+              # ── 6. VERIFY through the API the web app actually reads ─────────
               # The sign-in screen renders "No authentication methods available"
               # purely from this payload. Exiting 0 without asserting it is what
               # let a broken instance ship, so assert it here and fail loudly.
+              #
+              # That payload is CACHED in Redis for two hours (@cache_response on
+              # InstanceEndpoint.get). The admin endpoints invalidate it when
+              # they write InstanceConfiguration; cfg() above writes the rows
+              # directly and does not, so a run that changed the auth methods
+              # left both the sign-in page and this check reading the old set.
+              # Observed: a run that switched Gitea → Keycloak verified
+              # ["is_gitea_enabled"]. Drop both keys before reading.
+              invalidate_cache_directly(path="/api/instances/", user=False)
+              invalidate_cache_directly(path="/api/instances/configurations/", user=False)
               methods = ["is_email_password_enabled", "is_magic_login_enabled", "is_google_enabled",
-                         "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled"]
+                         "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled", "is_keycloak_enabled"]
               payload = None
               for attempt in range(12):
                   try:
@@ -415,6 +535,11 @@ spec:
               if not enabled:
                   failures.append("no authentication method is enabled — the sign-in page would show "
                                   "'No authentication methods available'")
+              if keycloak_ready and not conf.get("is_keycloak_enabled"):
+                  # The rows were written but the API does not report the method:
+                  # an upstream (non-fork) image has no KEYCLOAK category at all.
+                  failures.append("KEYCLOAK rows written but /api/instances/ does not report is_keycloak_enabled "
+                                  "— is plane-api running the adhar-io fork image?")
               if failures:
                   raise SystemExit("FATAL: " + "; ".join(failures))
               print(f"OK: Plane is set up with auth methods {enabled}", flush=True)

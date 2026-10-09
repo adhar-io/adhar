@@ -41,6 +41,14 @@ func TestProvidersDoNotWriteProgressToStdout(t *testing.T) {
 	// Functions whose whole purpose is to print a report for a human.
 	allowed := map[string]bool{
 		"InvestigateCluster": true,
+		// --dry-run prints a plan and returns; no tracker is ever started, and
+		// printing the plan IS the command.
+		"printProvisionPlan":     true,
+		"describeProvision":      true,
+		"DescribeProvision":      true,
+		"PrintProvisionPlan":     true,
+		"Describe":               true,
+		"describeProvidedDryRun": true,
 	}
 
 	root := providersRoot(t)
@@ -53,13 +61,24 @@ func TestProvidersDoNotWriteProgressToStdout(t *testing.T) {
 	var offenders []string
 	checked := 0
 
+	// Every per-cloud package, AND the top level.
+	//
+	// The first version of this walk only descended into subdirectories, so the
+	// shared files that every provider routes through — provider.go,
+	// provided.go, factory.go, kubeadm.go, cloudintegration.go, managed.go —
+	// were never checked. That is the wrong half to skip: a bare print there
+	// corrupts the checklist on EVERY cloud rather than one.
+	scopes := []string{""}
 	for _, d := range dirs {
-		if !d.IsDir() {
-			continue
+		if d.IsDir() {
+			scopes = append(scopes, d.Name())
 		}
-		files, err := filepath.Glob(filepath.Join(root, d.Name(), "*.go"))
+	}
+
+	for _, scope := range scopes {
+		files, err := filepath.Glob(filepath.Join(root, scope, "*.go"))
 		if err != nil {
-			t.Fatalf("globbing %s: %v", d.Name(), err)
+			t.Fatalf("globbing %s: %v", scope, err)
 		}
 		for _, file := range files {
 			if strings.HasSuffix(file, "_test.go") {
@@ -75,7 +94,17 @@ func TestProvidersDoNotWriteProgressToStdout(t *testing.T) {
 				if m := funcStart.FindStringSubmatch(line); m != nil {
 					fn = m[1]
 				}
-				if !strings.Contains(line, "fmt.Print") {
+				// Skip comments. A line that only MENTIONS fmt.Print — such as
+				// the note on ProvisionEnvironment's dry-run branch explaining
+				// why it uses log instead — is documentation, not output.
+				code := line
+				if i := strings.Index(code, "//"); i >= 0 {
+					code = code[:i]
+				}
+				if strings.HasPrefix(strings.TrimSpace(line), "*") {
+					continue // inside a /* */ block
+				}
+				if !strings.Contains(code, "fmt.Print") {
 					continue
 				}
 				if allowed[fn] {
