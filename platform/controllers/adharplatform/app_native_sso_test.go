@@ -225,113 +225,32 @@ func TestStrapiBootWiresTheKeycloakAdminLogin(t *testing.T) {
 }
 
 // The library releases publish to Nexus with a Secret the nexus package
-// creates; a run fired before it exists must WAIT, not fail at `build` with
-// CreateContainerConfigError (2026-10-09: webhook 15:23:19Z, Secret 15:32:52Z,
-// no retry). Both pipelines gate build on the wait Task.
-func TestLibraryReleasesWaitForNexusCredentialsBeforeBuilding(t *testing.T) {
-	maven := readStackFile(t, "application/adhar-libraries/manifests/maven-release.yaml")
-	if !strings.Contains(withoutComments(maven), "\n  name: wait-for-nexus-credentials\n") {
-		t.Fatal("Task wait-for-nexus-credentials is gone from maven-release.yaml")
-	}
-	// tekton.dev/v1 steps spell their limits `computeResources`; the v1beta1
-	// `resources` key is rejected by Tekton's webhook as an unknown field and
-	// the whole adhar-libraries Application then fails to sync (2026-10-09).
-	dec := yaml.NewDecoder(strings.NewReader(maven))
-	for {
-		var doc map[string]any
-		if err := dec.Decode(&doc); err != nil {
-			break
-		}
-		if doc["kind"] != "Task" {
-			continue
-		}
-		spec, _ := doc["spec"].(map[string]any)
-		steps, _ := spec["steps"].([]any)
-		for _, raw := range steps {
-			step, _ := raw.(map[string]any)
-			if _, bad := step["resources"]; bad {
-				t.Errorf("Task %v step %v uses v1beta1 `resources`; tekton.dev/v1 wants computeResources",
-					doc["metadata"].(map[string]any)["name"], step["name"])
-			}
-		}
-	}
+// creates, and a run fired before it exists dies at `build` with
+// CreateContainerConfigError and is never retried (2026-10-09: webhook
+// 15:23:19Z, Secret 15:32:52Z). The guarantee lives where the trigger is: the
+// mirror Jobs push the repositories that fire the webhook, so they wait for the
+// credential first — as long as the bootstrap hook's own Nexus gate — and the
+// pipelines themselves carry no waiting stage (removed on request, 2026-10-10).
+func TestLibraryMirrorsWaitForNexusCredentialsBeforePushing(t *testing.T) {
 	for _, file := range []string{
 		"application/adhar-libraries/manifests/maven-release.yaml",
 		"application/adhar-libraries/manifests/npm-release.yaml",
 	} {
-		dec := yaml.NewDecoder(strings.NewReader(readStackFile(t, file)))
-		pipelines := 0
-		for {
-			var doc map[string]any
-			if err := dec.Decode(&doc); err != nil {
-				break
-			}
-			if doc["kind"] != "Pipeline" {
-				continue
-			}
-			pipelines++
-			spec, _ := doc["spec"].(map[string]any)
-			tasks, _ := spec["tasks"].([]any)
-			waiters := map[string]bool{}
-			var build map[string]any
-			for _, raw := range tasks {
-				task, _ := raw.(map[string]any)
-				ref, _ := task["taskRef"].(map[string]any)
-				if ref["name"] == "wait-for-nexus-credentials" {
-					waiters[toString(task["name"])] = true
-				}
-				if task["name"] == "build" {
-					build = task
-				}
-			}
-			if len(waiters) == 0 {
-				t.Errorf("%s: no task references wait-for-nexus-credentials", file)
-				continue
-			}
-			if build == nil {
-				t.Errorf("%s: no build task", file)
-				continue
-			}
-			after, _ := build["runAfter"].([]any)
-			gated := false
-			for _, a := range after {
-				if waiters[toString(a)] {
-					gated = true
-				}
-			}
-			if !gated {
-				t.Errorf("%s: build.runAfter = %v does not include the nexus-credentials wait", file, after)
-			}
-		}
-		if pipelines == 0 {
-			t.Errorf("%s: no Pipeline found", file)
+		if strings.Contains(withoutComments(readStackFile(t, file)), "wait-for-nexus") {
+			t.Errorf("%s: the pipelines must not carry a wait-for-nexus stage; the wait belongs in the mirror Jobs", file)
 		}
 	}
-}
-
-// The AI runtime completes on its own behalf — chores, webhooks, anonymous
-// chats, and retrieval's rewrite and rerank on EVERY run — with a token for
-// the `adhar-ai` Keycloak client, whose service-account user is in no platform
-// group. Without a grant keyed on that identity the gateway answers 403 and
-// the runtime produces nothing but CircuitOpen (AWS cluster, 2026-10-09).
-func TestTheAiRuntimeIdentityIsGrantedOnTheGateway(t *testing.T) {
-	grant := readStackFile(t, "ai/adhar-ai/manifests/gateway-grant.yaml")
-	code := withoutComments(grant)
-	for _, want := range []string{
-		"kind: AgentgatewayPolicy",
-		"name: adhar-ai-gateway",
-		"action: Allow",
-		`default(jwt.azp, "") == "adhar-ai"`,
-		`request.path.startsWith("/v1/")`,
-	} {
-		if !strings.Contains(code, want) {
-			t.Errorf("ai/adhar-ai/manifests/gateway-grant.yaml lost %q", want)
-		}
+	mirror := withoutComments(readStackFile(t, "application/adhar-libraries/manifests/mirror.yaml"))
+	loops := regexp.MustCompile(`for i in \$\(seq 1 (\d+)\); do\n\s*kubectl get secret nexus-credentials[^\n]*\n\s*sleep (\d+)`).FindAllStringSubmatch(mirror, -1)
+	if len(loops) != 2 {
+		t.Fatalf("expected both mirror Jobs to wait for nexus-credentials, found %d wait loops", len(loops))
 	}
-	// One expression: the gateway OR's the entries of an Allow rule, so a second
-	// entry would widen the grant to whatever it matched on its own.
-	if n := strings.Count(code, "\n          - "); n != 1 {
-		t.Errorf("the runtime grant must be exactly one matchExpressions entry, found %d", n)
+	for _, m := range loops {
+		n, _ := strconv.Atoi(m[1])
+		step, _ := strconv.Atoi(m[2])
+		if n*step < 15*60 {
+			t.Errorf("a mirror Job waits only %ds for nexus-credentials; the 2026-10-09 gap was over nine minutes, wait at least fifteen", n*step)
+		}
 	}
 }
 

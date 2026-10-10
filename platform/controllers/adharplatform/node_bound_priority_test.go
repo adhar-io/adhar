@@ -187,3 +187,37 @@ func TestOtherNodeBoundWorkloadsCarryThePriority(t *testing.T) {
 		}
 	}
 }
+
+// The shared cache's volume pins it to one node, like the workloads above, but
+// the valkey-operator CRD has no priorityClassName field — so the class arrives
+// by Kyverno mutation. Found on Azure, 2026-10-10: adhar-cache-0 was the last
+// Pending pod after the autoscaler had grown the cluster, its node full of
+// priority-0 pods, "No preemption victims found".
+func TestTheSharedCacheGetsTheNodeBoundPriorityByMutation(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(stackPackagesDir(t), "data/valkey/manifests/node-bound-priority.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			code = append(code, line)
+		}
+	}
+	src := strings.Join(code, "\n")
+	for _, want := range []string{
+		"kind: ClusterPolicy",
+		"kinds: [Pod]",
+		"app.kubernetes.io/instance: adhar-cache",
+		"priorityClassName: " + nodeBoundName,
+		// The built-in Priority admission plugin stamps priority: 0 before any
+		// webhook runs and then rejects a pod whose class disagrees with it, so
+		// the mutation must set the integer too — from the live class, not a copy.
+		"urlPath: /apis/scheduling.k8s.io/v1/priorityclasses/" + nodeBoundName,
+		`priority: "{{ nodeBoundValue }}"`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("valkey's node-bound mutation lost %q", want)
+		}
+	}
+}

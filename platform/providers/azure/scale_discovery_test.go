@@ -167,3 +167,65 @@ func TestFailedScaleUpDiscardsTheVMItCreated(t *testing.T) {
 		t.Error("the join failure must still be returned after the VM is discarded")
 	}
 }
+
+// azureFile returns a provider source file with comments stripped.
+func azureFile(t *testing.T, file string) string {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code strings.Builder
+	for _, line := range strings.Split(string(b), "\n") {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		code.WriteString(line + "\n")
+	}
+	return code.String()
+}
+
+func funcBody(t *testing.T, src, name string) string {
+	t.Helper()
+	i := strings.Index(src, "func (p *Provider) "+name+"(")
+	if i < 0 {
+		t.Fatalf("%s has moved; this guard needs updating", name)
+	}
+	body := src[i:]
+	if end := strings.Index(body, "\n}\n"); end > 0 {
+		body = body[:end]
+	}
+	return body
+}
+
+// A rediscovered tracker must carry the network, not just the VMs.
+//
+// ScaleNodeGroup builds a worker from tracker.VirtualNetworks[0], Subnets[0] and
+// NetworkSecurityGroups[0]. discoverClusterResources lists VMs only, so the
+// in-cluster autoscaler — which always rediscovers, having no state file —
+// decided ScaleUp every three minutes and failed every time with
+//
+//	cluster azure-adhar tracker lacks network resources; cannot add workers
+//
+// while three workers sat at 100% CPU and 19 pods stayed Pending (Azure,
+// 2026-10-10). The teardown already finds those resources by name prefix in
+// mergeDiscoveredResources; trackerFor must run the same merge, and the merge
+// must include subnets, which only exist inside a VNet.
+func TestRediscoveredTrackerCarriesTheNetwork(t *testing.T) {
+	src := azureFile(t, "teardown.go")
+	tracker := funcBody(t, src, "trackerFor")
+	if !strings.Contains(tracker, "p.mergeDiscoveredResources(ctx, t.ResourceGroup, name, t)") {
+		t.Error("trackerFor must merge the resource group's network resources into a rediscovered tracker; " +
+			"VMs alone cannot add a worker")
+	}
+	merge := funcBody(t, src, "mergeDiscoveredResources")
+	for _, want := range []string{"t.VirtualNetworks = add(", "t.NetworkSecurityGroups = add(", "t.Subnets = add(", "p.subnetClient.NewListPager(rg, vnet, nil)"} {
+		if !strings.Contains(merge, want) {
+			t.Errorf("mergeDiscoveredResources lost %q — a worker needs a VNet, a subnet and an NSG", want)
+		}
+	}
+	scale := azureFunc(t, "ScaleNodeGroup")
+	if !strings.Contains(scale, "tracker.Subnets[0]") {
+		t.Fatal("ScaleNodeGroup no longer places the worker in tracker.Subnets[0]; this guard's premise changed")
+	}
+}

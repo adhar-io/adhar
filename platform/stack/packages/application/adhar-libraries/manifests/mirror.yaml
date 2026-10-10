@@ -100,7 +100,13 @@ spec:
                 echo "(the release this push triggers cannot publish until nexus-credentials exists)"
                 exit 0
               fi
-              for i in $(seq 1 30); do
+              # 20 minutes, the same patience as bootstrap-library-releases' Nexus
+              # gate. Five was not enough: on the 2026-10-09 AWS bring-up the push
+              # went out at 15:23 and Nexus published the credential at 15:32, so
+              # the release that push fired died at `build` with
+              # CreateContainerConfigError and nothing retried it. The push IS the
+              # trigger, so the wait belongs here, not as a stage in the pipeline.
+              for i in $(seq 1 120); do
                 kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
                 sleep 10
               done
@@ -114,7 +120,7 @@ spec:
               # created in Gitea at all — no repo, no webhook, no pipeline, and
               # nothing on screen to explain why. A missing release is a retry;
               # a missing repository is the library story gone.
-              echo "nexus-credentials not published within 5 minutes — mirroring anyway."
+              echo "nexus-credentials not published within 20 minutes — mirroring anyway."
               echo "The repositories will exist and the webhook will fire; the release"
               echo "pipeline stays pending on nexus-credentials and runs when Nexus is up."
               exit 0
@@ -186,7 +192,13 @@ spec:
                 echo "(the release this push triggers cannot publish until nexus-credentials exists)"
                 exit 0
               fi
-              for i in $(seq 1 30); do
+              # 20 minutes, the same patience as bootstrap-library-releases' Nexus
+              # gate. Five was not enough: on the 2026-10-09 AWS bring-up the push
+              # went out at 15:23 and Nexus published the credential at 15:32, so
+              # the release that push fired died at `build` with
+              # CreateContainerConfigError and nothing retried it. The push IS the
+              # trigger, so the wait belongs here, not as a stage in the pipeline.
+              for i in $(seq 1 120); do
                 kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
                 sleep 10
               done
@@ -200,7 +212,7 @@ spec:
               # created in Gitea at all — no repo, no webhook, no pipeline, and
               # nothing on screen to explain why. A missing release is a retry;
               # a missing repository is the library story gone.
-              echo "nexus-credentials not published within 5 minutes — mirroring anyway."
+              echo "nexus-credentials not published within 20 minutes — mirroring anyway."
               echo "The repositories will exist and the webhook will fire; the release"
               echo "pipeline stays pending on nexus-credentials and runs when Nexus is up."
               exit 0

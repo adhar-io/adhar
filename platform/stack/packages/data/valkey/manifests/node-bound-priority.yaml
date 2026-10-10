@@ -1,0 +1,72 @@
+# The shared cache is pinned to one node by its volume, so it must be able to
+# claim that node.
+#
+# adhar-cache's PersistentVolume is node-local (the platform's default
+# StorageClass, CLAUDE.md), so its pod has exactly one legal node. Every other
+# node-bound workload — the CNPG clusters, harbor-trivy, oncall's MariaDB, the
+# ClickHouse keeper — declares `priorityClassName: adhar-node-bound` for that
+# reason: a pod with one legal node and no priority sits Pending behind
+# anything that happened to land there first, and adding nodes cannot help it.
+# On the 2026-10-10 Azure bring-up that was adhar-cache-0, the last Pending pod
+# after the autoscaler had grown the cluster to five workers: its node held
+# 3880m of 4000m in priority-0 pods and the scheduler reported "No preemption
+# victims found".
+#
+# The valkey-operator's CRD has no priorityClassName field (it exposes
+# nodeSelector and tolerations only), so the class is applied at admission
+# instead. Kyverno admits adhar-system on this platform for exactly this kind
+# of pod mutation (the kpack CA injection is the other one). Only the shared
+# platform cache is matched — a team's own Valkey is not a platform
+# dependency and gets no claim on a node. The PriorityClass itself ships with
+# the cnpg package at wave -10, which every profile enables.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-cache-node-bound-priority
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    policies.kyverno.io/title: Node-bound priority for the shared cache
+    policies.kyverno.io/description: >-
+      Gives adhar-cache pods the adhar-node-bound PriorityClass so a pod whose
+      node-local volume allows exactly one node can preempt its way onto it.
+spec:
+  background: false
+  rules:
+    - name: adhar-cache-priority
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [adhar-system]
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: valkey
+                  app.kubernetes.io/instance: adhar-cache
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.priorityClassName || '' }}"
+            operator: Equals
+            value: ""
+      # The class's integer value, read from the live PriorityClass rather than
+      # copied here, so a change to the class cannot leave this patch stale.
+      context:
+        - name: nodeBoundValue
+          apiCall:
+            urlPath: /apis/scheduling.k8s.io/v1/priorityclasses/adhar-node-bound
+            jmesPath: value
+      mutate:
+        patchStrategicMerge:
+          spec:
+            priorityClassName: adhar-node-bound
+            # Both fields, not just the name. The apiserver's built-in Priority
+            # admission plugin runs BEFORE mutating webhooks and has already
+            # stamped `priority: 0` for a pod with no class; its validation then
+            # recomputes from the class this webhook added and refuses the pod:
+            #   the integer value of priority (0) must not be provided in pod
+            #   spec; priority admission controller computed 900000 from the
+            #   given PriorityClass name
+            # — the StatefulSet could not create adhar-cache-0 at all (Azure,
+            # 2026-10-10). Setting the value the plugin will compute makes the
+            # two agree.
+            priority: "{{ nodeBoundValue }}"

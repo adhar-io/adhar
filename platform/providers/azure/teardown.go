@@ -76,7 +76,17 @@ func (p *Provider) trackerFor(ctx context.Context, clusterID string) (*ResourceT
 			name, t.ResourceGroup)
 		return t, nil
 	}
-	log.Printf("Rediscovered cluster %s: %d VM(s) in resource group %s", name, len(t.VirtualMachines), t.ResourceGroup)
+	// The VMs alone are not a tracker. ScaleNodeGroup builds a new worker from
+	// tracker.VirtualNetworks[0] / Subnets[0] / NetworkSecurityGroups[0], and a
+	// rediscovered tracker had none of them: the in-cluster autoscaler decided
+	// ScaleUp correctly every three minutes and failed every time with "tracker
+	// lacks network resources; cannot add workers" while three workers sat at
+	// 100% CPU and 19 pods stayed Pending (Azure, 2026-10-10). The network is in
+	// the same resource group under the same `<cluster>-` prefix the teardown
+	// already searches, so search it here too.
+	p.mergeDiscoveredResources(ctx, t.ResourceGroup, name, t)
+	log.Printf("Rediscovered cluster %s: %d VM(s), %d VNet(s), %d subnet(s), %d NSG(s) in resource group %s",
+		name, len(t.VirtualMachines), len(t.VirtualNetworks), len(t.Subnets), len(t.NetworkSecurityGroups), t.ResourceGroup)
 	return t, nil
 }
 
@@ -244,7 +254,7 @@ func (p *Provider) mergeDiscoveredResources(ctx context.Context, rg, clusterName
 				return have
 			}
 		}
-		log.Printf("Teardown discovered untracked resource %s", name)
+		log.Printf("Discovered untracked resource %s for cluster %s", name, clusterName)
 		return append(have, name)
 	}
 
@@ -300,6 +310,25 @@ func (p *Provider) mergeDiscoveredResources(ctx context.Context, rg, clusterName
 			for _, v := range page.Value {
 				if v != nil && v.Name != nil && strings.HasPrefix(*v.Name, prefix) {
 					t.VirtualNetworks = add(t.VirtualNetworks, *v.Name)
+				}
+			}
+		}
+	}
+	// Subnets live inside a VNet, so they can only be listed once the VNets are
+	// known. A new worker's NIC is placed in Subnets[0]; without this a
+	// rediscovered tracker could never add a node.
+	if p.subnetClient != nil {
+		for _, vnet := range t.VirtualNetworks {
+			pager := p.subnetClient.NewListPager(rg, vnet, nil)
+			for pager.More() {
+				page, err := pager.NextPage(ctx)
+				if err != nil {
+					break
+				}
+				for _, sn := range page.Value {
+					if sn != nil && sn.Name != nil && strings.HasPrefix(*sn.Name, prefix) {
+						t.Subnets = add(t.Subnets, *sn.Name)
+					}
 				}
 			}
 		}

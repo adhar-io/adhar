@@ -3053,9 +3053,15 @@ func (p *Provider) workerPrefix(clusterName, nodeGroupName string) string {
 }
 
 func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, machineType string, replicas int) error {
-	infra, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster %s not found", clusterID)
+	// Resolved from the CLOUD when local state has no record. p.clusters comes
+	// from ~/.adhar/state/gcp/clusters.json, which the CLI has and an in-cluster
+	// pod never does — so the node autoscaler, this function's main caller,
+	// could never scale a GCP cluster: it decided ScaleUp correctly and failed
+	// every cooldown with "cluster not found" (the Azure provider had the same
+	// gap, found live on 2026-10-04 and again, one layer deeper, on 2026-10-10).
+	infra, err := p.getClusterInfrastructure(ctx, extractClusterName(clusterID))
+	if err != nil {
+		return fmt.Errorf("cluster %s: %w", clusterID, err)
 	}
 	if len(infra.MasterNodes) == 0 || infra.MasterNodes[0].PublicIP == "" {
 		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
@@ -3184,13 +3190,12 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 	if p.isManagedCluster(ctx, clusterID) {
 		return p.managedGetNodeGroup(ctx, clusterID, nodeGroupName)
 	}
-	infra, exists := p.clusters[clusterID]
-	if !exists {
-		return nil, fmt.Errorf("cluster %s not found", clusterID)
-	}
-	clusterName := ""
-	if len(infra.MasterNodes) > 0 {
-		clusterName = strings.TrimSuffix(infra.MasterNodes[0].InstanceName, "-master-1")
+	// From the cloud, not the local state map: the autoscaler reads the node
+	// group before every decision, and in-cluster there is no state file.
+	clusterName := extractClusterName(clusterID)
+	infra, err := p.getClusterInfrastructure(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("cluster %s: %w", clusterID, err)
 	}
 	prefix := p.workerPrefix(clusterName, nodeGroupName)
 	replicas, machineType := 0, p.config.MachineType
