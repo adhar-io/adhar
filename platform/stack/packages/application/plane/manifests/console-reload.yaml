@@ -60,6 +60,14 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # AFTER plane-instance-setup (wave 10), which is what writes the Secret
+    # this Job waits for. Argo CD runs PostSync hooks wave by wave, so at the
+    # default wave 0 this hook ran FIRST and sat waiting ten minutes for a
+    # Secret that could not appear until it finished — on every fresh cluster
+    # the console opened Plane with an empty key and got 401 until the wait
+    # gave up (AWS, 2026-10-09). Ordered correctly, the Secret already exists
+    # by the time this runs and the wait below is a formality.
+    argocd.argoproj.io/sync-wave: "11"
 spec:
   backoffLimit: 2
   template:
@@ -89,7 +97,7 @@ spec:
               # 2. Bounded wait for the setup Job's Secret to carry a real
               #    token. It runs in the same sync, so this is short.
               ok=""
-              for i in $(seq 1 60); do
+              for i in $(seq 1 12); do
                 if kubectl -n "$NS" get secret "$SECRET" \
                      -o jsonpath='{.data.PLANE_TOKEN}' 2>/dev/null | grep -q .; then
                   ok=1; break

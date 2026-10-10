@@ -78,35 +78,15 @@ adhar version                                  # shows the engine actually in us
 export KIND_EXPERIMENTAL_PROVIDER=podman       # force a specific engine
 ```
 
-**Podman notes.** Run `podman machine start` first on macOS and Windows. Rootless
-Podman works; the Kind node containers need the usual rootless setup
-(`/etc/subuid` and `/etc/subgid` entries for your user, and cgroups v2). If port
-8443 is unavailable to a rootless user, pass `adhar up --port 9443`.
-
-Cloud targets need no container engine at all — they provision real machines.
-See the [provider pages](docs/README.md#providers).
+> Cloud targets need no container engine at all — they provision real machines. See the [provider pages](docs/README.md#providers).
 
 
 ### Install the CLI
 
-**Homebrew (macOS and Linux)** — from the `adhar-io/homebrew-tap` tap:
+**1. Homebrew (macOS and Linux)** — from the `adhar-io/homebrew-tap` tap:
 
 ```bash
 brew install adhar-io/tap/adhar
-```
-
-That is shorthand for tapping first, which you can also do explicitly:
-
-```bash
-brew tap adhar-io/tap          # adds github.com/adhar-io/homebrew-tap
-brew install adhar
-```
-
-If your Homebrew is configured to gate third-party taps — that is, you have
-`HOMEBREW_REQUIRE_TAP_TRUST` set — trust the tap once before installing:
-
-```bash
-brew trust --tap adhar-io/tap
 ```
 
 Then verify, upgrade, or remove it:
@@ -117,20 +97,13 @@ brew upgrade adhar
 brew uninstall adhar           # and: brew untap adhar-io/tap
 ```
 
-The formula is published by the release pipeline (GoReleaser) and installs the
-prebuilt release archive for your platform — macOS on Apple silicon or Intel, and
-Linux on amd64 or arm64. Because it installs a *released* binary, `brew` tracks
-tagged releases only; for unreleased `main`, build from source below. Windows is
-published as an archive on the [releases page](https://github.com/adhar-io/adhar/releases)
-rather than through Homebrew.
-
-**Install script** — the same released archives, without Homebrew:
+**2. Install script** — the same released archives, without Homebrew:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
 ```
 
-**From source** — needs Go 1.26+, and gives you exactly the working tree:
+**3. From source** — needs Go 1.26+, and gives you exactly the working tree:
 
 ```bash
 git clone https://github.com/adhar-io/adhar.git
@@ -141,7 +114,7 @@ make build                     # builds ./adhar with version metadata
 > Homebrew and the install script put `adhar` on your `PATH`; a source build
 > leaves it in the repo root, so the commands below become `./adhar up`.
 
-### Local Development (Under 5 Minutes)
+### Local Development (Under 10 Minutes)
 
 ```bash
 #1. Install the CLI (see above — e.g. brew install adhar-io/tap/adhar)

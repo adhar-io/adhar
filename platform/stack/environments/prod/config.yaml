@@ -208,14 +208,15 @@ packages:
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/mongodb/manifests"
-  # MariaDB, replacing the disabled mysql-operator below (2026-10-03).
+  # Off in every profile since 2026-10-10 — nothing consumes it. Opt-in; see
+  # adhar-appset-production.yaml.
   - name: "mariadb-operator"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/mariadb-operator/manifests"
-  # Off since 2026-10-03, replaced by `mariadb-operator` (26.10.1). Nothing
-  # declared this as a dependency. See adhar-appset-production.yaml.
+  # Off since 2026-10-03. Nothing declared this as a dependency. See
+  # adhar-appset-production.yaml.
   - name: "mysql-operator"
     enabled: "false"
     namespace: "adhar-system"

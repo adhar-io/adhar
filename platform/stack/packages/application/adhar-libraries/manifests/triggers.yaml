@@ -70,6 +70,14 @@ spec:
       kind: PipelineRun
       metadata:
         generateName: release-adhar-ui-
+        # The same labels the bootstrap hook (release.yaml) puts on the runs it
+        # creates. That hook skips a library whose release already succeeded or
+        # is in flight — by this label — and a push-triggered run without it was
+        # invisible to the check, so every bring-up queued the same release
+        # twice (2026-10-09: two kit runs, two ui runs, one pair starved of CPU).
+        labels:
+          adhar.io/library: adhar-ui
+          adhar.io/trigger: push
       spec:
         pipelineRef: {name: release-adhar-ui}
         # Build exactly the pushed commit, not whatever main is by the time
@@ -100,6 +108,14 @@ spec:
       kind: PipelineRun
       metadata:
         generateName: release-adhar-kit-
+        # The same labels the bootstrap hook (release.yaml) puts on the runs it
+        # creates. That hook skips a library whose release already succeeded or
+        # is in flight — by this label — and a push-triggered run without it was
+        # invisible to the check, so every bring-up queued the same release
+        # twice (2026-10-09: two kit runs, two ui runs, one pair starved of CPU).
+        labels:
+          adhar.io/library: adhar-kit
+          adhar.io/trigger: push
       spec:
         pipelineRef: {name: release-adhar-kit}
         # Build exactly the pushed commit, not whatever main is by the time

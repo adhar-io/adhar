@@ -279,17 +279,21 @@ spec:
           # a SEPARATE chart in an earlier sync wave: a chart that owns both the
           # CRDs and the controller deletes every MariaDB instance if it is ever
           # uninstalled, which is upstream's own warning.
+          # Off in every profile since 2026-10-10 (opt-in). It was the platform's
+          # MySQL-protocol database for a week; nothing on the platform consumes
+          # it — no package declares it, oncall ships its own MariaDB and
+          # chaos-mesh/kubeflow bundle their own MySQL — and it cost a CNPG-sized
+          # footprint plus a Degraded app on every fresh cluster while its
+          # password template was wrong. Flip `enabled` to bring it back; the
+          # manifests are complete and the template is fixed.
           - name: "mariadb-operator"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mariadb-operator/manifests"
-          # Off since 2026-10-03, replaced by `mariadb-operator` above. MariaDB is
-          # the platform's MySQL-protocol database now: one operator, actively
-          # released (26.10.1), with declarative users/grants/databases, backups
-          # and Galera built into the CRDs. Nothing depended on this one — no
-          # package declares it, and chaos-mesh and kubeflow bundle their own
-          # MySQL rather than consuming a shared instance.
+          # Off since 2026-10-03. Nothing depended on this one — no package
+          # declares it, and chaos-mesh and kubeflow bundle their own MySQL
+          # rather than consuming a shared instance.
           - name: "mysql-operator"
             enabled: "false"
             namespace: "adhar-system"

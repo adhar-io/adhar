@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -330,5 +332,240 @@ func TestTheAiRuntimeIdentityIsGrantedOnTheGateway(t *testing.T) {
 	// entry would widen the grant to whatever it matched on its own.
 	if n := strings.Count(code, "\n          - "); n != 1 {
 		t.Errorf("the runtime grant must be exactly one matchExpressions entry, found %d", n)
+	}
+}
+
+// Push-triggered library releases must carry the same `adhar.io/library` label
+// the bootstrap hook puts on its own runs: that hook skips a library whose
+// release already succeeded or is in flight BY THAT LABEL, and an unlabelled
+// webhook run was invisible to it, so every bring-up queued each release twice
+// (2026-10-09: the duplicate kit run then starved for CPU for an hour).
+func TestPushTriggeredLibraryReleasesAreVisibleToTheBootstrapDedupe(t *testing.T) {
+	triggers := readStackFile(t, "application/adhar-libraries/manifests/triggers.yaml")
+	release := readStackFile(t, "application/adhar-libraries/manifests/release.yaml")
+	if !strings.Contains(withoutComments(release), `-l "adhar.io/library=${lib}"`) {
+		t.Fatal("the bootstrap hook no longer dedupes releases by the adhar.io/library label; this guard assumes it does")
+	}
+	dec := yaml.NewDecoder(strings.NewReader(triggers))
+	templates := 0
+	for {
+		var doc map[string]any
+		if err := dec.Decode(&doc); err != nil {
+			break
+		}
+		if doc["kind"] != "TriggerTemplate" {
+			continue
+		}
+		templates++
+		spec, _ := doc["spec"].(map[string]any)
+		for _, raw := range spec["resourcetemplates"].([]any) {
+			res, _ := raw.(map[string]any)
+			if res["kind"] != "PipelineRun" {
+				continue
+			}
+			meta, _ := res["metadata"].(map[string]any)
+			labels, _ := meta["labels"].(map[string]any)
+			pipeline, _ := res["spec"].(map[string]any)["pipelineRef"].(map[string]any)["name"].(string)
+			want := strings.TrimPrefix(pipeline, "release-")
+			if got, _ := labels["adhar.io/library"].(string); got != want {
+				t.Errorf("TriggerTemplate %v creates runs of %s labelled adhar.io/library=%q; the bootstrap dedupe looks for %q",
+					doc["metadata"].(map[string]any)["name"], pipeline, got, want)
+			}
+		}
+	}
+	if templates < 2 {
+		t.Errorf("expected a TriggerTemplate per library, found %d", templates)
+	}
+}
+
+// Argo CD runs PostSync hooks wave by wave. The console-reload hook waits for
+// the Secret that plane-instance-setup writes, so it must run in a LATER wave
+// — at the default wave 0 it ran first and blocked, for its whole wait, the
+// Job that would have satisfied it (fresh AWS cluster, 2026-10-09: the console
+// held an empty Plane key and answered 401).
+func TestPlaneConsoleReloadRunsAfterTheInstanceSetup(t *testing.T) {
+	wave := func(file, job string) int {
+		t.Helper()
+		dec := yaml.NewDecoder(strings.NewReader(readStackFile(t, file)))
+		for {
+			var doc map[string]any
+			if err := dec.Decode(&doc); err != nil {
+				break
+			}
+			if doc["kind"] != "Job" || toString(doc["metadata"].(map[string]any)["name"]) != job {
+				continue
+			}
+			ann, _ := doc["metadata"].(map[string]any)["annotations"].(map[string]any)
+			if ann["argocd.argoproj.io/hook"] != "PostSync" {
+				t.Fatalf("%s is no longer a PostSync hook; this guard assumes hook-wave ordering", job)
+			}
+			w, _ := ann["argocd.argoproj.io/sync-wave"].(string)
+			if w == "" {
+				return 0
+			}
+			n, err := strconv.Atoi(w)
+			if err != nil {
+				t.Fatalf("%s has a non-numeric sync-wave %q", job, w)
+			}
+			return n
+		}
+		t.Fatalf("no Job %s in %s", job, file)
+		return 0
+	}
+	setup := wave("application/plane/manifests/instance-setup.yaml", "plane-instance-setup")
+	reload := wave("application/plane/manifests/console-reload.yaml", "plane-console-reload")
+	if reload <= setup {
+		t.Errorf("plane-console-reload runs at wave %d, not after plane-instance-setup (wave %d): it waits for the Secret that Job writes and blocks it", reload, setup)
+	}
+}
+
+// A `Password` generator emits exactly one key, `password`. An ExternalSecret
+// template that reads some other name — `{{ .PASSWORD }}` without a `rewrite`
+// that produces it — fails on every refresh with "map has no entry for key",
+// and nothing downstream ever gets its Secret (mariadb-operator, 2026-10-09:
+// User and Grant Degraded for ten hours over one upper-cased template key).
+// Every template key must be produced by something in the same ExternalSecret.
+func TestGeneratorBackedTemplatesOnlyReadKeysTheyAreGiven(t *testing.T) {
+	keyRef := regexp.MustCompile(`\{\{-?\s*\.([A-Za-z_][A-Za-z0-9_]*)`)
+	checked := 0
+	for _, file := range stackPackageManifests(t) {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(src), "generatorRef") {
+			continue
+		}
+		// Seed-time directives are not relevant to the template; neutralise them.
+		text := strings.NewReplacer("{{ .Host }}", "h", "{{ .Port }}", "1").Replace(string(src))
+		dec := yaml.NewDecoder(strings.NewReader(text))
+		for {
+			var doc map[string]any
+			if err := dec.Decode(&doc); err != nil {
+				break
+			}
+			if doc == nil || doc["kind"] != "ExternalSecret" {
+				continue
+			}
+			spec, _ := doc["spec"].(map[string]any)
+			given := map[string]bool{}
+			hasGenerator := false
+			for _, raw := range toSlice(spec["dataFrom"]) {
+				df, _ := raw.(map[string]any)
+				src, _ := df["sourceRef"].(map[string]any)
+				gen, _ := src["generatorRef"].(map[string]any)
+				rewrites := toSlice(df["rewrite"])
+				if gen != nil {
+					hasGenerator = true
+					if len(rewrites) == 0 && gen["kind"] == "Password" {
+						given["password"] = true
+					}
+				} else if len(rewrites) == 0 {
+					// A non-generator dataFrom (a whole remote Secret) can carry
+					// any key; nothing to assert against.
+					given["*"] = true
+				}
+				for _, r := range rewrites {
+					rw, _ := r.(map[string]any)
+					tr, _ := rw["transform"].(map[string]any)
+					if tpl, ok := tr["template"].(string); ok && !strings.Contains(tpl, "{{") {
+						given[tpl] = true
+					} else {
+						given["*"] = true // a computed rewrite — cannot be checked statically
+					}
+				}
+			}
+			for _, raw := range toSlice(spec["data"]) {
+				d, _ := raw.(map[string]any)
+				if k, ok := d["secretKey"].(string); ok {
+					given[k] = true
+				}
+			}
+			if !hasGenerator || given["*"] {
+				continue
+			}
+			target, _ := spec["target"].(map[string]any)
+			tmpl, _ := target["template"].(map[string]any)
+			data, _ := tmpl["data"].(map[string]any)
+			checked++
+			for key, v := range data {
+				for _, m := range keyRef.FindAllStringSubmatch(toString(v), -1) {
+					if !given[m[1]] {
+						t.Errorf("%s: ExternalSecret %v template key %q reads {{ .%s }}, which nothing in the ExternalSecret produces (available: %v)",
+							strings.TrimPrefix(file, stackPackagesDir(t)+"/"), doc["metadata"].(map[string]any)["name"], key, m[1], keys(given))
+					}
+				}
+			}
+		}
+	}
+	if checked < 10 {
+		t.Fatalf("only %d generator-backed ExternalSecrets were checked; the walk is broken", checked)
+	}
+}
+
+func toSlice(v any) []any {
+	s, _ := v.([]any)
+	return s
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// The chart-bundled ClickHouse operator (0.19.0) can fail its first Service
+// reconcile and never retry, holding the posthog sync at wave 0 for ever
+// (2026-10-09). The unstick hook must run IN that wave — a PostSync hook would
+// be gated on the very CHI it repairs — and must be the operator restart that
+// was verified to clear it.
+func TestPostHogUnstickHookRunsAlongsideTheClickHouseInstallation(t *testing.T) {
+	install := readStackFile(t, "application/posthog/manifests/install.yaml")
+	unstick := readStackFile(t, "application/posthog/manifests/clickhouse-unstick.yaml")
+	chiWave := -1
+	dec := yaml.NewDecoder(strings.NewReader(install))
+	for {
+		var doc map[string]any
+		if err := dec.Decode(&doc); err != nil {
+			break
+		}
+		if doc != nil && doc["kind"] == "ClickHouseInstallation" {
+			ann, _ := doc["metadata"].(map[string]any)["annotations"].(map[string]any)
+			chiWave, _ = strconv.Atoi(toString(ann["argocd.argoproj.io/sync-wave"]))
+		}
+	}
+	if chiWave < 0 {
+		t.Fatal("no ClickHouseInstallation with a sync-wave in posthog's install.yaml")
+	}
+	dec = yaml.NewDecoder(strings.NewReader(unstick))
+	found := false
+	for {
+		var doc map[string]any
+		if err := dec.Decode(&doc); err != nil {
+			break
+		}
+		if doc == nil || doc["kind"] != "Job" {
+			continue
+		}
+		found = true
+		ann, _ := doc["metadata"].(map[string]any)["annotations"].(map[string]any)
+		if ann["argocd.argoproj.io/hook"] != "Sync" {
+			t.Errorf("the unstick Job is a %v hook; only a Sync hook runs while the wave is still open", ann["argocd.argoproj.io/hook"])
+		}
+		if w, _ := strconv.Atoi(toString(ann["argocd.argoproj.io/sync-wave"])); w > chiWave {
+			t.Errorf("the unstick Job runs at wave %d, after the ClickHouseInstallation's wave %d — it would wait on the thing it repairs", w, chiWave)
+		}
+		script := toString(doc["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)["args"].([]any)[0])
+		for _, want := range []string{"rollout restart deployment clickhouse-operator", "already allocated", "Completed) "} {
+			if !strings.Contains(script, want) {
+				t.Errorf("the unstick script lost %q", want)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no Job in clickhouse-unstick.yaml")
 	}
 }

@@ -199,7 +199,7 @@ packages:
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/mongodb/manifests"
-  # MariaDB, replacing the disabled mysql-operator (2026-10-03).
+  # Off in every profile since 2026-10-10 (opt-in; nothing consumes it).
   - name: "mariadb-operator"
     enabled: "false"
     namespace: "adhar-system"

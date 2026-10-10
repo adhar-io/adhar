@@ -178,3 +178,48 @@ func adharRealmTokenLifespanSeconds(t *testing.T) int {
 	}
 	return keycloakDefaultTokenLifespan
 }
+
+// A PipelineRun inherits its Pipeline's annotations, tracking-id included, so
+// without this exclusion every CI run is a managed resource of the Application
+// that declares the Pipeline: a failed release held adhar-libraries Degraded
+// until the hourly pruner, and each new run flipped it OutOfSync (2026-10-09).
+// Runs are not in Git; they are watched through the console and Tekton.
+func TestArgoCDDoesNotTrackTektonRuns(t *testing.T) {
+	for _, file := range []string{
+		"resources/argocd/install.yaml",
+		"resources/argocd/install-ha.yaml",
+		"../../../hack/argocd/values.yaml",
+		"../../../hack/argocd/values-ha.yaml",
+	} {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		i := strings.Index(src, "resource.exclusions: |")
+		if i < 0 {
+			t.Errorf("%s: no resource.exclusions block", file)
+			continue
+		}
+		body := src[i:]
+		if j := strings.Index(body, "\n  resource."); j > 0 { // the next argocd-cm key
+			body = body[:j]
+		}
+		// Strip the block's own ### comments so the guard reads config, not prose.
+		var lines []string
+		for _, l := range strings.Split(body, "\n") {
+			if !strings.HasPrefix(strings.TrimSpace(l), "#") {
+				lines = append(lines, l)
+			}
+		}
+		cfg := strings.Join(lines, "\n")
+		if !strings.Contains(cfg, "- tekton.dev") {
+			t.Errorf("%s: resource.exclusions does not list the tekton.dev group", file)
+		}
+		for _, kind := range []string{"PipelineRun", "TaskRun"} {
+			if !strings.Contains(cfg, "- "+kind+"\n") {
+				t.Errorf("%s: resource.exclusions does not exclude tekton.dev/%s", file, kind)
+			}
+		}
+	}
+}

@@ -1,0 +1,125 @@
+# Recovers the chart-bundled ClickHouse operator from the one failure it never
+# retries.
+#
+# PostHog's chart (30.46.0) bundles Altinity clickhouse-operator 0.19.0 (May
+# 2023; upstream is 0.27.x). On a fresh cluster its very first reconcile of the
+# `posthog` ClickHouseInstallation raced itself: it created Service
+# clickhouse-posthog, tried to update it and hit a resourceVersion conflict,
+# DELETED it, and re-created it with the ClusterIP the deleted Service still
+# held for a moment:
+#
+#   Create Service adhar-system/clickhouse-posthog failed with error Service
+#   "clickhouse-posthog" is invalid: spec.clusterIPs: Invalid value:
+#   ["10.96.16.107"]: failed to allocate IP 10.96.16.107: provided IP is already allocated
+#   FAILED to reconcile Service: clickhouse-posthog CHI: posthog
+#
+# and then it stopped. No Service, no retry, `status.status: InProgress` for
+# ten hours; Argo CD sat at "waiting for healthy state of
+# ClickHouseInstallation/posthog" with every later wave — migrate, web, worker,
+# events — never applied (AWS cluster, 2026-10-09). A restart of the operator
+# re-queued the CHI and it finished in two minutes with a fresh ClusterIP.
+#
+# This hook is that restart, automated and bounded. It runs in the SAME wave as
+# the CHI (a Sync-phase hook at wave 0 runs alongside the wave-0 resources, and
+# the wave cannot complete until the CHI is healthy — a PostSync hook would be
+# gated on the very thing it repairs, which is the trap clickhouse-prepare.yaml
+# already documents). It watches the CHI; when the reconcile has FAILED and the
+# status has not moved for ninety seconds, it restarts the operator — at most
+# twice — and keeps watching. It never fails the sync itself: the CHI's own
+# health is the honest signal, and this Job only shortens how long a known
+# upstream bug can hold it. The real fix is the operator bump, which is pinned
+# by the PostHog chart.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: posthog-clickhouse-unstick
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: posthog-clickhouse-unstick
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  - apiGroups: [clickhouse.altinity.com]
+    resources: [clickhouseinstallations]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [clickhouse-operator]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: posthog-clickhouse-unstick
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: posthog-clickhouse-unstick}
+subjects: [{kind: ServiceAccount, name: posthog-clickhouse-unstick, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: posthog-clickhouse-unstick
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: posthog-clickhouse-unstick
+      restartPolicy: Never
+      enableServiceLinks: false
+      containers:
+        - name: watch
+          image: docker.io/bitnamisecure/kubectl:latest
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -u
+              NS=adhar-system
+              CHI=posthog
+              restarts=0
+              stale=0
+              last=""
+              # 20 minutes in 15-second ticks: longer than a healthy CHI needs,
+              # shorter than Argo CD's patience with the wave.
+              i=0
+              while [ $i -lt 80 ]; do
+                i=$((i + 1))
+                status=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" -o jsonpath='{.status.status}' 2>/dev/null || true)
+                action=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" -o jsonpath='{.status.action}' 2>/dev/null || true)
+                error=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" -o jsonpath='{.status.error}' 2>/dev/null || true)
+                case "$status" in
+                  Completed) echo "ClickHouseInstallation $CHI is Completed"; exit 0 ;;
+                  "") echo "waiting for ClickHouseInstallation $CHI to appear"; sleep 15; continue ;;
+                esac
+                now="$status|$action|$error"
+                if [ "$now" = "$last" ]; then stale=$((stale + 15)); else stale=0; last="$now"; fi
+                case "$action$error" in
+                  *FAILED*|*"already allocated"*)
+                    if [ $stale -ge 90 ] && [ $restarts -lt 2 ]; then
+                      echo "operator reconcile FAILED and has not moved for ${stale}s: $error"
+                      echo "restarting clickhouse-operator so it re-queues the CHI (restart $((restarts + 1))/2)"
+                      kubectl -n "$NS" rollout restart deployment clickhouse-operator
+                      restarts=$((restarts + 1)); stale=0
+                    fi ;;
+                esac
+                echo "$(date -u +%H:%M:%S) $status | ${action:-no action} ${error:+| error: $error}" | cut -c1-200
+                sleep 15
+              done
+              echo "20 minutes up; leaving the CHI to its own health check (status=$status)"
+              exit 0
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}

@@ -427,6 +427,19 @@ configs:
     # -- Resource Exclusion/Inclusion
     # @default -- See [values.yaml]
     resource.exclusions: |
+      ### Tekton runs are not GitOps resources. A PipelineRun inherits its Pipeline's
+      ### annotations — including argocd.argoproj.io/tracking-id — so every CI run
+      ### created by a webhook, a bootstrap hook or a person showed up as a managed
+      ### resource of the Application that declares the Pipeline: a failed release
+      ### left adhar-libraries Degraded until the pruner ran, and every run flipped it
+      ### OutOfSync (2026-10-09). Runs are watched where they live — the console's
+      ### pipeline views and the Tekton API — not through Argo CD.
+      - apiGroups:
+        - tekton.dev
+        kinds:
+        - PipelineRun
+        - TaskRun
+        - CustomRun
       ### Network resources created by the Kubernetes control plane and excluded to reduce the number of watched events and UI clutter
       - apiGroups:
         - ''
