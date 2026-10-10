@@ -31,7 +31,11 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases
 planeAffinity: control-plane
-stability: stable
+# beta, not stable: MARKETPLACE.md defines stable as "enabled in a curated
+# set", and this package is off in every profile since 2026-10-10 (nothing on
+# the platform consumes a MySQL-protocol database). The manifests are complete
+# and verified; flip the appset gate and this back to stable together.
+stability: beta
 resources:
   # One controller trio (operator, webhook, cert-controller) plus a single-replica
   # instance: ~150m CPU and ~640Mi requested in total, one 8Gi PVC. Galera is off
