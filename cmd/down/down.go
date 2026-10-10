@@ -63,8 +63,8 @@ this command only ever looks at Kind, which on a cloud environment deletes
 nothing while still reporting success.
 
 During execution:
-- Press 'i' to toggle detailed output
 - Press Ctrl+C to cancel the operation
+- Pass --verbose to see the provider output as it happens
 
 Examples:
   # Tear down the local Kind environment
@@ -134,8 +134,8 @@ Examples:
 
 		s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#8b5cf6"))
 
-		// Initialize model. --verbose starts with the detail pane already expanded
-		// (users can still toggle it live with 'i').
+		// Initialize model. --verbose shows the provider output pane; without it
+		// the box carries only the step, status and elapsed time.
 		m := downModel{
 			spinner:       s,
 			startTime:     time.Now(),
@@ -246,7 +246,7 @@ type downModel struct {
 	quitting      bool
 	startTime     time.Time
 	elapsedTime   string
-	outputLines   []string // accumulated detail lines (shown when toggled with 'i')
+	outputLines   []string // accumulated detail lines (shown with --verbose)
 	showExtraInfo bool
 	sub           chan tea.Msg // teardown goroutine -> UI message stream
 	outcome       teardownOutcome
@@ -274,10 +274,6 @@ func (m downModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
-		case "i":
-			// Toggle extra info
-			m.showExtraInfo = !m.showExtraInfo
-			return m, nil
 		}
 		return m, nil
 
@@ -296,7 +292,7 @@ func (m downModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case logger.ExtraOutputMsg:
 		// Append each streamed detail line (splitting on newlines) and cap the
-		// retained history so the toggled pane stays bounded.
+		// retained history so the --verbose pane stays bounded.
 		for _, line := range strings.Split(string(msg), "\n") {
 			m.outputLines = append(m.outputLines, line)
 		}
@@ -490,14 +486,7 @@ func (m downModel) View() string {
 		helpers.InfoStyle.Render("Elapsed time:"),
 		m.elapsedTime)
 
-	// Add extra info toggle hint (reflects current state)
-	hintLabel := "Press 'i' to show details"
-	if m.showExtraInfo {
-		hintLabel = "Press 'i' to hide details"
-	}
-	toggleHint := helpers.SubtitleStyle.Render("\n" + hintLabel)
-
-	// Show streamed command output if toggled on
+	// Show streamed command output with --verbose
 	var extraInfo string
 	if m.showExtraInfo {
 		detail := strings.Join(m.outputLines, "\n")
@@ -512,7 +501,7 @@ func (m downModel) View() string {
 	// Add a progress indicator
 	mainContent := helpers.BorderStyle.Width(boxWidth).Render(
 		helpers.TitleStyle.Render("Deleting cloud resources — this can take several minutes") +
-			"\n\n" + view + timeInfo + toggleHint + extraInfo)
+			"\n\n" + view + timeInfo + extraInfo)
 
 	return fmt.Sprintf("\n%s\n", mainContent)
 }
@@ -528,7 +517,7 @@ func listenForActivity(sub chan tea.Msg) tea.Cmd {
 
 // startClusterTeardown launches the teardown in a background goroutine that
 // streams step/status/detail messages onto sub. It returns immediately so the
-// UI stays responsive (spinner, elapsed time, and the 'i' details toggle).
+// UI stays responsive (spinner, elapsed time, and the --verbose output pane).
 func startClusterTeardown(sub chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		go teardown(sub)
@@ -537,7 +526,7 @@ func startClusterTeardown(sub chan tea.Msg) tea.Cmd {
 }
 
 // teardown performs the cluster deletion, emitting progress and detailed command
-// output onto sub. The detail lines are what the 'i' toggle reveals.
+// output onto sub. The detail lines are what --verbose reveals.
 func teardown(sub chan tea.Msg) {
 	emit := func(m tea.Msg) { sub <- m }
 	detail := func(format string, a ...interface{}) {
@@ -1064,7 +1053,7 @@ func teardownHint(err error) string {
 	case strings.Contains(msg, "permission"), strings.Contains(msg, "access"), strings.Contains(msg, "401"):
 		return "The provider rejected the credentials. Check the API token in the environment and its scopes."
 	default:
-		return "Re-run with --verbose, or press 'i' during teardown, to see the provider output."
+		return "Re-run with --verbose to see the provider output."
 	}
 }
 
@@ -1118,7 +1107,7 @@ func runTeardownPlain() {
 		case logger.StatusMsg:
 			fmt.Printf("    %s\n", string(m))
 		case logger.ExtraOutputMsg:
-			// Detail lines are the 'i' pane in the UI; --verbose asks for them.
+			// Detail lines are the --verbose pane in the UI.
 			if verboseDown {
 				for _, line := range strings.Split(string(m), "\n") {
 					if strings.TrimSpace(line) != "" {

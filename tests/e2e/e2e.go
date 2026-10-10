@@ -192,7 +192,10 @@ func WaitForAppsHealthy(ctx context.Context, kubeClient client.Client, names []s
 			for k := range remaining {
 				keys = append(keys, k)
 			}
-			return fmt.Errorf("timed out waiting for apps to be healthy: %v", keys)
+			// Say WHY, in the objects' own words — see DescribeUnhealthy. The bare
+			// list left two podman failures unactionable.
+			detail := DescribeUnhealthy(context.Background(), kubeClient, keys)
+			return fmt.Errorf("timed out waiting for apps to be healthy: %v%s", keys, detail)
 		default:
 			for name := range remaining {
 				app := argov1alpha1.Application{}
