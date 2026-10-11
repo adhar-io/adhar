@@ -1,12 +1,32 @@
 ---
-# Local PostgreSQL database composition — provisions a CloudNativePG Cluster in
-# the requester's namespace. Selected on the local/Kind platform via the
-# `provider: local` label (compositionSelector). Same Database XRD as
-# the cloud (AWS RDS / Azure SQL / GCP CloudSQL) compositions, so a developer's
-# self-service request is portable across environments.
+# Database (local) → a CloudNativePG Cluster in the requester's namespace, its
+# daily base backup, and any extra logical databases.
 #
-# CNPG creates a `<name>-app` Secret with ready-to-use connection details
-# (uri, jdbc-uri, username, password, host, port, dbname).
+# This is the composition the PLATFORM'S OWN databases use as well as a team's
+# (2026-10-11): keycloak, the console, posthog, coder, strapi, mlflow, metabase,
+# libredb, open-metadata and the AI runtime's pgvector store each declared a
+# CNPG Cluster of their own, with the same barman stanza copy-pasted ten times,
+# and nothing to stop the eleventh from forgetting the backup. They now ask for
+# a Database and the control plane composes it, so there is one definition of
+# what a platform database IS.
+#
+# That makes two things non-negotiable here:
+#
+#   * what this renders must MATCH what those packages declared by hand. The
+#     fields that were per-cluster are parameters (instances, storage, image,
+#     resources, postgresql.conf, the bootstrap database/owner/credential, the
+#     post-init SQL, the backup schedule); the fields that were identical in all
+#     ten are derived and cannot be turned off by accident — the node-bound
+#     priority class, the PodMonitor, and the barman stanza pointing at the
+#     platform object store;
+#   * `credentialsSecret` must stay OPTIONAL. CNPG generates `<name>-app` only
+#     when `bootstrap.initdb.secret` is absent, so handing a bootstrap secret to
+#     a cluster whose consumers read the generated one silently removes the
+#     Secret they mount (the AI runtime's pgvector store is exactly that case).
+#
+# The same XRD serves AWS RDS, Azure SQL and GCP CloudSQL; `provider: local` on
+# the compositionSelector is what picks this one, and it is the default so a
+# bare request never selects a cloud composition that has no credentials.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -33,9 +53,42 @@ spec:
             {{- $xr := .observed.composite.resource -}}
             {{- $name := $xr.metadata.name -}}
             {{- $ns := $xr.metadata.namespace -}}
-            {{- $params := dig "spec" "parameters" dict $xr -}}
-            {{- $size := dig "storageSize" "1Gi" $params -}}
-            {{- $version := dig "engineVersion" "16" $params -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $size := dig "storageSize" "1Gi" $p -}}
+            {{- $version := dig "engineVersion" "16" $p -}}
+            {{- $image := dig "imageName" "" $p -}}
+            {{- /* CNPG counts TOTAL instances; `replicas` counts the ones beside the
+                   primary, which is what every other engine in this XRD means by it. */ -}}
+            {{- $instances := add 1 (int (dig "replicas" 0 $p)) -}}
+            {{- $dbName := dig "databaseName" "app" $p -}}
+            {{- $owner := dig "credentials" "masterUsername" "app" $p -}}
+            {{- $credSecret := dig "credentialsSecret" "" $p -}}
+            {{- $postInit := dig "postInitSQL" (list) $p -}}
+            {{- $superuser := dig "superuserAccess" false $p -}}
+            {{- $pgParams := dig "postgresqlParameters" dict $p -}}
+            {{- $priority := dig "priorityClassName" "adhar-node-bound" $p -}}
+            {{- $cpu := dig "resources" "cpu" "" $p -}}
+            {{- $mem := dig "resources" "memory" "" $p -}}
+            {{- $memLimit := dig "resources" "memoryLimit" "" $p -}}
+            {{- $extraDbs := dig "additionalDatabases" (list) $p -}}
+            {{- $backup := dig "enableBackup" true $p -}}
+            {{- $keepDays := int (dig "backupRetentionDays" 7 $p) -}}
+            {{- $schedule := dig "backupSchedule" "0 30 1 * * *" $p -}}
+            {{- $bucket := dig "backupBucket" "adhar-backups" $p -}}
+            {{- $component := dig "component" "" $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $project := dig "project" "" $p -}}
+            {{- $env := dig "environment" "dev" $p -}}
+            {{- $labels := dict
+                  "app.kubernetes.io/managed-by" "crossplane"
+                  "platform.adhar.io/database" $name
+                  "adhar.io/organisation" $org
+                  "adhar.io/team" $team
+                  "adhar.io/environment" $env
+                  "adhar.io/plane" "workload" -}}
+            {{- if $project }}{{ $_ := set $labels "adhar.io/project" $project }}{{ end -}}
+            {{- if $component }}{{ $_ := set $labels "adhar.io/component" $component }}{{ end -}}
             ---
             apiVersion: postgresql.cnpg.io/v1
             kind: Cluster
@@ -44,31 +97,172 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: db-cluster
+                # CNPG Clusters must be applied server-side or the sync force-fails
+                # and drops the workload.
                 argocd.argoproj.io/sync-options: ServerSideApply=true
               labels:
-                app.kubernetes.io/managed-by: crossplane
-                platform.adhar.io/database: {{ $name }}
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
             spec:
-              instances: 1
-              imageName: ghcr.io/cloudnative-pg/postgresql:{{ $version }}
+              priorityClassName: {{ $priority | quote }}
+              instances: {{ $instances }}
+              {{- if $image }}
+              # ONLY when pinned explicitly. Deriving the image from engineVersion
+              # (which defaults to "16") is how this composition would have
+              # DOWNGRADED nine live platform databases: CNPG's defaulting webhook
+              # had already stamped them `postgresql:18.4-system-trixie`, and a
+              # Postgres 16 binary refuses to start on an 18 data directory. The
+              # operator's default tracks the version it supports; let it choose,
+              # and pin only when an extension needs a particular variant.
+              imageName: {{ $image | quote }}
+              {{- end }}
+              enableSuperuserAccess: {{ $superuser }}
               storage:
                 size: {{ $size }}
-              bootstrap:
-                initdb:
-                  database: app
-                  owner: app
-              # Emit a PodMonitor so kube-prometheus (which selects all PodMonitors
-              # cluster-wide) scrapes every composed cluster automatically. The
-              # CloudNativePG Grafana dashboard is cluster-variable driven, so new
-              # databases appear in it with no per-cluster wiring.
+              # A PodMonitor, not a ServiceMonitor: kube-prometheus selects all
+              # PodMonitors cluster-wide, so every composed cluster is scraped and
+              # appears in the cluster-variable-driven CNPG dashboard with no
+              # per-database wiring.
               monitoring:
                 enablePodMonitor: true
+              {{- if or $cpu $mem $memLimit }}
               resources:
+                {{- if or $cpu $mem }}
                 requests:
-                  cpu: 50m
-                  memory: 128Mi
+                  {{- if $cpu }}
+                  cpu: {{ $cpu | quote }}
+                  {{- end }}
+                  {{- if $mem }}
+                  memory: {{ $mem | quote }}
+                  {{- end }}
+                {{- end }}
+                {{- if $memLimit }}
                 limits:
-                  memory: 256Mi
+                  memory: {{ $memLimit | quote }}
+                {{- end }}
+              {{- end }}
+              {{- if $pgParams }}
+              postgresql:
+                parameters:
+                  {{- range $k, $v := $pgParams }}
+                  {{ $k }}: {{ $v | quote }}
+                  {{- end }}
+              {{- end }}
+              bootstrap:
+                initdb:
+                  database: {{ $dbName | quote }}
+                  owner: {{ $owner | quote }}
+                  {{- if $credSecret }}
+                  # Given a secret, CNPG bootstraps the owner from it and does NOT
+                  # publish a generated `<name>-app`.
+                  secret:
+                    name: {{ $credSecret | quote }}
+                  {{- end }}
+                  {{- if $postInit }}
+                  postInitApplicationSQL:
+                    {{- range $postInit }}
+                    - {{ . | quote }}
+                    {{- end }}
+                  {{- end }}
+              {{- if $backup }}
+              backup:
+                # A week of PITR. Thirty days of WAL for every platform database
+                # filled the shared object store once already.
+                retentionPolicy: {{ printf "%dd" $keepDays }}
+                barmanObjectStore:
+                  destinationPath: s3://{{ $bucket }}/cnpg/{{ $name }}
+                  endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
+                  s3Credentials:
+                    accessKeyId:
+                      name: root-creds
+                      key: rootUser
+                    secretAccessKey:
+                      name: root-creds
+                      key: rootPassword
+                  wal:
+                    compression: gzip
+              {{- end }}
+            {{- if $backup }}
+            ---
+            apiVersion: postgresql.cnpg.io/v1
+            kind: ScheduledBackup
+            metadata:
+              name: {{ $name }}-daily
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: db-scheduled-backup
+                argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+                # DECLARED READY. A ScheduledBackup is declarative cron
+                # configuration: it carries no Ready condition and its status
+                # stays empty until the first run fires, so function-auto-ready
+                # counts it unready FOREVER and the Database never goes Ready.
+                #
+                # That is not cosmetic. On 2026-10-11 it left
+                # `Database/keycloak-db` at `Ready=False … Unready resources:
+                # db-scheduled-backup`, which held the keycloak Application at
+                # its wave gate, so Keycloak never deployed, its config Job
+                # never wrote `keycloak-clients`, and 24 oauth2-proxy pods sat
+                # in CreateContainerConfigError — 26 Applications Degraded,
+                # from one composed resource with no opinion about readiness.
+                #
+                # Argo CD already had the same carve-out for this exact kind
+                # (`resource.customizations.health.postgresql.cnpg.io_ScheduledBackup`).
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              # SIX fields: the first is SECONDS. A five-field cron is accepted and
+              # runs at a different time of day than it reads as.
+              schedule: {{ $schedule | quote }}
+              backupOwnerReference: self
+              cluster:
+                name: {{ $name }}
+            {{- end }}
+            {{- range $extraDbs }}
+            {{- /*
+              A Postgres database name and a Kubernetes object name are not the
+              same alphabet. "posthog_persons" is the idiomatic spelling of a
+              Postgres database, and it is REJECTED as an object name: Crossplane
+              refused the whole XR with `invalid name "posthog-db-posthog_persons".
+              Must be a valid RFC 1123 subdomain name`, so posthog-db composed
+              nothing and never reported Ready at all. The object therefore takes
+              a slug and spec.name keeps the real name, which is the only one
+              Postgres ever sees. Two declared names that slug the same way would
+              collide; nothing shipped does, and the alternative is forbidding the
+              underscore every Postgres convention uses.
+            */}}
+            {{- /* regexReplaceAll takes (regex, string, replacement): PIPING into it
+                 puts the database name in the replacement slot and renders an
+                 EMPTY slug, which is how the first attempt at this produced
+                 `posthog-db-` and `db-extra-`. */}}
+            {{- $slug := trimAll "-" (regexReplaceAll "[^a-z0-9-]+" (lower .name) "-") }}
+            ---
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Database
+            metadata:
+              name: {{ printf "%s-%s" $name $slug }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ printf "db-extra-%s" $slug }}
+                argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+                # Ready once CNPG has applied it; the Database CR reports
+                # `status.applied` rather than a Ready condition, so leaving it
+                # to function-auto-ready would gate the whole XR on a field it
+                # does not look at.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              name: {{ .name | quote }}
+              owner: {{ default $owner .owner | quote }}
+              cluster:
+                name: {{ $name }}
+            {{- end }}
     - step: ready
       functionRef:
         name: function-auto-ready

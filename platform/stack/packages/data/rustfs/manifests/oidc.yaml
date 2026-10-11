@@ -1,0 +1,314 @@
+# RustFS's OWN Keycloak login, so the console stops asking for an access key.
+#
+# The edge oauth2-proxy (console-sso.yaml) authenticates the BROWSER, and that
+# is where this used to stop: having signed in to Keycloak at the edge, the user
+# arrived at the RustFS console and was met by its Access Key / Secret Key form,
+# because nothing had told RustFS about Keycloak. The console's own OIDC support
+# is real — `oidc` and `AssumeRole` appear throughout its bundles — but it is
+# driven entirely by server-side configuration, and `/rustfs/admin/v3/oidc/
+# providers` returned an empty list, so no button was drawn.
+#
+# RustFS 1.0.1 takes MinIO's variable names with the vendor prefix swapped:
+# RUSTFS_IDENTITY_OPENID_*. Six details are load-bearing, each verified against
+# the 1.0.1 source rather than inferred:
+#
+#  1. The IdP callback is on the ADMIN path and the provider id is a PATH
+#     SEGMENT: /rustfs/admin/v3/oidc/callback/default. `default` is the id an
+#     unsuffixed RUSTFS_IDENTITY_OPENID_* block gets, and it is NOT optional —
+#     omitting it lands on the SigV4-signed admin surface and the unsigned
+#     browser redirect is rejected with `AccessDenied: Signature is required`.
+#     /rustfs/console/auth/oidc-callback/ is where RustFS bounces the browser
+#     AFTERWARDS with the STS credentials in the fragment; Keycloak must not
+#     know about that one.
+#  2. RUSTFS_OUTBOUND_ALLOW_ORIGINS is required here. RustFS 1.0.0 added an SSRF
+#     egress policy that refuses outbound calls to loopback, RFC1918 and
+#     reserved addresses — which is exactly what a ClusterIP is. Without it
+#     discovery is blocked at start-up, the provider is dropped and the console
+#     shows no button, with nothing in the API to say why.
+#  3. Discovery runs ONCE, at start-up, and a failure silently drops the
+#     provider. So the reload Job below exists: the client secret arrives from
+#     Keycloak tens of minutes after this pod first starts, and a RustFS that
+#     booted without it never looks again.
+#  4. CONFIG_URL is the in-cluster backchannel and ISSUER is the public issuer
+#     the ID token actually carries. They differ, and both are needed — the same
+#     split Plane's provider needs.
+#  5. REDIRECT_URI_DYNAMIC must be off. It derives the callback from request
+#     headers, which behind the Gateway and the proxy is not the browser's URL.
+#  6. The group claim values must EQUAL RustFS policy names, verbatim
+#     (map_claims_to_policies). Hence the policies below are named after the
+#     platform's existing Keycloak groups instead of the built-in
+#     consoleAdmin/readwrite/readonly, so the realm needs no new groups and
+#     Keycloak's "Full group path" setting stays off (a leading slash would
+#     never match, and `/` is not even a legal policy-name character).
+#
+# The edge proxy STAYS in front. Native OIDC could replace it, but the proxy is
+# what keeps an unauthenticated browser off the console entirely and it is the
+# platform's uniform edge policy; with Keycloak's session already established
+# the extra hop is one click. What this adds on top is real authorization —
+# a viewer gets a read-only S3 session instead of the root credentials.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rustfs-app-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: rustfs-app-keycloak-client
+    app.kubernetes.io/part-of: rustfs
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  # Published by the reconciler as RUSTFS_APP_CLIENT_ID / RUSTFS_APP_CLIENT_SECRET
+  # in keycloak-clients (clientId upper-cased, '-' -> '_').
+  #
+  # A SECOND client, separate from the edge proxy's `rustfs`: each side must
+  # receive a token minted for itself. Sharing one client means sharing an
+  # audience, which is how Argo CD ended up rejecting a token minted for another
+  # app (see CLAUDE.md on per-app SSO cookies).
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "rustfs-app",
+      "name": "RustFS Console Login",
+      "description": "RustFS's own OIDC login; mints an STS session scoped by the caller's platform groups",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "redirectUris": [
+        "https://rustfs.adhar.localtest.me:8443/rustfs/admin/v3/oidc/callback/default"
+      ],
+      "webOrigins": ["https://rustfs.adhar.localtest.me:8443"]
+    }
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: rustfs-oidc
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  # 10s, not 30s: this is the retry cadence until Keycloak's wave-20 config Job
+  # has written keycloak-clients, and RustFS cannot offer the login until it is
+  # here.
+  refreshInterval: 10s
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: rustfs-oidc
+    template:
+      engineVersion: v2
+      data:
+        # Consumed by the server as an env var, so the key IS the variable name.
+        RUSTFS_IDENTITY_OPENID_CLIENT_SECRET: '{{ .RUSTFS_APP_CLIENT_SECRET }}'
+  data:
+    - secretKey: RUSTFS_APP_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: RUSTFS_APP_CLIENT_SECRET
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rustfs-oidc-activate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rustfs-oidc-activate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rustfs-oidc-activate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+subjects:
+  - kind: ServiceAccount
+    name: rustfs-oidc-activate
+    namespace: adhar-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rustfs-oidc-activate
+---
+# Creates the S3 policies the group claim names, then makes sure the running
+# RustFS is actually serving the provider.
+#
+# PostSync and a late wave on purpose: it waits for a Secret that another
+# package's Job writes, and a hook that waits for another hook's output must sit
+# in a later wave or it blocks it (the trap plane-console-reload documents).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rustfs-oidc-activate
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: rustfs-oidc-activate
+    app.kubernetes.io/part-of: rustfs
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rustfs-oidc-activate
+    spec:
+      serviceAccountName: rustfs-oidc-activate
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      containers:
+        - name: activate
+          image: docker.io/alpine/k8s:1.31.0
+          env:
+            - name: NS
+              value: adhar-system
+            - name: DEPLOY
+              value: rustfs
+            - name: S3_ENDPOINT
+              value: http://rustfs.adhar-system.svc.cluster.local:9000
+            - name: CONSOLE_ENDPOINT
+              value: http://rustfs-console.adhar-system.svc.cluster.local:9001
+            - name: S3_USER
+              valueFrom: {secretKeyRef: {name: root-creds, key: rootUser}}
+            - name: S3_PASS
+              valueFrom: {secretKeyRef: {name: root-creds, key: rootPassword}}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              log() { echo "[rustfs-oidc] $*"; }
+
+              # ── 1. wait for the Keycloak client secret ──────────────────────
+              # It comes from keycloak-clients, which Keycloak's wave-20 config
+              # Job writes. Twenty minutes, the same patience the library
+              # mirrors give nexus-credentials. Waiting, not skipping: a Sync or
+              # PostSync hook does not run again once the app has converged, so
+              # "it will be picked up next sync" is not true.
+              log "waiting up to 20m for the rustfs-oidc Secret"
+              ready=no
+              for i in $(seq 1 120); do
+                if [ -n "$(kubectl -n "$NS" get secret rustfs-oidc \
+                            -o jsonpath='{.data.RUSTFS_IDENTITY_OPENID_CLIENT_SECRET}' 2>/dev/null)" ]; then
+                  ready=yes; log "client secret present after $((i * 10))s"; break
+                fi
+                sleep 10
+              done
+              if [ "$ready" != yes ]; then
+                log "ERROR: the rustfs-oidc Secret never arrived — the console will keep asking for an"
+                log "ERROR: access key. It comes from keycloak-clients/RUSTFS_APP_CLIENT_SECRET; check"
+                log "ERROR: that Secret, then re-run by syncing the rustfs app."
+                exit 1
+              fi
+
+              # ── 2. the policies the group claim names ───────────────────────
+              # RustFS matches each value of the `groups` claim against a policy
+              # name VERBATIM, so these are named after the platform's existing
+              # Keycloak groups. A claim value with no matching policy is
+              # ignored as long as one resolves, so a user in unrelated groups
+              # (org-*, ws-team-*) still signs in.
+              log "waiting for the S3 endpoint"
+              for i in $(seq 1 90); do
+                curl -s -o /dev/null --max-time 5 "${S3_ENDPOINT}/" && break
+                sleep 5
+              done
+              s3() { curl -s -o /tmp/out -w '%{http_code}' --user "${S3_USER}:${S3_PASS}" \
+                       --aws-sigv4 "aws:amz:us-east-1:s3" "$@"; }
+
+              admin_policy() {
+                local name="$1" doc="$2" code
+                code=$(s3 -X PUT -H 'Content-Type: application/json' --data-binary "$doc" \
+                         "${S3_ENDPOINT}/rustfs/admin/v3/add-canned-policy?name=${name}")
+                case "$code" in
+                  200|201|204) log "policy ${name}: written" ;;
+                  *)           log "policy ${name}: HTTP ${code} $(head -c 200 /tmp/out)"; return 1 ;;
+                esac
+              }
+
+              # TWO statements, and the admin one carries NO Resource.
+              #
+              # Two separate validations rejected the obvious spellings, and
+              # each one loses the WHOLE policy — after which an admin whose
+              # only group resolves to nothing is refused the login outright,
+              # while the other two policies write fine and nothing looks wrong:
+              #
+              #   {"Action":["admin:*","s3:*"],...}        ->  InvalidRequest:
+              #     'Action' contains mixed action families in the same statement
+              #   {"Action":["admin:*"],"Resource":["*"]}  ->  InvalidRequest:
+              #     invalid resource, type: 'unknown', pattern: '*'
+              #
+              # The admin, sts and kms families are not resource-scoped at all,
+              # and RustFS requires the key to be ABSENT rather than wildcarded
+              # (crates/policy/src/policy/policy.rs,
+              # test_iam_policy_serialize_keeps_empty_resource_omitted_for_action_families).
+              # The README's `"Resource":["arn:aws:s3:::*"]` on an admin
+              # statement is not what the parser accepts.
+              ADMIN_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["admin:*"]},{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]}]}'
+              RW_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]}]}'
+              RO_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation","s3:ListAllMyBuckets"],"Resource":["arn:aws:s3:::*"]}]}'
+
+              rc=0
+              admin_policy platform-admin     "$ADMIN_DOC" || rc=1
+              admin_policy platform-developer "$RW_DOC"    || rc=1
+              admin_policy platform-viewer    "$RO_DOC"    || rc=1
+              [ "$rc" -eq 0 ] || log "WARNING: at least one policy could not be written; a login whose groups resolve to none of them will be refused"
+
+              # ── 3. make sure the provider is actually SERVED ────────────────
+              # Discovery runs once at start-up and a failure drops the provider
+              # silently, so a RustFS that booted before the client secret
+              # existed serves an EMPTY provider list for ever. Ask it, and
+              # restart only if the answer is empty — which makes this
+              # idempotent and a no-op on every later run.
+              providers() { curl -s --max-time 10 "${CONSOLE_ENDPOINT}/rustfs/admin/v3/oidc/providers"; }
+              body="$(providers)"
+              log "oidc providers before: ${body:-<empty>}"
+              if printf '%s' "$body" | grep -q '"default"'; then
+                log "the Keycloak provider is already being served; nothing to do"
+                exit 0
+              fi
+
+              log "no provider served — restarting ${DEPLOY} so it re-runs OIDC discovery"
+              kubectl -n "$NS" rollout restart "deployment/${DEPLOY}" || {
+                log "ERROR: could not restart ${DEPLOY}"; exit 1; }
+              kubectl -n "$NS" rollout status "deployment/${DEPLOY}" --timeout=10m || {
+                log "ERROR: ${DEPLOY} did not become ready after the restart"; exit 1; }
+
+              for i in $(seq 1 30); do
+                body="$(providers)"
+                if printf '%s' "$body" | grep -q '"default"'; then
+                  log "oidc providers after: ${body}"
+                  log "OK: the console now offers the Keycloak login"
+                  exit 0
+                fi
+                sleep 10
+              done
+              log "ERROR: RustFS restarted but still serves no OIDC provider."
+              log "ERROR: discovery is failing. Check the rustfs pod log for an outbound-policy denial"
+              log "ERROR: (RUSTFS_OUTBOUND_ALLOW_ORIGINS must list the in-cluster Keycloak origin) and"
+              log "ERROR: that RUSTFS_IDENTITY_OPENID_CONFIG_URL is reachable from the pod."
+              exit 1
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {memory: 256Mi}

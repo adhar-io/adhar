@@ -38,7 +38,7 @@ func PrintResource(resource interface{}, format string) error {
 		fmt.Println(string(data))
 	case "table":
 		// Basic table output - might need customization based on resource type
-		fmt.Printf("Printing resource (table format placeholder): %+v\n", resource)
+		Printf("Printing resource (table format placeholder): %+v\n", resource)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}

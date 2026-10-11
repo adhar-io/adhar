@@ -42,6 +42,17 @@ type Table struct {
 	headers []string
 	rows    [][]string
 	budget  int
+	// nested is set for a table rendered INSIDE a bordered panel. The panel
+	// already supplies the left margin, so the table must not add its own —
+	// and must not pay for one out of its column budget either. Without this
+	// every table in a box was indented twice and two cells narrower than its
+	// caller sized it for, which showed up as a TRUNCATED PASSWORD in
+	// `adhar get secrets`.
+	nested bool
+	// unbounded disables the shave loop: the table is sized to its content and
+	// nothing is ever shortened. For content where an abbreviation is useless —
+	// a credential you cannot read in full is not a credential.
+	unbounded bool
 }
 
 // NewTable starts a table with the given column headers.
@@ -50,6 +61,24 @@ func NewTable(headers ...string) *Table {
 }
 
 // WithBudget overrides the width the table may occupy (tests, nested boxes).
+// Nested marks a table that is rendered inside a bordered panel, which already
+// provides the gutter. Pass the SAME budget the panel's inner width allows;
+// nothing is taken off it here.
+func (t *Table) Nested() *Table {
+	t.nested = true
+	return t
+}
+
+// Unbounded sizes the table to its content and never shortens a cell.
+//
+// For a table whose values are useless when abbreviated. It is deliberately
+// not the default: an unbounded table wider than the terminal wraps, which is
+// worse than an ellipsis for everything except content like a credential.
+func (t *Table) Unbounded() *Table {
+	t.unbounded = true
+	return t
+}
+
 func (t *Table) WithBudget(cells int) *Table {
 	t.budget = cells
 	return t
@@ -115,9 +144,23 @@ func (t *Table) widths() ([]int, int) {
 		return w, total
 	}
 
+	if t.unbounded {
+		return w, total
+	}
+
+	// Every rendered line is indented by the gutter, so the columns get the
+	// budget LESS that — sized to the full budget, a table that exactly fitted
+	// would wrap the moment it moved right. Taken here rather than in
+	// TerminalBudget so an explicit WithBudget() pays for it too. A NESTED
+	// table pays nothing: its panel supplies the margin.
+	budget := t.budget
+	if !t.nested {
+		budget -= BannerGutter
+	}
+
 	// Shave the widest column by one cell at a time until it fits or every column
 	// has reached the floor. Bounded by the overshoot, so this cannot spin.
-	for total > t.budget {
+	for total > budget {
 		widest, idx := 0, -1
 		for i, n := range w {
 			if n > widest && n > minColumnWidth {
@@ -216,9 +259,15 @@ func stripANSI(s string) string {
 }
 
 // Width is the rendered width in display cells.
+// Width is the width of the table AS RENDERED — the gutter included, unless the
+// table is nested, in which case it adds none. Callers size rules and borders
+// against this.
 func (t *Table) Width() int {
 	_, total := t.widths()
-	return total
+	if t.nested {
+		return total
+	}
+	return total + BannerGutter
 }
 
 // Header and rule styling. Muted rather than loud: the rows carry the colour
@@ -247,7 +296,13 @@ func (t *Table) Render() string {
 		}
 		b.WriteString(renderRow(r, w, numeric))
 	}
-	return b.String()
+	if t.nested {
+		// The panel around it supplies the margin; indenting here as well is
+		// what put every boxed table three columns in instead of one.
+		return b.String()
+	}
+	// Behind the same gutter as the banner and the section heading above it.
+	return Indent(b.String())
 }
 
 // renderRow pads each cell to its column width by DISPLAY width, two spaces

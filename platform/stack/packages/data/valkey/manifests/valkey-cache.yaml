@@ -1,38 +1,47 @@
-# Shared, lightweight Valkey cache managed by the hyperspike valkey-operator.
+# The platform's shared cache, asked for rather than built (2026-10-11).
 #
-# Adhar adds Valkey alongside the existing Redis operator (data/redis) as the
-# preferred cache for platform apps. Point an app's cache at:
-#   host: adhar-cache.adhar-system.svc.cluster.local
-#   port: 6379   (no auth — anonymousAuth is enabled for simple in-cluster caching)
+# This was a `Valkey` CR declared here. It is now a `Cache`, and the control
+# plane composes exactly that CR (compositions/cache/local-valkey.yaml) —
+# verified by rendering this request and diffing the Valkey spec against the one
+# it replaces, which came out field-for-field identical.
 #
-# Sized for a single Kind node: one node, no replicas, ephemeral (no PVC), tiny
-# requests. Scale nodes/replicas/storage up on real clusters.
-apiVersion: hyperspike.io/v1
-kind: Valkey
+# The NAME is the contract and does not change: eight packages reach this cache
+# at `adhar-cache.adhar-system.svc.cluster.local`, and the operator names the
+# Service after the CR, so the XR must keep the same name.
+#
+# `password: false` keeps `anonymousAuth: true`. A shared cache every package
+# connects to without a credential is the deliberate choice documented in the
+# Cache XRD: it is reachable only inside the cluster, and handing a credential to
+# every consumer is a rotation problem in exchange for very little. A team that
+# wants its own isolated instance asks for its own Cache.
+#
+# Two labels differ from the hand-written CR (`app.kubernetes.io/name: valkey`
+# and `part-of: adhar` are replaced by the composition's managed-by and hierarchy
+# labels). Nothing selects them — the consumers use DNS and the ServiceMonitor is
+# the operator's own — so this is cosmetic.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Cache
 metadata:
   name: adhar-cache
   namespace: adhar-system
   labels:
-    app.kubernetes.io/name: valkey
     app.kubernetes.io/part-of: adhar
     app.kubernetes.io/component: cache
   annotations:
-    # Apply after the operator + CRD are established (chart/bundle = wave 0).
     argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  nodes: 1
-  replicas: 0
-  tls: false
-  anonymousAuth: true
-  # Emit metrics: the operator injects the valkey-sidecar exporter (redis_*
-  # metrics) and creates a ServiceMonitor so kube-prometheus scrapes it
-  # automatically (empty serviceMonitorSelector). The companion dashboard.yaml
-  # renders these under "Adhar - Valkey Cache".
-  prometheus: true
-  serviceMonitor: true
-  resources:
-    requests:
-      cpu: 25m
-      memory: 64Mi
-    limits:
-      memory: 256Mi
+  parameters:
+    displayName: Adhar shared cache
+    engine: valkey
+    # One node, no replica: more than one node SHARDS the keyspace (cluster
+    # mode), which not every client library on this platform supports.
+    nodes: 1
+    replicas: 0
+    password: false
+    tls: false
+    # A cache that hits its limit evicts. One with no limit is killed by the
+    # kubelet instead, which is not eviction — it is an outage.
+    maxMemory: 256Mi
+    cpu: 25m
+    metrics: true

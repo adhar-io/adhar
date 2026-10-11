@@ -43,9 +43,9 @@ func init() {
 }
 
 func runGroup(cmd *cobra.Command, args []string) error {
-	fmt.Println("▸ Adhar Platform Group Management")
+	helpers.Println("▸ Adhar Platform Group Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  create       - Create a new group")
 	fmt.Println("  list         - List all groups")
 	fmt.Println("  get          - Get group details")
@@ -54,7 +54,7 @@ func runGroup(cmd *cobra.Command, args []string) error {
 	fmt.Println("  add-member   - Add user to group")
 	fmt.Println("  remove-member - Remove user from group")
 	fmt.Println("")
-	fmt.Println("Use 'adhar auth group <command> --help' for more information")
+	helpers.Println("Use 'adhar auth group <command> --help' for more information")
 	return nil
 }
 
@@ -82,7 +82,7 @@ func runCreateGroup(cmd *cobra.Command, args []string) error {
 	kc := settings()
 	ctx := context.Background()
 
-	fmt.Printf("▸ Creating group %q in realm %s\n", groupName, kc.Realm)
+	helpers.Printf("▸ Creating group %q in realm %s\n", groupName, kc.Realm)
 
 	body := map[string]interface{}{"name": groupName}
 	if newGroupDesc != "" {
@@ -110,7 +110,7 @@ func runCreateGroup(cmd *cobra.Command, args []string) error {
 		if _, rerr := kc.adminWrite(ctx, http.MethodPost, fmt.Sprintf("/groups/%s/role-mappings/realm", groupID), []kcRole{role}); rerr != nil {
 			return fmt.Errorf("group created, but binding role %q failed: %w", newGroupRole, rerr)
 		}
-		fmt.Printf("⛨ Bound default realm role: %s\n", newGroupRole)
+		helpers.Printf("⛨ Bound default realm role: %s\n", newGroupRole)
 	}
 
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Created group %s", groupName)))
@@ -135,7 +135,7 @@ type kcGroup struct {
 }
 
 func runListGroups(cmd *cobra.Command, args []string) error {
-	fmt.Println("▸ Platform Groups (Keycloak)")
+	helpers.Println("▸ Platform Groups (Keycloak)")
 	kc := settings()
 
 	var groups []kcGroup
@@ -216,15 +216,15 @@ func runGetGroup(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(map[string]interface{}{"group": g, "members": members})
 	}
 
-	fmt.Printf("▸ Name:    %s\n", g.Name)
-	fmt.Printf("▸ Path:    %s\n", g.Path)
-	fmt.Printf("▸ ID:      %s\n", g.ID)
+	helpers.Printf("▸ Name:    %s\n", g.Name)
+	helpers.Printf("▸ Path:    %s\n", g.Path)
+	helpers.Printf("▸ ID:      %s\n", g.ID)
 	if len(g.SubGroups) > 0 {
 		names := make([]string, 0, len(g.SubGroups))
 		for _, sg := range g.SubGroups {
 			names = append(names, sg.Name)
 		}
-		fmt.Printf("▸ Subgroups: %s\n", strings.Join(names, ", "))
+		helpers.Printf("▸ Subgroups: %s\n", strings.Join(names, ", "))
 	}
 	if len(members) == 0 {
 		fmt.Println(helpers.CreateMuted("▸ Members: (none)"))
@@ -234,7 +234,7 @@ func runGetGroup(cmd *cobra.Command, args []string) error {
 	for _, m := range members {
 		names = append(names, m.Username)
 	}
-	fmt.Printf("▸ Members: %s\n", strings.Join(names, ", "))
+	helpers.Printf("▸ Members: %s\n", strings.Join(names, ", "))
 	return nil
 }
 
@@ -270,7 +270,7 @@ func runUpdateGroup(cmd *cobra.Command, args []string) error {
 	if err := kc.adminGetOne(ctx, "/groups/"+id, &current); err != nil {
 		return err
 	}
-	fmt.Printf("▸ Updating group %q\n", groupName)
+	helpers.Printf("▸ Updating group %q\n", groupName)
 
 	if updateDesc != "" {
 		current["attributes"] = map[string][]string{"description": {updateDesc}}
@@ -287,7 +287,7 @@ func runUpdateGroup(cmd *cobra.Command, args []string) error {
 		if _, rerr := kc.adminWrite(ctx, http.MethodPost, fmt.Sprintf("/groups/%s/role-mappings/realm", id), []kcRole{role}); rerr != nil {
 			return fmt.Errorf("group updated, but binding role %q failed: %w", updateGroupRole, rerr)
 		}
-		fmt.Printf("⛨ Bound realm role: %s\n", updateGroupRole)
+		helpers.Printf("⛨ Bound realm role: %s\n", updateGroupRole)
 	}
 
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Updated group %s", groupName)))

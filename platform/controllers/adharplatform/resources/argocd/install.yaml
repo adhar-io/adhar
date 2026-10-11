@@ -308,6 +308,159 @@ data:
       end
     end
     return hs
+  # Crossplane composite health for the datastore kinds that platform packages
+  # declare instead of the operator CR itself (ADR-0026: a package asks for a
+  # database, the control plane composes it). Argo CD treats an unknown kind as
+  # Healthy immediately, which silently removes the wave gate that the CNPG
+  # Cluster health check above provides — so each of these needs its own.
+  resource.customizations.health.platform.adhar.io_Database: |
+    health_status = {}
+    -- Crossplane composite: Synced says the composition ran, Ready says the
+    -- resources it composed are up. A sync wave gated on one of these XRs must
+    -- wait for Ready — without this customisation Argo CD calls every unknown
+    -- kind Healthy the moment it is created, so the app that NEEDS the database
+    -- starts before the database exists.
+    if obj.status == nil or obj.status.conditions == nil then
+      health_status.status = "Progressing"
+      health_status.message = "Waiting for Crossplane to reconcile the composite"
+      return health_status
+    end
+    local ready = nil
+    local synced = nil
+    for _, c in ipairs(obj.status.conditions) do
+      if c.type == "Ready" then ready = c end
+      if c.type == "Synced" then synced = c end
+    end
+    -- A composition that cannot be rendered or applied is Degraded, not pending:
+    -- it will not resolve on its own, and a wave that waits for it waits forever.
+    if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+      health_status.status = "Degraded"
+      health_status.message = synced.message or "composition failed to reconcile"
+      return health_status
+    end
+    if ready ~= nil and ready.status == "True" then
+      health_status.status = "Healthy"
+      health_status.message = obj.status.message or "composed resources are ready"
+      return health_status
+    end
+    health_status.status = "Progressing"
+    if ready ~= nil then
+      health_status.message = obj.status.message or ready.message or ready.reason or "composing"
+    else
+      health_status.message = "Waiting for a Ready condition"
+    end
+    return health_status
+  resource.customizations.health.platform.adhar.io_Cache: |
+    health_status = {}
+    -- Crossplane composite: Synced says the composition ran, Ready says the
+    -- resources it composed are up. A sync wave gated on one of these XRs must
+    -- wait for Ready — without this customisation Argo CD calls every unknown
+    -- kind Healthy the moment it is created, so the app that NEEDS the database
+    -- starts before the database exists.
+    if obj.status == nil or obj.status.conditions == nil then
+      health_status.status = "Progressing"
+      health_status.message = "Waiting for Crossplane to reconcile the composite"
+      return health_status
+    end
+    local ready = nil
+    local synced = nil
+    for _, c in ipairs(obj.status.conditions) do
+      if c.type == "Ready" then ready = c end
+      if c.type == "Synced" then synced = c end
+    end
+    -- A composition that cannot be rendered or applied is Degraded, not pending:
+    -- it will not resolve on its own, and a wave that waits for it waits forever.
+    if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+      health_status.status = "Degraded"
+      health_status.message = synced.message or "composition failed to reconcile"
+      return health_status
+    end
+    if ready ~= nil and ready.status == "True" then
+      health_status.status = "Healthy"
+      health_status.message = obj.status.message or "composed resources are ready"
+      return health_status
+    end
+    health_status.status = "Progressing"
+    if ready ~= nil then
+      health_status.message = obj.status.message or ready.message or ready.reason or "composing"
+    else
+      health_status.message = "Waiting for a Ready condition"
+    end
+    return health_status
+  resource.customizations.health.platform.adhar.io_GraphDatabase: |
+    health_status = {}
+    -- Crossplane composite: Synced says the composition ran, Ready says the
+    -- resources it composed are up. A sync wave gated on one of these XRs must
+    -- wait for Ready — without this customisation Argo CD calls every unknown
+    -- kind Healthy the moment it is created, so the app that NEEDS the database
+    -- starts before the database exists.
+    if obj.status == nil or obj.status.conditions == nil then
+      health_status.status = "Progressing"
+      health_status.message = "Waiting for Crossplane to reconcile the composite"
+      return health_status
+    end
+    local ready = nil
+    local synced = nil
+    for _, c in ipairs(obj.status.conditions) do
+      if c.type == "Ready" then ready = c end
+      if c.type == "Synced" then synced = c end
+    end
+    -- A composition that cannot be rendered or applied is Degraded, not pending:
+    -- it will not resolve on its own, and a wave that waits for it waits forever.
+    if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+      health_status.status = "Degraded"
+      health_status.message = synced.message or "composition failed to reconcile"
+      return health_status
+    end
+    if ready ~= nil and ready.status == "True" then
+      health_status.status = "Healthy"
+      health_status.message = obj.status.message or "composed resources are ready"
+      return health_status
+    end
+    health_status.status = "Progressing"
+    if ready ~= nil then
+      health_status.message = obj.status.message or ready.message or ready.reason or "composing"
+    else
+      health_status.message = "Waiting for a Ready condition"
+    end
+    return health_status
+  resource.customizations.health.platform.adhar.io_NoSqlDatabase: |
+    health_status = {}
+    -- Crossplane composite: Synced says the composition ran, Ready says the
+    -- resources it composed are up. A sync wave gated on one of these XRs must
+    -- wait for Ready — without this customisation Argo CD calls every unknown
+    -- kind Healthy the moment it is created, so the app that NEEDS the database
+    -- starts before the database exists.
+    if obj.status == nil or obj.status.conditions == nil then
+      health_status.status = "Progressing"
+      health_status.message = "Waiting for Crossplane to reconcile the composite"
+      return health_status
+    end
+    local ready = nil
+    local synced = nil
+    for _, c in ipairs(obj.status.conditions) do
+      if c.type == "Ready" then ready = c end
+      if c.type == "Synced" then synced = c end
+    end
+    -- A composition that cannot be rendered or applied is Degraded, not pending:
+    -- it will not resolve on its own, and a wave that waits for it waits forever.
+    if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+      health_status.status = "Degraded"
+      health_status.message = synced.message or "composition failed to reconcile"
+      return health_status
+    end
+    if ready ~= nil and ready.status == "True" then
+      health_status.status = "Healthy"
+      health_status.message = obj.status.message or "composed resources are ready"
+      return health_status
+    end
+    health_status.status = "Progressing"
+    if ready ~= nil then
+      health_status.message = obj.status.message or ready.message or ready.reason or "composing"
+    else
+      health_status.message = "Waiting for a Ready condition"
+    end
+    return health_status
   resource.customizations.health.postgresql.cnpg.io_Cluster: |
     health_status = {}
     if obj.status ~= nil and obj.status.phase ~= nil then
@@ -474,8 +627,38 @@ data:
   # left the DEFAULT (non-HA) path more than three times slower than the heavier
   # one it is derived from. 30s is proven at the larger scale: HA runs it against
   # the 76-app production profile.
-  timeout.reconciliation: 30s
-  timeout.reconciliation.jitter: 10s
+  # ACTIVATES every `resource.customizations.ignoreResourceUpdates.*` rule
+  # above. Those eight rules — /status on all kinds, Endpoints, EndpointSlice,
+  # ReplicaSet's desired-replicas annotations, the autoscaler's last-updated
+  # stamp, HPA, Rollout and Application — exist to stop the application
+  # controller reprocessing an app every time a watched object's STATUS churns,
+  # which on this platform is constant: 78 applications over ~616 CRDs.
+  #
+  # Set EXPLICITLY rather than relying on the default. Upstream has changed
+  # which way this defaults between minor versions, and the failure mode of
+  # guessing wrong is invisible: the rules are simply ignored, every status
+  # update is reprocessed, and the only symptom is a controller burning CPU
+  # that nothing attributes to a missing one-line switch.
+  resource.ignoreResourceUpdatesEnabled: "true"
+  # 120s, NOT 30s. At 30s the controller re-diffed all ~78 ApplicationSet apps
+  # continuously and kept kube-apiserver pegged; on 2026-10-11 that ended with
+  # kube-controller-manager, kube-scheduler AND cloud-controller-manager in
+  # CrashLoopBackOff on `Failed to renew lease … context deadline exceeded`,
+  # ~50 restarts each. Because the endpoint controller lives inside
+  # kube-controller-manager, EndpointSlices froze, so a Service pointed at a
+  # Ready pod with a stale `ready=false` endpoint and every client of it failed
+  # — which is the shape the symptom arrives in, nowhere near the cause.
+  #
+  # `hack/argocd/values.yaml` had ALREADY been set to 120s with exactly this
+  # reasoning; the generated manifest kept 30s, so the fix never reached a
+  # cluster. That drift is the real bug here, and
+  # `TestArgoCDReconciliationMatchesItsGeneratorValues` now pins the two
+  # together.
+  #
+  # Nothing is lost: Gitea webhooks still deliver instant sync on push, and the
+  # periodic re-diff is only a drift backstop.
+  timeout.reconciliation: 120s
+  timeout.reconciliation.jitter: 15s
   url: https://argocd.{{ .Host }}{{ .PortSuffix }}
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml

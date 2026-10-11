@@ -1,0 +1,80 @@
+# A production MongoDB replica set, run by the MongoDB Community Operator the
+# platform already installs (data/mongodb).
+#
+# Everything a replica set is unusable without is on by default, so the short
+# version of this file is five lines: a name, a database and a user. The rest is
+# shown here because it is what you will reach for second.
+#
+# Two things worth knowing before you size it:
+#   * each member takes TWO volumes (data and logs), so three members is six —
+#     and on a cloud node the attach budget, not CPU, is the wall;
+#   * `members` should be ODD. Two members tolerate no failure at all: losing
+#     either leaves one of two, which is not a majority, so no primary is
+#     elected and every write is refused.
+apiVersion: platform.adhar.io/v1alpha1
+kind: NoSqlDatabase
+metadata:
+  name: orders
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: nosql
+        engine: mongodb
+  parameters:
+    displayName: Orders document store
+    engine: mongodb
+    # Must be a version the operator has a server image tag for; set `image`
+    # instead to pin a digest or pull through a mirror.
+    version: "8.0.4"
+    members: 3
+    database: orders
+    # Created with readWrite on its own database and nothing else. The password
+    # is minted by a generator into Secret `orders-app-password` and is never a
+    # field in this file.
+    username: orders
+    storageSize: 20Gi
+    logStorageSize: 2Gi
+    # Empty means the cluster default, which on this platform is node-local: a
+    # member's data does not survive its node, and durability is the nightly
+    # backup plus the other two members. Name adhar-block for a real disk.
+    storageClass: ""
+    resources:
+      cpu: 100m
+      memory: 512Mi
+      memoryLimit: 1Gi
+    # Without this, mongod sizes its cache from the NODE's memory and ignores
+    # its own container limit — which is how a member is OOM-killed on a big
+    # node. About half the memory limit.
+    cacheSizeGB: "0.5"
+    mongodConfig:
+      net.maxIncomingConnections: "200"
+    metrics:
+      # The operator's own metrics endpoint, scraped by a PodMonitor that
+      # kube-prometheus selects cluster-wide — the database appears in Grafana
+      # with no per-instance wiring.
+      enabled: true
+      port: 9216
+    alerts:
+      enabled: true
+    backup:
+      # The Community operator has no backup, so this is a nightly mongodump
+      # into the platform object store that the composition owns.
+      enabled: true
+      schedule: "15 1 * * *"
+      retentionDays: 14
+      bucket: adhar-backups
+    networkPolicy:
+      # Ingress allow-list on the members. Egress is deliberately not
+      # restricted: the members must reach each other and the object store.
+      enabled: true
+      allowedNamespaces:
+        - adhar-system
+    organisation: acme
+    team: payments
+    project: checkout
+    environment: prod
+    # A database holds data. Orphan keeps the replica set and its volumes when
+    # this object is deleted.
+    deletionPolicy: Orphan

@@ -8,6 +8,7 @@ you may not use this file except in compliance with the License.
 package dev
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"context"
 	"fmt"
 	"os"
@@ -57,7 +58,7 @@ func ensureNamespace(ctx context.Context, ns string) error {
 			return fmt.Errorf("labelling namespace %s with %s: %w: %s", ns, l, err, strings.TrimSpace(string(out)))
 		}
 	}
-	fmt.Printf("created namespace %s\n", ns)
+	helpers.Printf("created namespace %s\n", ns)
 	return nil
 }
 

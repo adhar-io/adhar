@@ -245,6 +245,14 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/rabbitmq/manifests"
+          # Neo4j — a JVM with a 1 GiB heap and two volumes, which is the class
+          # of workload that makes a local `adhar up` CPU-bound during the
+          # identity chain. Wired, off locally; on in production.
+          - name: "neo4j"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/neo4j/manifests"
           - name: "mongodb"
             enabled: "false"
             namespace: "adhar-system"

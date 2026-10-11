@@ -58,16 +58,16 @@ func runCreateBackup(cmd *cobra.Command, args []string) error {
 		backupName = fmt.Sprintf("adhar-backup-%s", time.Now().Format("2006-01-02-150405"))
 	}
 
-	fmt.Printf("⛨ Creating Velero backup: %s\n", backupName)
+	helpers.Printf("⛨ Creating Velero backup: %s\n", backupName)
 	if len(includeNamespaces) > 0 {
-		fmt.Printf("▣ Include namespaces: %v\n", includeNamespaces)
+		helpers.Printf("▣ Include namespaces: %v\n", includeNamespaces)
 	} else {
-		fmt.Println("▣ Include namespaces: all")
+		helpers.Println("▣ Include namespaces: all")
 	}
 	if len(excludeNamespaces) > 0 {
-		fmt.Printf("✖ Exclude namespaces: %v\n", excludeNamespaces)
+		helpers.Printf("✖ Exclude namespaces: %v\n", excludeNamespaces)
 	}
-	fmt.Printf("◌ TTL: %s\n", backupTTL)
+	helpers.Printf("◌ TTL: %s\n", backupTTL)
 
 	dyn, err := getDynamicClient()
 	if err != nil {

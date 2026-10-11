@@ -1,6 +1,7 @@
 package config
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"fmt"
 	"sort"
 	"strings"
@@ -30,7 +31,7 @@ func runListTemplates(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.EnvironmentTemplates) == 0 {
-		fmt.Println("○ No environment templates defined in the configuration")
+		helpers.Println("○ No environment templates defined in the configuration")
 		return nil
 	}
 
@@ -48,10 +49,10 @@ func runListTemplates(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(names)
 
-	fmt.Printf("▸ Environment templates (%d):\n\n", len(names))
+	helpers.Printf("▸ Environment templates (%d):\n\n", len(names))
 	for _, name := range names {
 		tpl := cfg.EnvironmentTemplates[name]
-		fmt.Printf("• %s\n", name)
+		helpers.Printf("• %s\n", name)
 		fmt.Printf("    cluster settings: %d  •  core services: %d  •  addons: %d\n",
 			len(tpl.ClusterConfig), len(tpl.CoreServices), len(tpl.Addons))
 		if envs := usedBy[name]; len(envs) > 0 {

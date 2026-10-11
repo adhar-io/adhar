@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/events"
 	pfactory "adhar-io/adhar/platform/providers"
 )
 
@@ -271,7 +272,13 @@ func (r *Reconciler) scaleUp(ctx context.Context, spec *clusterSpec, nodeGroup s
 	}
 	clusterID := resolveClusterID(ctx, prov, spec.ClusterName)
 	log.FromContext(ctx).Info("scaling up worker node group", "cluster", clusterID, "nodeGroup", nodeGroup, "desired", desired)
-	return prov.ScaleNodeGroup(ctx, clusterID, nodeGroup, int(desired))
+	err = prov.ScaleNodeGroup(ctx, clusterID, nodeGroup, int(desired))
+	// Emitted AFTER the provider answers, and the outcome is part of the event:
+	// a scale-up that was decided and then refused (no quota, no network on a
+	// rediscovered tracker) is the case an operator most needs to see, and a
+	// bus carrying only successes would be silent exactly then.
+	r.publishScale(ctx, events.TypeNodeAdded, clusterID, nodeGroup, "", int(desired), err)
+	return err
 }
 
 // scaleDown drains the chosen worker and then removes the machine behind it.
@@ -295,8 +302,10 @@ func (r *Reconciler) scaleDown(ctx context.Context, spec *clusterSpec, nodeName 
 		return err
 	}
 	if err := remover.RemoveWorkerNode(ctx, clusterID, nodeName); err != nil {
+		r.publishScale(ctx, events.TypeNodeRemoved, clusterID, "", nodeName, 0, err)
 		return err
 	}
+	r.publishScale(ctx, events.TypeNodeRemoved, clusterID, "", nodeName, 0, nil)
 	// The provider's removal path deletes the Node object through the control
 	// plane, but that is best-effort; make sure no ghost node is left behind.
 	node := &corev1.Node{}
@@ -395,4 +404,56 @@ func (r *Reconciler) drainTimeout() time.Duration {
 		return r.DrainTimeout
 	}
 	return 5 * time.Minute
+}
+
+// publishScale puts one node-lifecycle fact on the bus.
+//
+// The OUTCOME is part of the event rather than a reason to stay silent. A
+// scale-up the autoscaler decided on and the cloud then refused is the case an
+// operator most needs to see — it is how "19 pods Pending and three workers at
+// 100% CPU" persisted for an afternoon while the decision was being made
+// correctly every three minutes and failing on a tracker with no network. A bus
+// carrying only successes is quietest exactly when something is wrong.
+func (r *Reconciler) publishScale(ctx context.Context, eventType, clusterID, nodeGroup, nodeName string, desired int, cause error) {
+	if r.Events == nil {
+		return
+	}
+	data := map[string]any{"cluster": clusterID, "succeeded": cause == nil}
+	if nodeGroup != "" {
+		data["nodeGroup"] = nodeGroup
+	}
+	if nodeName != "" {
+		data["node"] = nodeName
+	}
+	if desired > 0 {
+		data["desiredWorkers"] = desired
+	}
+	subject := clusterID
+	if nodeName != "" {
+		subject = clusterID + "/" + nodeName
+	}
+	if cause != nil {
+		data["error"] = cause.Error()
+		// A refusal is a different FACT from a node appearing or disappearing,
+		// so it gets its own type rather than a success event with a flag a
+		// consumer has to remember to check.
+		eventType = events.TypeScaleRefused
+	}
+	r.Events.Publish(ctx, events.Event{
+		Type:            eventType,
+		Subject:         subject,
+		DataContentType: "application/json",
+		Data:            marshalOrNil(data),
+		Plane:           "control",
+	})
+}
+
+// marshalOrNil keeps a payload that cannot be marshalled from costing the
+// envelope: an event saying a node was removed is useful with no data at all.
+func marshalOrNil(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
 }

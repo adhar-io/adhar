@@ -213,7 +213,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 		if len(items) == 0 {
-			fmt.Printf("No caches in namespace %s\n", ns())
+			helpers.Printf("No caches in namespace %s\n", ns())
 			return nil
 		}
 		switch outputFormat {
@@ -246,7 +246,7 @@ var statusCmd = &cobra.Command{
 		if outputFormat == "yaml" {
 			return helpers.PrintYAML(c)
 		}
-		fmt.Printf("▸ %s\n", c.Name)
+		helpers.Printf("▸ %s\n", c.Name)
 		fmt.Printf("  namespace   %s\n", ns())
 		fmt.Printf("  engine      %s\n", c.Engine)
 		fmt.Printf("  ready       %s\n", readyLabel(c.Ready))
@@ -289,7 +289,7 @@ To read one key deliberately:
 			// rather than reporting nothing while the XR is still settling.
 			secret = c.Name + "-app"
 		}
-		fmt.Printf("%s %s\n", helpers.IconSecurity, secret)
+		helpers.Printf("%s %s\n", helpers.IconSecurity, secret)
 		fmt.Printf("  namespace  %s\n", ns())
 		fmt.Printf("  keys       uri, host, port, engine\n")
 		if !c.Ready {

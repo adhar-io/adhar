@@ -125,6 +125,9 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 		BorderForeground(lipgloss.Color("#8b5cf6")).
 		Padding(1, 2).
 		Margin(1, 0).
+		// Last: Margin(1, 0) above sets a horizontal margin of ZERO, so the
+		// gutter has to come after it or it is silently overwritten.
+		MarginLeft(helpers.BannerGutter).
 		Width(80).
 		Render(clusterOverview)
 
@@ -142,6 +145,7 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 			BorderForeground(lipgloss.Color("#06b6d4")).
 			Padding(1, 2).
 			Margin(1, 0).
+			MarginLeft(helpers.BannerGutter).
 			Width(90).
 			Render(nodesTable)
 
@@ -155,6 +159,7 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 		BorderForeground(lipgloss.Color("#10b981")).
 		Padding(1, 2).
 		Margin(1, 0).
+		MarginLeft(helpers.BannerGutter).
 		Width(80).
 		Render(providerInfo)
 
@@ -171,6 +176,7 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 			BorderForeground(lipgloss.Color("#f59e0b")).
 			Padding(1, 2).
 			Margin(1, 0).
+			MarginLeft(helpers.BannerGutter).
 			Width(80).
 			Render(detailedInfo)
 

@@ -70,11 +70,61 @@ func TestEveryCNPGDatabaseIsNodeBoundPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walking the stack: %v", err)
 	}
-	if checked == 0 {
-		t.Fatal("no CNPG Clusters found — this guard is not looking at anything, so a database " +
-			"added without the priority class would pass silently")
+	// Since 2026-10-11 the platform's databases are `Database` XRs and the
+	// Cluster is composed, so the guard follows the priority class to where it is
+	// now decided: the composition's default, plus any XR that overrides it. A
+	// package may still declare a Cluster directly (the bootstrap `gitea-db`
+	// does), so both paths are checked and the count covers both.
+	comp := filepath.Join(controlPlaneDir(t), "compositions/database/local-cnpg.yaml")
+	cb, cerr := os.ReadFile(comp)
+	if cerr != nil {
+		t.Fatal(cerr)
 	}
-	t.Logf("checked %d CNPG Cluster definitions", checked)
+	if !strings.Contains(string(cb), `dig "priorityClassName" "`+nodeBoundName+`" $p`) {
+		t.Errorf("compositions/database/local-cnpg.yaml does not default priorityClassName to %s; "+
+			"every composed database would land at priority 0 and could be stranded on the node "+
+			"its volume pins it to", nodeBoundName)
+	} else {
+		checked++
+	}
+	for _, doc := range platformDatabaseRequests(t) {
+		params, _ := dig(doc, "spec", "parameters").(map[string]interface{})
+		name, _ := dig(doc, "metadata", "name").(string)
+		if pc, set := params["priorityClassName"]; set && pc != nodeBoundName {
+			t.Errorf("Database %q overrides priorityClassName to %v, not %s", name, pc, nodeBoundName)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no CNPG Clusters and no Database requests found — this guard is not looking at " +
+			"anything, so a database added without the priority class would pass silently")
+	}
+	t.Logf("checked %d database definition(s)", checked)
+}
+
+// platformDatabaseRequests returns every `Database` the stack packages declare.
+func platformDatabaseRequests(t *testing.T) []map[string]interface{} {
+	t.Helper()
+	var out []map[string]interface{}
+	err := filepath.Walk(stackPackagesDir(t), func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		if !strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".tmpl") {
+			return nil
+		}
+		for _, doc := range tolerantYAMLDocs(path) {
+			api, _ := doc["apiVersion"].(string)
+			if doc["kind"] == "Database" && strings.HasPrefix(api, "platform.adhar.io/") {
+				out = append(out, doc)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the stack: %v", err)
+	}
+	return out
 }
 
 // The PriorityClass must be declared, or every pod naming it is REJECTED by

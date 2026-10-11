@@ -15,10 +15,43 @@ spec:
         engine: postgresql
   parameters:
     engine: postgresql
+    # The CLOUD compositions provision this version. The in-cluster one IGNORES
+    # it and lets the CNPG operator choose its own image, because the operator's
+    # default is what every existing cluster already runs — deriving an image
+    # from this field once downgraded nine live databases from 18 to 16, and
+    # Postgres refuses to start on a newer data directory. Pin `imageName` when
+    # a particular build is needed.
     engineVersion: "16"
     storageSize: 20Gi
     # 0 = a single instance; 1–5 adds streaming replicas (HA).
     replicas: 1
+    # The database and its owner. The owner's password is generated into
+    # `payments-db-app` unless `credentialsSecret` names one to bootstrap from —
+    # and note that naming one STOPS CNPG publishing the generated Secret, so
+    # leave it unset if anything mounts `<name>-app`.
+    databaseName: payments
+    credentials:
+      masterUsername: payments
+    # Run once, at bootstrap only: adding a statement later does nothing to a
+    # database that already exists.
+    postInitSQL:
+      - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    # Nothing is defaulted here on purpose. A request added to a database that
+    # did not ask for one reserves capacity on an already-tight cluster, and a
+    # memory limit below what Postgres actually uses is an OOM kill, not a cap.
+    resources:
+      cpu: 100m
+      memory: 256Mi
+      memoryLimit: 512Mi
+    postgresqlParameters:
+      shared_buffers: 128MB
+      max_connections: "100"
+    # A second logical database is far cheaper than a second cluster.
+    additionalDatabases:
+      - name: payments_audit
     enableBackup: true
     backupRetentionDays: 7
+    # SIX fields — the first is SECONDS. A five-field cron is accepted and runs
+    # at a different time of day than it reads as.
+    backupSchedule: "0 30 1 * * *"
     deletionPolicy: Orphan

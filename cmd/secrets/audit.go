@@ -73,7 +73,7 @@ func runAudit(cmd *cobra.Command, args []string) error {
 			truncate(s.Name, 30), truncate(string(s.Type), 24),
 			truncate(who, 20), when, rotated))
 	}
-	fmt.Print(b.String())
+	fmt.Print(helpers.Indent(b.String()))
 	logger.Info("● Secret audit completed")
 	return nil
 }
@@ -97,7 +97,7 @@ func auditOne(s corev1.Secret) error {
 	b.WriteString(fmt.Sprintf("◌ Last-rotated:    %s", valueOrDash(s.Annotations["adhar.io/rotated-at"])))
 	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
 
-	fmt.Printf("\n%s\n", helpers.CreateMuted("managedFields history:"))
+	helpers.Printf("\n%s\n", helpers.CreateMuted("managedFields history:"))
 	for _, mf := range s.ManagedFields {
 		t := "-"
 		if mf.Time != nil {

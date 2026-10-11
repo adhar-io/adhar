@@ -100,7 +100,7 @@ func runExportPolicy(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("marshal %s: %w", items[i].GetName(), err)
 		}
 		if toStdout {
-			fmt.Println("---")
+			helpers.Println("---")
 			fmt.Print(string(out))
 			continue
 		}

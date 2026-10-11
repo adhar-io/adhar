@@ -38,6 +38,7 @@ import (
 	"adhar-io/adhar/cmd/dev"
 	"adhar-io/adhar/cmd/down"
 	"adhar-io/adhar/cmd/env"
+	events "adhar-io/adhar/cmd/events"
 	"adhar-io/adhar/cmd/fleet"
 	"adhar-io/adhar/cmd/get"
 	"adhar-io/adhar/cmd/gitops"
@@ -136,6 +137,7 @@ func init() {
 	metrics.MetricsCmd.GroupID = GroupObserve
 	traces.TracesCmd.GroupID = GroupObserve
 	network.NetworkCmd.GroupID = GroupObserve
+	events.EventsCmd.GroupID = GroupObserve
 
 	// Operate — day-2 operations.
 	cluster.ClusterCmd.GroupID = GroupOperate
@@ -180,6 +182,7 @@ func init() {
 		controllercmd.ControllerCmd, // Controller command for in-cluster manager mode
 		upgrade.UpgradeCmd,          // Upgrade command: converge foundation + stack diff/sync
 		get.GetCmd,                  // Get command for resource information
+		events.EventsCmd,            // Events command: read the platform CloudEvents stream on Kafka
 		apps.ApplicationCmd,         // Apps command for application management
 		push.PushCmd,                // Push command: cf push-style build+deploy from source
 		dev.DevCmd,                  // Dev command: the inner loop — sync the working tree to a dev namespace

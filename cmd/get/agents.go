@@ -157,7 +157,7 @@ func agentsFromList(items []unstructured.Unstructured, only []string) []AgentInf
 
 func displayAgentsTable(agents []AgentInfo) error {
 	logger.Info(fmt.Sprintf(helpers.IconApp+" Found %d agent workloads", len(agents)))
-	t := helpers.NewTable("NAME", "ENV", "PROJECT", "TEAM", "MODELS", "TOOLS", "BUDGET/H", "READY", "AGE").WithBudget(100)
+	t := helpers.NewTable("NAME", "ENV", "PROJECT", "TEAM", "MODELS", "TOOLS", "BUDGET/H", "READY", "AGE").Nested().WithBudget(100)
 	for _, a := range agents {
 		state := helpers.StateReady("Ready")
 		if !a.Ready {

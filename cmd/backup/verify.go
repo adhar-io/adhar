@@ -26,7 +26,7 @@ Examples:
 
 func runVerifyBackup(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	fmt.Printf("▸ Verifying backup: %s\n", name)
+	helpers.Printf("▸ Verifying backup: %s\n", name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {

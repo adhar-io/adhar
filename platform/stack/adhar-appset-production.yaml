@@ -269,6 +269,17 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/rabbitmq/manifests"
+          # Neo4j — the platform's graph database (2026-10-11). It holds the
+          # platform's own topology and the knowledge adhar-ai reasons over, which
+          # is a shape Postgres served with a recursive CTE and Qdrant cannot
+          # express at all: "which applications does this degraded database
+          # reach, through how many hops" is a traversal, not a join or a
+          # nearest-neighbour search.
+          - name: "neo4j"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/neo4j/manifests"
           - name: "mongodb"
             enabled: "true"
             namespace: "adhar-system"

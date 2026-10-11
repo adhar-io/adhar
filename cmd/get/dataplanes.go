@@ -184,7 +184,7 @@ func readyFromConditions(obj map[string]interface{}) string {
 func displayDataPlanesTable(planes []DataPlaneInfo) {
 	logger.Info(fmt.Sprintf(helpers.IconApp+" "+"Found %d data plane(s)", len(planes)))
 
-	t := helpers.NewTable("NAME", "MODE", "PROVIDER", "PROFILE", "APPS", "READY", "AGE").WithBudget(91)
+	t := helpers.NewTable("NAME", "MODE", "PROVIDER", "PROFILE", "APPS", "READY", "AGE").Nested().WithBudget(91)
 	for _, p := range planes {
 		t.Row(p.Name, p.Mode, p.Provider, p.Profile, fmt.Sprintf("%d", p.Apps), p.Ready, p.Age)
 	}

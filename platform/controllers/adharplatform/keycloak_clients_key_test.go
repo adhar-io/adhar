@@ -47,6 +47,30 @@ func TestKeycloakAlwaysCreatesTheArgoCDTokenKey(t *testing.T) {
 		t.Error("the empty-token backfill must check whether the key already exists, or a transient " +
 			"ArgoCD outage would overwrite a working token with an empty one")
 	}
+
+	// And the guarantee must not be conditional on the run mode.
+	//
+	// It originally sat inside `if [ "${MODE}" = "full" ]`, on the assumption
+	// that keycloak-clients can only be born during a full run. It cannot: an
+	// ensure_client patch creates it when absent, and so does adhar-ai's own
+	// registration hook. On 2026-10-11, after the keycloak database was rebuilt,
+	// the five-minute reconcile CronJob (MODE=clients) recreated the Secret with
+	// all ninety client keys and no ARGOCD_SESSION_TOKEN, and being mode-gated
+	// it could never add one — console-oidc stayed unresolvable and adhar-console
+	// stayed Degraded.
+	//
+	// Comments are stripped first, so prose describing the old gate (including
+	// this paragraph) cannot fail the check.
+	for _, line := range strings.Split(fn, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if strings.Contains(line, "MODE") {
+			t.Errorf("ensure_clients_secret branches on the run mode (%q); the ARGOCD_SESSION_TOKEN "+
+				"key guarantee must hold on every run, because the Secret can be created by any of "+
+				"them", strings.TrimSpace(line))
+		}
+	}
 }
 
 // The console declares the key as required, which is what makes the above

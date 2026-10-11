@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -72,9 +73,9 @@ func init() {
 }
 
 func runAuth(cmd *cobra.Command, args []string) error {
-	fmt.Println("⛨ Adhar Platform Authentication & Authorization")
+	helpers.Println("⛨ Adhar Platform Authentication & Authorization")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  login     - Authenticate with the platform (session is persisted)")
 	fmt.Println("  logout    - Logout from the platform")
 	fmt.Println("  whoami    - Show the logged-in identity and groups")
@@ -86,6 +87,6 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	fmt.Println("  provider  - Manage authentication providers")
 	fmt.Println("  session   - Manage user sessions")
 	fmt.Println("")
-	fmt.Println("Use 'adhar auth <command> --help' for more information")
+	helpers.Println("Use 'adhar auth <command> --help' for more information")
 	return nil
 }

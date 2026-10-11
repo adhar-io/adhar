@@ -237,7 +237,7 @@ func runLoop(cmd *cobra.Command, task string, extraSystem []string) error {
 				// failure was a Maven mirror. Say so, in the place the answer is
 				// read, rather than let the summary line carry it quietly.
 				if tb.calls == 0 && len(byName) > 0 {
-					fmt.Printf("%s\n", helpers.WarningStyle.Render(
+					helpers.Printf("%s\n", helpers.WarningStyle.Render(
 						"▲ no tools were called: this answer was not checked against the cluster. "+
 							"Treat it as a suggestion — a larger model (`adhar ai key set`, or the vllm GPU profile) is what makes the agent read before it answers."))
 				}
@@ -283,7 +283,7 @@ func runLoop(cmd *cobra.Command, task string, extraSystem []string) error {
 	fmt.Println(strings.TrimSpace(resp.Choices[0].Message.Content))
 	printProposals(tb)
 	if !agentQuiet {
-		fmt.Printf("\n%s\n\n", helpers.WarningStyle.Render(fmt.Sprintf("stopped at the %d-step budget — rerun with --max-steps or a narrower task", steps)))
+		helpers.Printf("\n%s\n\n", helpers.WarningStyle.Render(fmt.Sprintf("stopped at the %d-step budget — rerun with --max-steps or a narrower task", steps)))
 	}
 	return nil
 }

@@ -76,7 +76,7 @@ func init() {
 
 func runGet(cmd *cobra.Command, args []string) error {
 	// Enhanced display for the get command
-	fmt.Println("▸ Get command - use subcommands to get specific information")
+	helpers.Println("▸ Get command - use subcommands to get specific information")
 	fmt.Println()
 
 	// Create a bordered box for available resource types
@@ -105,6 +105,8 @@ func runGet(cmd *cobra.Command, args []string) error {
 		BorderForeground(lipgloss.Color("#8b5cf6")).
 		Padding(1, 2).
 		Margin(1, 0).
+		// Last: Margin(1, 0) sets a horizontal margin of ZERO.
+		MarginLeft(helpers.BannerGutter).
 		Width(70).
 		Render(resourcesBuilder.String())
 
@@ -135,13 +137,14 @@ func runGet(cmd *cobra.Command, args []string) error {
 		BorderForeground(lipgloss.Color("#06b6d4")).
 		Padding(1, 2).
 		Margin(1, 0).
+		MarginLeft(helpers.BannerGutter).
 		Width(70).
 		Render(examplesBuilder.String())
 
 	fmt.Println(examplesBox)
 
 	fmt.Println()
-	fmt.Println("▸ Tip: Use 'adhar get <resource> --help' for detailed information about each resource type")
+	helpers.Println("▸ Tip: Use 'adhar get <resource> --help' for detailed information about each resource type")
 
 	return nil
 }

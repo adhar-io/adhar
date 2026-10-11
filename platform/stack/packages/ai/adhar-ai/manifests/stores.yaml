@@ -1,0 +1,54 @@
+# Where adhar-ai keeps what it knows.
+#
+# THREE STORES, because the agent asks three different kinds of question and no
+# one engine answers all of them well:
+#
+#   Vector   (Qdrant)    "find me chunks that mean something like this"
+#   Graph    (Neo4j)     "what does this object reach, and through how many hops"
+#   Postgres (CNPG)      the runtime's own state: threads, runs, task queue
+#
+# This replaces pgvector (2026-10-11). The embeddings lived in a `vector` column
+# on the CNPG database because that was the cheapest thing to add, and it meant
+# the platform ran a vector index nobody tuned inside a database sized for
+# transactional state. The platform already offers a real vector store through
+# the control plane, so the embeddings move there and Postgres keeps the job it
+# is actually good at.
+#
+# Postgres STAYS, deliberately. The knowledge GRAPH moves to Neo4j — it was a
+# recursive CTE over node/edge tables, which is the one shape Postgres makes you
+# fight for and Cypher makes trivial — but the runtime's threads, runs and task
+# queue are transactional rows with foreign keys, and neither Qdrant nor Neo4j
+# is a better home for those than the database already running.
+---
+# The vector store. One collection, named for what it holds, sized for the
+# embedding model the gateway serves by default (text-embedding-3-small, 1536).
+# A collection created at the wrong width silently never matches: cosine
+# distance between vectors of different models is noise.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Vector
+metadata:
+  name: adhar-ai-knowledge
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  parameters:
+    displayName: Adhar AI knowledge base
+    # On-disk vectors: the knowledge base is re-derived from the platform on a
+    # schedule and can grow past what is comfortable to hold in RAM on a node
+    # that is also running the platform.
+    storageSize: 20Gi
+    replicas: 1
+    metrics: true
+    collections:
+      - name: adhar_knowledge
+        vectorSize: 1536
+        distance: Cosine
+        onDisk: true
+    organisation: adhar
+    team: platform
+    environment: prod

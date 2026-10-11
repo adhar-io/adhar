@@ -242,25 +242,88 @@ data:
 
     # ---------------------------------------------------------------------
     # 5. OIDC auth method (Keycloak) — enables "Sign in with OIDC" in the
-    #    OpenBao UI. Best-effort: it needs the `openbao` Keycloak client secret
-    #    (openbao-oidc Secret) and the platform CA (openbao-ca Secret), both
-    #    delivered by the ExternalSecrets in oidc.yaml once Keycloak is up. If
-    #    they are not ready yet, skip — this Job re-runs on every sync (Sync
-    #    hook) and will configure OIDC on a later pass. All writes are idempotent.
+    #    OpenBao UI. It needs the `openbao` Keycloak client secret (openbao-oidc
+    #    Secret) and the platform CA (openbao-ca Secret), both delivered by the
+    #    ExternalSecrets in oidc.yaml once Keycloak's wave-20 config Job has
+    #    written keycloak-clients.
+    #
+    #    So it WAITS for them. It used to skip, on the reasoning that "this Job
+    #    re-runs on every sync (Sync hook) and will configure OIDC on a later
+    #    pass" — and that is false once the app converges: Argo CD runs a Sync
+    #    hook only when a sync actually happens, and a Synced, Healthy app never
+    #    syncs again on its own. Live on 2026-10-11 the Job ran 43 minutes
+    #    before the Keycloak client secret existed, logged "OIDC prerequisites
+    #    not ready … skipping for now", completed successfully, and never ran
+    #    again — so the OpenBao UI offered no OIDC method at all and nobody
+    #    could sign in with Keycloak. The prerequisites were present the whole
+    #    time anyone looked.
+    #
+    #    Twenty minutes of patience, the same the library mirrors give
+    #    nexus-credentials. Still non-fatal at the end: failing here would take
+    #    down the ClusterSecretStore every ExternalSecret on the platform reads,
+    #    which is a far worse outcome than a UI without an SSO button — but it
+    #    is logged as an ERROR naming the consequence, not as a shrug.
     # ---------------------------------------------------------------------
-    OIDC_SECRET="$(${KUBE} get secret openbao-oidc -o jsonpath='{.data.OPENBAO_CLIENT_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-    OIDC_CA="$(${KUBE} get secret openbao-ca -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-    if [ -n "${OIDC_SECRET}" ] && [ -n "${OIDC_CA}" ]; then
+    # Only the CLIENT SECRET is required. The platform CA is used ONLY when the
+    # edge serves a certificate the system roots do not trust (a local or
+    # self-signed cluster); requiring it meant a cluster with a publicly trusted
+    # certificate — which needs no custom CA at all — waited for a Secret it
+    # would never use and then gave up on OIDC entirely.
+    read_oidc_prereqs() {
+      OIDC_SECRET="$(${KUBE} get secret openbao-oidc -o jsonpath='{.data.OPENBAO_CLIENT_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+      OIDC_CA="$(${KUBE} get secret openbao-ca -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+      [ -n "${OIDC_SECRET}" ]
+    }
+    OIDC_SECRET=""; OIDC_CA=""
+    if ! read_oidc_prereqs; then
+      log "waiting up to 20m for the OIDC prerequisites (openbao-oidc / openbao-ca)"
+      i=0
+      while [ "$i" -lt 120 ]; do
+        sleep 10
+        i=$((i + 1))
+        if read_oidc_prereqs; then
+          log "OIDC prerequisites ready after $((i * 10))s"
+          break
+        fi
+      done
+    fi
+    if [ -n "${OIDC_SECRET}" ]; then
       log "configuring OIDC auth method (Keycloak)"
       if ! bao auth list -format=json | grep -q '"oidc/"'; then
         bao auth enable oidc || true
       fi
-      bao write auth/oidc/config \
-        oidc_discovery_url="https://keycloak.adhar.localtest.me:8443/realms/adhar" \
-        oidc_client_id="openbao" \
-        oidc_client_secret="${OIDC_SECRET}" \
-        oidc_discovery_ca_pem="${OIDC_CA}" \
-        default_role="default" >/dev/null || log "oidc config write failed (will retry next sync)"
+      # System CAs FIRST, the platform CA only as a fallback.
+      #
+      # `oidc_discovery_ca_pem` does not ADD a trust root, it REPLACES the whole
+      # set — so handing OpenBao the self-signed platform CA makes a publicly
+      # trusted Keycloak fail to verify. Live on 2026-10-11 the edge served a
+      # Let's Encrypt certificate (issuer CN=YR1) that curl validated against
+      # the system roots on the first try, and the pinned platform CA turned
+      # that into `Code: 400 … error checking oidc discovery URL` — an error
+      # that names the URL and says nothing about trust, so it reads like the
+      # realm being unreachable when the realm was answering 200 the whole time.
+      #
+      # Which certificate the edge serves depends on the cluster (cert-manager
+      # issues a real one wherever DNS-01 works, self-signed otherwise), so this
+      # is decided by TRYING rather than configured: no CA, then the CA.
+      oidc_config() {
+        bao write auth/oidc/config \
+          oidc_discovery_url="https://keycloak.adhar.localtest.me:8443/realms/adhar" \
+          oidc_client_id="openbao" \
+          oidc_client_secret="${OIDC_SECRET}" \
+          default_role="default" "$@"
+      }
+      if oidc_config >/dev/null 2>&1; then
+        log "oidc config written (Keycloak verified against the system CAs)"
+      elif [ -n "${OIDC_CA}" ] && oidc_config oidc_discovery_ca_pem="${OIDC_CA}" >/dev/null 2>&1; then
+        log "oidc config written (Keycloak verified against the platform CA)"
+      else
+        log "ERROR: could not write auth/oidc/config — the OpenBao UI will offer NO Keycloak sign-in."
+        log "ERROR: the discovery URL must be fetchable from this pod AND its certificate must verify"
+        log "ERROR: either against the system roots or against the openbao-ca Secret. Re-run by"
+        log "ERROR: syncing the openbao app; the failing call is shown below."
+        oidc_config ${OIDC_CA:+oidc_discovery_ca_pem="${OIDC_CA}"} || true
+      fi
       bao write auth/oidc/role/default \
         bound_audiences="openbao" \
         allowed_redirect_uris="https://openbao.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback,https://openbao.adhar.localtest.me:8443/v1/auth/oidc/oidc/callback" \
@@ -268,7 +331,7 @@ data:
         oidc_scopes="openid,profile,email,groups" \
         groups_claim="groups" \
         token_policies="default" \
-        ttl="1h" >/dev/null || log "oidc role write failed (will retry next sync)"
+        ttl="1h" >/dev/null || log "ERROR: oidc role write failed — the OIDC method exists but has no usable role; re-run by syncing the openbao app"
 
       # Map Keycloak groups -> OpenBao policies so an OIDC login is actually
       # USEFUL. Without this a signed-in user only gets the `default` policy
@@ -294,7 +357,9 @@ data:
         fi
       done
     else
-      log "OIDC prerequisites not ready (openbao-oidc / openbao-ca); skipping for now"
+      log "ERROR: OIDC prerequisites (openbao-oidc / openbao-ca) never arrived — the OpenBao UI will"
+      log "ERROR: offer NO Keycloak sign-in. Nothing retries this: re-run by syncing the openbao app."
+      log "ERROR: openbao-oidc comes from keycloak-clients (OPENBAO_CLIENT_SECRET); check that Secret."
     fi
 
     # ---------------------------------------------------------------------

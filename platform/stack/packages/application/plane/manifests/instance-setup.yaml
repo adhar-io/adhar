@@ -336,11 +336,29 @@ spec:
               if not keycloak_ready:
                   cfg("IS_KEYCLOAK_ENABLED", "0", "KEYCLOAK")
 
-              # ── 3. Fallback: Keycloak-federated login via the platform Gitea ──
+              # ── 3. The RENDERED login: Keycloak-federated, via the platform Gitea ──
+              #
+              # This is not a fallback. It is the only method the sign-in page
+              # can draw.
+              #
+              # The Adhar fork patches the BACKEND only (plane-backend), and the
+              # frontend is the stock image. Its auth bundle knows exactly six
+              # flags — is_email_password_enabled, is_magic_login_enabled,
+              # is_google_enabled, is_github_enabled, is_gitlab_enabled,
+              # is_gitea_enabled — and `keycloak` appears in NONE of the 370
+              # asset bundles it serves. So `is_keycloak_enabled: true` is
+              # invisible to it: with every flag it understands switched off, it
+              # renders "No authentication methods available. Please contact
+              # your administrator to enable authentication for your instance."
+              # That is what a user saw on 2026-10-11 after signing in at the
+              # edge — a locked instance whose API reported an enabled method.
+              #
               # Plane's Gitea OAuth provider talks to a Gitea whose own sign-in
-              # is the Keycloak auth source, so this is also a Keycloak login —
-              # one hop longer. Only offered when the native provider could not
-              # be configured, so the page shows ONE button. Best effort.
+              # IS the Keycloak auth source, so this button is a genuine Keycloak
+              # login, one hop longer, and the label is honest. The native
+              # provider stays enabled alongside it: it works by direct URL
+              # (/auth/keycloak/) and becomes the rendered button the day the
+              # frontend is forked too. Best effort — never fails the run.
               def gitea_bridge():
                   host = (os.environ.get("GITEA_PUBLIC_URL") or "").rstrip("/")
                   token = (os.environ.get("GITEA_ADMIN_TOKEN") or "").strip()
@@ -422,18 +440,17 @@ spec:
                   cfg("ENABLE_GITEA_SYNC", "1", "GITEA")
                   return f"{note} (client_id {app['client_id']}, redirect {redirect})"
 
+              # Always attempted. Gating this on `not keycloak_ready` is what
+              # locked the instance: the native provider succeeded, the bridge
+              # was switched OFF, and the page was left with nothing to draw.
               gitea_ready = False
-              if keycloak_ready:
-                  cfg("IS_GITEA_ENABLED", "0", "GITEA")
-                  print("gitea bridge: not offered — the native Keycloak login is on", flush=True)
-              else:
-                  try:
-                      print(f"gitea bridge: {gitea_bridge()}", flush=True)
-                      gitea_ready = True
-                  except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
-                      detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
-                      print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
-                            "edge SSO + password login still apply", flush=True)
+              try:
+                  print(f"gitea bridge: {gitea_bridge()}", flush=True)
+                  gitea_ready = True
+              except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
+                  detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
+                  print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
+                        "edge SSO + password login still apply", flush=True)
 
               # ── Single sign-on means one sign-in, so hide the password form ──
               #
@@ -445,22 +462,32 @@ spec:
               # Gitea", which is also a Keycloak login) should be the only thing
               # on the page.
               #
-              # Strictly conditional on one of those being on: if neither could
-              # be configured this stays on, because an instance with no enabled
-              # method shows "No authentication methods available" and locks
-              # everyone out.
+              # Strictly conditional on a RENDERED method being on — the native
+              # Keycloak provider does not count, however well it works.
+              #
+              # This used to read `if keycloak_ready or gitea_ready`, and that is
+              # the line that locked everyone out: the native provider came up,
+              # the password form was removed, the Gitea bridge was switched off
+              # a few lines above, and the sign-in page was left with nothing it
+              # could draw. An instance with no RENDERABLE method shows
+              # "No authentication methods available" no matter what
+              # /api/instances/ reports.
               #
               # The god-mode instance admin is unaffected. That sign-in posts to
               # /api/instances/admins/sign-in/, which authenticates InstanceAdmin
               # rows directly; ENABLE_EMAIL_PASSWORD governs the WORKSPACE
               # sign-in page only. `adhar get secrets -p plane` still prints the
               # admin credentials, and they still work at /god-mode/.
-              if keycloak_ready or gitea_ready:
+              if gitea_ready:
                   cfg("ENABLE_EMAIL_PASSWORD", "0", "AUTHENTICATION")
-                  print("auth: email/password disabled — "
-                        f"{'Keycloak' if keycloak_ready else 'Gitea (Keycloak)'} is the only method", flush=True)
+                  print("auth: email/password disabled — Gitea (Keycloak) is the only rendered method"
+                        + (" ; the native Keycloak provider is also on, at /auth/keycloak/"
+                           if keycloak_ready else ""), flush=True)
               else:
-                  print("auth: keeping email/password — neither Keycloak login nor the Gitea bridge is available", flush=True)
+                  cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
+                  print("auth: KEEPING email/password — the Gitea bridge is unavailable, and the native "
+                        "Keycloak provider is not rendered by the stock frontend, so removing the form "
+                        "would leave no way in", flush=True)
 
               # ── 4. platform workspace + console API key ──────────────────────
               slug = os.environ["WORKSPACE_SLUG"]
@@ -512,8 +539,20 @@ spec:
               # ["is_gitea_enabled"]. Drop both keys before reading.
               invalidate_cache_directly(path="/api/instances/", user=False)
               invalidate_cache_directly(path="/api/instances/configurations/", user=False)
-              methods = ["is_email_password_enabled", "is_magic_login_enabled", "is_google_enabled",
-                         "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled", "is_keycloak_enabled"]
+              # The flags the stock FRONTEND can draw a button for. Read out of
+              # the served bundle (assets/auth-base-*.js), not guessed: those six
+              # are the only `is_*_enabled` keys it contains, and `keycloak` is
+              # in none of its 370 asset files.
+              #
+              # is_keycloak_enabled is deliberately NOT in this list. Counting it
+              # is what let this Job print `OK: Plane is set up with auth methods
+              # ['is_keycloak_enabled']` about an instance whose sign-in page
+              # said "No authentication methods available" — the check and the
+              # page disagreed because the check counted a flag the page never
+              # reads. It is reported separately below.
+              rendered_methods = ["is_email_password_enabled", "is_magic_login_enabled", "is_google_enabled",
+                                  "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled"]
+              methods = rendered_methods + ["is_keycloak_enabled"]
               payload = None
               for attempt in range(12):
                   try:
@@ -528,13 +567,17 @@ spec:
                   raise SystemExit("FATAL: could not read /api/instances/ to verify the setup")
               conf = payload.get("config") or {}
               enabled = [m for m in methods if conf.get(m)]
+              drawable = [m for m in rendered_methods if conf.get(m)]
               print("verify: " + json.dumps({"is_setup_done": (payload.get("instance") or {}).get("is_setup_done"),
-                                             "enabled_methods": enabled}), flush=True)
+                                             "enabled_methods": enabled,
+                                             "rendered_by_the_frontend": drawable}), flush=True)
               if not (payload.get("instance") or {}).get("is_setup_done"):
                   failures.append("instance.is_setup_done is still false")
-              if not enabled:
-                  failures.append("no authentication method is enabled — the sign-in page would show "
-                                  "'No authentication methods available'")
+              if not drawable:
+                  failures.append("no authentication method the FRONTEND can render is enabled — the sign-in "
+                                  "page shows 'No authentication methods available' regardless of what "
+                                  f"/api/instances/ reports (it reports {enabled or 'nothing'}); the stock "
+                                  "frontend draws only " + ", ".join(rendered_methods))
               if keycloak_ready and not conf.get("is_keycloak_enabled"):
                   # The rows were written but the API does not report the method:
                   # an upstream (non-fork) image has no KEYCLOAK category at all.
@@ -542,7 +585,8 @@ spec:
                                   "— is plane-api running the adhar-io fork image?")
               if failures:
                   raise SystemExit("FATAL: " + "; ".join(failures))
-              print(f"OK: Plane is set up with auth methods {enabled}", flush=True)
+              print(f"OK: Plane is set up. Sign-in page offers {drawable}; "
+                    f"the API also reports {sorted(set(enabled) - set(drawable)) or 'nothing extra'}", flush=True)
               PY
           resources:
             requests: {cpu: 50m, memory: 256Mi}

@@ -325,10 +325,19 @@ spec:
           startupProbe:
             exec:
               command: [/usr/lib/trino/bin/health-check]
-            initialDelaySeconds: 10
-            periodSeconds: 2
-            timeoutSeconds: 2
-            failureThreshold: 60
+            # 30s + 90 x 10s = a sixteen-minute boot budget, not two.
+            #
+            # The upstream chart's 10 + 60 x 2s gives the JVM 130 seconds, and
+            # on a node whose CPU is already committed Trino was still in
+            # "Loading configuration" three minutes in: every worker was
+            # SIGTERMed (exitCode 143) and CrashLoopBackOff'd nine times, so the
+            # trino Application never went Healthy. timeoutSeconds is 10 rather
+            # than 2 for the same reason — health-check is a process launch, and
+            # a 2-second deadline on a loaded node fails a healthy server.
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 90
             successThreshold: 1
           lifecycle:
             {}
@@ -434,10 +443,19 @@ spec:
           startupProbe:
             exec:
               command: [/usr/lib/trino/bin/health-check]
-            initialDelaySeconds: 10
-            periodSeconds: 2
-            timeoutSeconds: 2
-            failureThreshold: 60
+            # 30s + 90 x 10s = a sixteen-minute boot budget, not two.
+            #
+            # The upstream chart's 10 + 60 x 2s gives the JVM 130 seconds, and
+            # on a node whose CPU is already committed Trino was still in
+            # "Loading configuration" three minutes in: every worker was
+            # SIGTERMed (exitCode 143) and CrashLoopBackOff'd nine times, so the
+            # trino Application never went Healthy. timeoutSeconds is 10 rather
+            # than 2 for the same reason — health-check is a process launch, and
+            # a 2-second deadline on a loaded node fails a healthy server.
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 90
             successThreshold: 1
           lifecycle:
           resources:

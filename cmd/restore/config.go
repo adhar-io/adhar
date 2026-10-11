@@ -60,6 +60,6 @@ func runConfigRestore(cmd *cobra.Command, args []string) error {
 			def,
 		))
 	}
-	fmt.Print(b.String())
+	fmt.Print(helpers.Indent(b.String()))
 	return nil
 }

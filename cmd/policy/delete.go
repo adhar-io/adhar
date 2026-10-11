@@ -61,7 +61,7 @@ func runDeletePolicy(cmd *cobra.Command, args []string) error {
 		if ns == "" {
 			ns = "default"
 		}
-		fmt.Printf("✖ Deleting CompliancePolicy %s (namespace %s)...\n", name, ns)
+		helpers.Printf("✖ Deleting CompliancePolicy %s (namespace %s)...\n", name, ns)
 		if err := dyn.Resource(compliancePolicyGVR).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 			return fmt.Errorf("delete compliance policy %s: %w", name, err)
 		}
@@ -69,7 +69,7 @@ func runDeletePolicy(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("✖ Deleting Kyverno ClusterPolicy %s...\n", name)
+	helpers.Printf("✖ Deleting Kyverno ClusterPolicy %s...\n", name)
 	if err := dyn.Resource(clusterPolicyGVR).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("delete ClusterPolicy %s: %w", name, err)
 	}

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -35,15 +36,15 @@ func init() {
 }
 
 func runBackup(cmd *cobra.Command, args []string) error {
-	fmt.Println("⛨ Adhar Platform Backup Management")
+	helpers.Println("⛨ Adhar Platform Backup Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  create    - Create a new backup")
 	fmt.Println("  list      - List existing backups")
 	fmt.Println("  delete    - Delete a backup")
 	fmt.Println("  verify    - Verify backup integrity")
 	fmt.Println("  schedule  - Manage backup schedules")
 	fmt.Println("")
-	fmt.Println("Use 'adhar backup <command> --help' for more information")
+	helpers.Println("Use 'adhar backup <command> --help' for more information")
 	return nil
 }

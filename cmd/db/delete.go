@@ -46,7 +46,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	ns := dbNamespace()
 
 	if !dbForce {
-		fmt.Printf("Delete database %q in namespace %q? [y/N]: ", name, ns)
+		helpers.Printf("Delete database %q in namespace %q? [y/N]: ", name, ns)
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.ToLower(strings.TrimSpace(answer))

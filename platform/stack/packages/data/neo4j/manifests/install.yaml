@@ -1,0 +1,203 @@
+# Neo4j — the platform's graph database, and the store behind adhar-ai's
+# knowledge graph.
+#
+# WHY A STATEFULSET AND NOT THE NEO4J HELM CHART. The chart is built around
+# Enterprise: clustering, multi-database, licence acceptance. Community has
+# exactly ONE user database and one member, so the chart's whole surface
+# reduces to a StatefulSet, a Service and a PVC — written out here, where the
+# probe timeouts, the security context and the memory settings are visible and
+# are the platform's own rather than a values file's defaults.
+#
+# WHY COMMUNITY. The graph here holds the platform's own topology and the
+# knowledge adhar-ai reasons over — one database, one writer, no tenancy inside
+# it. Enterprise buys clustering and multi-database, neither of which that
+# needs, at a licence cost.
+#
+# Neo4j 5's env vars are its config keys with `.` → `_` and `_` → `__`, which
+# reads badly and is easy to get subtly wrong: `server.memory.heap.max_size`
+# becomes `NEO4J_server_memory_heap_max__size`. A single underscore where two
+# belong is silently IGNORED by the server, so the setting simply does not
+# apply — `TestNeo4jConfigEnvVarsUseTheDoubleUnderscoreForm` pins the ones that
+# matter.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: neo4j
+    adhar.io/component: neo4j
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: neo4j
+  ports:
+    - name: bolt
+      port: 7687
+      targetPort: bolt
+      protocol: TCP
+    - name: http
+      port: 7474
+      targetPort: http
+      protocol: TCP
+    # The Prometheus endpoint, exposed as a port so the ServiceMonitor can
+    # select it BY NAME; a numeric targetPort would not survive a change here.
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: neo4j
+    adhar.io/component: neo4j
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  serviceName: neo4j
+  # One. Community has no clustering, so a second replica would be a second
+  # independent database serving the same Service — writes landing in whichever
+  # pod the kube-proxy chose, and a graph that disagrees with itself.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neo4j
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neo4j
+        adhar.io/component: neo4j
+    spec:
+      # Neo4j refuses to boot with the Service env vars Kubernetes injects.
+      # Every package shares one namespace, so the pod receives a NEO4J_PORT_
+      # 7687_TCP_PORT variable for Neo4j's OWN Service, and Neo4j builds its
+      # configuration from NEO4J_-prefixed env vars by mapping "_" to "." — so
+      # it reads that as the setting "PORT.7687.TCP.PORT" and exits with
+      # `Unrecognized setting. No declared setting with name: PORT.7687.TCP.
+      # PORT` under strict validation. It crash-looped 15 times before this
+      # line existed. Disabling strict validation instead would silently ignore
+      # OUR typos too.
+      enableServiceLinks: false
+      # A node-local volume pins this pod to one node, so at the default
+      # priority of 0 it can be stranded there permanently.
+      priorityClassName: adhar-node-bound
+      securityContext:
+        # The image's own user. fsGroup so the mounted volume is writable
+        # without running as root.
+        runAsUser: 7474
+        runAsGroup: 7474
+        fsGroup: 7474
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: neo4j
+          # Pinned to the 5.x LTS: a graph store is the last thing that should
+          # follow a floating tag across a major version.
+          image: docker.io/library/neo4j:5.26.4-community
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            # NOT read-only: Neo4j writes its config, logs, metrics and
+            # transaction state under /var/lib/neo4j and /logs at startup.
+            readOnlyRootFilesystem: false
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: bolt, containerPort: 7687, protocol: TCP}
+            - {name: http, containerPort: 7474, protocol: TCP}
+          env:
+            # First-boot credential. Honoured only while /data is empty.
+            - name: NEO4J_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_AUTH
+            # Listen on all interfaces: the defaults bind to localhost, which
+            # in a pod means nothing outside the container can connect and the
+            # readiness probe is the first thing to notice.
+            - {name: NEO4J_server_bolt_listen__address, value: "0.0.0.0:7687"}
+            - {name: NEO4J_server_http_listen__address, value: "0.0.0.0:7474"}
+            # The advertised address is what the driver is TOLD to reconnect to
+            # after routing. Left at the pod's hostname it hands clients a name
+            # only the cluster's DNS resolves from inside this namespace.
+            - {name: NEO4J_server_default__advertised__address, value: "neo4j.adhar-system.svc.cluster.local"}
+            # Memory. Neo4j sizes nothing from its cgroup, so an unset heap
+            # means the JVM reads the NODE's memory and is OOM-killed inside a
+            # much smaller container limit.
+            - {name: NEO4J_server_memory_heap_initial__size, value: "512m"}
+            - {name: NEO4J_server_memory_heap_max__size, value: "1g"}
+            - {name: NEO4J_server_memory_pagecache_size, value: "512m"}
+            # No metrics settings. Neo4j's ENTIRE metrics subsystem — Prometheus,
+            # Graphite, CSV and JMX alike — is an Enterprise feature, so the
+            # Community config schema does not declare `server.metrics.*` at all
+            # and strict validation rejects it: `Unrecognized setting. No
+            # declared setting with name: server.metrics.prometheus.endpoint`,
+            # and the process exits before it opens a port. This is the second
+            # config key that stopped Community from booting, after the Service
+            # env var above.
+            #
+            # So there is no scrape target and no ServiceMonitor. Coverage comes
+            # from where it does exist: kube-state-metrics and cAdvisor for the
+            # pod, restarts, memory and CPU, and the readiness probe below for
+            # whether Bolt answers. The same applies to the GraphDatabase
+            # composition, which ships no metrics plumbing for the same reason.
+            # APOC is what makes a graph useful from Cypher alone — path
+            # expansion, JSON loading, batched updates. adhar-ai's ingestion
+            # uses `apoc.periodic.iterate` to write thousands of nodes without
+            # one transaction per node.
+            - {name: NEO4J_PLUGINS, value: '["apoc"]'}
+            - {name: NEO4J_dbms_security_procedures_unrestricted, value: "apoc.*"}
+            - {name: NEO4J_dbms_security_procedures_allowlist, value: "apoc.*"}
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            # The limit must exceed heap + pagecache + JVM overhead: 1g + 512m
+            # plus metaspace and threads. Set it to the sum and the JVM is
+            # killed the first time it touches its own ceiling.
+            limits: {memory: 2560Mi}
+          # Probes measured for a loaded single node. `timeoutSeconds: 1` is
+          # forbidden platform-wide (TestNoProbeShipsAOneSecondTimeout) — a
+          # healthy database answering in 1.1s must not be killed for it.
+          startupProbe:
+            httpGet: {path: /, port: http}
+            # Neo4j's first boot creates the store and installs APOC; 5 minutes
+            # of budget at 5s intervals, so a slow node does not restart it
+            # halfway through initialising its own data directory.
+            periodSeconds: 5
+            failureThreshold: 60
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            # Liveness is deliberately SLACKER than readiness: a database busy
+            # enough to miss a readiness check should be taken out of the
+            # Service, not restarted mid-transaction.
+            httpGet: {path: /, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: logs, mountPath: /logs}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+    - metadata:
+        name: logs
+        # Neo4j writes query and debug logs continuously and fills whatever it
+        # is given; a small dedicated claim keeps them off the data volume.
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

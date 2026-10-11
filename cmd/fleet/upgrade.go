@@ -134,10 +134,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if !assumeYes {
 		// Same prompt shape as `adhar upgrade`: a fleet upgrade should not be a
 		// different interaction from a platform upgrade.
-		fmt.Printf("Upgrade %d plane(s) to %s? [y/N]: ", countPlanes(waves), targetVersion)
+		helpers.Printf("Upgrade %d plane(s) to %s? [y/N]: ", countPlanes(waves), targetVersion)
 		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
-			fmt.Println("Aborted; no plane was changed.")
+			helpers.Println("Aborted; no plane was changed.")
 			return nil
 		}
 	}

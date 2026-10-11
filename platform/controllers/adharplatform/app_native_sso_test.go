@@ -9,6 +9,7 @@ package adharplatform
 // InstanceConfiguration rows that nothing on the platform wrote.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -486,5 +487,363 @@ func TestPostHogUnstickHookRunsAlongsideTheClickHouseInstallation(t *testing.T) 
 	}
 	if !found {
 		t.Fatal("no Job in clickhouse-unstick.yaml")
+	}
+}
+
+// Tenancy created from the console's organisation switcher is an Organisation
+// or Team XR applied by the console's ServiceAccount, so that account must be
+// allowed to write them. Live on 2026-10-11 `kubectl auth can-i patch
+// organisations.platform.adhar.io --as=system:serviceaccount:adhar-system:console`
+// said no — the console could read every XR and provision none.
+func TestConsoleMayWriteTenancyXRs(t *testing.T) {
+	src := readStackFile(t, "core/adhar-console/manifests/install.yaml")
+	dec := yaml.NewDecoder(strings.NewReader(src))
+	for {
+		var doc map[string]any
+		if err := dec.Decode(&doc); err != nil {
+			break
+		}
+		if doc == nil || doc["kind"] != "ClusterRole" || toString(doc["metadata"].(map[string]any)["name"]) != "console-tenant-provisioner" {
+			continue
+		}
+		for _, raw := range toSlice(doc["rules"]) {
+			rule, _ := raw.(map[string]any)
+			groups := toSlice(rule["apiGroups"])
+			if len(groups) != 1 || toString(groups[0]) != "platform.adhar.io" {
+				continue
+			}
+			have := map[string]bool{}
+			for _, r := range toSlice(rule["resources"]) {
+				have[toString(r)] = true
+			}
+			verbs := map[string]bool{}
+			for _, v := range toSlice(rule["verbs"]) {
+				verbs[toString(v)] = true
+			}
+			for _, want := range []string{"organisations", "teams"} {
+				if !have[want] {
+					t.Errorf("console-tenant-provisioner's platform.adhar.io rule lacks %s", want)
+				}
+			}
+			for _, want := range []string{"create", "patch"} {
+				if !verbs[want] {
+					t.Errorf("console-tenant-provisioner cannot %s platform.adhar.io XRs; server-side apply needs it", want)
+				}
+			}
+			return
+		}
+		t.Fatal("console-tenant-provisioner has no rule for platform.adhar.io — the console cannot provision Organisations or Teams")
+	}
+	t.Fatal("no ClusterRole console-tenant-provisioner in the console package")
+}
+
+// Plane's sign-in page can only draw a button for a method its FRONTEND knows,
+// and the Adhar fork patches the backend only.
+//
+// The stock plane-frontend's auth bundle contains exactly six `is_*_enabled`
+// flags — email/password, magic link, Google, GitHub, GitLab, Gitea — and the
+// string `keycloak` appears in none of the 370 asset files it serves. So the
+// fork's `is_keycloak_enabled: true` is invisible to it.
+//
+// On 2026-10-11 three things lined up to lock the instance:
+//
+//  1. the Gitea bridge was switched OFF whenever the native provider came up,
+//  2. the password form was removed when EITHER was up, and
+//  3. the Job's own verification counted `is_keycloak_enabled` as a method.
+//
+// So the run printed `OK: Plane is set up with auth methods
+// ['is_keycloak_enabled']` while the page said "No authentication methods
+// available. Please contact your administrator to enable authentication for
+// your instance." The check and the page disagreed because the check counted a
+// flag the page never reads.
+//
+// Comments are stripped first, so the prose above cannot satisfy any assertion.
+func TestPlaneAlwaysOffersALoginItsFrontendCanRender(t *testing.T) {
+	code := withoutComments(readStackFile(t, "application/plane/manifests/instance-setup.yaml"))
+
+	// 1. The Gitea bridge — the only renderable SSO path — must not be gated on
+	//    the native provider having failed.
+	if strings.Contains(code, `cfg("IS_GITEA_ENABLED", "0", "GITEA")`) {
+		t.Error(`the setup Job disables IS_GITEA_ENABLED; the Gitea bridge is the only SSO method the ` +
+			`stock frontend can draw a button for, so switching it off leaves the sign-in page with ` +
+			`nothing to render however well the native Keycloak provider works`)
+	}
+
+	// 2. The password form may only be removed when a RENDERED method is on.
+	//    `keycloak_ready or gitea_ready` is the exact expression that locked it.
+	if strings.Contains(code, "if keycloak_ready or gitea_ready:") {
+		t.Error(`the password form is removed when the native Keycloak provider alone is up; that ` +
+			`provider is not rendered by the stock frontend, so this leaves no way in. Gate it on a ` +
+			`renderable method (gitea_ready).`)
+	}
+
+	// 3. The "no authentication method" check must be computed from the flags
+	//    the frontend renders, not from every flag the API reports.
+	if !strings.Contains(code, "rendered_methods = [") {
+		t.Fatal("the setup Job no longer distinguishes the methods the frontend renders from the ones " +
+			"the API merely reports; without that split its verification can pass on an instance whose " +
+			"sign-in page has no buttons")
+	}
+	rendered := code[strings.Index(code, "rendered_methods = ["):]
+	rendered = rendered[:strings.Index(rendered, "]")]
+	if strings.Contains(rendered, "is_keycloak_enabled") {
+		t.Error("is_keycloak_enabled is listed among the methods the frontend renders; the stock " +
+			"frontend has no Keycloak support at all, so counting it is what made the Job report " +
+			"success about a locked instance")
+	}
+	for _, want := range []string{"is_email_password_enabled", "is_gitea_enabled"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the rendered-methods list is missing %q, which the frontend bundle does read", want)
+		}
+	}
+	if !strings.Contains(code, "if not drawable:") {
+		t.Error("the setup Job does not fail when no RENDERABLE method is enabled; that check is the " +
+			"one that would have caught the locked sign-in page")
+	}
+}
+
+// A Sync hook does not "re-run on every sync" once the app has converged.
+//
+// OpenBao's bootstrap Job configures the OIDC auth method that puts a Keycloak
+// button in its UI, and that step needs two Secrets the ExternalSecrets in
+// oidc.yaml publish only after Keycloak's wave-20 config Job has written
+// keycloak-clients. The Job used to SKIP the step when they were absent, on the
+// reasoning — written in its own comment — that Argo CD would run the hook again
+// later. It does not: a hook runs when a sync happens, and a Synced, Healthy app
+// never syncs on its own.
+//
+// Live on 2026-10-11: the Job ran 43 minutes before the client secret existed,
+// logged "OIDC prerequisites not ready … skipping for now", exited 0, and never
+// ran again. The OpenBao UI offered no Keycloak sign-in, while both Secrets sat
+// in the namespace looking perfectly healthy.
+//
+// So it must WAIT. Comments are stripped first, so the prose above cannot
+// satisfy the assertions.
+func TestOpenBaoBootstrapWaitsForItsOIDCPrerequisites(t *testing.T) {
+	code := withoutComments(readStackFile(t, "security/openbao/manifests/bootstrap.yaml"))
+
+	if strings.Contains(code, "skipping for now") {
+		t.Error("the OpenBao bootstrap still skips the OIDC step when its prerequisites are missing; " +
+			"nothing re-runs the hook once the app is Synced and Healthy, so the UI is left with no " +
+			"Keycloak sign-in permanently")
+	}
+	if !strings.Contains(code, "read_oidc_prereqs") {
+		t.Fatal("the OpenBao bootstrap no longer re-reads the OIDC prerequisites in a loop; without a " +
+			"wait it races Keycloak's wave-20 config Job and loses on every fresh cluster")
+	}
+	// The wait must actually loop and sleep, not just read twice.
+	if !strings.Contains(code, "while [ \"$i\" -lt 120 ]") || !strings.Contains(code, "sleep 10") {
+		t.Error("the OIDC prerequisite wait is not a bounded retry loop; it must keep checking, because " +
+			"the Secrets arrive tens of minutes after this Job starts")
+	}
+	// And when it genuinely gives up, it must say so loudly rather than exit 0 quietly.
+	if !strings.Contains(code, "ERROR: OIDC prerequisites") {
+		t.Error("the OpenBao bootstrap gives up on OIDC without logging an error; a silent success is " +
+			"what hid this for the life of the cluster")
+	}
+}
+
+// oidc_discovery_ca_pem REPLACES OpenBao's trust roots, it does not add to them.
+//
+// So pinning the self-signed platform CA breaks OIDC on every cluster whose edge
+// serves a publicly trusted certificate — which is every cluster where
+// cert-manager's DNS-01 solver works. Live on 2026-10-11 Keycloak presented a
+// Let's Encrypt certificate that verified against the system roots on the first
+// attempt, and the pinned CA turned the config write into
+// `Code: 400 … error checking oidc discovery URL` — wording that points at the
+// URL and never mentions trust, so it reads as an unreachable realm while the
+// realm was answering 200.
+//
+// Which certificate the edge serves is a per-cluster fact, so the Job decides it
+// by trying: system roots first, the platform CA as a fallback.
+func TestOpenBaoOIDCPrefersTheSystemTrustRoots(t *testing.T) {
+	code := withoutComments(readStackFile(t, "security/openbao/manifests/bootstrap.yaml"))
+
+	// The platform CA must not be a precondition for attempting OIDC at all.
+	if strings.Contains(code, `[ -n "${OIDC_SECRET}" ] && [ -n "${OIDC_CA}" ]`) {
+		t.Error("the OpenBao bootstrap treats the platform CA as required for OIDC; a cluster with a " +
+			"publicly trusted Keycloak certificate needs no custom CA, and requiring it skips OIDC " +
+			"entirely on exactly those clusters")
+	}
+	// There must be an attempt that passes no CA at all.
+	if !strings.Contains(code, "oidc_config()") || !strings.Contains(code, "if oidc_config >") {
+		t.Fatal("the OpenBao bootstrap does not attempt the OIDC config write against the system trust " +
+			"roots before pinning the platform CA; pinning replaces the trust set, so a public " +
+			"certificate then fails to verify")
+	}
+	// And the platform CA must still be tried, for self-signed clusters.
+	if !strings.Contains(code, `oidc_config oidc_discovery_ca_pem="${OIDC_CA}"`) {
+		t.Error("the platform CA fallback is gone; a local or self-signed cluster has no publicly " +
+			"trusted certificate and needs it")
+	}
+	// A failed write must not claim something will retry it.
+	if strings.Contains(code, "will retry next sync") {
+		t.Error(`the OIDC config write still logs "will retry next sync"; nothing re-runs a Sync hook ` +
+			`on a converged app, so that message sends the reader looking for a retry that never comes`)
+	}
+}
+
+// RustFS's console login is server-side configuration, and three of its details
+// fail silently when wrong.
+//
+// The console ships OIDC support but draws a button only for what
+// /rustfs/admin/v3/oidc/providers returns, and an unconfigured or
+// failed-discovery RustFS returns an empty list — so the user who has already
+// signed in to Keycloak at the edge is met by an Access Key / Secret Key form,
+// with nothing in the API to say why (live 2026-10-11).
+//
+// The three silent ones:
+//
+//   - the IdP callback is on the ADMIN path and the provider id is a PATH
+//     SEGMENT. Dropping `/default` lands on the SigV4-signed admin surface,
+//     where the unsigned browser redirect is refused with
+//     `AccessDenied: Signature is required`.
+//   - RustFS 1.0 refuses outbound calls to private addresses as an SSRF guard,
+//     so the in-cluster Keycloak origin must be allow-listed or start-up
+//     discovery is blocked and the provider dropped.
+//   - the redirect URI the server sends must equal the one Keycloak has
+//     registered, or Keycloak answers `Invalid parameter: redirect_uri`.
+func TestRustFSConsoleOffersTheKeycloakLogin(t *testing.T) {
+	install := readStackFile(t, "data/rustfs/manifests/install.yaml")
+	env, _ := containerEnv(t, install, "Deployment", "rustfs")
+
+	const wantCallback = "https://rustfs.adhar.localtest.me:8443/rustfs/admin/v3/oidc/callback/default"
+	if got := env["RUSTFS_IDENTITY_OPENID_REDIRECT_URI"]; got != wantCallback {
+		t.Errorf("RUSTFS_IDENTITY_OPENID_REDIRECT_URI = %q, want %q: the callback lives on the admin "+
+			"path and the provider id is a required path segment", got, wantCallback)
+	}
+	if strings.Contains(env["RUSTFS_IDENTITY_OPENID_REDIRECT_URI"], "/rustfs/console/") {
+		t.Error("the IdP callback points into /rustfs/console/; that is where RustFS bounces the browser " +
+			"AFTERWARDS with the STS credentials, not where the IdP must redirect")
+	}
+	if got := env["RUSTFS_IDENTITY_OPENID_REDIRECT_URI_DYNAMIC"]; got != "off" {
+		t.Errorf("RUSTFS_IDENTITY_OPENID_REDIRECT_URI_DYNAMIC = %q, want \"off\": behind the Gateway and "+
+			"the edge proxy the request headers are not the browser's URL", got)
+	}
+
+	// The discovery URL must be reachable under the egress policy, which means
+	// its origin has to appear in the allow-list.
+	cfgURL := env["RUSTFS_IDENTITY_OPENID_CONFIG_URL"]
+	if cfgURL == "" {
+		t.Fatal("RUSTFS_IDENTITY_OPENID_CONFIG_URL is unset; an empty config URL makes RustFS skip the " +
+			"provider entirely and the console shows only the access-key form")
+	}
+	origin := cfgURL
+	if i := strings.Index(strings.TrimPrefix(origin, "http://"), "/"); i >= 0 {
+		origin = "http://" + strings.TrimPrefix(origin, "http://")[:i]
+	}
+	if allow := env["RUSTFS_OUTBOUND_ALLOW_ORIGINS"]; !strings.Contains(allow, origin) {
+		t.Errorf("RUSTFS_OUTBOUND_ALLOW_ORIGINS = %q does not cover the discovery origin %q; RustFS 1.0 "+
+			"blocks outbound calls to private addresses, so discovery fails at start-up and the "+
+			"provider is dropped silently", allow, origin)
+	}
+	// A public issuer is required alongside the in-cluster discovery URL: the ID
+	// token's `iss` is the public one.
+	if iss := env["RUSTFS_IDENTITY_OPENID_ISSUER"]; !strings.HasPrefix(iss, "https://keycloak.") {
+		t.Errorf("RUSTFS_IDENTITY_OPENID_ISSUER = %q; it must be the PUBLIC issuer, which is what the "+
+			"ID token carries, while CONFIG_URL stays the in-cluster backchannel", iss)
+	}
+
+	// Keycloak must have registered exactly the callback the server sends.
+	oidc := readStackFile(t, "data/rustfs/manifests/oidc.yaml")
+	if !strings.Contains(oidc, wantCallback) {
+		t.Errorf("the rustfs-app Keycloak client does not register %q; Keycloak refuses an unregistered "+
+			"redirect_uri outright", wantCallback)
+	}
+	// Its own client, not the edge proxy's, so each receives a token minted for itself.
+	if !strings.Contains(oidc, `"clientId": "rustfs-app"`) {
+		t.Error("the RustFS console login does not use its own Keycloak client; sharing the edge proxy's " +
+			"client shares an audience, which is the failure the platform already hit with Argo CD")
+	}
+
+	// The group claim is matched against policy names verbatim, so the policies
+	// the activation Job writes must be named after the platform's groups.
+	code := withoutComments(oidc)
+	for _, g := range []string{"platform-admin", "platform-developer", "platform-viewer"} {
+		if !strings.Contains(code, "admin_policy "+g) {
+			t.Errorf("no RustFS policy named %q is created; RustFS matches each value of the groups "+
+				"claim against a policy name verbatim, so a login whose groups resolve to no policy "+
+				"is refused", g)
+		}
+	}
+	if got := env["RUSTFS_IDENTITY_OPENID_GROUPS_CLAIM"]; got != "groups" {
+		t.Errorf("RUSTFS_IDENTITY_OPENID_GROUPS_CLAIM = %q; the realm emits bare group names on "+
+			"`groups`, which is what the OpenBao mapping also reads", got)
+	}
+}
+
+// A RustFS policy statement may name actions from only ONE family.
+//
+// `{"Action":["admin:*","s3:*"]}` in a single statement is rejected outright —
+// `InvalidRequest: 'Action' contains mixed action families in the same
+// statement` — and that loses the WHOLE policy. Seen live on 2026-10-11: the
+// platform-admin policy was refused while the other two were written, and the
+// activation Job logged a warning and carried on, so the only sign was one
+// group whose members could not sign in at all (a login whose claims resolve to
+// no policy is refused). Split per family instead; the admin family also takes
+// no S3 ARN.
+func TestRustFSPolicyStatementsKeepOneActionFamily(t *testing.T) {
+	code := withoutComments(readStackFile(t, "data/rustfs/manifests/oidc.yaml"))
+
+	checked := 0
+	for _, line := range strings.Split(code, "\n") {
+		line = strings.TrimSpace(line)
+		name, rest, ok := strings.Cut(line, "=")
+		if !ok || !strings.HasSuffix(name, "_DOC") {
+			continue
+		}
+		raw := strings.Trim(strings.TrimSpace(rest), "'")
+		var doc struct {
+			Statement []struct {
+				Action   []string `json:"Action"`
+				Resource []string `json:"Resource"`
+			} `json:"Statement"`
+		}
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Errorf("%s is not valid JSON (%v); RustFS rejects the policy and the groups that name it "+
+				"can no longer sign in", name, err)
+			continue
+		}
+		if len(doc.Statement) == 0 {
+			t.Errorf("%s has no statements", name)
+			continue
+		}
+		checked++
+		for i, st := range doc.Statement {
+			families := map[string]bool{}
+			for _, a := range st.Action {
+				fam, _, _ := strings.Cut(a, ":")
+				families[fam] = true
+			}
+			if len(families) > 1 {
+				t.Errorf("%s statement %d mixes action families %v; RustFS refuses the whole policy "+
+					"with \"'Action' contains mixed action families in the same statement\", and a "+
+					"group that resolves to no policy cannot sign in", name, i, keys(families))
+			}
+			// admin, sts and kms are not resource-scoped, and RustFS wants the
+			// key ABSENT rather than wildcarded: "Resource":["*"] on an admin
+			// statement is rejected with
+			// `invalid resource, type: 'unknown', pattern: '*'`, which again
+			// loses the whole policy. (The upstream README shows an S3 ARN on an
+			// admin statement; the parser does not accept it.)
+			for fam := range families {
+				switch fam {
+				case "admin", "sts", "kms":
+					if len(st.Resource) > 0 {
+						t.Errorf("%s statement %d is a %q statement carrying Resource %v; that family "+
+							"is not resource-scoped and RustFS rejects the policy outright",
+							name, i, fam, st.Resource)
+					}
+				default:
+					if len(st.Resource) == 0 {
+						t.Errorf("%s statement %d grants %q actions with no Resource", name, i, fam)
+					}
+				}
+			}
+		}
+	}
+	if checked < 3 {
+		t.Fatalf("found only %d policy documents; this guard is no longer checking the policies the "+
+			"group claim resolves to", checked)
 	}
 }

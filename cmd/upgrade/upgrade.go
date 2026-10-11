@@ -163,7 +163,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading AdharPlatform %s/%s (is a platform running on the current context? pass --name for non-default platforms): %w", globals.AdharSystemNamespace, platformName, err)
 		}
 		platform = list.Items[0]
-		fmt.Printf("▸ Using AdharPlatform %q (the only platform on this cluster)\n", platform.Name)
+		helpers.Printf("▸ Using AdharPlatform %q (the only platform on this cluster)\n", platform.Name)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "adhar-upgrade-")
@@ -275,7 +275,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// ------------------------------------------------------------------
 	// Phase 2: stack diff.
 	// ------------------------------------------------------------------
-	fmt.Println("▸ Comparing local stack against in-cluster GitOps repositories…")
+	helpers.Println("▸ Comparing local stack against in-cluster GitOps repositories…")
 	summary, hasDiff, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, stackDir, tmpDir)
 	if err != nil {
 		return fmt.Errorf("computing stack diff: %w", err)
@@ -286,13 +286,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	if !hasDiff {
-		fmt.Println("● Stack already in sync; re-applying ApplicationSet for completeness")
+		helpers.Println("● Stack already in sync; re-applying ApplicationSet for completeness")
 	} else if !assumeYes {
 		fmt.Print("Push these changes and sync? [y/N]: ")
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
-			fmt.Println("Aborted; nothing pushed.")
+			helpers.Println("Aborted; nothing pushed.")
 			return nil
 		}
 	}
@@ -300,7 +300,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// ------------------------------------------------------------------
 	// Phase 3: push stack + re-apply ApplicationSet + refresh.
 	// ------------------------------------------------------------------
-	fmt.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
+	helpers.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
 	if err := reconciler.ApplyPlatformStack(ctx, &platform); err != nil {
 		return fmt.Errorf("applying platform stack: %w", err)
 	}
@@ -316,11 +316,11 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// hide it. Counted live rather than guessed, and silent if the count cannot
 	// be read: a failed count must not look like a failed upgrade.
 	if n := countApplications(ctx, kubeClient, platform.Namespace); n > 0 {
-		fmt.Printf("● Upgrade applied — ArgoCD is re-comparing all %d applications.\n", n)
+		helpers.Printf("● Upgrade applied — ArgoCD is re-comparing all %d applications.\n", n)
 		fmt.Println("   A push to the shared packages repo flips every app OutOfSync, so expect")
 		fmt.Println("   ~10 min of churn even for a one-file change. That is normal, not a fault.")
 	} else {
-		fmt.Println("● Upgrade applied — ArgoCD is syncing the stack.")
+		helpers.Println("● Upgrade applied — ArgoCD is syncing the stack.")
 	}
 	fmt.Println("   Track it with `adhar get status`; a wave-stuck app needs its operation")
 	fmt.Println("   terminated before it will pick up the new revision.")

@@ -47,6 +47,7 @@ func RenderRunHeader(rows [][2]string) string {
 		BorderForeground(taglineGray).
 		Padding(0, 2).
 		MarginTop(1).
+		MarginLeft(BannerGutter).
 		Width(runHeaderWidth).
 		Render(b.String())
 }

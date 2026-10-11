@@ -118,7 +118,7 @@ func runListPolicies(cmd *cobra.Command, args []string) error {
 			b.WriteString(fmt.Sprintf("%-16s %-32s %-14s %-10s %-8s %-8s\n",
 				r.Kind, truncate(r.Name, 30), truncate(ns, 12), r.Action, r.Ready, r.Age))
 		}
-		fmt.Print(b.String())
+		fmt.Print(helpers.Indent(b.String()))
 	}
 
 	for _, n := range notes {

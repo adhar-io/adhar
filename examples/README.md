@@ -53,6 +53,8 @@ configures nothing.
 | `vector.yaml` | Vector | A Qdrant vector store with generated API keys and declared collections |
 | `messaging.yaml` | Messaging | A Strimzi Kafka cluster and its topics |
 | `cache.yaml` | Cache | A team Valkey through the valkey-operator, with its exporter and ServiceMonitor |
+| `nosql-database.yaml` | NoSqlDatabase | A MongoDB replica set through the MongoDB Community Operator, with metrics, alerts, a PDB and nightly dumps |
+| `graph-database.yaml` | GraphDatabase | A Neo4j graph (Community serves one database, so this is a server of its own) with APOC, metrics and a nightly Cypher export |
 | `bucket.yaml` | Bucket | An S3 bucket on RustFS, with versioning, quota and a lifecycle rule |
 | `table.yaml` | Table | An Iceberg table in the lakehouse, created with Trino DDL |
 | `topic.yaml` | Topic | A Kafka topic on the SHARED Strimzi cluster |

@@ -12,7 +12,7 @@
 # database round trip per origin rather than a full re-embedding bill. That is
 # what makes a schedule affordable at all.
 #
-# Kept OUT of the AI data plane on purpose: this talks to pgvector and to the LLM
+# Kept OUT of the AI data plane on purpose: this talks to the vector store and to the LLM
 # gateway, not to any MCP server, so it needs no Keycloak token.
 apiVersion: batch/v1
 kind: CronJob

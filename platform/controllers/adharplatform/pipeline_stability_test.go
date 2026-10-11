@@ -250,3 +250,130 @@ func TestBuildpacksBuildRoutesPlatformScopesToTheClusterRegistry(t *testing.T) {
 		t.Error("always-auth must not be set: it would leak the registry credential to npmjs")
 	}
 }
+
+// The Maven half of the same dead pointer, which fails for two reasons at once.
+//
+// `app-ci` for a scaffolded Java service failed with
+//
+//	[FATAL] Non-resolvable parent POM ... com.adhar.kit:adhar-kit-parent:pom:0.1.0
+//	(absent): Could not transfer artifact from/to maven-default-http-blocker
+//	(http://0.0.0.0/): Blocked mirror for repositories: [gitea-adhar (http://...)]
+//
+// and neither cause was the artifact being missing:
+//
+//   - the template's settings.xml resolves from GITEA's Maven registry, which
+//     holds nothing (an empty package list, a 404 for the POM), while the
+//     release pipeline deploys to NEXUS, where that exact POM answers 200;
+//   - Maven 3.8 ships a global mirror, `maven-default-http-blocker`, matching
+//     `external:http:*`. Every in-cluster registry is plain HTTP on a cluster-DNS
+//     name, so Maven refuses to contact it no matter where the URL points.
+//
+// Both have to be handled, and the settings path has to be overridden AFTER the
+// project.toml translation or a template naming its own settings.xml wins and
+// the build is back on the dead pointer.
+func TestBuildpacksBuildRoutesMavenAtTheClusterRegistry(t *testing.T) {
+	path := filepath.Join(stackRoot(t), "packages", "application", "adhar-supply-chain",
+		"manifests", "60-build-pipelines.yaml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	s := string(b)
+
+	// Sourced from the same Secret the release pipeline publishes with, so the
+	// two cannot drift apart.
+	if !strings.Contains(s, "key: maven-public") {
+		t.Error("the build does not read the Nexus maven-public URL from nexus-credentials; without it " +
+			"a Java app keeps resolving from whatever its template hardcoded")
+	}
+	// Maven's default HTTP blocker must be lifted by redeclaring its id.
+	if !strings.Contains(s, "<id>maven-default-http-blocker</id>") {
+		t.Error("the generated Maven settings do not redeclare maven-default-http-blocker; Maven 3.8+ " +
+			"blocks every plain-HTTP repository, which is every in-cluster registry, so the build " +
+			"cannot reach Nexus however correct the URL is")
+	}
+	if !strings.Contains(s, "<mirrorOf>dummy</mirrorOf>") {
+		t.Error("the blocker override must use a mirrorOf that matches no repository; anything else " +
+			"either leaves the blocker active or redirects real traffic to http://0.0.0.0/")
+	}
+	// And the platform mirror must actually be a mirror of everything.
+	if !strings.Contains(s, "<id>nexus-public</id><mirrorOf>*</mirrorOf>") {
+		t.Error("the platform Maven mirror is not a mirrorOf *; the app's own repository declarations " +
+			"would then still be consulted, and the one the templates declare is the empty Gitea registry")
+	}
+	// A cluster with no nexus package must still build.
+	if !strings.Contains(s, `if [ -z "${NEXUS_MAVEN_PUBLIC:-}" ]; then`) {
+		t.Error("the Maven injection must no-op when nexus-credentials is absent rather than fail the build")
+	}
+	// It must not clobber an application's own settings.xml.
+	if strings.Contains(s, `> "${APPDIR_MVN}/settings.xml"`) {
+		t.Error("the platform writes over the application's settings.xml; write a separate file and " +
+			"point the buildpack at it, so nothing the application wrote is destroyed")
+	}
+
+	// ORDERING: the settings-path override has to come after the project.toml
+	// translation, or a BP_MAVEN_SETTINGS_PATH the repository declared wins and
+	// Maven reads the file with the dead pointer in it.
+	translate := strings.Index(s, "translating $PROJ into /platform/env")
+	override := strings.Index(s, "/platform/env/BP_MAVEN_SETTINGS_PATH")
+	if translate < 0 || override < 0 {
+		t.Fatalf("cannot locate both the project.toml translation (%d) and the settings-path override (%d); "+
+			"this guard is no longer checking their order", translate, override)
+	}
+	if override < translate {
+		t.Error("BP_MAVEN_SETTINGS_PATH is written BEFORE project.toml is translated, so a template that " +
+			"names its own settings.xml overwrites the platform's pointer and the build resolves from " +
+			"the empty Gitea registry again")
+	}
+}
+
+// Resolving the parent POM is only half of it: the platform's Java libraries
+// require a newer JDK than the buildpack's default.
+//
+// adhar-kit's parent POM enforces RequireJavaVersion [25,), and the buildpack
+// provisions 21, so once the registry was fixed the very next failure was
+//
+//	Rule 1: RequireJavaVersion failed with message: Detected JDK version
+//	21.0.12 (JAVA_HOME=/layers/paketo-buildpacks_bellsoft-liberica/jdk) is not
+//	in the allowed range [25,).
+//
+// The library release pipeline already builds on temurin-25 for this reason; an
+// application consuming those libraries needs the same floor.
+//
+// Unlike the registry, the JVM version IS legitimately the application's
+// choice, so this must be a DEFAULT and not an override — a repository that
+// declared BP_JVM_VERSION keeps it.
+func TestBuildpacksBuildDefaultsTheJvmForMavenProjects(t *testing.T) {
+	path := filepath.Join(stackRoot(t), "packages", "application", "adhar-supply-chain",
+		"manifests", "60-build-pipelines.yaml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "name: defaultJvmVersion") {
+		t.Fatal("buildpacks-build has no defaultJvmVersion parameter; a Maven build then gets the " +
+			"buildpack's JDK 21 and fails maven-enforcer against adhar-kit's [25,) floor")
+	}
+	if !strings.Contains(s, "/platform/env/BP_JVM_VERSION") {
+		t.Error("the build never writes BP_JVM_VERSION, so the buildpack default stands and every " +
+			"service built on the platform's Java libraries fails in maven-enforcer")
+	}
+	// It must only fill in when the application said nothing.
+	if !strings.Contains(s, "if [ -s /platform/env/BP_JVM_VERSION ]; then") {
+		t.Error("BP_JVM_VERSION is written unconditionally; the JVM version is the application's choice, " +
+			"so a project.toml that declares one must win")
+	}
+	// And it must be decided after the translation, or it cannot see what the
+	// application declared.
+	translate := strings.Index(s, "translating $PROJ into /platform/env")
+	jvm := strings.Index(s, "/platform/env/BP_JVM_VERSION")
+	if translate < 0 || jvm < 0 {
+		t.Fatalf("cannot locate both the translation (%d) and the JVM default (%d)", translate, jvm)
+	}
+	if jvm < translate {
+		t.Error("BP_JVM_VERSION is decided BEFORE project.toml is translated, so the check for an " +
+			"application-declared value always sees nothing and the platform default always wins")
+	}
+}

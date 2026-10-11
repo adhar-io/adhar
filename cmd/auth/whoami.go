@@ -38,19 +38,19 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	if name == "" {
 		name = s.Username
 	}
-	fmt.Printf("▸ User:    %s\n", name)
+	helpers.Printf("▸ User:    %s\n", name)
 	if claims.Email != "" {
-		fmt.Printf("▸ Email:   %s\n", claims.Email)
+		helpers.Printf("▸ Email:   %s\n", claims.Email)
 	}
 	if len(claims.Groups) > 0 {
-		fmt.Printf("▸ Groups:  %s\n", strings.Join(claims.Groups, ", "))
+		helpers.Printf("▸ Groups:  %s\n", strings.Join(claims.Groups, ", "))
 	} else {
 		fmt.Println(helpers.CreateMuted("▸ Groups:  (none in token — is the client's groups scope configured?)"))
 	}
 	if len(claims.RealmAccess.Roles) > 0 {
-		fmt.Printf("▸ Roles:   %s\n", strings.Join(claims.RealmAccess.Roles, ", "))
+		helpers.Printf("▸ Roles:   %s\n", strings.Join(claims.RealmAccess.Roles, ", "))
 	}
-	fmt.Printf("⎔ Issuer:  %s\n", claims.Issuer)
-	fmt.Printf("⏰ Token:   valid for %s\n", time.Until(s.AccessExpiry).Round(time.Second))
+	helpers.Printf("⎔ Issuer:  %s\n", claims.Issuer)
+	helpers.Printf("⏰ Token:   valid for %s\n", time.Until(s.AccessExpiry).Round(time.Second))
 	return nil
 }

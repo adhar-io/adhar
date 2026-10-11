@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The panel guards an irreversible, billable operation, so it has to say WHAT,
@@ -76,5 +79,40 @@ func TestScopeLineNamesEnvironments(t *testing.T) {
 				t.Errorf("scopeLine() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// The panel that says "cannot be undone" must line up with the banner above it
+// and the prompt below it.
+//
+// Asserted on the RENDERED output, not on the source: the style chain sets
+// `MarginTop(1)` and a fixed width, and a `Margin(…)` placed after the left
+// margin silently overwrites it — a text search for `MarginLeft` cannot tell
+// the difference, and this is the panel where being two columns out is most
+// visible (reported on `adhar down`, 2026-10-11).
+func TestTheTeardownConfirmationStartsAtTheGutter(t *testing.T) {
+	plan := teardownPlan{
+		ConfigFile:      "config.azure.yaml",
+		Environments:    []string{"dev", "prod", "test"},
+		AllEnvironments: true,
+		Clusters:        []string{"adhar", "dev", "prod", "test"},
+		Target:          "azure · centralindia",
+		Deletes:         "virtual machines, managed disks, load balancer",
+		CloudResources:  true,
+	}
+	gutter := strings.Repeat(" ", helpers.BannerGutter)
+	for i, line := range strings.Split(ansi.Strip(RenderTeardownConfirmation(plan)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, gutter) {
+			t.Errorf("line %d of the teardown panel starts at column 0, not %d: %q",
+				i, helpers.BannerGutter, line)
+		}
+		// And not FURTHER right than the gutter: a panel indented twice is as
+		// misaligned as one indented not at all.
+		if strings.HasPrefix(line, gutter+" ") && strings.HasPrefix(strings.TrimSpace(line), "╭") {
+			t.Errorf("the panel's top border is indented past the gutter: %q", line)
+		}
 	}
 }

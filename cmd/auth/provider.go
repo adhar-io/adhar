@@ -51,9 +51,9 @@ func init() {
 }
 
 func runProvider(cmd *cobra.Command, args []string) error {
-	fmt.Println("⇄ Adhar Platform Authentication Provider Management")
+	helpers.Println("⇄ Adhar Platform Authentication Provider Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  list       - List all providers")
 	fmt.Println("  get        - Get provider details")
 	fmt.Println("  configure  - Configure a provider")
@@ -61,7 +61,7 @@ func runProvider(cmd *cobra.Command, args []string) error {
 	fmt.Println("  enable     - Enable a provider")
 	fmt.Println("  disable    - Disable a provider")
 	fmt.Println("")
-	fmt.Println("Use 'adhar auth provider <command> --help' for more information")
+	helpers.Println("Use 'adhar auth provider <command> --help' for more information")
 	return nil
 }
 
@@ -75,7 +75,7 @@ var (
 )
 
 func runListProviders(cmd *cobra.Command, args []string) error {
-	fmt.Println("▸ Identity Providers (Keycloak)")
+	helpers.Println("▸ Identity Providers (Keycloak)")
 	kc := settings()
 
 	var providers []kcIdentityProvider
@@ -137,11 +137,11 @@ func runGetProvider(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(p)
 	}
 
-	fmt.Printf("⇄ Alias:        %v\n", p["alias"])
-	fmt.Printf("▣ Type:         %v\n", p["providerId"])
-	fmt.Printf("● Enabled:      %v\n", p["enabled"])
+	helpers.Printf("⇄ Alias:        %v\n", p["alias"])
+	helpers.Printf("▣ Type:         %v\n", p["providerId"])
+	helpers.Printf("● Enabled:      %v\n", p["enabled"])
 	if dn, ok := p["displayName"].(string); ok && dn != "" {
-		fmt.Printf("▸ Display name: %s\n", dn)
+		helpers.Printf("▸ Display name: %s\n", dn)
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func runConfigureProvider(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("⎔ Configuring %s identity provider %q in realm %s\n", providerType, providerName, kc.Realm)
+	helpers.Printf("⎔ Configuring %s identity provider %q in realm %s\n", providerType, providerName, kc.Realm)
 
 	config := map[string]string{}
 	if clientID != "" {
@@ -235,7 +235,7 @@ func runTestProvider(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("▸ Testing identity provider %q in realm %s\n", providerID, kc.Realm)
+	helpers.Printf("▸ Testing identity provider %q in realm %s\n", providerID, kc.Realm)
 
 	// Keycloak has no synchronous "test connection" API for identity providers,
 	// so we validate what we can: the instance exists, is enabled, and carries

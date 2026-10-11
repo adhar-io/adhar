@@ -28,7 +28,6 @@ import (
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -537,26 +536,22 @@ func displaySecretEntries(entries []SecretEntry, label string) error {
 	// every table in the CLI, sized by display width. Nothing is truncated here
 	// — a credential you cannot read in full is useless — so the table is given
 	// a budget wide enough for its own content.
-	t := helpers.NewTable("SERVICE", "USERNAME", "PASSWORD")
+	// Nested (the panel supplies the gutter) and Unbounded: a credential you
+	// cannot read in full is useless, so nothing here is ever shortened.
+	//
+	// This used to compute its own budget wide enough to avoid truncation, which
+	// meant the caller had to know the table's internal arithmetic — and when
+	// the table began charging the gutter to that budget, every password lost
+	// its last two characters to an ellipsis. `Unbounded()` states the intent
+	// instead of restating the sum.
+	t := helpers.NewTable("SERVICE", "USERNAME", "PASSWORD").Nested().Unbounded()
 	for _, e := range entries {
 		t.Row(helpers.IconSecurity+" "+e.Service, orDash(e.Username), orDash(e.Password))
 	}
-	t.WithBudget(credentialsBudget(entries))
 
 	fmt.Println(helpers.BorderStyle.Width(t.Width() + 4).Render(t.Render()))
 	fmt.Println()
 	return nil
-}
-
-// credentialsBudget is wide enough that no credential is ever shortened.
-func credentialsBudget(entries []SecretEntry) int {
-	svc, user, pass := lipgloss.Width("SERVICE"), lipgloss.Width("USERNAME"), lipgloss.Width("PASSWORD")
-	for _, e := range entries {
-		svc = max(svc, lipgloss.Width(helpers.IconSecurity+" "+e.Service))
-		user = max(user, lipgloss.Width(orDash(e.Username)))
-		pass = max(pass, lipgloss.Width(orDash(e.Password)))
-	}
-	return svc + user + pass + 4
 }
 
 // Package-provided credentials: a package ships its admin credentials as a

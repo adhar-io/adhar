@@ -65,6 +65,39 @@ spec:
       default.replication.factor: 1
       min.insync.replicas: 1
       auto.create.topics.enable: true
+    # Strimzi's default probes kill a healthy broker during KRaft startup.
+    #
+    # The defaults are initialDelay 15s and failureThreshold 3 at a 10s period,
+    # so liveness SIGKILLs the container 45 seconds in. A Kafka JVM formatting
+    # its KRaft storage on a node whose CPU is already committed takes minutes:
+    # the broker died at exitCode 137 seventy-eight seconds after start, twelve
+    # times in a row, with its last log line "Making sure the Kraft storage is
+    # formatted". The Kafka CR then reported `NotReady FatalProblem: Pod is
+    # unschedulable or is not starting`, which reads like a capacity problem and
+    # is really a probe deadline — the pod was scheduled and running the whole
+    # time. Strimzi exposes no startupProbe, so liveness has to carry the boot
+    # budget itself.
+    livenessProbe:
+      initialDelaySeconds: 180
+      periodSeconds: 15
+      timeoutSeconds: 10
+      failureThreshold: 20
+    readinessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 10
+      failureThreshold: 60
+    # A broker with no CPU request gets no CFS share, so it loses the race
+    # against its own probe on exactly the loaded nodes where boot is slowest.
+    # No memory limit: the heap below is the real bound, and a limit here would
+    # turn a slow GC into an OOMKill.
+    resources:
+      requests:
+        cpu: 300m
+        memory: 1Gi
+    jvmOptions:
+      -Xms: 512m
+      -Xmx: 1g
   entityOperator:
     topicOperator: {}
     userOperator: {}

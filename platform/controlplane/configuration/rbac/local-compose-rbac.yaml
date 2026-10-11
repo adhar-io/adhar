@@ -12,8 +12,13 @@ metadata:
   labels:
     rbac.crossplane.io/aggregate-to-crossplane: "true"
 rules:
+  # The local database composition emits the CNPG Cluster, its ScheduledBackup
+  # and any extra logical databases. `scheduledbackups` and `databases` were
+  # missing while every platform database still declared its own: a composition
+  # that emits a kind Crossplane may not manage fails at apply with a 403 the XR
+  # reports only as a generic sync error.
   - apiGroups: ["postgresql.cnpg.io"]
-    resources: ["clusters", "clusters/status"]
+    resources: ["clusters", "clusters/status", "scheduledbackups", "databases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
@@ -25,8 +30,10 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["roles", "rolebindings"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "bind"]
+  # `cronjobs` as well as `jobs`: the NoSqlDatabase composition owns its own
+  # nightly backup, because the MongoDB Community operator has none.
   - apiGroups: ["batch"]
-    resources: ["jobs"]
+    resources: ["jobs", "cronjobs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
@@ -85,6 +92,20 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["generators.external-secrets.io"]
     resources: ["passwords"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # GraphDatabase (compositions/graph) composes a Neo4j StatefulSet with its
+  # Service, credential, ServiceMonitor and nightly dump. Neo4j Community serves
+  # ONE user database, so a graph per team is a server per team rather than a
+  # database inside a shared one — hence a StatefulSet here and not a Job
+  # against an existing instance. `statefulsets` and `services` are already
+  # granted above; this rule exists for the record of which composition needs
+  # them, since a reader otherwise has to guess which of the two it is.
+  #
+  # NoSqlDatabase (compositions/nosql) composes a MongoDBCommunity replica set,
+  # run by the MongoDB Community Operator in data/mongodb. The CRD's plural is
+  # `mongodbcommunity` — singular-looking, and not what a guess produces.
+  - apiGroups: ["mongodbcommunity.mongodb.com"]
+    resources: ["mongodbcommunity", "mongodbcommunity/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # The Qdrant chart (provider-helm, same ClusterRole) emits a
   # PodDisruptionBudget when a Vector asks for more than one replica.

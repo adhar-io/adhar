@@ -5,19 +5,19 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: valkey-admin
 category: data
-version: "0.9.1"
-description: "Browser admin console for the platform's Valkey caches (Redis Commander): browse, edit and flush keys, run commands and watch server stats, behind Keycloak SSO."
+version: "1.2.0"
+description: "Valkey Admin — the Valkey project's own observability and management UI for the platform's caches: inspect and edit keys, run commands and watch server stats, behind Keycloak SSO."
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
   firstParty: true
-license: MIT
-homepage: https://github.com/joeferner/redis-commander
+license: Apache-2.0
+homepage: https://valkey-admin.valkey.io
 adharCompatibility:
   minVersion: "0.1.0"
   notes: >-
     No published Helm chart; manifests/valkey-admin.yaml is hand-written against
-    the ghcr.io/joeferner/redis-commander image and documented by values.yaml.
+    the ghcr.io/valkey-io/valkey-admin image and documented by values.yaml.
 dependencies:
   # The thing it administers: the shared `adhar-cache` Valkey the UI is
   # pre-wired to. Without it the UI starts and shows a connection error.

@@ -13,7 +13,7 @@
 # every browse/edit/CLI feature works unchanged against it.
 
 image:
-  repository: ghcr.io/joeferner/redis-commander
+  repository: ghcr.io/valkey-io/valkey-admin
   # Pinned to the upstream release tag (ghcr publishes 0.9.1, 0.9, 0 and
   # latest; the full tag is the only one that does not move).
   tag: "0.9.1"
@@ -33,7 +33,7 @@ connections:
 # in front) is the only way in; the Service is ClusterIP and the HTTPRoute
 # points at the proxy, never at the app.
 server:
-  port: 8081
+  port: 8080
   # Read-only off: this is an ADMIN console — platform operators use it to
   # inspect and flush keys. Flip READ_ONLY to "true" to make it a viewer.
   readOnly: false

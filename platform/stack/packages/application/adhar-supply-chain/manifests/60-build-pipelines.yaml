@@ -87,6 +87,11 @@ spec:
     # npm scopes that resolve from the PLATFORM's registry rather than npmjs.
     # Space-separated. See the .npmrc injection in the prepare step below.
     - {name: platformNpmScopes, type: string, default: "@adhar-ui @adhar-kit"}
+    # The JDK a Maven build gets when the repository does not ask for one. 25
+    # because adhar-kit's parent POM enforces RequireJavaVersion [25,) and the
+    # buildpack's own default is 21; a parameter rather than a literal so a
+    # cluster whose libraries move can follow without editing the Task script.
+    - {name: defaultJvmVersion, type: string, default: "25"}
   workspaces:
     - {name: source}
   steps:
@@ -108,6 +113,7 @@ spec:
       # builds, it just does not rewrite .npmrc (the step says so in the log).
       env:
         - {name: NEXUS_NPM, valueFrom: {secretKeyRef: {name: nexus-credentials, key: npm-hosted, optional: true}}}
+        - {name: NEXUS_MAVEN_PUBLIC, valueFrom: {secretKeyRef: {name: nexus-credentials, key: maven-public, optional: true}}}
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username, optional: true}}}
         - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password, optional: true}}}
       script: |
@@ -172,6 +178,86 @@ spec:
         fi
         # ─────────────────────────────────────────────────────────────────────
 
+        # ── Platform Maven registry ──────────────────────────────────────────
+        # The same bug as the npm block above, in the other toolchain, and it
+        # fails twice over.
+        #
+        # WHY THIS EXISTS. `app-ci` for a scaffolded Java service failed with
+        #   [FATAL] Non-resolvable parent POM for io.adhar.service:test-service:
+        #   1.0.0: com.adhar.kit:adhar-kit-parent:pom:0.1.0 (absent): Could not
+        #   transfer artifact ... from/to maven-default-http-blocker
+        #   (http://0.0.0.0/): Blocked mirror for repositories: [gitea-adhar
+        #   (http://gitea-http...:3000/api/packages/adhar/maven)]
+        # and there were two independent reasons it could never have worked:
+        #
+        #  1. WRONG HOST. The template's settings.xml resolves from GITEA's
+        #     Maven registry, which holds nothing — `GET /api/v1/packages/adhar
+        #     ?type=maven` returns an empty list and the parent POM is a 404 —
+        #     while the library release pipeline deploys to NEXUS
+        #     (`altDeploymentRepository=nexus::default::maven-hosted`, where
+        #     adhar-kit-parent 0.1.0 answers 200 in both maven-hosted and
+        #     maven-public). The npm half of this template had the identical
+        #     dead pointer, and the comment above records it.
+        #  2. BLOCKED SCHEME. Maven 3.8 ships a mirror in its GLOBAL settings,
+        #     `maven-default-http-blocker`, matching `external:http:*`. Every
+        #     in-cluster registry is plain HTTP on a cluster-DNS name, which is
+        #     "external" by that rule, so Maven refuses to contact it whatever
+        #     the URL points at. The documented way to lift it is to redeclare
+        #     the SAME id with a harmless mirrorOf, which is what the file below
+        #     does — not to turn the repository into HTTPS, which would hairpin
+        #     through the Gateway for every dependency.
+        #
+        # Injected here rather than fixed in the template for the reasons the
+        # npm block gives: the template lives in a separate mirrored repo,
+        # templates already in the wild cannot be retro-fixed, and a registry
+        # hostname is a property of the PLATFORM, not of anybody's application.
+        #
+        # Written to settings-adhar.xml, NOT over the app's settings.xml, so
+        # nothing an application wrote is destroyed — but BP_MAVEN_SETTINGS_PATH
+        # is then pointed at ours, because the platform's own registry must win
+        # over a template's stale pointer. The log says when that has displaced
+        # an app-provided file, so it is auditable rather than silent.
+        APPDIR_MVN="$(workspaces.source.path)/$(params.subdirectory)"
+        APPDIR_MVN="${APPDIR_MVN%/}"
+        PLATFORM_SETTINGS=""
+        if [ -z "${NEXUS_MAVEN_PUBLIC:-}" ]; then
+          echo "no nexus-credentials secret — leaving Maven settings untouched"
+        elif [ ! -f "${APPDIR_MVN}/pom.xml" ]; then
+          echo "no pom.xml in ${APPDIR_MVN} — no Maven registry to configure"
+        else
+          PLATFORM_SETTINGS=settings-adhar.xml
+          SETTINGS="${APPDIR_MVN}/${PLATFORM_SETTINGS}"
+          # XML-escape the credentials: a generated password containing & or <
+          # produces a settings file Maven cannot parse, and the error names the
+          # line, not the cause.
+          xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+          MVN_USER_X=$(xml_escape "${NEXUS_USER:-}")
+          MVN_PASS_X=$(xml_escape "${NEXUS_PASS:-}")
+          {
+            printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">'
+            printf '%s\n' '  <servers>'
+            printf '    <server><id>nexus-public</id><username>%s</username><password>%s</password></server>\n' \
+              "$MVN_USER_X" "$MVN_PASS_X"
+            printf '%s\n' '  </servers>'
+            printf '%s\n' '  <mirrors>'
+            # Redeclaring this id neutralises Maven 3.8+'s default HTTP blocker;
+            # mirrorOf "dummy" matches no repository, so it only displaces the
+            # global entry.
+            printf '%s\n' '    <mirror><id>maven-default-http-blocker</id><mirrorOf>dummy</mirrorOf><name>disabled by the platform</name><url>http://0.0.0.0/</url></mirror>'
+            printf '    <mirror><id>nexus-public</id><mirrorOf>*</mirrorOf><name>Adhar platform Maven</name><url>%s</url></mirror>\n' \
+              "$NEXUS_MAVEN_PUBLIC"
+            printf '%s\n' '  </mirrors>'
+            printf '%s\n' '</settings>'
+          } > "$SETTINGS"
+          chown 1001:1000 "$SETTINGS"
+          if [ -f "${APPDIR_MVN}/settings.xml" ]; then
+            echo "  NOTE: the repository ships its own settings.xml; the platform's ${PLATFORM_SETTINGS} takes precedence"
+          fi
+          echo "  * -> ${NEXUS_MAVEN_PUBLIC}"
+          echo "platform Maven registry configured in ${SETTINGS}"
+        fi
+        # ─────────────────────────────────────────────────────────────────────
+
         # project.toml is a CNB *platform* descriptor: `pack` reads its
         # [[build.env]] table and hands the values to the lifecycle. This task
         # invokes /cnb/lifecycle/creator directly, which never reads it, so every
@@ -213,6 +299,40 @@ spec:
           done < "$PROJ"
         else
           echo "no project.toml at $PROJ — building with buildpack defaults"
+        fi
+
+        # Point the Maven buildpack at the platform's settings file, AFTER the
+        # translation above so it wins over a BP_MAVEN_SETTINGS_PATH the
+        # repository declared. A template that names its own settings.xml is
+        # naming the file with the dead Gitea pointer in it; the platform's
+        # registry is not the application's choice to make.
+        if [ -n "${PLATFORM_SETTINGS:-}" ]; then
+          printf '%s' "$PLATFORM_SETTINGS" > /platform/env/BP_MAVEN_SETTINGS_PATH
+          echo "  BP_MAVEN_SETTINGS_PATH=$PLATFORM_SETTINGS (platform override)"
+
+          # The platform's own Java libraries require JDK 25, and the buildpack
+          # defaults to 21.
+          #
+          # adhar-kit's parent POM enforces RequireJavaVersion [25,), so a
+          # service built on the buildpack default fails in maven-enforcer long
+          # after resolving its parent:
+          #   Rule 1: RequireJavaVersion failed with message: Detected JDK
+          #   version 21.0.12 (JAVA_HOME=/layers/paketo-buildpacks_bellsoft-
+          #   liberica/jdk) is not in the allowed range [25,).
+          # The release pipeline already builds the libraries on
+          # maven:3.9-eclipse-temurin-25 for exactly this reason; an application
+          # consuming them needs the same floor.
+          #
+          # A DEFAULT, not an override: unlike the registry, the JVM version is
+          # legitimately the application's choice, so an app that declared
+          # BP_JVM_VERSION in its project.toml keeps it. Only a repository that
+          # said nothing is moved off the buildpack default.
+          if [ -s /platform/env/BP_JVM_VERSION ]; then
+            echo "  BP_JVM_VERSION=$(cat /platform/env/BP_JVM_VERSION) (declared by the application)"
+          else
+            printf '%s' "$(params.defaultJvmVersion)" > /platform/env/BP_JVM_VERSION
+            echo "  BP_JVM_VERSION=$(params.defaultJvmVersion) (platform default for Maven builds)"
+          fi
         fi
         # The lifecycle runs as 1001:1000 and only reads these files.
         chown -R 1001:1000 /platform

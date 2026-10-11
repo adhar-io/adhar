@@ -1,0 +1,69 @@
+# A team's own Neo4j graph.
+#
+# WHY THIS IS A WHOLE SERVER AND NOT A DATABASE IN A SHARED ONE. Neo4j
+# Community serves exactly ONE user database — multi-database is an Enterprise
+# feature — so unlike a `Topic` or a `Cache`, a graph cannot be carved out of
+# the platform's shared instance. Asking for this starts a JVM with its own
+# heap and page cache and two volumes. It is not a cheap object; ask for it when
+# the questions you have are traversals.
+#
+# WHEN A GRAPH IS THE RIGHT ANSWER. "Which applications does this degraded
+# database reach, and through how many hops" is a traversal. A relational join
+# answers it only to a fixed depth, and a vector search does not answer it at
+# all. If your questions are "find me things like this", you want a `Vector`.
+apiVersion: platform.adhar.io/v1alpha1
+kind: GraphDatabase
+metadata:
+  name: payments-graph
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: graph
+        engine: neo4j
+  parameters:
+    displayName: Payments graph
+    engine: neo4j
+    # Pinned to the 5.x LTS. A major upgrade rewrites the store format and does
+    # not roll back, so this is not a field to leave floating.
+    version: "5.26.4"
+    storageSize: 20Gi
+    logStorageSize: 2Gi
+    # Empty means the cluster default, which here is node-local: the graph does
+    # not survive its node, and durability is the nightly dump below. Name
+    # adhar-block for a real disk.
+    storageClass: ""
+    # Neo4j sizes NOTHING from its cgroup. Leave the heap unset and the JVM
+    # reads the node's memory and is OOM-killed inside a much smaller limit.
+    heapSize: 1g
+    # The page cache holds the graph itself, which is what makes traversals
+    # fast. Ideally larger than the store. It lives OUTSIDE the heap.
+    pageCacheSize: 512m
+    # A Kubernetes quantity, not a JVM size string: `1g` is valid for the heap
+    # and rejected here. And the limit must EXCEED heap + page cache, or the
+    # JVM is killed the first time it touches its own ceiling.
+    memoryRequest: 1Gi
+    memoryLimit: 2560Mi
+    cpu: 200m
+    # APOC is what makes a graph usable from Cypher alone, and ingestion that
+    # writes thousands of nodes needs `apoc.periodic.iterate` to avoid one
+    # transaction per node. The other plugins are large first-boot downloads.
+    plugins:
+      - apoc
+    metrics: true
+    backup:
+      # Community has no ONLINE backup (`neo4j-admin backup` is Enterprise), so
+      # this exports the graph as Cypher through APOC — slower than a store
+      # dump, and safe to run against a serving database.
+      enabled: true
+      schedule: "45 1 * * *"
+      retentionDays: 14
+      bucket: adhar-backups
+    organisation: acme
+    team: payments
+    project: checkout
+    environment: prod
+    # A graph holds data. Orphan keeps the StatefulSet and its volumes when this
+    # object is deleted.
+    deletionPolicy: Orphan

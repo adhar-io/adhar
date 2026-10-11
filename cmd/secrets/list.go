@@ -91,7 +91,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			b.WriteString(fmt.Sprintf("%-40s %-30s %-8s %s\n",
 				truncate(r.Name, 38), truncate(r.Type, 28), r.Age, strings.Join(r.Keys, ", ")))
 		}
-		fmt.Print(b.String())
+		fmt.Print(helpers.Indent(b.String()))
 	}
 
 	if listExternal {
@@ -135,7 +135,7 @@ func listExternalSecrets(ctx context.Context, ns string) error {
 		b.WriteString(fmt.Sprintf("%-40s %-12s %-14s %s\n",
 			truncate(es.GetName(), 38), ready, truncate(store, 12), status))
 	}
-	fmt.Print(b.String())
+	fmt.Print(helpers.Indent(b.String()))
 	return nil
 }
 

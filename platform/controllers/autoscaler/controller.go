@@ -52,6 +52,7 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/events"
 )
 
 // tickInterval is the steady-state cadence. Node capacity decisions are slow
@@ -95,6 +96,11 @@ type Reconciler struct {
 	PlatformName string
 	// DrainTimeout bounds the eviction phase of a scale-down (default 5m).
 	DrainTimeout time.Duration
+
+	// Events publishes node-lifecycle events onto the platform bus. Nil is a
+	// working configuration: publishing is advisory, and a scale decision must
+	// never depend on a broker.
+	Events *events.Publisher
 
 	// Scaler defaults to the real cloud-provider implementation; tests
 	// substitute a fake.

@@ -56,6 +56,9 @@ func RenderReadyPanel(access, hints [][2]string) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(mix(brandBlue, brandPurple, 0.5).hex())).
 		Padding(0, 2).
+		// The lines around this box are written with a literal two-space
+		// prefix; the box needs the same margin or it hangs to their left.
+		MarginLeft(BannerGutter).
 		Render(strings.Join(rows, "\n"))
 
 	var b strings.Builder

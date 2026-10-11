@@ -111,7 +111,7 @@ func runPolicyStatus(cmd *cobra.Command, args []string) error {
 			total.Error += s.Error
 			total.Skip += s.Skip
 		}
-		fmt.Print(b.String())
+		fmt.Print(helpers.Indent(b.String()))
 	}
 
 	overall := "● Compliant"

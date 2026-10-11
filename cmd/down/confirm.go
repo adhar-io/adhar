@@ -182,6 +182,9 @@ func RenderTeardownConfirmation(plan teardownPlan) string {
 		BorderForeground(helpers.WarningColor).
 		Padding(1, 2).
 		MarginTop(1).
+		// The banner above this panel sits at the gutter; without this the
+		// warning that matters most started two columns to its left.
+		MarginLeft(helpers.BannerGutter).
 		Width(panelWidth).
 		Render(strings.TrimRight(b.String(), "\n"))
 }

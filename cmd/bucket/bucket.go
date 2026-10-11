@@ -155,7 +155,7 @@ var listCmd = &cobra.Command{
 			return err
 		}
 		if len(items) == 0 {
-			fmt.Printf("No buckets in namespace %s\n", ns())
+			helpers.Printf("No buckets in namespace %s\n", ns())
 			return nil
 		}
 		switch outputFormat {
@@ -183,7 +183,7 @@ var statusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s %s\n", helpers.IconStorage, b.Name)
+		helpers.Printf("%s %s\n", helpers.IconStorage, b.Name)
 		fmt.Printf("  namespace   %s\n", ns())
 		fmt.Printf("  ready       %s\n", readyLabel(b.Ready))
 		fmt.Printf("  size        %s\n", dash(b.Size))
@@ -223,7 +223,7 @@ To read it deliberately, ask for the one key you need:
 		if b.SecretName == "" {
 			return fmt.Errorf("bucket %s has not published a credentials Secret yet (ready: %v)", b.Name, b.Ready)
 		}
-		fmt.Printf("%s %s\n", helpers.IconSecurity, b.SecretName)
+		helpers.Printf("%s %s\n", helpers.IconSecurity, b.SecretName)
 		fmt.Printf("  namespace  %s\n", ns())
 		if len(b.SecretKeys) > 0 {
 			fmt.Printf("  keys       %s\n", strings.Join(b.SecretKeys, ", "))

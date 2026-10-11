@@ -1,0 +1,718 @@
+---
+# NoSqlDatabase → a MongoDBCommunity replica set, run by the MongoDB Community
+# Operator the platform already installs (data/mongodb).
+#
+# Composed DIRECTLY, not through provider-kubernetes: every object here is
+# namespaced and lives beside the XR, so a provider-kubernetes Object would add
+# a second controller, a ClusterProviderConfig and a safe-start wake-up to the
+# path for nothing. (A cluster-scoped object would still need one — see
+# CONVENTIONS.md.)
+#
+# What it emits, and why each piece is not optional:
+#
+#   * the app user's password, minted ONCE by an ESO Password generator
+#     (`refreshPolicy: CreatedOnce`, `refreshInterval: "0"`). A rotated password
+#     under a running replica set locks the application out of a database whose
+#     SCRAM credentials were derived from the old one;
+#   * a separate generator for the metrics user, for the reason the opensearch
+#     composition gives: one ExternalSecret per credential, or touching the
+#     scrape user rotates the application's password;
+#   * the replica set itself, with SCRAM-SHA-256, an anti-affinity rule that
+#     spreads members over nodes, and the node-bound priority class every
+#     stateful platform workload uses;
+#   * a PodDisruptionBudget whenever there is more than one member: without it a
+#     drain is free to evict the majority at once, which is an election failure,
+#     not a failover;
+#   * a PodMonitor (kube-prometheus selects all of them cluster-wide, so the
+#     database appears in Grafana with no per-instance wiring) and a
+#     PrometheusRule;
+#   * an ingress NetworkPolicy, because a database that anything in the cluster
+#     can reach is not isolated by having a password;
+#   * a nightly mongodump into the platform object store. The Community
+#     operator has NO backup — Ops Manager is the Enterprise answer — so this
+#     composition owns it, as two steps in one pod: dump to an emptyDir, then
+#     upload. The S3 keys are projected from the platform's root-creds through
+#     the `platform` ClusterSecretStore so the Job works in any namespace and no
+#     credential is ever written into a manifest.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: nosql-mongodb
+  labels:
+    feature: nosql
+    provider: kubernetes
+    engine: mongodb
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: NoSqlDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $version := dig "version" "8.0.4" $p -}}
+            {{- $image := dig "image" "" $p -}}
+            {{- $members := int (dig "members" 3 $p) -}}
+            {{- $db := dig "database" "app" $p -}}
+            {{- $user := dig "username" "app" $p -}}
+            {{- $disk := dig "storageSize" "20Gi" $p -}}
+            {{- $logDisk := dig "logStorageSize" "2Gi" $p -}}
+            {{- $sc := dig "storageClass" "" $p -}}
+            {{- $cpu := dig "resources" "cpu" "100m" $p -}}
+            {{- $mem := dig "resources" "memory" "512Mi" $p -}}
+            {{- $memLimit := dig "resources" "memoryLimit" "1Gi" $p -}}
+            {{- $cache := dig "cacheSizeGB" "" $p -}}
+            {{- $mongodConfig := dig "mongodConfig" dict $p -}}
+            {{- $metrics := dig "metrics" "enabled" true $p -}}
+            {{- $metricsPort := int (dig "metrics" "port" 9216 $p) -}}
+            {{- $alerts := dig "alerts" "enabled" true $p -}}
+            {{- $backup := dig "backup" "enabled" true $p -}}
+            {{- $schedule := dig "backup" "schedule" "15 1 * * *" $p -}}
+            {{- $keepDays := int (dig "backup" "retentionDays" 14 $p) -}}
+            {{- $bucket := dig "backup" "bucket" "adhar-backups" $p -}}
+            {{- $dumpImage := dig "backup" "dumpImage" "mongo:8.0" $p -}}
+            {{- $uploadImage := dig "backup" "uploadImage" "amazon/aws-cli:2.22.35" $p -}}
+            {{- $netpol := dig "networkPolicy" "enabled" true $p -}}
+            {{- $allowedNs := dig "networkPolicy" "allowedNamespaces" (list "adhar-system") $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $project := dig "project" "" $p -}}
+            {{- $env := dig "environment" "dev" $p -}}
+            {{- $policy := dig "deletionPolicy" "Delete" $p -}}
+            {{- /* The operator names the headless Service <name>-svc and labels every
+                   member pod app=<name>-svc; both are the contract this file relies on. */ -}}
+            {{- $svc := printf "%s-svc" $name -}}
+            {{- $host := printf "%s.%s.svc.cluster.local" $svc $ns -}}
+            {{- $connSecret := printf "%s-conn" $name -}}
+            {{- $labels := dict
+                  "app.kubernetes.io/managed-by" "crossplane"
+                  "app.kubernetes.io/component" "nosql-database"
+                  "platform.adhar.io/nosqldatabase" $name
+                  "adhar.io/organisation" $org
+                  "adhar.io/team" $team
+                  "adhar.io/environment" $env
+                  "adhar.io/plane" "workload" -}}
+            {{- if $project }}{{ $_ := set $labels "adhar.io/project" $project }}{{ end -}}
+            {{- /* Status is read back from the MongoDBCommunity the operator updates. */ -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $mdbStatus := dig "replicaset" "resource" "status" dict $observed -}}
+            {{- $mdbPhase := dig "phase" "" $mdbStatus -}}
+            {{- $mdbMembers := int (dig "currentMongoDBMembers" 0 $mdbStatus) -}}
+            {{- $mdbVersion := dig "version" "" $mdbStatus -}}
+            {{- $phase := "Pending" -}}
+            {{- $message := "Waiting for the MongoDB operator to pick up the replica set" -}}
+            {{- $ready := false -}}
+            {{- if eq $mdbPhase "Running" -}}
+              {{- if lt $mdbMembers $members -}}
+                {{- $phase = "Degraded" -}}
+                {{- $message = printf "%d of %d members have joined" $mdbMembers $members -}}
+              {{- else -}}
+                {{- $phase = "Available" -}}{{- $ready = true -}}
+                {{- $message = printf "MongoDB %s serving %d member(s)" (default $version $mdbVersion) $mdbMembers -}}
+              {{- end -}}
+            {{- else if eq $mdbPhase "Failed" -}}
+              {{- $phase = "Failed" -}}
+              {{- $message = default "The operator reports the replica set as failed" (dig "message" "" $mdbStatus) -}}
+            {{- else if $mdbPhase -}}
+              {{- $phase = "Creating" -}}{{- $message = printf "Replica set phase: %s" $mdbPhase -}}
+            {{- end -}}
+            ---
+            # The application user's password. Minted once; see the header.
+            apiVersion: generators.external-secrets.io/v1alpha1
+            kind: Password
+            metadata:
+              name: {{ $name }}-app
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: app-password-generator
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              length: 32
+              digits: 5
+              symbols: 0
+              # No symbols: this password is substituted into a mongodb:// URI,
+              # where an unescaped @ or / changes which host and database the
+              # client connects to.
+              noUpper: false
+              allowRepeat: true
+            ---
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $name }}-app-password
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: app-password
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              refreshPolicy: CreatedOnce
+              refreshInterval: "0"
+              target:
+                name: {{ $name }}-app-password
+                template:
+                  engineVersion: v2
+                  metadata:
+                    labels:
+                      adhar.io/cli-secret: "true"
+                      platform.adhar.io/nosqldatabase: {{ $name | quote }}
+                  data:
+                    # `password` is the key the operator's users[].passwordSecretRef reads.
+                    password: {{ `{{ .PASSWORD }}` | quote }}
+                    username: {{ $user | quote }}
+              dataFrom:
+                - sourceRef:
+                    generatorRef:
+                      apiVersion: generators.external-secrets.io/v1alpha1
+                      kind: Password
+                      name: {{ $name }}-app
+                  rewrite:
+                    - transform:
+                        template: PASSWORD
+            {{- if $metrics }}
+            ---
+            apiVersion: generators.external-secrets.io/v1alpha1
+            kind: Password
+            metadata:
+              name: {{ $name }}-metrics
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: metrics-password-generator
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              length: 32
+              digits: 5
+              symbols: 0
+              noUpper: false
+              allowRepeat: true
+            ---
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $name }}-metrics
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: metrics-password
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              refreshPolicy: CreatedOnce
+              refreshInterval: "0"
+              target:
+                name: {{ $name }}-metrics
+                template:
+                  engineVersion: v2
+                  data:
+                    # The PodMonitor's basicAuth reads both keys from this Secret.
+                    username: {{ printf "%s-metrics" $name | quote }}
+                    password: {{ `{{ .PASSWORD }}` | quote }}
+              dataFrom:
+                - sourceRef:
+                    generatorRef:
+                      apiVersion: generators.external-secrets.io/v1alpha1
+                      kind: Password
+                      name: {{ $name }}-metrics
+                  rewrite:
+                    - transform:
+                        template: PASSWORD
+            {{- end }}
+            ---
+            apiVersion: mongodbcommunity.mongodb.com/v1
+            kind: MongoDBCommunity
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: replicaset
+                argocd.argoproj.io/sync-options: ServerSideApply=true
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              type: ReplicaSet
+              members: {{ $members }}
+              version: {{ $version | quote }}
+              {{- if $metrics }}
+              prometheus:
+                username: {{ printf "%s-metrics" $name | quote }}
+                passwordSecretRef:
+                  name: {{ $name }}-metrics
+                  key: password
+                port: {{ $metricsPort }}
+                metricsPath: /metrics
+              {{- end }}
+              security:
+                authentication:
+                  modes: ["SCRAM-SHA-256"]
+              users:
+                - name: {{ $user | quote }}
+                  db: {{ $db | quote }}
+                  passwordSecretRef:
+                    name: {{ $name }}-app-password
+                    key: password
+                  roles:
+                    # readWrite on its OWN database and nothing else. A user with
+                    # dbOwner can drop the database it is meant to use.
+                    - name: readWrite
+                      db: {{ $db | quote }}
+                  # Named explicitly: the operator derives SCRAM credentials into
+                  # this Secret, and a generated name changes if the user is renamed.
+                  scramCredentialsSecretName: {{ printf "%s-scram" $name | quote }}
+                  connectionStringSecretName: {{ $connSecret | quote }}
+              {{- if or $cache $mongodConfig }}
+              additionalMongodConfig:
+                {{- if $cache }}
+                # mongod sizes the WiredTiger cache from the NODE's memory unless it
+                # is told otherwise, and then gets OOM-killed inside its own limit.
+                storage.wiredTiger.engineConfig.cacheSizeGB: {{ $cache }}
+                {{- end }}
+                {{- range $k, $v := $mongodConfig }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+              {{- end }}
+              statefulSet:
+                spec:
+                  template:
+                    spec:
+                      priorityClassName: adhar-node-bound
+                      {{- if gt $members 1 }}
+                      affinity:
+                        podAntiAffinity:
+                          # Preferred, not required: on a small cluster (or a
+                          # single-node Kind) a required rule leaves every member
+                          # after the first Pending forever.
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            - weight: 100
+                              podAffinityTerm:
+                                topologyKey: kubernetes.io/hostname
+                                labelSelector:
+                                  matchLabels:
+                                    app: {{ $svc | quote }}
+                      {{- end }}
+                      containers:
+                        - name: mongod
+                          resources:
+                            requests:
+                              cpu: {{ $cpu | quote }}
+                              memory: {{ $mem | quote }}
+                            limits:
+                              memory: {{ $memLimit | quote }}
+                        - name: mongodb-agent
+                          resources:
+                            requests:
+                              cpu: 25m
+                              memory: 128Mi
+                            limits:
+                              memory: 256Mi
+                  volumeClaimTemplates:
+                    # Both claims must be listed: the operator creates `data-volume`
+                    # and `logs-volume`, and a template given for one only leaves the
+                    # other at the operator's default size and class.
+                    - metadata:
+                        name: data-volume
+                      spec:
+                        accessModes: ["ReadWriteOnce"]
+                        {{- if $sc }}
+                        storageClassName: {{ $sc | quote }}
+                        {{- end }}
+                        resources:
+                          requests:
+                            storage: {{ $disk | quote }}
+                    - metadata:
+                        name: logs-volume
+                      spec:
+                        accessModes: ["ReadWriteOnce"]
+                        {{- if $sc }}
+                        storageClassName: {{ $sc | quote }}
+                        {{- end }}
+                        resources:
+                          requests:
+                            storage: {{ $logDisk | quote }}
+            {{- if gt $members 1 }}
+            ---
+            apiVersion: policy/v1
+            kind: PodDisruptionBudget
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: pdb
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              # One at a time. A replica set elects on a majority, so draining two
+              # of three members together has no primary on the other side of it.
+              maxUnavailable: 1
+              selector:
+                matchLabels:
+                  app: {{ $svc | quote }}
+            {{- end }}
+            {{- if $metrics }}
+            ---
+            apiVersion: monitoring.coreos.com/v1
+            kind: PodMonitor
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: podmonitor
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              selector:
+                matchLabels:
+                  app: {{ $svc | quote }}
+              podMetricsEndpoints:
+                # targetPort, not port: the operator declares no named port for the
+                # metrics endpoint, so there is no name to select.
+                - targetPort: {{ $metricsPort }}
+                  path: /metrics
+                  interval: 30s
+                  scrapeTimeout: 10s
+                  basicAuth:
+                    username:
+                      name: {{ $name }}-metrics
+                      key: username
+                    password:
+                      name: {{ $name }}-metrics
+                      key: password
+            {{- end }}
+            {{- if $alerts }}
+            ---
+            apiVersion: monitoring.coreos.com/v1
+            kind: PrometheusRule
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: alerts
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              groups:
+                # Deliberately written against metrics this platform is GUARANTEED to
+                # have — the scrape's own `up` and kube-state-metrics — rather than
+                # against mongodb_* series whose names depend on what the operator's
+                # metrics endpoint happens to publish. An alert on a metric that does
+                # not exist never fires and reads exactly like a healthy database.
+                - name: {{ printf "%s.nosqldatabase" $name }}
+                  rules:
+                    - alert: MongoDBMemberDown
+                      expr: >-
+                        kube_statefulset_status_replicas_ready{namespace="{{ $ns }}",statefulset="{{ $name }}"}
+                        < kube_statefulset_status_replicas{namespace="{{ $ns }}",statefulset="{{ $name }}"}
+                      for: 10m
+                      labels:
+                        severity: warning
+                        adhar_component: nosql-database
+                      annotations:
+                        summary: "MongoDB {{ $name }} is missing a member"
+                        description: >-
+                          Fewer members are ready than the replica set declares. One missing
+                          member of three is a tolerated failure; two is no primary.
+                    {{- if gt $members 1 }}
+                    - alert: MongoDBNoMajority
+                      expr: >-
+                        kube_statefulset_status_replicas_ready{namespace="{{ $ns }}",statefulset="{{ $name }}"}
+                        < {{ div (add $members 1) 2 }}
+                      for: 5m
+                      labels:
+                        severity: critical
+                        adhar_component: nosql-database
+                      annotations:
+                        summary: "MongoDB {{ $name }} has lost its majority"
+                        description: >-
+                          Fewer than a majority of members are ready, so no primary can be
+                          elected and every write is refused.
+                    {{- end }}
+                    {{- if $metrics }}
+                    - alert: MongoDBMetricsUnavailable
+                      expr: up{namespace="{{ $ns }}",pod=~"{{ $name }}-.*"} == 0
+                      for: 15m
+                      labels:
+                        severity: info
+                        adhar_component: nosql-database
+                      annotations:
+                        summary: "MongoDB {{ $name }} is not being scraped"
+                        description: >-
+                          The metrics endpoint is not answering. The database may be fine;
+                          what is certain is that nothing else here can tell.
+                    {{- end }}
+                    {{- if $backup }}
+                    - alert: MongoDBBackupFailing
+                      expr: kube_job_status_failed{namespace="{{ $ns }}",job_name=~"{{ $name }}-backup-.*"} > 0
+                      for: 1h
+                      labels:
+                        severity: warning
+                        adhar_component: nosql-database
+                      annotations:
+                        summary: "MongoDB {{ $name }} backup failed"
+                        description: >-
+                          The nightly dump did not complete. A database whose backup has been
+                          failing quietly is a database with no backup.
+                    - alert: MongoDBBackupMissing
+                      expr: >-
+                        time() - kube_cronjob_status_last_successful_time{namespace="{{ $ns }}",cronjob="{{ $name }}-backup"}
+                        > 172800
+                      for: 1h
+                      labels:
+                        severity: warning
+                        adhar_component: nosql-database
+                      annotations:
+                        summary: "MongoDB {{ $name }} has no recent backup"
+                        description: >-
+                          No dump has succeeded in 48 hours, which is two missed nightly runs.
+                    {{- end }}
+            {{- end }}
+            {{- if $netpol }}
+            ---
+            apiVersion: networking.k8s.io/v1
+            kind: NetworkPolicy
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: networkpolicy
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              podSelector:
+                matchLabels:
+                  app: {{ $svc | quote }}
+              # Ingress only. The members must reach EACH OTHER to replicate and the
+              # object store to back up, and an egress list that forgets either one
+              # breaks the replica set rather than securing it.
+              policyTypes: ["Ingress"]
+              ingress:
+                - from:
+                    # The members themselves, and anything else in this namespace.
+                    - podSelector: {}
+                    {{- range $allowedNs }}
+                    - namespaceSelector:
+                        matchLabels:
+                          kubernetes.io/metadata.name: {{ . | quote }}
+                    {{- end }}
+            {{- end }}
+            {{- if $backup }}
+            ---
+            # S3 keys for the dump upload, projected from the platform's root-creds
+            # so this works in a namespace that has no copy of them.
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $name }}-backup-s3
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: backup-s3-credentials
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              refreshInterval: 1h
+              secretStoreRef: {kind: ClusterSecretStore, name: platform}
+              target:
+                name: {{ $name }}-backup-s3
+              data:
+                - secretKey: AWS_ACCESS_KEY_ID
+                  remoteRef: {key: root-creds, property: RUSTFS_ACCESS_KEY}
+                - secretKey: AWS_SECRET_ACCESS_KEY
+                  remoteRef: {key: root-creds, property: RUSTFS_SECRET_KEY}
+            ---
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: {{ $name }}-backup
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: backup
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              schedule: {{ $schedule | quote }}
+              timeZone: Etc/UTC
+              # Forbid: a dump that outruns its schedule must not have a second
+              # dump reading the same members alongside it.
+              concurrencyPolicy: Forbid
+              startingDeadlineSeconds: 3600
+              successfulJobsHistoryLimit: 3
+              failedJobsHistoryLimit: 3
+              jobTemplate:
+                spec:
+                  backoffLimit: 2
+                  # Four hours, then the Job is a failure rather than a pod that
+                  # holds `Forbid` against every later run.
+                  activeDeadlineSeconds: 14400
+                  ttlSecondsAfterFinished: 604800
+                  template:
+                    metadata:
+                      labels:
+                        {{- range $k, $v := $labels }}
+                        {{ $k }}: {{ $v | quote }}
+                        {{- end }}
+                    spec:
+                      restartPolicy: OnFailure
+                      securityContext:
+                        runAsNonRoot: true
+                        runAsUser: 65532
+                        fsGroup: 65532
+                        seccompProfile: {type: RuntimeDefault}
+                      volumes:
+                        - name: dump
+                          emptyDir: {}
+                      # Two steps, one pod: mongodump has no S3 client and the AWS
+                      # CLI image has no mongodump, so the dump runs as an init
+                      # container into an emptyDir and the upload follows it.
+                      initContainers:
+                        - name: dump
+                          image: {{ $dumpImage | quote }}
+                          command: ["/bin/sh", "-ec"]
+                          args:
+                            - |
+                              mongodump --uri="$MONGO_URI" \
+                                --db="{{ $db }}" \
+                                --gzip --archive=/dump/archive.gz
+                              ls -l /dump/archive.gz
+                          env:
+                            - name: MONGO_URI
+                              valueFrom:
+                                secretKeyRef:
+                                  name: {{ $connSecret | quote }}
+                                  # The operator writes both forms; the standard one
+                                  # lists the members and needs no SRV record.
+                                  key: connectionString.standard
+                          volumeMounts:
+                            - {name: dump, mountPath: /dump}
+                          securityContext:
+                            allowPrivilegeEscalation: false
+                            readOnlyRootFilesystem: true
+                            capabilities: {drop: ["ALL"]}
+                          resources:
+                            requests: {cpu: 50m, memory: 128Mi}
+                            limits: {memory: 512Mi}
+                      containers:
+                        - name: upload
+                          image: {{ $uploadImage | quote }}
+                          command: ["/bin/sh", "-ec"]
+                          args:
+                            - |
+                              STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+                              aws --endpoint-url "$S3_ENDPOINT" s3 cp \
+                                /dump/archive.gz \
+                                "s3://{{ $bucket }}/mongodb/{{ $ns }}/{{ $name }}/{{ $db }}-${STAMP}.gz"
+                          env:
+                            - name: S3_ENDPOINT
+                              value: http://rustfs.adhar-system.svc.cluster.local:9000
+                            - name: AWS_DEFAULT_REGION
+                              value: us-east-1
+                            # Retention is the BUCKET's lifecycle rule, recorded here
+                            # so the Job's definition changes when it is edited and
+                            # the value is visible where the schedule is.
+                            - name: ADHAR_RETENTION_DAYS
+                              value: {{ $keepDays | quote }}
+                          envFrom:
+                            - secretRef:
+                                name: {{ $name }}-backup-s3
+                          volumeMounts:
+                            - {name: dump, mountPath: /dump, readOnly: true}
+                          securityContext:
+                            allowPrivilegeEscalation: false
+                            readOnlyRootFilesystem: false
+                            capabilities: {drop: ["ALL"]}
+                          resources:
+                            requests: {cpu: 50m, memory: 128Mi}
+                            limits: {memory: 512Mi}
+            {{- end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: NoSqlDatabase
+            status:
+              phase: {{ $phase | quote }}
+              message: {{ $message | quote }}
+              ready: {{ $ready }}
+              version: {{ default $version $mdbVersion | quote }}
+              members: {{ $mdbMembers }}
+              endpoint: {{ $host | quote }}
+              port: 27017
+              replicaSet: {{ $name | quote }}
+              connectionSecret: {{ $connSecret | quote }}
+              backupSchedule: {{ if $backup }}{{ $schedule | quote }}{{ else }}""{{ end }}
+              organisation: {{ $org | quote }}
+              team: {{ $team | quote }}
+              project: {{ $project | quote }}
+              environment: {{ $env | quote }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

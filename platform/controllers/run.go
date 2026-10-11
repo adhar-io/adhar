@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -10,6 +11,7 @@ import (
 	"adhar-io/adhar/platform/controllers/autoscaler"
 	"adhar-io/adhar/platform/controllers/custompackage"
 	"adhar-io/adhar/platform/controllers/dataplane"
+	"adhar-io/adhar/platform/events"
 	"adhar-io/adhar/platform/utils"
 
 	"adhar-io/adhar/platform/controllers/gitrepository"
@@ -33,6 +35,25 @@ func RunControllers(
 
 	repoMap := utils.NewRepoLock()
 
+	// The event bus. Opt-in: with ADHAR_EVENTS_BRIDGE_URL unset this publisher
+	// is inert, which is the normal state locally where Kafka is not enabled.
+	// Closed when the manager's context ends so the last events of a run — the
+	// ones that say how it finished — are flushed rather than lost.
+	// The HOST identifies this platform instance — there is no cluster name in
+	// the build spec, and the host is what makes two Adhar platforms publishing
+	// into one aggregated stream distinguishable.
+	bus := events.NewFromEnv(cfg.Host, "adharplatform-controller")
+	if bus.Enabled() {
+		logger.Info("platform events will be published", "bridge", os.Getenv(events.EnvBridgeURL))
+	}
+	go func() {
+		<-ctx.Done()
+		// A bounded drain: shutdown must not wait on an unhealthy broker.
+		flush, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		bus.Close(flush)
+	}()
+
 	// Run AdharPlatform controller
 	if err := (&adharplatform.AdharPlatformReconciler{
 		Client:              mgr.GetClient(),
@@ -44,6 +65,7 @@ func RunControllers(
 		TempDir:             tmpDir,
 		StackDir:            stackDir,
 		RepoMap:             repoMap,
+		Events:              bus,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create adharplatform controller")
 		return err
@@ -90,6 +112,7 @@ func RunControllers(
 		Scheme:    mgr.GetScheme(),
 		Recorder:  mgr.GetEventRecorderFor("node-autoscaler"),
 		Namespace: globals.AdharSystemNamespace,
+		Events:    bus,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create node autoscaler controller")
 	}

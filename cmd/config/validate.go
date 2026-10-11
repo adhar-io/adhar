@@ -1,6 +1,7 @@
 package config
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"fmt"
 
 	platformconfig "adhar-io/adhar/platform/config"
@@ -29,7 +30,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 {
 		path = args[0]
 	}
-	fmt.Printf("▸ Validating configuration: %s\n", path)
+	helpers.Printf("▸ Validating configuration: %s\n", path)
 
 	// LoadConfig runs the SchemaValidator + provider validation and returns a
 	// descriptive error listing every problem when the config is invalid.
@@ -37,6 +38,6 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("✖ invalid configuration: %w", err)
 	}
 
-	fmt.Println("● Configuration is valid")
+	helpers.Println("● Configuration is valid")
 	return nil
 }

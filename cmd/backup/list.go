@@ -87,7 +87,7 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 				truncate(r.Name, 38), phaseIcon(r.rawPhase), backupAge(r.Created)))
 		}
 	}
-	fmt.Print(b.String())
+	fmt.Print(helpers.Indent(b.String()))
 	return nil
 }
 

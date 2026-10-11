@@ -44,16 +44,16 @@ func init() {
 }
 
 func runSchedule(cmd *cobra.Command, args []string) error {
-	fmt.Println("⏰ Adhar Velero Backup Scheduling")
+	helpers.Println("⏰ Adhar Velero Backup Scheduling")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  create    - Create a new Velero Schedule")
 	fmt.Println("  list      - List existing Velero Schedules")
 	fmt.Println("  delete    - Delete a Schedule")
 	fmt.Println("  enable    - Enable (unpause) a Schedule")
 	fmt.Println("  disable   - Disable (pause) a Schedule")
 	fmt.Println("")
-	fmt.Println("Use 'adhar backup schedule <command> --help' for more information")
+	helpers.Println("Use 'adhar backup schedule <command> --help' for more information")
 	return nil
 }
 
@@ -89,7 +89,7 @@ func runCreateSchedule(cmd *cobra.Command, args []string) error {
 		cron = c
 	}
 
-	fmt.Printf("⏰ Creating Velero schedule: %s (cron: %q)\n", scheduleName, cron)
+	helpers.Printf("⏰ Creating Velero schedule: %s (cron: %q)\n", scheduleName, cron)
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -194,7 +194,7 @@ func runListSchedules(cmd *cobra.Command, args []string) error {
 		b.WriteString(fmt.Sprintf("%-34s %-16s %-10t %-12s %s\n",
 			truncate(s.GetName(), 32), truncate(cron, 14), paused, phase, last))
 	}
-	fmt.Print(b.String())
+	fmt.Print(helpers.Indent(b.String()))
 	return nil
 }
 
@@ -208,7 +208,7 @@ var deleteScheduleCmd = &cobra.Command{
 
 func runDeleteSchedule(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	fmt.Printf("✖ Deleting schedule: %s\n", name)
+	helpers.Printf("✖ Deleting schedule: %s\n", name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -247,7 +247,7 @@ func setSchedulePaused(name string, paused bool) error {
 	if paused {
 		verb = "Disabling"
 	}
-	fmt.Printf("⏯  %s schedule: %s\n", verb, name)
+	helpers.Printf("⏯  %s schedule: %s\n", verb, name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {

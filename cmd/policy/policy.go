@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -41,9 +42,9 @@ func init() {
 }
 
 func runPolicy(cmd *cobra.Command, args []string) error {
-	fmt.Println("▸ Adhar Platform Policy Management")
+	helpers.Println("▸ Adhar Platform Policy Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  apply     - Apply policies to the platform")
 	fmt.Println("  list      - List Kyverno policies")
 	fmt.Println("  status    - Summarize policy compliance (PolicyReports)")
@@ -51,6 +52,6 @@ func runPolicy(cmd *cobra.Command, args []string) error {
 	fmt.Println("  validate  - Validate policy files")
 	fmt.Println("  export    - Export current policies")
 	fmt.Println("")
-	fmt.Println("Use 'adhar policy <command> --help' for more information")
+	helpers.Println("Use 'adhar policy <command> --help' for more information")
 	return nil
 }

@@ -52,6 +52,7 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/domain"
+	"adhar-io/adhar/platform/events"
 	"adhar-io/adhar/platform/utils"
 	"adhar-io/adhar/platform/utils/files"
 )
@@ -87,6 +88,11 @@ type AdharPlatformReconciler struct {
 	TempDir             string
 	StackDir            string // Path to the platform/stack directory on the host filesystem
 	RepoMap             *utils.RepoMap
+
+	// Events publishes platform lifecycle events onto the bus. Nil is a
+	// working configuration and the normal one locally: publishing is advisory
+	// and every call site tolerates its absence.
+	Events *events.Publisher
 
 	// lastFailureReason/lastFailureMessage describe the most recent reconcile
 	// failure; they are surfaced on the aggregate Ready condition and cleared
@@ -1267,7 +1273,12 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 	// Retry on conflict: losing this update on the last pass would permanently
 	// drop ControlPlaneApplied/Ready in local mode (no controller remains).
 	resource.Status.ObservedGeneration = resource.GetGeneration()
-	syncConditions(resource, r.lastFailureReason, r.lastFailureMessage)
+	transitions := syncConditions(resource, r.lastFailureReason, r.lastFailureMessage)
+	// Emitted BEFORE the status write: the bus is advisory and must not be
+	// gated on an API call that can conflict and retry, and an event about a
+	// transition that then failed to persist is still a true statement about
+	// what this reconcile observed.
+	r.publishTransitions(ctx, resource.GetName(), transitions)
 	desired := resource.Status.DeepCopy()
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &v1alpha1.AdharPlatform{}

@@ -1,0 +1,45 @@
+# Adhar marketplace contract for the neo4j package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: neo4j
+category: data
+version: "5.26.4"
+description: Neo4j Community graph database — the store behind the platform knowledge graph and adhar-ai's reasoning over it.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: GPL-3.0
+homepage: https://neo4j.com
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies: []
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: ""
+  signed: true
+  cosignKeyless: true
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases
+planeAffinity: control-plane
+stability: beta
+resources:
+  # A JVM with a 1 GiB heap and a 512 MiB page cache, plus two volumes. That is
+  # the kind of workload that made a local `adhar up` CPU-bound, so it mirrors
+  # the enabled gate in adhar-appset-local.yaml.
+  localSafe: false
+keywords:
+  - neo4j
+  - graph
+  - database
+  - cypher
+  - knowledge-graph
+verification:
+  # Written by `adhar stack verify --write` from live Argo CD health, never by
+  # hand (ADR-0014). Built and dry-run validated, not yet observed Healthy.
+  status: unverified
+  profile: production
+  reason: Declared 2026-10-11; awaiting a live sync on a production profile.

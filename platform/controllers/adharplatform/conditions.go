@@ -22,11 +22,29 @@ const (
 	ConditionReady = "Ready"
 )
 
-// syncConditions derives the condition set from the component status fields.
+// Transition is a condition that CHANGED on this pass.
+//
+// The event bus needs transitions, not state. `syncConditions` runs on every
+// reconcile — every 30 seconds once the platform is quiet — so publishing the
+// condition set each time would put tens of thousands of identical events a day
+// onto a topic whose whole value is that reading it tells you what happened.
+// `meta.SetStatusCondition` already reports whether it changed anything; this
+// collects those answers so the caller emits exactly once per change.
+type Transition struct {
+	Type    string
+	Ready   bool
+	Reason  string
+	Message string
+}
+
+// syncConditions derives the condition set from the component status fields and
+// returns the conditions that changed.
+//
 // failureReason/failureMessage, when non-empty, describe the most recent
 // reconcile failure and are surfaced on the aggregate Ready condition.
-func syncConditions(resource *v1alpha1.AdharPlatform, failureReason, failureMessage string) {
+func syncConditions(resource *v1alpha1.AdharPlatform, failureReason, failureMessage string) []Transition {
 	gen := resource.GetGeneration()
+	var changed []Transition
 
 	set := func(condType string, ok bool, notReadyMessage string) {
 		c := metav1.Condition{
@@ -41,7 +59,11 @@ func syncConditions(resource *v1alpha1.AdharPlatform, failureReason, failureMess
 			c.Reason = "Ready"
 			c.Message = ""
 		}
-		meta.SetStatusCondition(&resource.Status.Conditions, c)
+		if meta.SetStatusCondition(&resource.Status.Conditions, c) {
+			changed = append(changed, Transition{
+				Type: condType, Ready: ok, Reason: c.Reason, Message: c.Message,
+			})
+		}
 	}
 
 	set(ConditionArgoCDReady, resource.Status.ArgoCD.Available,
@@ -80,5 +102,13 @@ func syncConditions(resource *v1alpha1.AdharPlatform, failureReason, failureMess
 		ready.Reason = failureReason
 		ready.Message = failureMessage
 	}
-	meta.SetStatusCondition(&resource.Status.Conditions, ready)
+	if meta.SetStatusCondition(&resource.Status.Conditions, ready) {
+		changed = append(changed, Transition{
+			Type:    ConditionReady,
+			Ready:   ready.Status == metav1.ConditionTrue,
+			Reason:  ready.Reason,
+			Message: ready.Message,
+		})
+	}
+	return changed
 }

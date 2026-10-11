@@ -155,10 +155,11 @@ func runVerify(cmd *cobra.Command, _ []string) error {
 			written++
 		}
 	}
-	fmt.Printf("\n%d verified · %d known-broken · %d unverified  (profile %s, from %s)\n",
+	helpers.Printf("\n%d verified · %d known-broken · %d unverified  (profile %s, from %s)\n",
 		counts["verified"], counts["known-broken"], counts["unverified"], p.name, source)
 	if verifyWrite {
-		fmt.Printf("%d contract(s) updated", written)
+		// Opens the line; the pieces below finish it, so only this one is indented.
+		helpers.Printf("%d contract(s) updated", written)
 		if skipped > 0 {
 			fmt.Printf(", %d without a contract file", skipped)
 		}

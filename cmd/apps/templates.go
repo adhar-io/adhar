@@ -100,7 +100,7 @@ func listTemplates(gc *gitea.Client) error {
 		table.Row(id, title, description)
 	}
 	fmt.Println(table.Render())
-	fmt.Printf("\n%d templates from %s/%s. Parameters: adhar application templates <template>\n",
+	helpers.Printf("\n%d templates from %s/%s. Parameters: adhar application templates <template>\n",
 		len(ids), globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates)
 	return nil
 }
@@ -116,7 +116,7 @@ func describeTemplate(gc *gitea.Client, id string) error {
 	}
 	fmt.Println(helpers.TitleStyle.Render(title))
 	if d := strings.TrimSpace(t.Metadata.Description); d != "" {
-		fmt.Printf("\n%s\n", d)
+		helpers.Printf("\n%s\n", d)
 	}
 
 	table := helpers.NewTable("PARAMETER", "TYPE", "REQUIRED", "DEFAULT", "DESCRIPTION")
@@ -153,11 +153,11 @@ func describeTemplate(gc *gitea.Client, id string) error {
 		}
 	}
 	if rows == 0 {
-		fmt.Println("\nThis template declares no parameters.")
+		helpers.Println("\nThis template declares no parameters.")
 		return nil
 	}
 	fmt.Printf("\n%s\n", table.Render())
-	fmt.Printf("\nDeploy it:\n  adhar application deploy <name> --template=%s\n", id)
+	helpers.Printf("\nDeploy it:\n  adhar application deploy <name> --template=%s\n", id)
 	return nil
 }
 

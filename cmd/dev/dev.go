@@ -22,6 +22,7 @@ you may not use this file except in compliance with the License.
 package dev
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"context"
 	"errors"
 	"fmt"
@@ -213,7 +214,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("dev  %s\n", appName)
+	helpers.Printf("dev  %s\n", appName)
 	fmt.Printf("  namespace  %s\n", namespace)
 	fmt.Printf("  stack      %s (%s)\n", orUnknown(st.name), image)
 	fmt.Printf("  command    %s\n", runCommand)
@@ -226,7 +227,7 @@ func run(cmd *cobra.Command, args []string) error {
 		// Remove on exit, including on Ctrl-C: a dev namespace that outlives the
 		// session quietly holds quota and confuses the next run.
 		defer func() {
-			fmt.Printf("\nremoving namespace %s (pass --keep to leave it)\n", namespace)
+			helpers.Printf("\nremoving namespace %s (pass --keep to leave it)\n", namespace)
 			_ = kubectl(context.Background(), "delete", "namespace", namespace, "--wait=false").Run()
 		}()
 	}
@@ -239,7 +240,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("pod %s is ready\n", pod)
+	helpers.Printf("pod %s is ready\n", pod)
 
 	if err := syncAll(ctx, dir, pod); err != nil {
 		return err
@@ -250,9 +251,9 @@ func run(cmd *cobra.Command, args []string) error {
 
 	if !noForward {
 		go forward(ctx, pod)
-		fmt.Printf("forwarding http://localhost:%d -> %s:%d\n", localPort, pod, port)
+		helpers.Printf("forwarding http://localhost:%d -> %s:%d\n", localPort, pod, port)
 	}
-	fmt.Printf("\nwatching %s — save a file to re-sync, Ctrl-C to stop\n\n", dir)
+	helpers.Printf("\nwatching %s — save a file to re-sync, Ctrl-C to stop\n\n", dir)
 
 	return watch(ctx, dir, pod, st)
 }
@@ -324,7 +325,7 @@ func watch(ctx context.Context, dir, pod string, st stack) error {
 			if needsInstall {
 				label = "sync + dependency install"
 			}
-			fmt.Printf("%s  %s (%d file(s))\n", time.Now().Format("15:04:05"), label, len(changed))
+			helpers.Printf("%s  %s (%d file(s))\n", time.Now().Format("15:04:05"), label, len(changed))
 
 			if err := syncAll(ctx, dir, pod); err != nil {
 				fmt.Fprintf(os.Stderr, "  sync failed: %v\n", err)

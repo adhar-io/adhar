@@ -1,0 +1,551 @@
+---
+# GraphDatabase → a Neo4j StatefulSet, its Service, its generated credential and
+# its nightly dump.
+#
+# Composed DIRECTLY (no provider-kubernetes): every object is namespaced and
+# sits beside the XR, so an Object wrapper would add a second controller and a
+# safe-start wake-up for nothing.
+#
+# WHY A STATEFULSET AND NOT THE NEO4J CHART. The chart is built around
+# Enterprise — clustering, multi-database, licence acceptance — and Community
+# has one database and one member, so the chart's surface reduces to exactly
+# what is written here, with the memory settings and probe budgets visible
+# instead of buried in values.
+#
+# THE TWO THINGS NEO4J WILL PUNISH YOU FOR:
+#
+#  1. Memory. Neo4j sizes nothing from its cgroup. An unset heap makes the JVM
+#     read the NODE's memory, and the page cache is allocated OUTSIDE the heap —
+#     so a container limit equal to heap + cache is killed the moment the JVM
+#     touches its own ceiling. The limit here is a parameter, defaulted above
+#     the sum, and the XRD says why.
+#  2. The config env-var spelling. Neo4j 5 maps a config key to an env var with
+#     `.` → `_` and `_` → `__`, so `server.memory.heap.max_size` becomes
+#     `NEO4J_server_memory_heap_max__size`. A single underscore where two belong
+#     is SILENTLY IGNORED — the setting simply does not apply, with no warning
+#     and no error, and the first symptom is an OOM kill under load.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: graph-neo4j
+  labels:
+    feature: graph
+    provider: kubernetes
+    engine: neo4j
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: GraphDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $version := dig "version" "5.26.4" $p -}}
+            {{- $image := dig "image" "" $p -}}
+            {{- if not $image }}{{ $image = printf "docker.io/library/neo4j:%s-community" $version }}{{ end -}}
+            {{- $disk := dig "storageSize" "20Gi" $p -}}
+            {{- $logDisk := dig "logStorageSize" "2Gi" $p -}}
+            {{- $sc := dig "storageClass" "" $p -}}
+            {{- $heap := dig "heapSize" "1g" $p -}}
+            {{- $cache := dig "pageCacheSize" "512m" $p -}}
+            {{- $memRequest := dig "memoryRequest" "1Gi" $p -}}
+            {{- $memLimit := dig "memoryLimit" "2560Mi" $p -}}
+            {{- $cpu := dig "cpu" "200m" $p -}}
+            {{- $plugins := dig "plugins" (list "apoc") $p -}}
+            {{- /*
+              Metrics are an ENTERPRISE feature, and asking for them on Community
+              is not a missing scrape target — it is a server that will not start.
+              Neo4j's whole metrics subsystem (Prometheus, Graphite, CSV and JMX)
+              is Enterprise-only, so the Community config schema does not declare
+              `server.metrics.*` at all and strict validation refuses the process:
+              `Unrecognized setting. No declared setting with name:
+              server.metrics.prometheus.endpoint`. The platform's own neo4j
+              package crash-looped on exactly this.
+              So `metrics` is honoured only when the image is an Enterprise one,
+              which an operator selects through `image`. On Community it is
+              ignored rather than fatal, and coverage comes from
+              kube-state-metrics and cAdvisor plus the readiness probe.
+            */}}
+            {{- $enterprise := contains "enterprise" (lower $image) -}}
+            {{- $metrics := and (dig "metrics" true $p) $enterprise -}}
+            {{- $backup := dig "backup" "enabled" true $p -}}
+            {{- $schedule := dig "backup" "schedule" "45 1 * * *" $p -}}
+            {{- $keepDays := int (dig "backup" "retentionDays" 14 $p) -}}
+            {{- $bucket := dig "backup" "bucket" "adhar-backups" $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $project := dig "project" "" $p -}}
+            {{- $env := dig "environment" "dev" $p -}}
+            {{- $host := printf "%s.%s.svc.cluster.local" $name $ns -}}
+            {{- $credSecret := printf "%s-auth" $name -}}
+            {{- $labels := dict
+                  "app.kubernetes.io/name" $name
+                  "app.kubernetes.io/component" "graph-database"
+                  "app.kubernetes.io/managed-by" "crossplane"
+                  "platform.adhar.io/graphdatabase" $name
+                  "adhar.io/organisation" $org
+                  "adhar.io/team" $team
+                  "adhar.io/environment" $env
+                  "adhar.io/plane" "workload" -}}
+            {{- if $project }}{{ $_ := set $labels "adhar.io/project" $project }}{{ end -}}
+            {{- /* Status from the StatefulSet the scheduler actually ran. */ -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $stsStatus := dig "statefulset" "resource" "status" dict $observed -}}
+            {{- $readyReplicas := int (dig "readyReplicas" 0 $stsStatus) -}}
+            {{- $phase := "Creating" -}}
+            {{- $message := "Waiting for Neo4j to start" -}}
+            {{- $ready := false -}}
+            {{- if ge $readyReplicas 1 -}}
+              {{- $phase = "Available" -}}{{- $ready = true -}}
+              {{- $message = printf "Neo4j %s is serving" $version -}}
+            {{- end -}}
+            ---
+            # The credential. NEO4J_AUTH is read at FIRST BOOT only, and only
+            # while /data is empty: once a store exists the image ignores it and
+            # keeps the password it was initialised with. So this is minted ONCE
+            # — a rotated value would not change the database and would leave
+            # every client holding a password the server never had.
+            apiVersion: generators.external-secrets.io/v1alpha1
+            kind: Password
+            metadata:
+              name: {{ $name }}-neo4j
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: password-generator
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              length: 32
+              digits: 5
+              # No symbols: the value is substituted into `neo4j/<password>` and
+              # into `bolt://neo4j:<password>@host`, where an unescaped `/` or
+              # `@` changes which database and host the client reaches.
+              symbols: 0
+              noUpper: false
+              allowRepeat: true
+            ---
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $credSecret }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: credentials
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              refreshPolicy: CreatedOnce
+              refreshInterval: "0"
+              target:
+                name: {{ $credSecret }}
+                template:
+                  engineVersion: v2
+                  metadata:
+                    labels:
+                      adhar.io/cli-secret: "true"
+                      platform.adhar.io/graphdatabase: {{ $name | quote }}
+                  data:
+                    # What the SERVER reads at first boot.
+                    NEO4J_AUTH: {{ printf "neo4j/%s" `{{ .PASSWORD }}` | quote }}
+                    # What CLIENTS read. Taken apart rather than one URI,
+                    # because every driver takes it apart anyway and a URI is
+                    # the form that gets logged by accident.
+                    username: neo4j
+                    password: {{ `{{ .PASSWORD }}` | quote }}
+                    host: {{ $host | quote }}
+                    boltPort: "7687"
+                    httpPort: "7474"
+                    database: neo4j
+                    uri: {{ printf "bolt://%s:7687" $host | quote }}
+              dataFrom:
+                - sourceRef:
+                    generatorRef:
+                      apiVersion: generators.external-secrets.io/v1alpha1
+                      kind: Password
+                      name: {{ $name }}-neo4j
+                  rewrite:
+                    - transform:
+                        template: PASSWORD
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: service
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              type: ClusterIP
+              selector:
+                app.kubernetes.io/name: {{ $name }}
+                platform.adhar.io/graphdatabase: {{ $name | quote }}
+              ports:
+                - {name: bolt, port: 7687, targetPort: bolt, protocol: TCP}
+                - {name: http, port: 7474, targetPort: http, protocol: TCP}
+                {{- if $metrics }}
+                - {name: metrics, port: 2004, targetPort: metrics, protocol: TCP}
+                {{- end }}
+            ---
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: statefulset
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              serviceName: {{ $name }}
+              # One. Community has no clustering, so a second replica is a
+              # second independent database behind one Service — writes landing
+              # wherever kube-proxy sent them, and a graph that disagrees with
+              # itself.
+              replicas: 1
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: {{ $name }}
+                  platform.adhar.io/graphdatabase: {{ $name | quote }}
+              template:
+                metadata:
+                  labels:
+                    {{- range $k, $v := $labels }}
+                    {{ $k }}: {{ $v | quote }}
+                    {{- end }}
+                spec:
+                  # Neo4j will not boot with the Service env vars Kubernetes
+                  # injects. The XR's own Service gives the pod a NEO4J_PORT_
+                  # 7687_TCP_PORT variable, and Neo4j builds configuration from
+                  # NEO4J_-prefixed env vars by mapping "_" to "." — so it reads
+                  # that as the setting "PORT.7687.TCP.PORT" and exits under
+                  # strict validation. The platform package hit exactly this and
+                  # crash-looped 15 times; the composition is wide open to it
+                  # because an XR named anything keeps the NEO4J_ prefix from
+                  # the image's own variables.
+                  enableServiceLinks: false
+                  # A node-local volume pins this pod to one node, so at the
+                  # default priority of 0 it can be stranded there.
+                  priorityClassName: adhar-node-bound
+                  securityContext:
+                    runAsUser: 7474
+                    runAsGroup: 7474
+                    fsGroup: 7474
+                    runAsNonRoot: true
+                    seccompProfile: {type: RuntimeDefault}
+                  containers:
+                    - name: neo4j
+                      image: {{ $image | quote }}
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        # NOT read-only: Neo4j writes its config, logs, metrics
+                        # and transaction state under /var/lib/neo4j at startup.
+                        readOnlyRootFilesystem: false
+                        capabilities: {drop: ["ALL"]}
+                      ports:
+                        - {name: bolt, containerPort: 7687, protocol: TCP}
+                        - {name: http, containerPort: 7474, protocol: TCP}
+                        {{- if $metrics }}
+                        - {name: metrics, containerPort: 2004, protocol: TCP}
+                        {{- end }}
+                      env:
+                        - name: NEO4J_AUTH
+                          valueFrom:
+                            secretKeyRef: {name: {{ $credSecret }}, key: NEO4J_AUTH}
+                        # The defaults bind to localhost, which in a pod means
+                        # nothing outside the container can connect.
+                        - {name: NEO4J_server_bolt_listen__address, value: "0.0.0.0:7687"}
+                        - {name: NEO4J_server_http_listen__address, value: "0.0.0.0:7474"}
+                        # What the driver is TOLD to reconnect to after routing.
+                        - {name: NEO4J_server_default__advertised__address, value: {{ $host | quote }}}
+                        - {name: NEO4J_server_memory_heap_initial__size, value: {{ $heap | quote }}}
+                        - {name: NEO4J_server_memory_heap_max__size, value: {{ $heap | quote }}}
+                        - {name: NEO4J_server_memory_pagecache_size, value: {{ $cache | quote }}}
+                        {{- if $metrics }}
+                        - {name: NEO4J_server_metrics_prometheus_enabled, value: "true"}
+                        - {name: NEO4J_server_metrics_prometheus_endpoint, value: "0.0.0.0:2004"}
+                        - {name: NEO4J_server_metrics_jmx_enabled, value: "false"}
+                        {{- end }}
+                        {{- if $plugins }}
+                        - name: NEO4J_PLUGINS
+                          value: {{ toJson $plugins | quote }}
+                        {{- end }}
+                        {{- if has "apoc" $plugins }}
+                        # APOC's procedures are not callable until they are
+                        # listed here; installing the plugin alone leaves every
+                        # `apoc.*` call failing with "unknown procedure".
+                        - {name: NEO4J_dbms_security_procedures_unrestricted, value: "apoc.*"}
+                        - {name: NEO4J_dbms_security_procedures_allowlist, value: "apoc.*"}
+                        {{- end }}
+                      resources:
+                        requests:
+                          cpu: {{ $cpu | quote }}
+                          # memoryRequest, NOT heapSize: the JVM takes `1g` and
+                          # Kubernetes rejects it — a quantity must match
+                          # `[0-9.]+[eEinumkKMGTP]*`, so a heap string here is
+                          # refused by the apiserver with a regex instead of an
+                          # explanation. The two formats are different and
+                          # conflating them is a whole object that never applies.
+                          memory: {{ $memRequest | quote }}
+                        limits:
+                          memory: {{ $memLimit | quote }}
+                      # `timeoutSeconds: 1` is forbidden platform-wide: a
+                      # healthy database answering in 1.1s must not be killed.
+                      startupProbe:
+                        httpGet: {path: /, port: http}
+                        # First boot creates the store and installs plugins:
+                        # five minutes of budget, so a slow node does not
+                        # restart it halfway through initialising its own data.
+                        periodSeconds: 5
+                        failureThreshold: 60
+                        timeoutSeconds: 5
+                      readinessProbe:
+                        httpGet: {path: /, port: http}
+                        periodSeconds: 10
+                        timeoutSeconds: 5
+                        failureThreshold: 3
+                      livenessProbe:
+                        # Slacker than readiness on purpose: a database busy
+                        # enough to miss a readiness check should leave the
+                        # Service, not be restarted mid-transaction.
+                        httpGet: {path: /, port: http}
+                        periodSeconds: 30
+                        timeoutSeconds: 10
+                        failureThreshold: 6
+                      volumeMounts:
+                        - {name: data, mountPath: /data}
+                        - {name: logs, mountPath: /logs}
+              volumeClaimTemplates:
+                - metadata:
+                    name: data
+                  spec:
+                    accessModes: ["ReadWriteOnce"]
+                    {{- if $sc }}
+                    storageClassName: {{ $sc | quote }}
+                    {{- end }}
+                    resources:
+                      requests: {storage: {{ $disk | quote }}}
+                - metadata:
+                    name: logs
+                  spec:
+                    accessModes: ["ReadWriteOnce"]
+                    {{- if $sc }}
+                    storageClassName: {{ $sc | quote }}
+                    {{- end }}
+                    resources:
+                      requests: {storage: {{ $logDisk | quote }}}
+            {{- if $metrics }}
+            ---
+            apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: servicemonitor
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              selector:
+                matchLabels:
+                  platform.adhar.io/graphdatabase: {{ $name | quote }}
+              endpoints:
+                - port: metrics
+                  path: /metrics
+                  interval: 30s
+                  scrapeTimeout: 10s
+            {{- end }}
+            {{- if $backup }}
+            ---
+            # S3 keys for the dump, projected from the platform's root-creds so
+            # this works in a namespace that has no copy of them.
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $name }}-backup-s3
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: backup-s3-credentials
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              refreshInterval: 1h
+              secretStoreRef: {kind: ClusterSecretStore, name: platform}
+              target:
+                name: {{ $name }}-backup-s3
+              data:
+                - secretKey: AWS_ACCESS_KEY_ID
+                  remoteRef: {key: root-creds, property: RUSTFS_ACCESS_KEY}
+                - secretKey: AWS_SECRET_ACCESS_KEY
+                  remoteRef: {key: root-creds, property: RUSTFS_SECRET_KEY}
+            ---
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: {{ $name }}-backup
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: backup
+                # Declared ready: this kind carries no Ready condition, and
+                # function-auto-ready counts anything without one as unready
+                # FOREVER — one such resource holds the whole XR back.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              schedule: {{ $schedule | quote }}
+              timeZone: Etc/UTC
+              concurrencyPolicy: Forbid
+              startingDeadlineSeconds: 3600
+              successfulJobsHistoryLimit: 3
+              failedJobsHistoryLimit: 3
+              jobTemplate:
+                spec:
+                  backoffLimit: 2
+                  activeDeadlineSeconds: 14400
+                  ttlSecondsAfterFinished: 604800
+                  template:
+                    metadata:
+                      labels:
+                        {{- range $k, $v := $labels }}
+                        {{ $k }}: {{ $v | quote }}
+                        {{- end }}
+                    spec:
+                      restartPolicy: OnFailure
+                      securityContext:
+                        runAsNonRoot: true
+                        runAsUser: 65532
+                        fsGroup: 65532
+                        seccompProfile: {type: RuntimeDefault}
+                      volumes:
+                        - name: dump
+                          emptyDir: {}
+                      # Community has no ONLINE backup — `neo4j-admin backup` is
+                      # Enterprise — so this is `neo4j-admin database dump`,
+                      # taken against the HTTP API's export rather than the
+                      # store files, because the store is held open by the
+                      # running server and a file copy of it is not a backup.
+                      initContainers:
+                        - name: dump
+                          image: {{ $image | quote }}
+                          command: ["/bin/sh", "-ec"]
+                          args:
+                            - |
+                              # cypher-shell streams the whole graph out as
+                              # Cypher statements that recreate it. Slower than
+                              # a store dump and far safer: it needs no
+                              # exclusive access, so the database keeps serving.
+                              cypher-shell -a "bolt://{{ $host }}:7687" \
+                                -u "$NEO4J_USERNAME" -p "$NEO4J_PASSWORD" \
+                                --non-interactive --format plain \
+                                "CALL apoc.export.cypher.all(null, {stream:true, format:'cypher-shell'}) YIELD cypherStatements RETURN cypherStatements" \
+                                | gzip -c > /dump/graph.cypher.gz
+                              ls -l /dump/graph.cypher.gz
+                          env:
+                            - name: NEO4J_USERNAME
+                              valueFrom: {secretKeyRef: {name: {{ $credSecret }}, key: username}}
+                            - name: NEO4J_PASSWORD
+                              valueFrom: {secretKeyRef: {name: {{ $credSecret }}, key: password}}
+                          volumeMounts:
+                            - {name: dump, mountPath: /dump}
+                          securityContext:
+                            allowPrivilegeEscalation: false
+                            readOnlyRootFilesystem: false
+                            capabilities: {drop: ["ALL"]}
+                          resources:
+                            requests: {cpu: 50m, memory: 256Mi}
+                            limits: {memory: 1Gi}
+                      containers:
+                        - name: upload
+                          image: amazon/aws-cli:2.22.35
+                          command: ["/bin/sh", "-ec"]
+                          args:
+                            - |
+                              STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+                              aws --endpoint-url "$S3_ENDPOINT" s3 cp \
+                                /dump/graph.cypher.gz \
+                                "s3://{{ $bucket }}/neo4j/{{ $ns }}/{{ $name }}/graph-${STAMP}.cypher.gz"
+                          env:
+                            - {name: S3_ENDPOINT, value: "http://rustfs.adhar-system.svc.cluster.local:9000"}
+                            - {name: AWS_DEFAULT_REGION, value: us-east-1}
+                            - {name: ADHAR_RETENTION_DAYS, value: {{ $keepDays | quote }}}
+                          envFrom:
+                            - secretRef: {name: {{ $name }}-backup-s3}
+                          volumeMounts:
+                            - {name: dump, mountPath: /dump, readOnly: true}
+                          securityContext:
+                            allowPrivilegeEscalation: false
+                            readOnlyRootFilesystem: false
+                            capabilities: {drop: ["ALL"]}
+                          resources:
+                            requests: {cpu: 50m, memory: 128Mi}
+                            limits: {memory: 512Mi}
+            {{- end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: GraphDatabase
+            status:
+              phase: {{ $phase | quote }}
+              message: {{ $message | quote }}
+              ready: {{ $ready }}
+              version: {{ $version | quote }}
+              boltEndpoint: {{ printf "bolt://%s:7687" $host | quote }}
+              httpEndpoint: {{ printf "http://%s:7474" $host | quote }}
+              credentialsSecret: {{ $credSecret | quote }}
+              # Community serves exactly one user database and it is always
+              # called `neo4j`; multi-database is Enterprise.
+              database: "neo4j"
+              backupSchedule: {{ if $backup }}{{ $schedule | quote }}{{ else }}""{{ end }}
+              organisation: {{ $org | quote }}
+              team: {{ $team | quote }}
+              project: {{ $project | quote }}
+              environment: {{ $env | quote }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

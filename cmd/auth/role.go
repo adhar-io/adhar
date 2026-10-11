@@ -44,9 +44,9 @@ func init() {
 }
 
 func runRole(cmd *cobra.Command, args []string) error {
-	fmt.Println("⛨ Adhar Platform Role Management")
+	helpers.Println("⛨ Adhar Platform Role Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  create      - Create a new role")
 	fmt.Println("  list        - List all roles")
 	fmt.Println("  get         - Get role details")
@@ -55,7 +55,7 @@ func runRole(cmd *cobra.Command, args []string) error {
 	fmt.Println("  assign      - Assign role to user/group")
 	fmt.Println("  revoke      - Revoke role from user/group")
 	fmt.Println("")
-	fmt.Println("Use 'adhar auth role <command> --help' for more information")
+	helpers.Println("Use 'adhar auth role <command> --help' for more information")
 	return nil
 }
 
@@ -85,7 +85,7 @@ func runCreateRole(cmd *cobra.Command, args []string) error {
 	kc := settings()
 	ctx := context.Background()
 
-	fmt.Printf("⛨ Creating realm role %q in realm %s\n", roleName, kc.Realm)
+	helpers.Printf("⛨ Creating realm role %q in realm %s\n", roleName, kc.Realm)
 
 	body := map[string]interface{}{"name": roleName}
 	if newRoleDesc != "" {
@@ -104,7 +104,7 @@ func runCreateRole(cmd *cobra.Command, args []string) error {
 		if _, perr := kc.adminWrite(ctx, http.MethodPost, "/roles/"+url.PathEscape(roleName)+"/composites", []kcRole{parent}); perr != nil {
 			return fmt.Errorf("role created, but adding parent %q failed: %w", newRoleInherits, perr)
 		}
-		fmt.Printf("→ Inherits from: %s\n", newRoleInherits)
+		helpers.Printf("→ Inherits from: %s\n", newRoleInherits)
 	}
 	if len(newRolePerms) > 0 {
 		fmt.Println(helpers.CreateMuted("   Note: --permissions are not modeled as Keycloak realm-role attributes; ignored."))
@@ -133,7 +133,7 @@ type kcRole struct {
 }
 
 func runListRoles(cmd *cobra.Command, args []string) error {
-	fmt.Println("▸ Platform Roles (Keycloak realm roles)")
+	helpers.Println("▸ Platform Roles (Keycloak realm roles)")
 	kc := settings()
 
 	var roles []kcRole
@@ -195,12 +195,12 @@ func runGetRole(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(role)
 	}
 
-	fmt.Printf("⛨ Role:        %s\n", role.Name)
+	helpers.Printf("⛨ Role:        %s\n", role.Name)
 	if role.Description != "" {
-		fmt.Printf("▸ Description:  %s\n", role.Description)
+		helpers.Printf("▸ Description:  %s\n", role.Description)
 	}
-	fmt.Printf("▣ Composite:   %t\n", role.Composite)
-	fmt.Printf("▸ ID:          %s\n", role.ID)
+	helpers.Printf("▣ Composite:   %t\n", role.Composite)
+	helpers.Printf("▸ ID:          %s\n", role.ID)
 
 	// Show inherited (composite) roles when present.
 	if role.Composite {
@@ -210,7 +210,7 @@ func runGetRole(cmd *cobra.Command, args []string) error {
 			for _, c := range composites {
 				names = append(names, c.Name)
 			}
-			fmt.Printf("→ Inherits:    %s\n", strings.Join(names, ", "))
+			helpers.Printf("→ Inherits:    %s\n", strings.Join(names, ", "))
 		}
 	}
 	return nil
@@ -245,7 +245,7 @@ func runUpdateRole(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("▸ Updating realm role %q in realm %s\n", roleName, kc.Realm)
+	helpers.Printf("▸ Updating realm role %q in realm %s\n", roleName, kc.Realm)
 
 	// Fetch the current role so we PUT a complete representation (Keycloak
 	// replaces the role on PUT).

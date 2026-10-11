@@ -157,7 +157,7 @@ func displayPlatformHealth(conditions []PlatformConditionInfo, packages *Package
 		// status cell ("● True" — a 3-byte glyph rendering as one cell) pushed
 		// every row two cells past its column and the message column drifted.
 		// Table measures display width and fits the box.
-		t := helpers.NewTable("CONDITION", "STATUS", "REASON", "MESSAGE").WithBudget(96)
+		t := helpers.NewTable("CONDITION", "STATUS", "REASON", "MESSAGE").Nested().WithBudget(96)
 		for _, c := range conditions {
 			state := helpers.StateReady(c.Status)
 			if c.Status != "True" {
@@ -286,10 +286,10 @@ func displayFleet(fleet *v1alpha1.FleetStatus) {
 	if fleet == nil || fleet.DataPlanes == 0 {
 		return
 	}
-	fmt.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("⇄ Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
+	helpers.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("⇄ Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
 	// APPS is a count, so Table right-aligns it; READY carries the state
 	// vocabulary so its glyph and colour cannot disagree.
-	t := helpers.NewTable("NAME", "MODE", "READY", "APPS", "KUBERNETES").WithBudget(76)
+	t := helpers.NewTable("NAME", "MODE", "READY", "APPS", "KUBERNETES").Nested().WithBudget(76)
 	for _, p := range fleet.Planes {
 		ready := helpers.StateReady("Ready")
 		if !p.Ready {

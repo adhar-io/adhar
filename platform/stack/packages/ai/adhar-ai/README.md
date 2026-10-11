@@ -33,7 +33,7 @@ images; this package is the standard manifest set that installs it via the Appli
    keys — `API_KEY`/`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` — read server-side by the gateway and
    never returned to a caller. Token/rate budgets and prompt guardrails are enforced there too.
    **This package no longer ships an LLM gateway** ([ADR-0025](../../../../../docs/adr/0025-ai-gateway-agentgateway.md)).
-4. **Grounding & governance** — pgvector RAG (on CNPG) over docs/ADRs/runbooks + live platform
+4. **Grounding & governance** — Qdrant vector retrieval over docs/ADRs/runbooks + a Neo4j knowledge graph of the live platform
    state, so suggestions match Adhar's real conventions. Keycloak identity on every action, a
    Kyverno guardrail on agent-originated resources (Audit), and full audit of every tool call to
    the observability hub.
@@ -50,7 +50,8 @@ images; this package is the standard manifest set that installs it via the Appli
 | `manifests/httproute.yaml` | HTTPRoute for `agent.adhar.localtest.me` (the runtime) on `adhar-gateway`. `ai.<host>` and `mcp.<host>` belong to `agentgateway` |
 | `manifests/oidc-client.yaml` | Keycloak `adhar-ai` client payload ConfigMap + registration Job (identity on agent actions) |
 | `manifests/kyverno-policy.yaml` | `adhar-ai-guardrails` ClusterPolicy (**Audit**): require origin label, block direct mutation |
-| `manifests/pgvector-rag.yaml` | CNPG `adhar-ai-rag` Cluster (pgvector, `ServerSideApply=true`) for RAG grounding |
+| `manifests/runtime-database.yaml` | `Database` → CNPG `adhar-ai-rag` for the runtime's own state (threads, runs, task queue) |
+| `manifests/stores.yaml` | `Vector` → Qdrant collection `adhar_knowledge` (1536-d, cosine) for retrieval; the graph is the platform's shared Neo4j |
 
 ## Safety model (why this is not a cluster-admin bot)
 

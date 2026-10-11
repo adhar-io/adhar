@@ -38,10 +38,13 @@ var (
 			Bold(true).
 			MarginBottom(1)
 
+	// MarginLeft is the CLI's one gutter, not a per-style choice: this used to
+	// be 1 and the banner's is 2, so every section heading sat a column to the
+	// left of the logo above it.
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(AccentColor).
 			Bold(true).
-			MarginLeft(1)
+			MarginLeft(BannerGutter)
 
 	SubtitleStyle = lipgloss.NewStyle().
 			Foreground(SecondaryColor).
@@ -77,6 +80,7 @@ var (
 
 	BorderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
+			MarginLeft(BannerGutter).
 			BorderForeground(PrimaryColor).
 			Padding(1).
 			MarginTop(1).
@@ -84,6 +88,7 @@ var (
 
 	FocusedStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
+			MarginLeft(BannerGutter).
 			BorderForeground(HighlightColor).
 			Padding(1).
 			MarginTop(1).
@@ -135,27 +140,27 @@ func CreateSection(title string) string {
 
 // CreateHighlight creates highlighted text
 func CreateHighlight(text string) string {
-	return HighlightStyle.Render(text)
+	return Indent(HighlightStyle.Render(text))
 }
 
 // CreateInfo creates info text
 func CreateInfo(text string) string {
-	return InfoStyle.Render(text)
+	return Indent(InfoStyle.Render(text))
 }
 
 // CreateSuccess creates success text
 func CreateSuccess(text string) string {
-	return SuccessStyle.Render(text)
+	return Indent(SuccessStyle.Render(text))
 }
 
 // CreateError creates error text
 func CreateError(text string) string {
-	return ErrorStyle.Render(text)
+	return Indent(ErrorStyle.Render(text))
 }
 
 // CreateWarning creates warning text
 func CreateWarning(text string) string {
-	return WarningStyle.Render(text)
+	return Indent(WarningStyle.Render(text))
 }
 
 // CreateCode creates code-style text
@@ -170,10 +175,10 @@ func CreateLink(text string) string {
 
 // CreateMuted creates muted text
 func CreateMuted(text string) string {
-	return MutedStyle.Render(text)
+	return Indent(MutedStyle.Render(text))
 }
 
 // CreateAccent creates an accent text with highlight styling
 func CreateAccent(text string) string {
-	return HighlightStyle.Render(text)
+	return Indent(HighlightStyle.Render(text))
 }

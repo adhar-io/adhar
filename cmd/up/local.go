@@ -821,15 +821,15 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 }
 
 func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("▸ Dry Run - Local Development Preview"))
-	fmt.Printf("┌─────────────────────────────────────────────┐\n")
-	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
-	fmt.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)
-	fmt.Printf("│ Region:      %-30s │\n", envConfig.ResolvedRegion)
-	fmt.Printf("│ Type:        %-30s │\n", envConfig.ResolvedType)
-	fmt.Printf("└─────────────────────────────────────────────┘\n")
+	helpers.Printf("\n%s\n", helpers.BoldStyle.Render("▸ Dry Run - Local Development Preview"))
+	helpers.Printf("┌─────────────────────────────────────────────┐\n")
+	helpers.Printf("│ Environment: %-30s │\n", envConfig.Name)
+	helpers.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)
+	helpers.Printf("│ Region:      %-30s │\n", envConfig.ResolvedRegion)
+	helpers.Printf("│ Type:        %-30s │\n", envConfig.ResolvedType)
+	helpers.Printf("└─────────────────────────────────────────────┘\n")
 
-	fmt.Printf("\nPlatform Configuration:\n")
+	helpers.Printf("\nPlatform Configuration:\n")
 	fmt.Printf("  Host:        %s\n", envConfig.GlobalSettings.DefaultHost)
 	// Protocol/Port/PathRouting are not in envConfig directly for local dry-run; show sensible defaults
 	fmt.Printf("  Protocol:    https\n")
@@ -837,7 +837,7 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	fmt.Printf("  Path Routing: %v\n", true)
 
 	if len(envConfig.ResolvedClusterConfig) > 0 {
-		fmt.Printf("\nKind Cluster Configuration:\n")
+		helpers.Printf("\nKind Cluster Configuration:\n")
 		for _, cfg := range envConfig.ResolvedClusterConfig {
 			switch cfg.Key {
 			case "kubeVersion":
@@ -852,14 +852,14 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 		}
 	}
 
-	fmt.Printf("\nCore Services:\n")
+	helpers.Printf("\nCore Services:\n")
 	fmt.Printf("  ArgoCD:      true\n")
 	fmt.Printf("  Gitea:       true\n")
 	fmt.Printf("  Gateway:     true\n")
 	fmt.Printf("  Cilium:      true\n")
 
 	if len(envConfig.ResolvedClusterConfig) > 0 {
-		fmt.Printf("\nKind Cluster Configuration:\n")
+		helpers.Printf("\nKind Cluster Configuration:\n")
 		for _, cfg := range envConfig.ResolvedClusterConfig {
 			switch cfg.Key {
 			case "kubeVersion":
@@ -874,7 +874,7 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 		}
 	}
 
-	fmt.Printf("\n%s\n", helpers.CodeStyle.Render("No changes will be made in dry-run mode"))
+	helpers.Printf("\n%s\n", helpers.CodeStyle.Render("No changes will be made in dry-run mode"))
 	return nil
 }
 

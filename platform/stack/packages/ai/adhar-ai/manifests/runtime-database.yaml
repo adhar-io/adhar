@@ -1,0 +1,48 @@
+# The agent runtime's own database — threads, runs and the task queue.
+#
+# NOT the vector store any more (2026-10-11). This used to carry the embeddings
+# in a pgvector column, which is why it pinned `postgresql:16-bookworm` (the
+# only variant shipping the extension) and ran `CREATE EXTENSION vector`. Both
+# are gone: the embeddings live in Qdrant (see stores.yaml) and this database
+# now takes whatever image the CNPG operator defaults to, like every other
+# platform database.
+#
+# It stays because the things left in it are transactional rows with foreign
+# keys — a thread, its runs, a queue of tasks — and neither a vector store nor
+# a graph is a better home for those.
+#
+# The database, asked for rather than built.
+#
+# This was a CloudNativePG `Cluster` plus a `ScheduledBackup` declared here,
+# with the same barman stanza every other platform database also carried. It is
+# now a `Database`, and the control plane composes exactly those objects
+# (compositions/database/local-cnpg.yaml) — verified by rendering this request
+# and diffing it against the Cluster it replaces, field for field.
+#
+# The credential is unchanged: the ExternalSecret in this package still mints it,
+# and `credentialsSecret` hands it to CNPG as the bootstrap owner secret.
+#
+# NOTE no `credentialsSecret`: CNPG publishes a generated `adhar-ai-rag-app`
+# Secret only while no bootstrap secret is given, and the agent runtime and the
+# reindex Job both mount it.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
+metadata:
+  name: adhar-ai-rag
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+    adhar.io/origin: adhar-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  parameters:
+    databaseName: adhar_ai_rag
+    credentials:
+      masterUsername: adhar_ai
+    storageSize: 5Gi
+    component: ai
+    backupSchedule: 0 55 2 * * *

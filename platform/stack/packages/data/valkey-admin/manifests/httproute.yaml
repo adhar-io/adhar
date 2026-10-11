@@ -2,7 +2,7 @@
 # terminates at the Gateway (adhar-cert).
 #
 # The backend is the Keycloak oauth2-proxy from sso.yaml, which forwards to the
-# Redis Commander Service (valkey-admin:8081). The app has no users of its own,
+# Valkey Admin Service (valkey-admin:8080). The app has no users of its own,
 # so this route is the only thing standing between the internet and FLUSHALL
 # on the platform cache — it must never point at the app directly.
 apiVersion: gateway.networking.k8s.io/v1

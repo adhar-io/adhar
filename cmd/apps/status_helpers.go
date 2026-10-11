@@ -220,7 +220,7 @@ func renderStatusTable(status *ApplicationStatusView, detailed bool) error {
 	if len(status.EnvironmentStatuses) > 0 {
 		fmt.Println(helpers.TitleStyle.Render("Environment Statuses"))
 		for _, env := range status.EnvironmentStatuses {
-			fmt.Printf("- %s\n", helpers.HighlightStyle.Render(env.Environment))
+			helpers.Printf("- %s\n", helpers.HighlightStyle.Render(env.Environment))
 			if env.Version != "" {
 				fmt.Printf("  • Version: %s\n", env.Version)
 			}
@@ -238,7 +238,8 @@ func renderStatusTable(status *ApplicationStatusView, detailed bool) error {
 	if detailed && len(status.Conditions) > 0 {
 		fmt.Println(helpers.TitleStyle.Render("Conditions"))
 		for _, condition := range status.Conditions {
-			fmt.Printf("- %s %s", condition.Type, helpers.HighlightStyle.Render(condition.Status))
+			// Opens the line; the reason below is appended to it.
+			helpers.Printf("- %s %s", condition.Type, helpers.HighlightStyle.Render(condition.Status))
 			if condition.Reason != "" {
 				fmt.Printf(" (reason: %s)", condition.Reason)
 			}

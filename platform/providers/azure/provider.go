@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -2346,12 +2347,14 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	if err != nil {
 		return fmt.Errorf("cluster %s: %w", clusterID, err)
 	}
+	// The tracker is a CACHE. The in-cluster autoscaler adds workers the
+	// laptop's state file never hears about, so a CLI scale planned from that
+	// file would try to CREATE a VM that already exists. Ask Azure what is
+	// actually in the group before planning — the same by-prefix search the
+	// teardown trusts.
+	p.mergeDiscoveredResources(ctx, tracker.ResourceGroup, cluster.Name, tracker)
 	prefix := fmt.Sprintf("%s-worker-%s-", cluster.Name, nodeGroupName)
 	add, remove := provider.WorkerScalePlan(prefix, tracker.VirtualMachines, replicas)
-	if len(add) == 0 && len(remove) == 0 {
-		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
-		return nil
-	}
 	signer, sshPubKey, err := provider.EnsureClusterSSHKey(cluster.Name)
 	if err != nil {
 		return fmt.Errorf("failed to load cluster SSH key: %w", err)
@@ -2359,6 +2362,37 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	masterIP := masterIPFromEndpoint(cluster.Endpoint)
 	if masterIP == "" {
 		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
+	}
+	// A VM is not a worker until it is a NODE. A scale-up that created the VM
+	// and then died before the join — the in-cluster controller was restarted
+	// between the two on 2026-10-10 — leaves a VM that counts toward the plan,
+	// so every later tick concluded "already at 4 workers" while the cluster
+	// had three, two pods stayed Pending and the VM billed for nothing. Such a
+	// VM is joined here, and discarded if it cannot be.
+	orphans := p.unjoinedWorkers(ctx, signer, masterIP, tracker, prefix)
+	if len(add) == 0 && len(remove) == 0 && len(orphans) == 0 {
+		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
+		return nil
+	}
+
+	if len(add) > 0 || len(orphans) > 0 {
+		joinCmd, err := provider.JoinCommand(signer, azureSSHUser, masterIP)
+		if err != nil {
+			return err
+		}
+		for _, vmName := range orphans {
+			nodeInfo, err := p.workerNodeInfo(ctx, tracker.ResourceGroup, vmName)
+			if err != nil {
+				return fmt.Errorf("orphaned worker %s: %w", vmName, err)
+			}
+			log.Printf("Worker VM %s exists but is not a node of cluster %s; joining it", vmName, cluster.Name)
+			if err := p.prepareAndJoinWorker(ctx, signer, nodeInfo, joinCmd); err != nil {
+				p.discardHalfJoinedWorker(ctx, tracker.ResourceGroup, vmName)
+				tracker.VirtualMachines = withoutName(tracker.VirtualMachines, vmName)
+				return fmt.Errorf("orphaned worker %s: %w", vmName, err)
+			}
+			log.Printf("Joined worker %s to cluster %s", vmName, cluster.Name)
+		}
 	}
 
 	if len(add) > 0 {
@@ -3721,6 +3755,88 @@ func (p *Provider) prepareAndJoinWorker(ctx context.Context, signer ssh.Signer, 
 		return err
 	}
 	return provider.KubeadmJoinWorker(signer, azureSSHUser, nodeInfo.PublicIP, joinCmd)
+}
+
+// unjoinedWorkers returns the worker VMs of the node group that the control
+// plane does not list as nodes. Names only; the caller decides what to do.
+//
+// An empty node list from the master is treated as "could not tell", not as
+// "every VM is an orphan": the only thing worse than a never-joined VM is
+// re-joining (and on failure deleting) every healthy worker because one SSH
+// call timed out.
+func (p *Provider) unjoinedWorkers(ctx context.Context, signer ssh.Signer, masterIP string, tracker *ResourceTracker, prefix string) []string {
+	joined := provider.KubeadmJoinedNodes(signer, azureSSHUser, masterIP)
+	if len(joined.Names) == 0 {
+		return nil
+	}
+	known := map[string]bool{}
+	for name := range joined.Names {
+		known[strings.ToLower(name)] = true
+	}
+	var orphans []string
+	for _, vm := range tracker.VirtualMachines {
+		if strings.HasPrefix(vm, prefix) && !known[strings.ToLower(vm)] {
+			orphans = append(orphans, vm)
+		}
+	}
+	sort.Strings(orphans)
+	return orphans
+}
+
+// workerNodeInfo resolves the addresses of an EXISTING worker VM — the one
+// thing createVirtualMachine returns and a rediscovered VM lacks.
+func (p *Provider) workerNodeInfo(ctx context.Context, resourceGroup, vmName string) (*NodeInfo, error) {
+	vm, err := p.virtualMachineClient.Get(ctx, resourceGroup, vmName, nil)
+	if err != nil {
+		return nil, fmt.Errorf("reading VM %s: %w", vmName, err)
+	}
+	info := &NodeInfo{VMName: vmName, ResourceGroup: resourceGroup, Role: "worker"}
+	if vm.Location != nil {
+		info.Location = *vm.Location
+	}
+	if vm.Properties != nil && vm.Properties.HardwareProfile != nil && vm.Properties.HardwareProfile.VMSize != nil {
+		info.VMSize = string(*vm.Properties.HardwareProfile.VMSize)
+	}
+	if vm.Properties == nil || vm.Properties.NetworkProfile == nil {
+		return nil, fmt.Errorf("VM %s has no network profile", vmName)
+	}
+	for _, ni := range vm.Properties.NetworkProfile.NetworkInterfaces {
+		if ni == nil || ni.ID == nil {
+			continue
+		}
+		nic, err := p.networkInterfaceClient.Get(ctx, resourceGroup, lastPathSegment(*ni.ID), nil)
+		if err != nil || nic.Properties == nil {
+			continue
+		}
+		for _, cfg := range nic.Properties.IPConfigurations {
+			if cfg == nil || cfg.Properties == nil {
+				continue
+			}
+			if cfg.Properties.PrivateIPAddress != nil && info.PrivateIP == "" {
+				info.PrivateIP = *cfg.Properties.PrivateIPAddress
+			}
+			if cfg.Properties.PublicIPAddress != nil && cfg.Properties.PublicIPAddress.ID != nil && info.PublicIP == "" {
+				pip, err := p.publicIPClient.Get(ctx, resourceGroup, lastPathSegment(*cfg.Properties.PublicIPAddress.ID), nil)
+				if err == nil && pip.Properties != nil && pip.Properties.IPAddress != nil {
+					info.PublicIP = *pip.Properties.IPAddress
+				}
+			}
+		}
+	}
+	if info.PublicIP == "" || info.PrivateIP == "" {
+		return nil, fmt.Errorf("VM %s: could not resolve its addresses (public %q, private %q)", vmName, info.PublicIP, info.PrivateIP)
+	}
+	return info, nil
+}
+
+func withoutName(names []string, drop string) []string {
+	kept := names[:0:0]
+	for _, n := range names {
+		if n != drop {
+			kept = append(kept, n)
+		}
+	}
+	return kept
 }
 
 // discardHalfJoinedWorker deletes a VM that was created for a scale-up but

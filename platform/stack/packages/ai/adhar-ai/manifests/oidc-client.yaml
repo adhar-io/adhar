@@ -145,6 +145,25 @@ spec:
               PAYLOAD=/var/config/adhar-ai-client-payload.json
               CID=$(jq -r '.clientId' "${PAYLOAD}")
 
+              # Wait for the realm, do not race it.
+              #
+              # This Job is wave 25 and the keycloak config Job is wave 20, but
+              # the wave only orders the APPLY — Keycloak itself is still
+              # booting, and the admin API answers an error OBJECT long before
+              # it answers the clients ARRAY. Three attempts died on
+              # `jq: error (at <stdin>:0): Cannot index object with number`,
+              # which names neither the call that failed nor the status it
+              # returned, and only the fourth found a realm. A slower cluster
+              # exhausts backoffLimit instead and takes the whole sync with it.
+              echo "waiting for the adhar realm to answer"
+              for attempt in $(seq 1 120); do
+                code=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  "${KEYCLOAK_URL}/realms/adhar/.well-known/openid-configuration" || echo 000)
+                [ "${code}" = "200" ] && break
+                [ "${attempt}" = "120" ] && { echo "realm never answered (last HTTP ${code})"; exit 1; }
+                sleep 10
+              done
+
               TOKEN=$(curl -sS --fail-with-body -X POST \
                 -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "username=adhar-admin" \
@@ -153,17 +172,30 @@ spec:
                 --data-urlencode "client_id=admin-cli" \
                 ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
 
-              # Create if missing, else reconcile.
-              ID=$(curl -sS -H "Authorization: bearer ${TOKEN}" \
-                "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${CID}" | jq -r '.[0].id // empty')
+              # Create if missing, else reconcile. The response is checked for
+              # being an array BEFORE it is indexed, so an error body is
+              # reported as itself rather than as a jq type error.
+              clients() {
+                local body code
+                body=$(curl -sS -w '\n%{http_code}' -H "Authorization: bearer ${TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${CID}")
+                code=$(printf '%s' "${body}" | tail -n1)
+                body=$(printf '%s' "${body}" | sed '$d')
+                if [ "${code}" != "200" ] || [ "$(printf '%s' "${body}" | jq -r 'type')" != "array" ]; then
+                  echo "listing client ${CID} failed (HTTP ${code}): ${body}" >&2
+                  return 1
+                fi
+                printf '%s' "${body}" | jq -r '.[0].id // empty'
+              }
+
+              ID=$(clients)
               if [ -z "${ID}" ]; then
                 echo "creating client ${CID}"
                 curl -sS --fail-with-body -H "Content-Type: application/json" \
                   -H "Authorization: bearer ${TOKEN}" \
                   -X POST --data @"${PAYLOAD}" \
                   "${KEYCLOAK_URL}/admin/realms/adhar/clients"
-                ID=$(curl -sS -H "Authorization: bearer ${TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${CID}" | jq -r '.[0].id // empty')
+                ID=$(clients)
               else
                 echo "reconciling client ${CID}"
                 curl -sS -H "Content-Type: application/json" \

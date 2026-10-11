@@ -76,6 +76,7 @@ func renderProvisionSummary(succeeded, total int, failures []string) string {
 		BorderForeground(color).
 		Padding(1, 2).
 		MarginTop(1).
+		MarginLeft(helpers.BannerGutter).
 		Width(summaryPanelWidth).
 		Render(strings.TrimRight(b.String(), "\n"))
 }

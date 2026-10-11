@@ -1,0 +1,220 @@
+---
+# GraphDatabase — a Neo4j graph for a team, as one object.
+#
+# WHY A DEDICATED INSTANCE RATHER THAN A DATABASE IN THE SHARED ONE. The other
+# "compose onto what the platform already runs" resources (Topic, Queue, Cache)
+# can carve a tenant out of a shared service. Neo4j COMMUNITY cannot: it serves
+# exactly one user database, and multi-database is an Enterprise feature. So a
+# GraphDatabase is its own Neo4j — the same shape as `Vector`, which installs a
+# Qdrant per request — and the platform's own shared instance (data/neo4j) stays
+# the one adhar-ai reasons over.
+#
+# What that costs, stated plainly: a JVM with its own heap and page cache, and
+# two volumes. This is not a cheap object to ask for, and the defaults are sized
+# for a graph a team actually queries rather than for the smallest thing that
+# starts.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: graphdatabases.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: GraphDatabase
+    plural: graphdatabases
+  defaultCompositionRef:
+    name: graph-neo4j
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: graph
+                      engine: neo4j
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                      description: Human-friendly name shown in the console (defaults to the resource name).
+                    engine:
+                      type: string
+                      enum: [neo4j]
+                      default: neo4j
+                      description: >-
+                        Graph engine. Only neo4j today; the kind is named for the capability so a
+                        second engine needs no second API.
+                    version:
+                      type: string
+                      default: "5.26.4"
+                      description: >-
+                        Neo4j version, pinned to the 5.x LTS by default. A graph store is the last
+                        thing that should follow a floating tag across a major version — an upgrade
+                        rewrites the store format and does not roll back.
+                    image:
+                      type: string
+                      description: >-
+                        Full server image, overriding the version-derived default (a mirror, or a
+                        digest). When set, `version` is recorded on the status and otherwise unused.
+                    storageSize:
+                      type: string
+                      default: 20Gi
+                      description: Data volume. Holds the store, the indexes and the transaction logs.
+                    logStorageSize:
+                      type: string
+                      default: 2Gi
+                      description: >-
+                        Log volume. Neo4j writes query and debug logs continuously and fills
+                        whatever it is given, so they get their own claim rather than sharing the
+                        data volume and eventually stopping writes.
+                    storageClass:
+                      type: string
+                      description: >-
+                        StorageClass for both volumes. Empty means the cluster default, which on
+                        this platform is node-local — the graph does not survive its node, and
+                        durability is the backup below. Name adhar-block for a real block device.
+                    heapSize:
+                      type: string
+                      default: 1g
+                      description: >-
+                        JVM heap. Neo4j sizes NOTHING from its cgroup, so an unset heap makes the
+                        JVM read the node's memory and get OOM-killed inside a much smaller
+                        container limit.
+                    pageCacheSize:
+                      type: string
+                      default: 512m
+                      description: >-
+                        Page cache, which is what makes traversals fast: it holds the graph itself.
+                        Ideally larger than the store. It is allocated OUTSIDE the heap, so the
+                        memory limit must cover heap + page cache + JVM overhead.
+                    memoryRequest:
+                      type: string
+                      default: 1Gi
+                      description: >-
+                        Container memory REQUEST, as a Kubernetes quantity. Deliberately separate
+                        from `heapSize`: the JVM takes `1g` and Kubernetes does not accept it — a
+                        quantity must match `^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$`, so a
+                        heap string reused here is rejected by the apiserver with a regular
+                        expression in place of an explanation.
+                    memoryLimit:
+                      type: string
+                      default: 2560Mi
+                      description: >-
+                        Container memory limit. Must exceed heapSize + pageCacheSize plus metaspace
+                        and thread stacks; set it to exactly their sum and the JVM is killed the
+                        first time it touches its own ceiling.
+                    cpu:
+                      type: string
+                      default: 200m
+                      description: CPU request. Traversals are latency-sensitive and throttling shows up as timeouts.
+                    plugins:
+                      type: array
+                      items:
+                        type: string
+                        enum: [apoc, graph-data-science, bloom]
+                      default: ["apoc"]
+                      description: >-
+                        Bundled plugins. APOC is what makes a graph usable from Cypher alone — path
+                        expansion, JSON loading, batched writes — and ingestion that writes
+                        thousands of nodes needs `apoc.periodic.iterate` to avoid one transaction
+                        per node. graph-data-science and bloom are large downloads at first boot.
+                    metrics:
+                      type: boolean
+                      default: true
+                      description: >-
+                        Expose the Prometheus endpoint and emit a ServiceMonitor that
+                        kube-prometheus selects cluster-wide. ENTERPRISE ONLY, and ignored
+                        otherwise: Neo4j's entire metrics subsystem is an Enterprise feature, so
+                        Community does not declare `server.metrics.*` and refuses to start if it
+                        is set. Set `image` to an Enterprise server to make this take effect; on
+                        Community, coverage is kube-state-metrics, cAdvisor and the readiness
+                        probe.
+                    backup:
+                      type: object
+                      description: >-
+                        Nightly logical dump into the platform object store. Community has no
+                        online backup (`neo4j-admin backup` is Enterprise), so the dump STOPS the
+                        database for the duration — which is why it is nightly, why it is a single
+                        instance's business, and why the schedule is a parameter.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        schedule:
+                          type: string
+                          default: "45 1 * * *"
+                          description: Cron (UTC), in the platform's nightly quiet window.
+                        retentionDays:
+                          type: integer
+                          minimum: 1
+                          maximum: 365
+                          default: 14
+                        bucket:
+                          type: string
+                          default: adhar-backups
+                    organisation:
+                      type: string
+                      default: adhar
+                    team:
+                      type: string
+                      default: platform
+                    project:
+                      type: string
+                      default: ""
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+                    deletionPolicy:
+                      type: string
+                      enum: [Delete, Orphan]
+                      default: Delete
+                      description: Orphan keeps the StatefulSet and its volumes when this object is deleted.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: Pending, Creating, Available, Degraded or Failed.
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                version:
+                  type: string
+                boltEndpoint:
+                  type: string
+                  description: bolt:// endpoint inside the cluster — what a driver connects to.
+                httpEndpoint:
+                  type: string
+                  description: HTTP endpoint (the Neo4j browser and the status API).
+                credentialsSecret:
+                  type: string
+                  description: Secret in this namespace with username, password, host, ports and uri.
+                database:
+                  type: string
+                  description: The single user database Community serves; always `neo4j`.
+                backupSchedule:
+                  type: string
+                organisation: {type: string}
+                team: {type: string}
+                project: {type: string}
+                environment: {type: string}

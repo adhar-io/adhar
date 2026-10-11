@@ -408,7 +408,7 @@ func printEdgeDNSBlocker() {
 	if tlsBlocker == nil {
 		return
 	}
-	fmt.Printf("%s\n", helpers.WarningStyle.Render(
+	helpers.Printf("%s\n", helpers.WarningStyle.Render(
 		"▲ Platform URLs will not resolve, and TLS is SELF-SIGNED"))
 	fmt.Printf("   why: %s\n", tlsBlocker.Reason)
 	fmt.Printf("   fix: %s\n", tlsBlocker.Fix)
@@ -641,23 +641,23 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 
 // showDryRunInfo displays what would be provisioned in dry-run mode
 func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("▸ Dry Run - Configuration Preview"))
-	fmt.Printf("┌─────────────────────────────────────────────┐\n")
-	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
-	fmt.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)
-	fmt.Printf("│ Region:      %-30s │\n", envConfig.ResolvedRegion)
-	fmt.Printf("│ Type:        %-30s │\n", envConfig.ResolvedType)
-	fmt.Printf("└─────────────────────────────────────────────┘\n")
+	helpers.Printf("\n%s\n", helpers.BoldStyle.Render("▸ Dry Run - Configuration Preview"))
+	helpers.Printf("┌─────────────────────────────────────────────┐\n")
+	helpers.Printf("│ Environment: %-30s │\n", envConfig.Name)
+	helpers.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)
+	helpers.Printf("│ Region:      %-30s │\n", envConfig.ResolvedRegion)
+	helpers.Printf("│ Type:        %-30s │\n", envConfig.ResolvedType)
+	helpers.Printf("└─────────────────────────────────────────────┘\n")
 
 	if len(envConfig.ResolvedClusterConfig) > 0 {
-		fmt.Printf("\nCluster Configuration:\n")
+		helpers.Printf("\nCluster Configuration:\n")
 		for _, cfg := range envConfig.ResolvedClusterConfig {
 			fmt.Printf("  %s: %s\n", cfg.Key, cfg.Value)
 		}
 	}
 
 	if envConfig.ResolvedCoreServices != nil {
-		fmt.Printf("\nCore Services:\n")
+		helpers.Printf("\nCore Services:\n")
 		fmt.Printf("  ArgoCD:    %v\n", envConfig.ResolvedCoreServices.ArgoCD != nil)
 		fmt.Printf("  Gitea:     %v\n", envConfig.ResolvedCoreServices.Gitea != nil)
 		fmt.Printf("  Gateway:   %v\n", envConfig.ResolvedCoreServices.Gateway != nil)
@@ -665,13 +665,13 @@ func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	}
 
 	if len(envConfig.ResolvedAddons) > 0 {
-		fmt.Printf("\nAddons:\n")
+		helpers.Printf("\nAddons:\n")
 		for _, addon := range envConfig.ResolvedAddons {
 			fmt.Printf("  %s\n", addon.Name)
 		}
 	}
 
-	fmt.Printf("\n%s\n", helpers.CodeStyle.Render("No changes will be made in dry-run mode"))
+	helpers.Printf("\n%s\n", helpers.CodeStyle.Render("No changes will be made in dry-run mode"))
 	return nil
 }
 

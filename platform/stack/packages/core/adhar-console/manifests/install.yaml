@@ -3,7 +3,6 @@ kind: ServiceAccount
 metadata:
   name: console
   namespace: adhar-system
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -16,7 +15,6 @@ rules:
   - workflows
   verbs:
   - create
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -31,7 +29,6 @@ rules:
   - get
   - list
   - watch
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -46,7 +43,6 @@ rules:
   verbs:
   - create
   - get
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -60,7 +56,6 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -74,7 +69,6 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -88,7 +82,6 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -104,7 +97,6 @@ rules:
   - groups
   verbs:
   - impersonate
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -120,7 +112,6 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -167,7 +158,29 @@ rules:
   - bind
   resourceNames:
   - admin
-
+# Tenancy is provisioned THROUGH the control plane: a new organisation or team
+# from the console's switcher is an `Organisation` / `Team` XR
+# (platform.adhar.io), whose composition creates the home namespace, quota, role
+# bindings, Gitea organisation and — for teams — the Keycloak group. The console
+# applies those XRs server-side (and back-fills them for tenants that predate
+# this), so it needs to write them; `read-all` already covers reading.
+#
+# It belongs on THIS role and not on `console-exec`: provisioning a tenant and
+# opening a shell into a pod are different privileges with different blast
+# radii, and a grant that drifts onto the wrong role is the kind of mistake that
+# only a test notices (`TestConsoleMayWriteTenancyXRs` names the role).
+- apiGroups:
+  - platform.adhar.io
+  resources:
+  - organisations
+  - teams
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -181,7 +194,6 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
-
 ---
 apiVersion: v1
 kind: Service
@@ -195,49 +207,35 @@ spec:
     targetPort: http
   selector:
     app: console
-
 ---
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
+# The database, asked for rather than built.
+#
+# This was a CloudNativePG `Cluster` plus a `ScheduledBackup` declared here,
+# with the same barman stanza every other platform database also carried. It is
+# now a `Database`, and the control plane composes exactly those objects
+# (compositions/database/local-cnpg.yaml) — verified by rendering this request
+# and diffing it against the Cluster it replaces, field for field.
+#
+# The credential is unchanged: the ExternalSecret in this package still mints it,
+# and `credentialsSecret` hands it to CNPG as the bootstrap owner secret.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
 metadata:
   name: console-db
   namespace: adhar-system
   annotations:
-    argocd.argoproj.io/sync-wave: '5'
-    argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  # Node-bound: this instance's volume pins it to one node (node-local default
-  # StorageClass), so it has no alternative placement and must be able to preempt
-  # pods that do. See data/cnpg/manifests/priorityclass.yaml.
-  priorityClassName: adhar-node-bound
-  instances: 1
-  monitoring:
-    enablePodMonitor: true
-  storage:
-    size: 5Gi
-  bootstrap:
-    initdb:
-      database: console
-      owner: console
-      secret:
-        name: console-env-vars
-      postInitApplicationSQL:
+  parameters:
+    databaseName: console
+    credentials:
+      masterUsername: console
+    credentialsSecret: console-env-vars
+    storageSize: 5Gi
+    postInitSQL:
       - ALTER ROLE console CREATEDB
-  backup:
-    barmanObjectStore:
-      destinationPath: s3://adhar-backups/cnpg/console-db
-      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
-      s3Credentials:
-        accessKeyId:
-          key: rootUser
-          name: root-creds
-        secretAccessKey:
-          key: rootPassword
-          name: root-creds
-      wal:
-        compression: gzip
-    retentionPolicy: 7d
-
+    backupSchedule: 0 40 2 * * *
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -515,7 +513,6 @@ spec:
       - name: adhar-cert
         secret:
           secretName: adhar-cert
-
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -529,7 +526,6 @@ spec:
   symbolCharacters: /-+
   noUpper: false
   allowRepeat: true
-
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -583,7 +579,6 @@ spec:
     rewrite:
     - transform:
         template: POSTGRES_PASSWORD
-
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -610,20 +605,3 @@ spec:
     remoteRef:
       key: gitea-credential
       property: token
-
----
-apiVersion: postgresql.cnpg.io/v1
-kind: ScheduledBackup
-metadata:
-  name: console-db-daily
-  namespace: adhar-system
-  labels:
-    app.kubernetes.io/name: console-db
-  annotations:
-    argocd.argoproj.io/sync-wave: "6"
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-spec:
-  schedule: 0 40 2 * * *
-  backupOwnerReference: self
-  cluster:
-    name: console-db

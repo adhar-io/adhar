@@ -1,6 +1,9 @@
 package get
 
 import (
+	"bytes"
+	"os"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -116,4 +119,61 @@ func TestAdvertisedProvidersAllResolve(t *testing.T) {
 			t.Errorf("provider %q is advertised but has no configuration", name)
 		}
 	}
+}
+
+// A credential is never shortened, checked at the CALL SITE.
+//
+// `cmd/helpers` has a guard that an Unbounded table does not truncate, but the
+// bug that shipped was a caller that did not ask for one: the credentials table
+// computed its own budget, and when the shared table began charging the gutter
+// to that budget every password lost its last characters to an ellipsis
+// (reported 2026-10-11). The guard has to be here, where the table is built.
+func TestCredentialsAreNeverTruncated(t *testing.T) {
+	// 36 characters, the length the platform's generators actually produce.
+	const secret = "Hc-5NuJsYBlkgafY8h-LFbyI-7/7Nr1jpJu-"
+	// The rows must be WIDER than the default budget, or the test passes
+	// whether or not the table is Unbounded and proves nothing. Under `go test`
+	// stdout is a pipe, so TerminalBudget cannot read a width and falls back to
+	// 110 — these rows come to ~117 cells, which a bounded table would shave.
+	entries := []SecretEntry{
+		{Service: "ArgoCD", Username: "admin", Password: secret},
+		{
+			Service:  "Keycloak user1 (administrator of this platform and its tenants)",
+			Username: "user1@noreply.com",
+			Password: secret,
+		},
+	}
+
+	out := captureStdout(t, func() {
+		if err := displaySecretEntries(entries, "platform"); err != nil {
+			t.Fatalf("displaySecretEntries: %v", err)
+		}
+	})
+	if strings.Count(out, secret) != 2 {
+		t.Errorf("a password was shortened; the table must be Unbounded().\n%s", out)
+	}
+	if strings.Contains(out, "...") {
+		t.Errorf("an ellipsis appears in the credentials table:\n%s", out)
+	}
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var b bytes.Buffer
+		_, _ = b.ReadFrom(r)
+		done <- b.String()
+	}()
+	fn()
+	_ = w.Close()
+	os.Stdout = saved
+	return <-done
 }

@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -42,9 +43,9 @@ func init() {
 }
 
 func runRestore(cmd *cobra.Command, args []string) error {
-	fmt.Println("◌ Adhar Platform Restore Management")
+	helpers.Println("◌ Adhar Platform Restore Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  list      - List Velero restores")
 	fmt.Println("  create    - Create a Velero restore from a backup")
 	fmt.Println("  status    - Show Velero restore status")
@@ -54,6 +55,6 @@ func runRestore(cmd *cobra.Command, args []string) error {
 	fmt.Println("  config    - Configuration restoration only")
 	fmt.Println("  verify    - Verify backup before restore")
 	fmt.Println("")
-	fmt.Println("Use 'adhar restore <command> --help' for more information")
+	helpers.Println("Use 'adhar restore <command> --help' for more information")
 	return nil
 }

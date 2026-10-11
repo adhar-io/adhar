@@ -70,16 +70,16 @@ func init() {
 }
 
 func runSession(cmd *cobra.Command, args []string) error {
-	fmt.Println("⎔ Adhar Platform Session Management")
+	helpers.Println("⎔ Adhar Platform Session Management")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  list           - List active sessions")
 	fmt.Println("  get            - Get session details")
 	fmt.Println("  terminate      - Terminate a session")
 	fmt.Println("  terminate-all  - Terminate all sessions for a user")
 	fmt.Println("  stats          - Session statistics")
 	fmt.Println("")
-	fmt.Println("Use 'adhar auth session <command> --help' for more information")
+	helpers.Println("Use 'adhar auth session <command> --help' for more information")
 	return nil
 }
 
@@ -122,7 +122,7 @@ func runListSessions(cmd *cobra.Command, args []string) error {
 		if output == "yaml" {
 			return helpers.PrintYAML(sessions)
 		}
-		fmt.Printf("▸ Active sessions for %s\n", sessionUser)
+		helpers.Printf("▸ Active sessions for %s\n", sessionUser)
 		if len(sessions) == 0 {
 			fmt.Println(helpers.CreateMuted("No active sessions"))
 			return nil
@@ -148,7 +148,7 @@ func runListSessions(cmd *cobra.Command, args []string) error {
 	if output == "yaml" {
 		return helpers.PrintYAML(stats)
 	}
-	fmt.Println("▸ Active sessions by client (realm " + kc.Realm + ")")
+	helpers.Println("▸ Active sessions by client (realm " + kc.Realm + ")")
 	if len(stats) == 0 {
 		fmt.Println(helpers.CreateMuted("No active sessions in the realm"))
 		return nil
@@ -204,17 +204,17 @@ func runGetSession(cmd *cobra.Command, args []string) error {
 			if output == "yaml" {
 				return helpers.PrintYAML(s)
 			}
-			fmt.Printf("▸ Session:     %s\n", s.ID)
-			fmt.Printf("▸ User:        %s\n", s.Username)
-			fmt.Printf("⇄ IP:          %s\n", s.IPAddress)
-			fmt.Printf("◌ Started:     %s\n", epochMillis(s.Start))
-			fmt.Printf("◌ Last access: %s\n", epochMillis(s.LastAccess))
+			helpers.Printf("▸ Session:     %s\n", s.ID)
+			helpers.Printf("▸ User:        %s\n", s.Username)
+			helpers.Printf("⇄ IP:          %s\n", s.IPAddress)
+			helpers.Printf("◌ Started:     %s\n", epochMillis(s.Start))
+			helpers.Printf("◌ Last access: %s\n", epochMillis(s.LastAccess))
 			if len(s.Clients) > 0 {
 				clients := make([]string, 0, len(s.Clients))
 				for _, c := range s.Clients {
 					clients = append(clients, c)
 				}
-				fmt.Printf("⇄ Clients:     %s\n", strings.Join(clients, ", "))
+				helpers.Printf("⇄ Clients:     %s\n", strings.Join(clients, ", "))
 			}
 			return nil
 		}
@@ -248,7 +248,7 @@ func runTerminateSession(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("terminate session: %w", err)
 	}
 	if terminateReason != "" {
-		fmt.Printf("▸ Reason: %s\n", terminateReason)
+		helpers.Printf("▸ Reason: %s\n", terminateReason)
 	}
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Terminated session %s", sessionID)))
 	return nil
@@ -284,7 +284,7 @@ func runTerminateAllSessions(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("terminate sessions: %w", err)
 	}
 	if terminateAllReason != "" {
-		fmt.Printf("▸ Reason: %s\n", terminateAllReason)
+		helpers.Printf("▸ Reason: %s\n", terminateAllReason)
 	}
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Terminated all sessions for user %s", username)))
 	return nil
@@ -323,9 +323,9 @@ func runSessionStats(cmd *cobra.Command, args []string) error {
 			offlineTotal += n
 		}
 	}
-	fmt.Println("▸ Session Statistics (realm " + kc.Realm + ")")
-	fmt.Printf("▸ Active sessions:  %d\n", activeTotal)
-	fmt.Printf("○ Offline sessions: %d\n", offlineTotal)
-	fmt.Printf("⇄ Clients with sessions: %d\n", len(stats))
+	helpers.Println("▸ Session Statistics (realm " + kc.Realm + ")")
+	helpers.Printf("▸ Active sessions:  %d\n", activeTotal)
+	helpers.Printf("○ Offline sessions: %d\n", offlineTotal)
+	helpers.Printf("⇄ Clients with sessions: %d\n", len(stats))
 	return nil
 }

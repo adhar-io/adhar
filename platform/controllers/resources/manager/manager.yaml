@@ -104,6 +104,19 @@ spec:
             # emptyDir instead of a non-existent home.
             - name: HOME
               value: /tmp
+            # The platform event bus (platform/events). Setting this is what
+            # TURNS PUBLISHING ON: the publisher is opt-in because deriving the
+            # bridge address automatically would make every local `adhar up` —
+            # where Kafka is not enabled — retry HTTP against a Service that
+            # does not exist, once per reconcile, forever. The address is the
+            # Service Strimzi creates for KafkaBridge/adhar-events, declared in
+            # the kafka-operator package alongside the five adhar.* topics.
+            #
+            # If that package is disabled the name does not resolve, every
+            # publish fails, and they are counted and discarded — a reconcile
+            # never waits on the bus and never fails because of it.
+            - name: ADHAR_EVENTS_BRIDGE_URL
+              value: http://adhar-events-bridge-service.adhar-system.svc.cluster.local:8080
           ports:
             # controller-runtime's default webhook port. Named so the Service in
             # security/adhar-tenant-quotas can target it by name.

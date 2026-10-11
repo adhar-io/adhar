@@ -128,7 +128,7 @@ func runListRestores(cmd *cobra.Command, args []string) error {
 		b.WriteString(fmt.Sprintf("%-32s %-28s %-16s %-8s\n",
 			truncate(r.Name, 30), truncate(r.Backup, 26), phaseIcon(r.rawPhase), restoreAge(r.Created)))
 	}
-	fmt.Print(b.String())
+	fmt.Print(helpers.Indent(b.String()))
 	return nil
 }
 
@@ -149,7 +149,7 @@ func runCreateRestore(cmd *cobra.Command, args []string) error {
 		name = fmt.Sprintf("%s-restore-%s", src, time.Now().Format("20060102-150405"))
 	}
 
-	fmt.Printf("◌ Creating Velero restore %q from backup %q\n", name, src)
+	helpers.Printf("◌ Creating Velero restore %q from backup %q\n", name, src)
 
 	if dryRun {
 		fmt.Println(helpers.CreateMuted("   DRY RUN - no Restore object created"))

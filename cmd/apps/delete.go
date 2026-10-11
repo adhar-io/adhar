@@ -69,7 +69,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	if !force {
-		fmt.Printf("Delete application %q in namespace %q? [y/N]: ", appName, deleteNamespace)
+		helpers.Printf("Delete application %q in namespace %q? [y/N]: ", appName, deleteNamespace)
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.ToLower(strings.TrimSpace(answer))

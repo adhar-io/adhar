@@ -229,3 +229,37 @@ func TestRediscoveredTrackerCarriesTheNetwork(t *testing.T) {
 		t.Fatal("ScaleNodeGroup no longer places the worker in tracker.Subnets[0]; this guard's premise changed")
 	}
 }
+
+// A VM is not a worker until it is a node.
+//
+// The in-cluster controller created adhar-worker-workers-3 at 15:05 on
+// 2026-10-10 and was restarted at 15:06, before the join. From then on every
+// three-minute tick planned from the VM list, found four VMs, logged "already at
+// 4 workers" and did nothing — the cluster had three workers, two pods stayed
+// Pending and the VM billed. The plan has to look at NODES as well as VMs, and
+// join (or discard) a VM the control plane does not know. The laptop's state
+// file has the same blind spot in reverse — it never hears about VMs the
+// in-cluster autoscaler added — so the tracker is reconciled with Azure first.
+func TestScaleJoinsWorkerVMsTheClusterDoesNotKnow(t *testing.T) {
+	body := azureFunc(t, "ScaleNodeGroup")
+	for _, want := range []string{
+		"p.mergeDiscoveredResources(ctx, tracker.ResourceGroup, cluster.Name, tracker)",
+		"orphans := p.unjoinedWorkers(ctx, signer, masterIP, tracker, prefix)",
+		"len(add) == 0 && len(remove) == 0 && len(orphans) == 0",
+		"p.prepareAndJoinWorker(ctx, signer, nodeInfo, joinCmd)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ScaleNodeGroup lost %q — a never-joined VM would block every later scale-up", want)
+		}
+	}
+	if i := strings.Index(body, "already at %d workers"); i < 0 || !strings.Contains(body[:i], "unjoinedWorkers(") {
+		t.Error("the orphan check must come BEFORE the \"already at N workers\" early return, or it never runs")
+	}
+	orphan := funcBody(t, azureFile(t, "provider.go"), "unjoinedWorkers")
+	if !strings.Contains(orphan, "provider.KubeadmJoinedNodes(signer, azureSSHUser, masterIP)") {
+		t.Error("unjoinedWorkers must ask the control plane which nodes exist")
+	}
+	if !strings.Contains(orphan, "len(joined.Names) == 0") {
+		t.Error("an empty node list means the master could not be asked, not that every VM is an orphan")
+	}
+}

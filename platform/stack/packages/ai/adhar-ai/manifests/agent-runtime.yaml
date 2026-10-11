@@ -99,7 +99,9 @@ data:
       security:      http://adhar-ai-mcp-security.adhar-system.svc.cluster.local:8080
       cost:          http://adhar-ai-mcp-cost.adhar-system.svc.cluster.local:8080
       catalog:       http://adhar-ai-mcp-catalog.adhar-system.svc.cluster.local:8080
-    # RAG grounding store (pgvector on CNPG — see pgvector-rag.yaml).
+    # Retrieval store: Qdrant (see stores.yaml). The runtime's own state
+    # lives in CNPG (runtime-database.yaml) and the knowledge graph in the
+    # platform's shared Neo4j (data/neo4j).
     rag:
       enabled: true
       table: kb_chunk
@@ -328,12 +330,50 @@ spec:
                   name: adhar-ai-webhook
                   key: WEBHOOK_TOKEN
                   optional: true
-            # RAG connection (pgvector on CNPG). Credentials from the CNPG-issued
-            # app secret (see pgvector-rag.yaml).
+            # The runtime's own database — threads, runs, task queue. Credentials
+            # from the CNPG-issued app secret (see runtime-database.yaml). It is
+            # NOT the vector store any more; see below.
             - name: RAG_DB_HOST
               value: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
             - name: RAG_DB_NAME
               value: "adhar_ai_rag"
+            # The VECTOR store (Qdrant, composed by the Vector in stores.yaml).
+            # Pointed at by URL rather than discovered, because the collection
+            # name is part of the contract: a client that creates a collection
+            # it was not given gets the default vector width and then silently
+            # matches nothing.
+            - name: ADHAR_AI_VECTOR_URL
+              value: "http://adhar-ai-knowledge.adhar-system.svc.cluster.local:6333"
+            - name: ADHAR_AI_VECTOR_COLLECTION
+              value: "adhar_knowledge"
+            - name: ADHAR_AI_VECTOR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  # Written by the Vector composition; `optional` so the runtime
+                  # starts and degrades to lexical retrieval while Qdrant is
+                  # still being composed rather than crash-looping behind it.
+                  name: adhar-ai-knowledge-credentials
+                  key: api-key
+                  optional: true
+            # The knowledge GRAPH (Neo4j, the platform's shared instance in
+            # data/neo4j). Bolt, not HTTP: the driver needs the binary protocol
+            # for parameterised Cypher and streaming results.
+            - name: ADHAR_AI_GRAPH_URI
+              value: "bolt://neo4j.adhar-system.svc.cluster.local:7687"
+            - name: ADHAR_AI_GRAPH_DATABASE
+              value: "neo4j"
+            - name: ADHAR_AI_GRAPH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: username
+                  optional: true
+            - name: ADHAR_AI_GRAPH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: password
+                  optional: true
             # How often the knowledge base re-derives itself from the platform.
             # The live cluster inventory sets the floor; the documentation and
             # package sources are cheap to re-check because content whose hash

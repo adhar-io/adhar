@@ -105,7 +105,7 @@ Examples:
 			var confirmation string
 			fmt.Scanln(&confirmation)
 			if confirmation != "yes" {
-				fmt.Println("Teardown cancelled.")
+				helpers.Println("Teardown cancelled.")
 				return
 			}
 		}
@@ -159,7 +159,7 @@ Examples:
 		capture.Restore()
 
 		if runErr != nil {
-			fmt.Println("Error running program:", runErr)
+			helpers.Println("Error running program:", runErr)
 			// The providers may have logged why; without this the reason dies
 			// with the UI.
 			if out := capture.Contents(); out != "" {
@@ -1103,7 +1103,7 @@ func runTeardownPlain() {
 		case teardownOutcome:
 			outcome = m
 		case logger.StepMsg:
-			fmt.Printf("\n==> %s\n", string(m))
+			helpers.Printf("\n==> %s\n", string(m))
 		case logger.StatusMsg:
 			fmt.Printf("    %s\n", string(m))
 		case logger.ExtraOutputMsg:
@@ -1123,7 +1123,7 @@ func runTeardownPlain() {
 			os.Exit(1)
 		case logger.DoneMsg:
 			if downConfigFile != "" && len(outcome.Deleted) == 0 && len(outcome.Preserved) > 0 {
-				fmt.Printf("\nNothing was deleted, and nothing should have been: %s use clusterMode: provided.\n",
+				helpers.Printf("\nNothing was deleted, and nothing should have been: %s use clusterMode: provided.\n",
 					strings.Join(outcome.Preserved, ", "))
 				fmt.Printf("  The platform did not create those clusters, so it did not destroy them.\n")
 				fmt.Printf("  Remove the platform from a provided cluster with:\n")
@@ -1142,11 +1142,11 @@ func runTeardownPlain() {
 				if outcome.PurgedVolumes > 0 {
 					// A sweep that removed volumes did real work; do not file it
 					// under "nothing was deleted".
-					fmt.Printf("\nRemoved %d orphaned volume(s). No cluster for %s remained to delete.\n",
+					helpers.Printf("\nRemoved %d orphaned volume(s). No cluster for %s remained to delete.\n",
 						outcome.PurgedVolumes, target)
 					return
 				}
-				fmt.Printf("\n! Nothing was deleted.\n")
+				helpers.Printf("\n! Nothing was deleted.\n")
 				fmt.Printf("  No cluster for %s was found in any provider that %s configures (%s).\n",
 					target, downConfigFile, searched)
 				fmt.Printf("  If that environment is running in a cloud, check that this file defines\n")
@@ -1161,10 +1161,10 @@ func runTeardownPlain() {
 				if len(outcome.Preserved) > 0 {
 					msg += "; left running (clusterMode: provided): " + strings.Join(outcome.Preserved, ", ")
 				}
-				fmt.Printf("%s\n", msg)
+				helpers.Printf("%s\n", msg)
 				return
 			}
-			fmt.Printf("\nTeardown complete.\n")
+			helpers.Printf("\nTeardown complete.\n")
 			return
 		}
 	}

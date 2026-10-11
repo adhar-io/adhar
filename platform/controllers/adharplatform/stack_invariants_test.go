@@ -624,16 +624,26 @@ func TestStatefulPackagesUseThePlatformDatabase(t *testing.T) {
 		}
 		manifests := body.String()
 
-		if !strings.Contains(manifests, "kind: Cluster") ||
-			!strings.Contains(manifests, "postgresql.cnpg.io") {
-			t.Errorf("%s declares no CNPG Cluster — it would fall back to an embedded database that any pod replacement destroys", pkg)
+		// Either shape counts: a CNPG Cluster declared here, or a `Database`
+		// the control plane composes into one (2026-10-11). What must not
+		// happen is NEITHER — the chart then falls back to an embedded
+		// database that any pod replacement destroys.
+		ownCluster := strings.Contains(manifests, "kind: Cluster") &&
+			strings.Contains(manifests, "postgresql.cnpg.io")
+		asksControlPlane := strings.Contains(manifests, "kind: Database") &&
+			strings.Contains(manifests, "platform.adhar.io/")
+		if !ownCluster && !asksControlPlane {
+			t.Errorf("%s neither declares a CNPG Cluster nor asks the control plane for a Database — "+
+				"it would fall back to an embedded database that any pod replacement destroys", pkg)
 		}
 		if !strings.Contains(manifests, envVar) {
 			t.Errorf("%s never sets %s, so the workload cannot reach the database the package provisions", pkg, envVar)
 		}
-		// A CNPG Cluster without ServerSideApply force-fails its sync and takes the
-		// workload with it (the annotation is load-bearing, not cosmetic).
-		if strings.Contains(manifests, "postgresql.cnpg.io") && !strings.Contains(manifests, "ServerSideApply=true") {
+		// A CNPG Cluster declared HERE must carry ServerSideApply=true or its sync
+		// force-fails and takes the workload with it (the annotation is
+		// load-bearing, not cosmetic). A composed one carries it from the
+		// composition, which `TestComposedClustersAreAppliedServerSide` pins.
+		if ownCluster && !strings.Contains(manifests, "ServerSideApply=true") {
 			t.Errorf("%s ships a CNPG Cluster without ServerSideApply=true; the sync force-fails", pkg)
 		}
 	}

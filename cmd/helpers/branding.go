@@ -158,6 +158,11 @@ func indentBlock(s string, n int) string {
 const (
 	wordmarkGap    = 3
 	taglineWordSep = 2
+	// BannerGutter is the left margin of the banner, in columns. The help body
+	// prints every line behind a two-space gutter ("  USAGE", "  The Open
+	// Foundation…"); the art used to start at column 0 and sat visibly to the
+	// left of the text beneath it. Same gutter, same left edge.
+	BannerGutter = 2
 )
 
 // RenderBanner is the signature Adhar header: the gradient block wordmark with a
@@ -180,8 +185,8 @@ func RenderBanner() string {
 		width = tagW
 	}
 
-	word := gradientBlock(indentBlock(art, (width-artW)/2), brandBlue, brandPurple)
-	tagline := strings.Repeat(" ", (width-tagW)/2) +
+	word := gradientBlock(indentBlock(art, BannerGutter+(width-artW)/2), brandBlue, brandPurple)
+	tagline := strings.Repeat(" ", BannerGutter+(width-tagW)/2) +
 		lipgloss.NewStyle().Foreground(taglineGray).Render(tag)
 	return lipgloss.JoinVertical(lipgloss.Left, word, tagline)
 }

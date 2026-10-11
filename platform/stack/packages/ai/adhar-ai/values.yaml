@@ -56,7 +56,9 @@ gitea:
   botUser: adhar-ai-bot
   writeRepos: [packages, environments]
 
-# RAG grounding store (pgvector on CNPG).
+# Stores. Retrieval is Qdrant (a `Vector` in stores.yaml), the knowledge graph
+# is the platform's shared Neo4j (data/neo4j), and CNPG keeps the runtime's
+# own state (threads, runs, task queue).
 rag:
   enabled: true
   database: adhar_ai_rag

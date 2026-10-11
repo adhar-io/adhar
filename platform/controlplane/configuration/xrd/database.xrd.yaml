@@ -69,7 +69,13 @@ spec:
                         - valkey
                     engineVersion:
                       type: string
-                      description: "Major engine version (e.g. \"16\" for postgresql). Optional for the local provider — defaults to 16."
+                      description: >-
+                        Major engine version (e.g. "16" for postgresql). The CLOUD compositions
+                        provision this version. The LOCAL (CNPG) one ignores it and lets the
+                        operator pick its own default image, because the operator's default is
+                        what every existing cluster is already running — deriving an image from
+                        this field downgraded nine live databases from 18 to 16 in testing. Pin
+                        `imageName` instead when a particular build is needed.
                       default: "16"
                     replicas:
                       type: integer
@@ -80,6 +86,121 @@ spec:
                     instanceClass:
                       type: string
                       description: "Cloud only: compute size (e.g. db.t3.micro on AWS). Ignored by the local provider, which runs a single small CNPG instance."
+                    # ── the in-cluster (CNPG) shape ──
+                    # Added 2026-10-11, when the platform's own ten databases stopped
+                    # declaring CNPG Clusters of their own and started asking for a
+                    # Database. Everything here is additive and defaults to what the
+                    # composition already did, so an existing request is unchanged.
+                    databaseName:
+                      type: string
+                      description: >-
+                        The database created at bootstrap. Defaults to `app`, which is what
+                        CNPG's own convention produces and what the connection Secret says.
+                      default: app
+                    credentialsSecret:
+                      type: string
+                      description: >-
+                        Name of an EXISTING Secret (keys `username` and `password`) to bootstrap
+                        the owner role with, normally one an ExternalSecret in the same package
+                        mints. Left empty, CNPG generates the credential itself and publishes it
+                        as `<name>-app` — do NOT set this for a database whose consumers read
+                        that generated Secret, because CNPG stops creating it.
+                    postInitSQL:
+                      type: array
+                      items:
+                        type: string
+                      description: >-
+                        SQL run once, against the new database, as its owner
+                        (`postInitApplicationSQL`) — an extension to create, a role to alter.
+                        It runs ONLY at bootstrap: adding a statement later does nothing to a
+                        database that already exists.
+                    imageName:
+                      type: string
+                      description: >-
+                        Postgres image, overriding the one derived from engineVersion. Needed
+                        when an extension only ships in a particular variant (pgvector is in
+                        `-bookworm`).
+                    superuserAccess:
+                      type: boolean
+                      default: false
+                      description: >-
+                        Let the `postgres` superuser log in with a password. CNPG 1.30 defaults
+                        this off and blanks the password; leave it off unless something genuinely
+                        needs it.
+                    postgresqlParameters:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: >-
+                        postgresql.conf settings (e.g. shared_buffers, max_connections). Values
+                        are strings because that is what Postgres reads; `128MB` and `100` are
+                        both legal and neither is a number here.
+                    priorityClassName:
+                      type: string
+                      default: adhar-node-bound
+                      description: >-
+                        Scheduling priority. The platform's stateful workloads use
+                        `adhar-node-bound` so a database is not the thing evicted to make room
+                        for a build.
+                    resources:
+                      type: object
+                      description: >-
+                        Per-instance compute. NOTHING is defaulted, deliberately: a request
+                        added to a database that did not ask for one reserves capacity on a
+                        cluster whose scheduling was already tight, and a memory limit below
+                        what Postgres actually uses is an OOM kill rather than a cap. Set them
+                        when you know the numbers.
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+                        memoryLimit:
+                          type: string
+                    additionalDatabases:
+                      type: array
+                      description: >-
+                        Extra logical databases in the same cluster, as CNPG `Database` objects.
+                        A second database is much cheaper than a second cluster.
+                      items:
+                        type: object
+                        required: [name]
+                        properties:
+                          name:
+                            type: string
+                          owner:
+                            type: string
+                            description: Defaults to the cluster's owner.
+                    backupSchedule:
+                      type: string
+                      default: "0 30 1 * * *"
+                      description: >-
+                        Cron for the daily base backup, in CNPG's SIX-field form — the leading
+                        field is SECONDS. A five-field cron is accepted and runs at the wrong
+                        time of day.
+                    backupBucket:
+                      type: string
+                      default: adhar-backups
+                      description: Object-store bucket for base backups and WAL.
+                    component:
+                      type: string
+                      description: >-
+                        The platform component this database belongs to (label
+                        `adhar.io/component`), so the console and the dashboards can group it
+                        with the rest of that package.
+                    organisation:
+                      type: string
+                      default: adhar
+                    team:
+                      type: string
+                      default: platform
+                    project:
+                      type: string
+                      default: ""
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
                     storageSize:
                       type: string
                       description: "Persistent storage size (e.g. 10Gi). Local can be small (1Gi+); cloud providers enforce minimums (AWS RDS ≥ 20Gi)."

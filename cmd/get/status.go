@@ -551,7 +551,12 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display any warnings or issues
 	if len(status.Warnings) > 0 || len(status.CriticalIssues) > 0 {
-		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲ Issues & Warnings"))
+		// The heading takes TitleStyle (which carries the CLI gutter) recoloured,
+		// not WarningStyle: WarningStyle is an INLINE styler used in 30-odd table
+		// cells and sentences, so giving it a left margin of its own would indent
+		// every one of them. lipgloss styles are values, so Foreground returns a
+		// copy that keeps the margin.
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Foreground(helpers.WarningColor).Render("▲ Issues & Warnings"))
 
 		var issuesContent strings.Builder
 

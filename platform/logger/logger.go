@@ -59,6 +59,20 @@ type LogFormatter interface {
 	Format(level LogLevel, message string, fields map[string]interface{}) string
 }
 
+// ConsoleGutter is the left margin of a human-readable log line.
+//
+// It matches `helpers.BannerGutter`, and is declared here rather than imported
+// because `cmd/helpers` depends on this package and not the other way round —
+// the duplication is two characters and the alternative is an import cycle.
+// `TestTheLogGutterMatchesTheBanner` pins the two together.
+//
+// Only the TEXT formatter indents. JSON output must not: it is parsed, and a
+// leading space is a different document to anything reading it with `jq`.
+// Nothing else in the platform uses this logger — `cmd/main.go` is its only
+// caller, and the controllers use controller-runtime's — so indenting here is
+// a decision about the CLI's output and nothing else.
+const ConsoleGutter = "  "
+
 // DefaultFormatter provides default log formatting
 type DefaultFormatter struct{}
 
@@ -75,7 +89,21 @@ func (f *DefaultFormatter) Format(level LogLevel, message string, fields map[str
 		fieldStr = " " + strings.Join(pairs, " ")
 	}
 
-	return fmt.Sprintf("[%s] %s: %s%s", timestamp, level.String(), message, fieldStr)
+	// A multi-line message is indented on every line, so a wrapped diagnostic
+	// stays in the same column as the rest of the output — but a BLANK line is
+	// left empty. Several call sites end their message with "\n" to space the
+	// output, and padding that would leave a line of invisible trailing
+	// whitespace in every transcript and diff.
+	body := fmt.Sprintf("[%s] %s: %s%s", timestamp, level.String(), message, fieldStr)
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[i] = ""
+			continue
+		}
+		lines[i] = ConsoleGutter + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // JSONFormatter provides JSON log formatting

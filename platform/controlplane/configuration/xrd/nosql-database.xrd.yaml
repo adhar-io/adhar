@@ -1,0 +1,305 @@
+---
+# NoSqlDatabase — a production MongoDB replica set for a team, as one object.
+#
+# The platform runs the MongoDB Community Operator (data/mongodb, enabled in the
+# production profile) and nothing used it: there was no API that asked for a
+# database, so every team that needed a document store either bundled its own
+# StatefulSet or asked for a Postgres and stored JSON in it. This kind is that
+# API, and it composes onto the operator the platform already runs rather than
+# standing up a second one — the same rule the Repository/Cache/Topic/Queue
+# resources follow.
+#
+# "Production" here means the things a replica set is unusable without, all of
+# them on by default: three members so a majority survives one node, SCRAM
+# authentication with a password minted by an ESO generator (never in a
+# manifest, never rotated under a running set), persistent storage, a pod
+# anti-affinity rule and a PodDisruptionBudget so a drain cannot take the
+# majority, the node-bound priority class every stateful platform workload
+# uses, and a nightly logical backup into the platform object store — the
+# Community operator has no backup of its own, so the composition owns it.
+#
+# "Observability" means it appears in Grafana and alerts without per-instance
+# wiring: the operator's own metrics endpoint (spec.prometheus) scraped by a
+# PodMonitor that kube-prometheus selects cluster-wide, plus a PrometheusRule
+# for the three failures that matter — no primary, a member down, and a backup
+# that stopped running.
+#
+# Two things to know before sizing:
+#   * Each member takes TWO PersistentVolumeClaims (data and logs). On a cloud
+#     node the attach budget is the real wall (see the platform's
+#     node-local StorageClass default), so a 3-member set is 6 volumes.
+#   * `version` must be a tag that exists for the operator's server image. A
+#     version with no published tag leaves every member in ImagePullBackOff
+#     with a healthy-looking MongoDBCommunity, so `image` is here as the escape
+#     hatch: set it and the version is only metadata.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: nosqldatabases.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: NoSqlDatabase
+    plural: nosqldatabases
+  defaultCompositionRef:
+    name: nosql-mongodb
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: nosql
+                      engine: mongodb
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                      description: Human-friendly name shown in the console (defaults to the resource name).
+                    engine:
+                      type: string
+                      enum: [mongodb]
+                      default: mongodb
+                      description: >-
+                        Document-store engine. Only mongodb today — the kind is named for the
+                        capability rather than the product so a second engine does not need a
+                        second API.
+                    version:
+                      type: string
+                      default: "8.0.4"
+                      description: >-
+                        MongoDB server version. The operator resolves it to a
+                        mongodb-community-server image tag, so it must be a version that has one;
+                        set `image` to pin a digest or use a mirror instead.
+                    image:
+                      type: string
+                      description: >-
+                        Full server image, overriding the version-derived default (e.g. a Harbor
+                        mirror or a digest). When set, `version` is recorded on the status and
+                        otherwise unused.
+                    members:
+                      type: integer
+                      minimum: 1
+                      maximum: 7
+                      default: 3
+                      description: >-
+                        Replica-set members. Keep it ODD: a majority is what elects a primary, so
+                        two members tolerate no failure at all (either loss leaves one of two,
+                        which is not a majority) while three tolerate one. 1 is a development
+                        set with no failover.
+                    database:
+                      type: string
+                      default: app
+                      description: The database created for the application user.
+                    username:
+                      type: string
+                      default: app
+                      description: >-
+                        The application user, created with readWrite on its own database and
+                        nothing else. Its password is generated; it is never a manifest field.
+                    storageSize:
+                      type: string
+                      default: 20Gi
+                      description: Data volume per member.
+                    logStorageSize:
+                      type: string
+                      default: 2Gi
+                      description: >-
+                        Log volume per member. The operator mounts a SECOND claim for logs and
+                        has no way to turn it off, so this is a volume per member whether or not
+                        it is wanted — size it small.
+                    storageClass:
+                      type: string
+                      description: >-
+                        StorageClass for both volumes. Empty means the cluster default, which on
+                        this platform is node-local (adhar-local) — a member's data does not
+                        survive its node, and durability is the nightly backup plus the other
+                        members. Name adhar-block for a real block device.
+                    resources:
+                      type: object
+                      description: Per-member compute for the mongod container.
+                      properties:
+                        cpu:
+                          type: string
+                          default: 100m
+                        memory:
+                          type: string
+                          default: 512Mi
+                        memoryLimit:
+                          type: string
+                          default: 1Gi
+                    cacheSizeGB:
+                      type: string
+                      description: >-
+                        WiredTiger cache size in GB (a decimal string, e.g. "0.25"). Left unset,
+                        mongod sizes the cache from the NODE's memory and ignores its own
+                        container limit, which is how a member gets OOM-killed on a big node.
+                        Set it to about half the memory limit.
+                    mongodConfig:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: >-
+                        Extra mongod settings, flattened dotted keys to values (e.g.
+                        "net.maxIncomingConnections": "200"). Passed through to
+                        additionalMongodConfig.
+                    metrics:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                          description: >-
+                            Expose the operator's Prometheus endpoint and emit a PodMonitor that
+                            kube-prometheus selects cluster-wide. The scrape authenticates as a
+                            dedicated user with clusterMonitor and nothing else.
+                        port:
+                          type: integer
+                          default: 9216
+                    alerts:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                          description: >-
+                            A PrometheusRule for the failures that need a person: no primary
+                            elected, a member down, and a backup that has not succeeded.
+                    backup:
+                      type: object
+                      description: >-
+                        Nightly logical backup (mongodump, gzipped archive) into the platform
+                        object store. The Community operator has no backup, so this is a CronJob
+                        the composition owns; the S3 credentials are read from the platform's
+                        root-creds Secret and never copied into a manifest.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        schedule:
+                          type: string
+                          default: "15 1 * * *"
+                          description: Cron (UTC). The default sits in the platform's nightly quiet window.
+                        retentionDays:
+                          type: integer
+                          minimum: 1
+                          maximum: 365
+                          default: 14
+                          description: >-
+                            How long an archive is kept. Enforced by the bucket's own lifecycle
+                            rules; the Job only writes, so a wrong value here never deletes data
+                            early.
+                        bucket:
+                          type: string
+                          default: adhar-backups
+                        dumpImage:
+                          type: string
+                          default: "mongo:8.0"
+                          description: >-
+                            Image for the dump step. It needs `mongodump` and nothing else; the
+                            official mongo image carries the database tools, the operator's
+                            community-server image does not.
+                        uploadImage:
+                          type: string
+                          default: "amazon/aws-cli:2.22.35"
+                          description: >-
+                            Image for the upload step. Pinned, because it is a third party in the
+                            backup path — bump it deliberately.
+                    networkPolicy:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                          description: >-
+                            Ingress allow-list on the member pods: this namespace and the
+                            namespaces below, and nothing else. Egress is not restricted — the
+                            members must reach each other and the object store.
+                        allowedNamespaces:
+                          type: array
+                          items:
+                            type: string
+                          default: ["adhar-system"]
+                          description: >-
+                            Namespaces allowed to connect, in addition to this one. The platform
+                            runs every package in adhar-system (ADR-0011), which is why it is the
+                            default.
+                    organisation:
+                      type: string
+                      default: adhar
+                      description: Owning organisation (label adhar.io/organisation).
+                    team:
+                      type: string
+                      default: platform
+                      description: Owning team (label adhar.io/team).
+                    project:
+                      type: string
+                      default: ""
+                      description: Owning project (label adhar.io/project).
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+                      description: Which environment this database serves (label adhar.io/environment).
+                    deletionPolicy:
+                      type: string
+                      enum: [Delete, Orphan]
+                      default: Delete
+                      description: >-
+                        Orphan keeps the MongoDBCommunity (and its volumes) when this object is
+                        deleted. A database holds data, so consider it for anything in prod.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: Pending, Creating, Available, Degraded or Failed — from the operator's phase.
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                version:
+                  type: string
+                members:
+                  type: integer
+                  description: Members the operator reports as part of the replica set.
+                endpoint:
+                  type: string
+                  description: Headless Service that resolves every member, inside the cluster.
+                port:
+                  type: integer
+                replicaSet:
+                  type: string
+                connectionSecret:
+                  type: string
+                  description: >-
+                    Secret in this namespace with the standard and SRV connection strings, the
+                    username and the password for the application user.
+                backupSchedule:
+                  type: string
+                organisation:
+                  type: string
+                team:
+                  type: string
+                project:
+                  type: string
+                environment:
+                  type: string

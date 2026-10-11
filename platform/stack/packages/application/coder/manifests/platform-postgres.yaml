@@ -73,8 +73,18 @@ spec:
         - transform:
             template: 'PASSWORD'
 ---
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
+# The database, asked for rather than built.
+#
+# This was a CloudNativePG `Cluster` plus a `ScheduledBackup` declared here,
+# with the same barman stanza every other platform database also carried. It is
+# now a `Database`, and the control plane composes exactly those objects
+# (compositions/database/local-cnpg.yaml) — verified by rendering this request
+# and diffing it against the Cluster it replaces, field for field.
+#
+# The credential is unchanged: the ExternalSecret in this package still mints it,
+# and `credentialsSecret` hands it to CNPG as the bootstrap owner secret.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
 metadata:
   name: coder-db
   namespace: adhar-system
@@ -82,63 +92,14 @@ metadata:
     app.kubernetes.io/name: coder-db
     adhar.io/component: coder
   annotations:
-    # Wave -5: the database must exist before the Deployment in wave 0 reads its
-    # connection Secret. ServerSideApply is not optional for a CNPG Cluster — the
-    # sync force-fails without it and drops the workload.
     argocd.argoproj.io/sync-wave: "-5"
-    argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
-spec:
-  # Node-bound: this instance's volume pins it to one node (node-local default
-  # StorageClass), so it has no alternative placement and must be able to preempt
-  # pods that do. See data/cnpg/manifests/priorityclass.yaml.
-  priorityClassName: adhar-node-bound
-  instances: 1
-  monitoring:
-    enablePodMonitor: true
-  storage:
-    # Coder's own tables are small — users, templates, workspace metadata and
-    # provisioner job history — but the audit log grows with use.
-    size: 10Gi
-  enableSuperuserAccess: false
-  bootstrap:
-    initdb:
-      database: coder
-      owner: coder
-      secret:
-        name: coder-db-credentials
-  backup:
-    retentionPolicy: 7d
-    barmanObjectStore:
-      destinationPath: s3://adhar-backups/cnpg/coder-db
-      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
-      s3Credentials:
-        accessKeyId:
-          name: root-creds
-          key: rootUser
-        secretAccessKey:
-          name: root-creds
-          key: rootPassword
-      # gzip, always. Every CNPG cluster archives a WAL segment every
-      # `archive_timeout` (5 min by default) whether or not anything changed, so
-      # an idle database still ships 288 × 16 MiB = 4.6 GiB/day UNCOMPRESSED.
-      # Eight clusters doing that filled the 100 GiB object store to 100 % and
-      # took WAL archiving, Loki, Mimir and the buckets Job down with it
-      # (2026-09-25). A near-empty segment gzips to a few KB.
-      wal:
-        compression: gzip
----
-apiVersion: postgresql.cnpg.io/v1
-kind: ScheduledBackup
-metadata:
-  name: coder-db-daily
-  namespace: adhar-system
-  labels:
-    app.kubernetes.io/name: coder-db
-  annotations:
-    argocd.argoproj.io/sync-wave: "-4"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  schedule: "0 30 2 * * *"
-  backupOwnerReference: self
-  cluster:
-    name: coder-db
+  parameters:
+    databaseName: coder
+    credentials:
+      masterUsername: coder
+    credentialsSecret: coder-db-credentials
+    storageSize: 10Gi
+    component: coder
+    backupSchedule: 0 30 2 * * *

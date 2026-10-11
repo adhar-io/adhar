@@ -1,0 +1,262 @@
+# The platform's event bus: the topics every Adhar component publishes to, and
+# the HTTP bridge they publish through.
+#
+# WHY A BRIDGE AND NOT A KAFKA CLIENT. The platform is not one language — the
+# controllers are Go, the Console is Deno, the agent runtime is Python, and the
+# paved road is shell inside Tekton. A Kafka client would have to be added,
+# configured and kept current in each of them, and broker credentials would have
+# to reach each of them; every one of them can already POST JSON. The bridge is
+# the one place that speaks the Kafka protocol.
+#
+# WHY auto.create.topics IS NOT ENOUGH. The cluster has it enabled, so a missing
+# topic is created on first publish — with ONE partition and the broker's
+# default retention. These topics want their own retention (a week of platform
+# history is useful; a week of every agent run is not) and their own partition
+# count, so they are declared. `platform/events/taxonomy.go` lists the same five
+# and `TestTheEventTopicsAreDeclaredInTheStack` holds the two halves together.
+#
+# Topics are named `adhar.<domain>` and the Go taxonomy derives the topic from
+# the second segment of the event type, so a new event type is routed the moment
+# it is named — see TopicFor().
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: adhar.platform
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    # Fourteen days. This is the stream an operator reads to answer "what
+    # happened to this platform", so it must outlive a weekend plus the Monday
+    # it is asked about.
+    retention.ms: "1209600000"
+    cleanup.policy: delete
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: adhar.cluster
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: "1209600000"
+    cleanup.policy: delete
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: adhar.tenancy
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    # Ninety days: an organisation or team being created is a fact someone will
+    # want to account for long after the platform history has rolled off.
+    retention.ms: "7776000000"
+    cleanup.policy: delete
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: adhar.delivery
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Six partitions: this is the busiest stream (every package sync on every
+  # one of ~78 applications) and partitions are the unit of consumer
+  # parallelism. Ordering is preserved where it matters because the record key
+  # is the event's subject, so one package's events share a partition.
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: "1209600000"
+    cleanup.policy: delete
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: adhar.ai
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    # Three days. Agent runs are high-volume and interesting while fresh; the
+    # durable record of what an agent concluded belongs in its own store, not
+    # in the bus.
+    retention.ms: "259200000"
+    cleanup.policy: delete
+    compression.type: producer
+---
+# The bridge. HTTP in, Kafka out.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaBridge
+metadata:
+  name: adhar-events
+  namespace: adhar-system
+  labels:
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  replicas: 1
+  # The PLAIN internal listener. The bridge is reachable only inside the
+  # cluster and only over the Service below, and the TLS listener would need
+  # the cluster CA mounted here for no gain on that path.
+  bootstrapServers: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+  http:
+    port: 8080
+    # NO `cors` BLOCK. An empty allow-list is not "deny everything" — Strimzi
+    # renders any cors block as `http.cors.enabled=true`, and the bridge then
+    # builds its router with no permitted origin or method and EXITS 0 before
+    # serving. The failure is silent in the worst way: the container
+    # "Completed" successfully, the log stops after "Metrics ... enabled", and
+    # the only symptom is the operator timing out after five minutes with
+    # `StrimziTimeoutException ... waiting for Deployment resource`. Omitting
+    # the block leaves CORS off, which is what "no browser talks to this" means
+    # — the Console publishes from its server side.
+  producer:
+    config:
+      # Wait for the leader only. Events are advisory and the publisher already
+      # treats delivery as best-effort, so paying for all-replica acks on a
+      # single-broker cluster buys latency and nothing else.
+      acks: "1"
+      # Small linger so a burst of events from one reconcile is batched into
+      # one produce request rather than a request each.
+      linger.ms: "20"
+      compression.type: snappy
+  consumer:
+    config:
+      # The bridge can also be READ through, which is how a shell job or the
+      # Console tails the stream without a Kafka client. Earliest, because a
+      # consumer that joins to answer "what happened" wants history.
+      auto.offset.reset: earliest
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  # The bridge is stateless and advisory; it must not outrank a database or an
+  # ingress for a node's last CPU.
+  template:
+    pod:
+      metadata:
+        labels:
+          adhar.io/component: events
+  logging:
+    type: inline
+    loggers:
+      rootLogger.level: INFO
+  # Metrics come from the JMX exporter Strimzi runs alongside the bridge, NOT
+  # from the HTTP port: `spec.enableMetrics` does not exist on KafkaBridge (the
+  # apiserver rejects it outright), and the exporter listens on its own
+  # `tcp-prometheus` port. The rules live in their own ConfigMap below rather
+  # than in `kafka-metrics`, whose single key is a broker rule set that an
+  # extra key would have to be spliced into.
+  metricsConfig:
+    type: jmxPrometheusExporter
+    valueFrom:
+      configMapKeyRef:
+        name: adhar-events-bridge-metrics
+        key: bridge-metrics-config.yml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-events-bridge-metrics
+  namespace: adhar-system
+  labels:
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+data:
+  bridge-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+      # What an operator actually asks of the bus: is it accepting events, and
+      # is it rejecting any. The bridge's own HTTP server metrics answer both.
+      - pattern: "strimzi.bridge<type=(.+), path=(.+), method=(.+), code=(.+)><>([a-zA-Z0-9]+)"
+        name: strimzi_bridge_http_server_$5
+        type: GAUGE
+        labels:
+          path: "$2"
+          method: "$3"
+          code: "$4"
+      # Producer throughput and errors, per client.
+      - pattern: "kafka.producer<type=(.+), client-id=(.+)><>([a-z-]+)"
+        name: kafka_producer_$1_$3
+        type: GAUGE
+        labels:
+          clientId: "$2"
+      # JVM health. A bridge that is garbage collecting itself to death looks
+      # from the outside exactly like a bridge nobody is publishing to.
+      - pattern: "java.lang<type=Memory><HeapMemoryUsage>(\\w+)"
+        name: jvm_memory_heap_$1
+        type: GAUGE
+      - pattern: "java.lang<type=GarbageCollector, name=(.+)><>CollectionCount"
+        name: jvm_gc_collection_count
+        type: COUNTER
+        labels:
+          gc: "$1"
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: adhar-events-bridge
+  namespace: adhar-system
+  labels:
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/kind: KafkaBridge
+      strimzi.io/cluster: adhar-events
+  podMetricsEndpoints:
+    # `rest-api` (8080) — the bridge serves /metrics from its OWN HTTP server,
+    # not from a separate exporter port. The container declares exactly two
+    # ports, `rest-api` (8080) and `rest-api-mgmt` (8081, the probes); there is
+    # no `tcp-prometheus` here, unlike the Kafka brokers.
+    - port: rest-api
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

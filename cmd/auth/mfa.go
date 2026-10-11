@@ -45,15 +45,15 @@ func init() {
 }
 
 func runMFA(cmd *cobra.Command, args []string) error {
-	fmt.Println("⛨ Adhar Platform Multi-Factor Authentication")
+	helpers.Println("⛨ Adhar Platform Multi-Factor Authentication")
 	fmt.Println("")
-	fmt.Println("Available commands:")
+	helpers.Println("Available commands:")
 	fmt.Println("  setup           - Setup MFA for a user")
 	fmt.Println("  verify          - Verify MFA code")
 	fmt.Println("  disable         - Disable MFA for a user")
 	fmt.Println("  generate-codes  - Generate backup codes")
 	fmt.Println("")
-	fmt.Println("Use 'adhar auth mfa <command> --help' for more information")
+	helpers.Println("Use 'adhar auth mfa <command> --help' for more information")
 	return nil
 }
 

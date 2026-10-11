@@ -1,9 +1,19 @@
-# Valkey Admin — Redis Commander over the platform's Valkey caches.
+# Valkey Admin — the Valkey project's own admin UI, over the platform's cache.
+#
+# This package used to run Redis Commander, which is why opening it showed a
+# Redis tool: it was named for the capability, and at the time the only
+# MIT-licensed option was Redis Commander (RedisInsight is SSPL). The Valkey
+# project now ships its own admin UI under Apache-2.0
+# (https://valkey-admin.valkey.io), so the package runs the thing it is named
+# after.
 #
 # Hand-written (no published chart); values.yaml documents every choice here.
 # Access is ONLY through the oauth2-proxy in sso.yaml: this Service is
-# ClusterIP and the HTTPRoute never points at it. Redis Commander has no users
-# of its own, and FLUSHALL is one click away.
+# ClusterIP and the HTTPRoute never points at it. That is not belt-and-braces:
+# upstream's own documentation says Valkey Admin's Web mode has NO
+# AUTHENTICATION and should be bound to localhost unless it sits behind an
+# authenticating proxy. Here the proxy IS that, and FLUSHALL is one click away
+# behind it.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,35 +43,52 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        # The image creates its runtime user `redis` as uid 10000 (Dockerfile:
-        # adduser -S -u 10000) and gives it /redis-commander/config, which the
-        # entrypoint writes the generated connection config into.
-        runAsUser: 10000
-        runAsGroup: 0
+        # The uid MUST be numeric here, even though the image already sets a
+        # non-root USER.
+        #
+        # valkey-admin's Dockerfile declares `USER node`, a NAME, and kubelet
+        # cannot resolve a name to a uid without running the image: with
+        # runAsNonRoot: true and no runAsUser it refuses the container outright
+        # — `container has runAsNonRoot and image has non-numeric user (node),
+        # cannot verify user is non-root`, CreateContainerConfigError, seventeen
+        # times in three minutes. 1000 is what `id` reports inside 1.2.0.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: redis-commander
-          image: ghcr.io/joeferner/redis-commander:0.9.1
+        - name: valkey-admin
+          # Pinned, not :latest — this is the UI through which someone can
+          # delete every key in the platform's shared cache.
+          #
+          # The tag carries NO "v" prefix. valkey-admin's releases are named
+          # v1.2.0 but its images are tagged 1.2.0, and the v-prefixed spelling
+          # pulled ImagePullBackOff for an hour ("not found" from ghcr, which
+          # reads like a private registry and is really a tag that was never
+          # published). The published tags are edge, latest and 1.0.0-1.2.0.
+          image: ghcr.io/valkey-io/valkey-admin:1.2.0
           imagePullPolicy: IfNotPresent
           env:
-            # label:host:port — the shared platform cache (unauthenticated in
-            # the cluster, see data/valkey). Comma-separate to pre-wire more.
-            - name: REDIS_HOSTS
-              value: adhar-cache:adhar-cache.adhar-system.svc.cluster.local:6379
-            - name: PORT
-              value: "8081"
-            - name: ADDRESS
-              value: 0.0.0.0
-            - name: READ_ONLY
+            # Web, not the desktop app: this is the containerised server mode.
+            - name: DEPLOYMENT_MODE
+              value: Web
+            # The shared platform cache. It is unauthenticated inside the
+            # cluster (`anonymousAuth: true`, see data/valkey), so no
+            # VALKEY_AUTH_TYPE / USERNAME / PASSWORD is set — naming an auth
+            # type with no credential makes the connection fail outright rather
+            # than fall back to none.
+            - name: VALKEY_HOST
+              value: adhar-cache.adhar-system.svc.cluster.local
+            - name: VALKEY_PORT
+              value: "6379"
+            - name: VALKEY_TLS
               value: "false"
-            # Exit on SIGTERM instead of ignoring it, so a rollout does not wait
-            # out the grace period on every restart.
-            - name: K8S_SIGTERM
-              value: "1"
           ports:
             - name: http
-              containerPort: 8081
+              # This image's own port. The Service and the oauth2-proxy
+              # upstream were moved with it.
+              containerPort: 8080
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -70,7 +97,9 @@ spec:
           # (TestNoProbeShipsAOneSecondTimeout).
           readinessProbe:
             httpGet:
-              path: /favicon.png
+              # The app root. The old probe path belonged to the previous
+              # image; a probe path that 404s makes a healthy pod look broken.
+              path: /
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -78,7 +107,7 @@ spec:
             failureThreshold: 6
           livenessProbe:
             httpGet:
-              path: /favicon.png
+              path: /
               port: http
             initialDelaySeconds: 20
             periodSeconds: 20
@@ -106,5 +135,5 @@ spec:
     app: valkey-admin
   ports:
     - name: http
-      port: 8081
+      port: 8080
       targetPort: http
