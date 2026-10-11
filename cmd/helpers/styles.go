@@ -51,6 +51,24 @@ var (
 			Italic(true).
 			MarginLeft(2)
 
+	// Inside a bordered panel the gutter is already paid, so content must not
+	// pay it twice.
+	//
+	// BorderStyle carries MarginLeft(BannerGutter) and Padding(1): the box is
+	// already offset from the terminal edge and its contents already sit one
+	// cell inside the frame. Rendering TitleStyle or SubtitleStyle in there adds
+	// their own MarginLeft(2) on top, so a heading started three cells in while
+	// the plain lines beside it started at one — and because the box is sized to
+	// its widest line, the heading then ran up against the right border with a
+	// single space while everything else had room. Measured on `adhar down`:
+	// title at +3, spinner line at +1, elapsed line at +1, inside one frame.
+	//
+	// These exist so the call site states which context it is in, rather than
+	// remembering to append .MarginLeft(0) — the version of this that is easy to
+	// forget, and the way the misalignment got in.
+	PanelTitleStyle    = TitleStyle.MarginLeft(0)
+	PanelSubtitleStyle = SubtitleStyle.MarginLeft(0)
+
 	SuccessStyle = lipgloss.NewStyle().
 			Foreground(SecondaryColor).
 			Bold(true)

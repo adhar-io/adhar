@@ -366,7 +366,7 @@ func (m downModel) View() string {
 				fmt.Sprintf("%s %s\n\n%s\n\n%s\n",
 					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Cluster left running"),
-					helpers.SubtitleStyle.Render(wrapText(fmt.Sprintf(
+					helpers.PanelSubtitleStyle.Render(wrapText(fmt.Sprintf(
 						"%s uses clusterMode: provided, so the platform never created the cluster and has not deleted it. "+
 							"Nothing in your infrastructure was removed.",
 						strings.Join(m.outcome.Preserved, ", ")), boxTextWidth)),
@@ -381,7 +381,7 @@ func (m downModel) View() string {
 				fmt.Sprintf("%s %s\n\n%s\n",
 					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Orphaned storage removed"),
-					helpers.SubtitleStyle.Render(wrapText(fmt.Sprintf(
+					helpers.PanelSubtitleStyle.Render(wrapText(fmt.Sprintf(
 						"%d orphaned volume(s) deleted. No cluster for %s remained to delete.",
 						m.outcome.PurgedVolumes, target), boxTextWidth))))
 
@@ -396,7 +396,7 @@ func (m downModel) View() string {
 			body := fmt.Sprintf("%s %s\n\n%s\n\n%s\n",
 				helpers.WarningStyle.Render("!"),
 				helpers.WarningStyle.Render("Nothing was deleted"),
-				helpers.SubtitleStyle.Render(wrapText(
+				helpers.PanelSubtitleStyle.Render(wrapText(
 					"No cluster for "+target+" was found in any provider that "+
 						downConfigFile+" configures, so nothing was removed.", boxTextWidth)),
 				helpers.InfoStyle.Render(wrapText(searched+
@@ -418,7 +418,7 @@ func (m downModel) View() string {
 				fmt.Sprintf("%s %s\n\n%s\n",
 					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
-					helpers.SubtitleStyle.Render(wrapText(removed, boxTextWidth))))
+					helpers.PanelSubtitleStyle.Render(wrapText(removed, boxTextWidth))))
 
 		default:
 			// Local Kind path: naming "Kind cluster" after a cloud teardown is the
@@ -427,7 +427,7 @@ func (m downModel) View() string {
 				fmt.Sprintf("%s %s\n\n%s\n",
 					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
-					helpers.SubtitleStyle.Render(wrapText("Kind cluster and resources have been removed", boxTextWidth))))
+					helpers.PanelSubtitleStyle.Render(wrapText("Kind cluster and resources have been removed", boxTextWidth))))
 		}
 
 		// Next steps
@@ -439,6 +439,9 @@ func (m downModel) View() string {
 
 %s %s
 `,
+			// NOT the panel variant: this block is printed on its own, outside any
+			// border, and its own lines are hand-indented two spaces. The heading
+			// needs the shared gutter to line up with them.
 			helpers.TitleStyle.Render("Next Steps:"),
 			helpers.HighlightStyle.Render("adhar up"),
 			helpers.HighlightStyle.Render("adhar version"),
@@ -474,15 +477,24 @@ func (m downModel) View() string {
 	// "Deleting cluster    ·  Deleting Kind cluster 'adhar'...". The margin is
 	// dropped for this fragment and the spacing written out literally, so what is
 	// in the string is what lands on the screen.
-	view := fmt.Sprintf("\n%s %s",
+	// PanelTitleStyle, not TitleStyle: inside the border the gutter is already
+	// paid, and TitleStyle's own MarginLeft(2) turned the single space after the
+	// spinner into three — "⠼   Tearing down dev" against a plain "Elapsed
+	// time:" one cell in.
+	// One blank row between the heading and the live block, and none between the
+	// spinner and the elapsed time: those two belong together as the thing that
+	// is moving, while the heading is standing context.
+	view := fmt.Sprintf("\n\n%s %s",
 		m.spinner.View(),
-		helpers.TitleStyle.Render(step))
+		helpers.PanelTitleStyle.Render(step))
 	if status != "" {
-		view += helpers.SubtitleStyle.MarginLeft(0).Render(" · " + status)
+		view += helpers.PanelSubtitleStyle.Render(" · " + status)
 	}
 
-	// Show elapsed time
-	timeInfo := fmt.Sprintf("\n\n%s %s",
+	// One blank line before the elapsed time, not two. The panel had the title,
+	// two empty rows, the spinner, then two more — more vertical space than the
+	// three lines of content it frames.
+	timeInfo := fmt.Sprintf("\n%s %s",
 		helpers.InfoStyle.Render("Elapsed time:"),
 		m.elapsedTime)
 
@@ -494,14 +506,14 @@ func (m downModel) View() string {
 			detail = "(waiting for output…)"
 		}
 		extraInfo = fmt.Sprintf("\n\n%s\n%s",
-			helpers.TitleStyle.Render("Command Output:"),
+			helpers.PanelTitleStyle.Render("Command Output:"),
 			helpers.BorderStyle.Render(detail))
 	}
 
 	// Add a progress indicator
 	mainContent := helpers.BorderStyle.Width(boxWidth).Render(
-		helpers.TitleStyle.Render("Deleting cloud resources — this can take several minutes") +
-			"\n\n" + view + timeInfo + extraInfo)
+		helpers.PanelTitleStyle.Render("Deleting cloud resources — this can take several minutes") +
+			view + timeInfo + extraInfo)
 
 	return fmt.Sprintf("\n%s\n", mainContent)
 }
