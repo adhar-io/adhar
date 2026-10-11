@@ -847,3 +847,76 @@ func TestRustFSPolicyStatementsKeepOneActionFamily(t *testing.T) {
 			"group claim resolves to", checked)
 	}
 }
+
+// Nexus OSS has no native OIDC, so its Keycloak login IS the Rut Auth header
+// realm — and two separate defects each disabled it completely.
+//
+//  1. The active-realm list contained an id Nexus does not have. Nexus
+//     validates the array as a WHOLE and answers
+//     `400 ValidationErrorXO{message='"Unknown realmIds: [...]"'}`, so one bad
+//     id left NONE of them active. Live on the 2026-10-11 GCP cluster the
+//     active list was just ["NexusAuthenticatingRealm"]: no header realm, so
+//     Nexus drew its own sign-in form behind a working Keycloak proxy, and no
+//     NpmToken realm either, so `npm publish` had no bearer-token realm.
+//     The valid ids in 3.79.1 are ConanToken, DefaultRole, DockerToken,
+//     LdapRealm, NexusAuthenticatingRealm, NpmToken, NuGetApiKey, rutauth-realm.
+//  2. The capability-exists check used `grep -c ... || echo 0`. `grep -c`
+//     PRINTS "0" and also EXITS 1 when it matches nothing, so the fallback
+//     appended a second zero and the value became "0\n0", which never equals
+//     "0" — the branch that creates the capability was therefore never taken.
+//
+// Both were invisible because the responses were piped to /dev/null and the
+// step printed success regardless.
+func TestNexusEnablesTheHeaderRealmThatCarriesKeycloak(t *testing.T) {
+	raw := readStackFile(t, "application/nexus/manifests/config-job.yaml")
+	code := withoutComments(raw)
+
+	// Only ids Nexus actually knows may appear in the activation payload.
+	valid := map[string]bool{
+		"ConanToken": true, "DefaultRole": true, "DockerToken": true, "LdapRealm": true,
+		"NexusAuthenticatingRealm": true, "NpmToken": true, "NuGetApiKey": true, "rutauth-realm": true,
+	}
+	i := strings.Index(code, "security/realms/active")
+	if i < 0 {
+		t.Fatal("the nexus config job no longer activates any auth realm; without rutauth-realm the " +
+			"Keycloak proxy in front of Nexus cannot log anyone in")
+	}
+	seg := code[i:]
+	start, end := strings.Index(seg, "'["), strings.Index(seg, "]'")
+	if start < 0 || end < 0 || end < start {
+		t.Fatal("cannot find the realm payload; this guard is no longer checking it")
+	}
+	var payload []string
+	if err := json.Unmarshal([]byte(seg[start+1:end+1]), &payload); err != nil {
+		t.Fatalf("the realm payload is not valid JSON (%v); Nexus rejects the whole request", err)
+	}
+	for _, id := range payload {
+		if !valid[id] {
+			t.Errorf("the realm payload names %q, which Nexus 3.79.1 does not have; it validates the "+
+				"array as a whole, so one unknown id leaves NO realms active", id)
+		}
+	}
+	for _, need := range []string{"rutauth-realm", "NpmToken"} {
+		found := false
+		for _, id := range payload {
+			if id == need {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("the realm payload is missing %q", need)
+		}
+	}
+
+	// `grep -c ... || echo 0` must never gate a branch.
+	if strings.Contains(code, "grep -c") {
+		t.Error(`the job gates on "grep -c", which prints 0 AND exits 1 when it matches nothing; with ` +
+			`an "|| echo 0" fallback the value becomes two lines and no equality test on it can ever ` +
+			`be true. Use grep -q.`)
+	}
+	// And the failures must be reported rather than discarded.
+	if !strings.Contains(code, "ERROR: enabling the auth realms failed") {
+		t.Error("the realm activation does not report a failure; discarding the response is what hid " +
+			"an unknown realm id for the life of the cluster")
+	}
+}

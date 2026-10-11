@@ -298,9 +298,21 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// ------------------------------------------------------------------
-	// Phase 3: push stack + re-apply ApplicationSet + refresh.
+	// Phase 3: push stack + re-apply ApplicationSet.
 	// ------------------------------------------------------------------
-	helpers.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
+	//
+	// Say which of the two actually happens. The line was unconditionally
+	// "Pushing stack and re-applying the platform ApplicationSet…", so a run
+	// that had just printed "packages: no changes" still announced a push — and
+	// then the closing report warned about ten minutes of fleet-wide churn that
+	// could not occur, because a force push of identical content creates no
+	// commit and ArgoCD sees no new revision. Verified live on 2026-10-11: a
+	// no-op upgrade left the packages repo HEAD untouched.
+	if hasDiff {
+		helpers.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
+	} else {
+		helpers.Println("◌ Re-applying the platform ApplicationSet…")
+	}
 	if err := reconciler.ApplyPlatformStack(ctx, &platform); err != nil {
 		return fmt.Errorf("applying platform stack: %w", err)
 	}
@@ -315,6 +327,24 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// platform, and the honest fix is to name the scale up front rather than to
 	// hide it. Counted live rather than guessed, and silent if the count cannot
 	// be read: a failed count must not look like a failed upgrade.
+	//
+	// But ONLY when something was pushed. This warning is load-bearing — it is
+	// what stops an operator reading post-upgrade churn as breakage — and
+	// printing it after "packages: no changes" spends that credibility on an
+	// event that will not happen. A warning that cries wolf on every no-op run
+	// is one an operator learns to skip past on the run where it is true.
+	if !hasDiff {
+		helpers.Println("● Upgrade applied — the stack was already in sync, so no application is")
+		fmt.Println("   re-comparing: a push of identical content creates no commit, and ArgoCD")
+		fmt.Println("   only reacts to a new revision.")
+		// Only claim the foundation ran when it did: --skip-foundation makes
+		// this path the whole command, and saying otherwise would describe work
+		// the operator explicitly asked to skip.
+		if !skipFoundation {
+			fmt.Println("   The foundation was converged above.")
+		}
+		return nil
+	}
 	if n := countApplications(ctx, kubeClient, platform.Namespace); n > 0 {
 		helpers.Printf("● Upgrade applied — ArgoCD is re-comparing all %d applications.\n", n)
 		fmt.Println("   A push to the shared packages repo flips every app OutOfSync, so expect")

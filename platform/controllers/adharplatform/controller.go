@@ -493,6 +493,33 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		return fmt.Errorf("reading workload cluster ApplicationSet %s: %w", workloadAppSetPath, err)
 	}
 
+	// The service adopter — without it, an application created from a template
+	// never reaches the control plane.
+	//
+	// A template's skeleton carries `.adhar/app.yaml`, an `Application`
+	// (platform.adhar.io) that Crossplane expands into the per-environment
+	// ArgoCD Applications. Nothing turns that FILE into an XR on its own:
+	// `adhar-services-appset.yaml` is the bridge, a Gitea SCM generator that
+	// finds every org repo carrying the descriptor and syncs its `.adhar/`
+	// directory. It was written and never applied, so the whole path was inert
+	// — live on 2026-10-11 a cluster with 2 organisations, 3 teams, 1 project
+	// and 1 repository had ZERO Application XRs, and apps scaffolded from
+	// templates existed only as hand-wired ArgoCD Applications.
+	//
+	// Applied unconditionally for the same reason as the workload set above: the
+	// generator's `pathsExist` filter means it emits nothing until a repo opts
+	// in, so it costs nothing on a platform whose repos carry no descriptor.
+	servicesAppSetPath := filepath.Join(r.StackDir, "adhar-services-appset.yaml")
+	if servicesBytes, err := os.ReadFile(servicesAppSetPath); err == nil {
+		if err := r.applyManifestNoOwner(ctx, servicesBytes, resource, "Service adopter ApplicationSet"); err != nil {
+			logger.Error(err, "Failed to apply service adopter ApplicationSet")
+			return err
+		}
+		logger.Info("● Successfully applied service adopter ApplicationSet")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("reading service adopter ApplicationSet %s: %w", servicesAppSetPath, err)
+	}
+
 	// Don't shut down yet - we need to wait for applications to become healthy
 	// The next reconciliation will check if everything is ready
 	return nil

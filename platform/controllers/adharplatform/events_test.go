@@ -135,10 +135,24 @@ func TestTheAggregateConditionBecomesAPlatformEvent(t *testing.T) {
 	resource.Status.Crossplane.Available = true
 	resource.Status.Crossplane.ControlPlaneApplied = true
 
-	r.publishTransitions(context.Background(), "prod", syncConditions(resource, "", ""))
+	// Wait for EVERY event this publishes, not just one.
+	//
+	// A ready platform transitions the aggregate AND each component, and
+	// publishTransitions emits one event per transition — so delivered(1)
+	// returned as soon as the first of them landed, which is usually a
+	// COMPONENT event. The platform event was then simply not in the slice yet
+	// and the count below read 0. Flaky roughly one run in three under load,
+	// and the helper's own comment warns about exactly this: "a helper that
+	// returns as soon as one event lands reads a partial batch and the
+	// assertion that follows is a coin toss."
+	//
+	// Counting the transitions rather than hardcoding a number keeps this
+	// correct when a condition is added, and matches the test above.
+	transitions := syncConditions(resource, "", "")
+	r.publishTransitions(context.Background(), "prod", transitions)
 
 	var platformEvents int
-	for _, e := range delivered(1) {
+	for _, e := range delivered(len(transitions)) {
 		switch e.Type {
 		case events.TypePlatformReconciled:
 			platformEvents++
