@@ -110,16 +110,56 @@ func TestUpgradeOnlyWarnsAboutChurnWhenItPushed(t *testing.T) {
 		t.Fatalf("the churn warning (at %d) precedes the apply (at %d)", churn, apply)
 	}
 	between := src[apply:churn]
-	if !strings.Contains(between, "if !hasDiff {") || !strings.Contains(between, "return nil") {
+	if !strings.Contains(between, "if !diff.any() {") || !strings.Contains(between, "return nil") {
 		t.Error("nothing returns early for a no-op between applying the stack and the churn warning; " +
 			"a run that pushed nothing therefore still warns about ten minutes of fleet-wide " +
 			"re-comparison that cannot happen")
+	}
+
+	// And the warning must be reached only when the PACKAGES repo moved.
+	//
+	// Every Application tracks that monorepo; the environments repo is read by a
+	// handful of Kargo and AppProject objects and a change in it churns nothing.
+	// An environments-only push promised ten minutes of fleet-wide
+	// re-comparison that never arrived (live 2026-10-12, pushing only
+	// `test/config.yaml`).
+	if !strings.Contains(between, "if diff.packagesChanged() {") {
+		t.Error("the churn warning is not gated on the packages repo having changed, so a push that " +
+			"touched only the environments repo still warns about the whole fleet re-comparing")
 	}
 	// And the "Pushing stack" announcement must branch too, so it does not
 	// claim a push after reporting no changes.
 	if !strings.Contains(src, `helpers.Println("◌ Re-applying the platform ApplicationSet…")`) {
 		t.Error("the phase-3 announcement always says it is pushing the stack; after \"no changes\" " +
 			"that is not what happens, and the operator has no way to tell a real push from a no-op")
+	}
+}
+
+// Wrapped sentences must line up under the line they continue.
+//
+// `helpers.Println` adds the two-column gutter and the bullet lines carry "● "
+// after it, so a sentence starts at column 4. The follow-on lines used a literal
+// three spaces through bare `fmt.Println`, landing at column 3 — one short, so
+// every continuation stepped left of its own first line.
+//
+// Asserted as the absence of hand-indented `fmt.Println` in the closing report,
+// because the gutter must stay owned by the one helper that knows it.
+func TestUpgradeContinuationLinesAlignUnderTheirBullet(t *testing.T) {
+	src := upgradeSourceWithoutComments(t)
+
+	apply := strings.Index(src, "ApplyPlatformStack(ctx")
+	if apply < 0 {
+		t.Fatal("cannot find the apply; this guard is no longer checking the closing report")
+	}
+	report := src[apply:]
+	if strings.Contains(report, `fmt.Println("   `) {
+		t.Error(`the closing report indents continuation lines with a literal three spaces through ` +
+			`fmt.Println; that is one column left of the bullet text it continues. Use the gutter ` +
+			`helper with a two-space continuation instead.`)
+	}
+	if !strings.Contains(report, "cont(") {
+		t.Error("the closing report no longer routes continuation lines through a single helper, so " +
+			"their indent is set independently at each call site and drifts")
 	}
 }
 

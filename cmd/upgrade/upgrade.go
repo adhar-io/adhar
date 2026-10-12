@@ -276,7 +276,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Phase 2: stack diff.
 	// ------------------------------------------------------------------
 	helpers.Println("▸ Comparing local stack against in-cluster GitOps repositories…")
-	summary, hasDiff, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, stackDir, tmpDir)
+	summary, diff, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, stackDir, tmpDir)
 	if err != nil {
 		return fmt.Errorf("computing stack diff: %w", err)
 	}
@@ -285,7 +285,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if diffOnly {
 		return nil
 	}
-	if !hasDiff {
+	if !diff.any() {
 		helpers.Println("● Stack already in sync; re-applying ApplicationSet for completeness")
 	} else if !assumeYes {
 		fmt.Print("Push these changes and sync? [y/N]: ")
@@ -308,7 +308,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// could not occur, because a force push of identical content creates no
 	// commit and ArgoCD sees no new revision. Verified live on 2026-10-11: a
 	// no-op upgrade left the packages repo HEAD untouched.
-	if hasDiff {
+	if diff.any() {
 		helpers.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
 	} else {
 		helpers.Println("◌ Re-applying the platform ApplicationSet…")
@@ -333,28 +333,69 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// printing it after "packages: no changes" spends that credibility on an
 	// event that will not happen. A warning that cries wolf on every no-op run
 	// is one an operator learns to skip past on the run where it is true.
-	if !hasDiff {
-		helpers.Println("● Upgrade applied — the stack was already in sync, so no application is")
-		fmt.Println("   re-comparing: a push of identical content creates no commit, and ArgoCD")
-		fmt.Println("   only reacts to a new revision.")
+	fmt.Print(upgradeOutcomeReport(diff, countApplications(ctx, kubeClient, platform.Namespace), skipFoundation))
+	return nil
+}
+
+// upgradeOutcomeReport is the command's closing paragraph, returned as a string
+// so both of its branches can be asserted without a cluster.
+//
+// Two things were wrong with it when it printed inline. The ten-minute churn
+// warning fired for ANY push, but every Application tracks the PACKAGES
+// monorepo and nothing tracks the environments repo except the Kargo projects
+// and AppProjects built from it — so an environments-only push promised a
+// fleet-wide re-comparison that never arrived (live 2026-10-12, pushing only
+// `test/config.yaml`). And the wrapped sentences were hand-indented three
+// spaces through bare `fmt.Println` while the bullet text sits at column four,
+// so each continuation stepped one column left of the line it continued.
+func upgradeOutcomeReport(diff stackDiff, apps int, skipFoundation bool) string {
+	var b strings.Builder
+	// bullet starts a sentence; cont continues one. Both go through the gutter
+	// helper, so the single place that knows the gutter still owns it, and a
+	// continuation is exactly two columns past it — under the bullet's text.
+	bullet := func(format string, args ...any) {
+		b.WriteString(helpers.Indent("● "+fmt.Sprintf(format, args...)) + "\n")
+	}
+	cont := func(lines ...string) {
+		for _, l := range lines {
+			b.WriteString(helpers.Indent("  "+l) + "\n")
+		}
+	}
+
+	if !diff.any() {
+		bullet("Upgrade applied — the stack was already in sync, so no application is")
+		cont("re-comparing: a push of identical content creates no commit, and ArgoCD",
+			"only reacts to a new revision.")
 		// Only claim the foundation ran when it did: --skip-foundation makes
 		// this path the whole command, and saying otherwise would describe work
 		// the operator explicitly asked to skip.
 		if !skipFoundation {
-			fmt.Println("   The foundation was converged above.")
+			cont("The foundation was converged above.")
 		}
-		return nil
+		return b.String()
 	}
-	if n := countApplications(ctx, kubeClient, platform.Namespace); n > 0 {
-		helpers.Printf("● Upgrade applied — ArgoCD is re-comparing all %d applications.\n", n)
-		fmt.Println("   A push to the shared packages repo flips every app OutOfSync, so expect")
-		fmt.Println("   ~10 min of churn even for a one-file change. That is normal, not a fault.")
-	} else {
-		helpers.Println("● Upgrade applied — ArgoCD is syncing the stack.")
+
+	if diff.packagesChanged() {
+		if apps > 0 {
+			bullet("Upgrade applied — ArgoCD is re-comparing all %d applications.", apps)
+			cont("A push to the shared packages repo flips every app OutOfSync, so expect",
+				"~10 min of churn even for a one-file change. That is normal, not a fault.")
+		} else {
+			bullet("Upgrade applied — ArgoCD is syncing the stack.")
+		}
+		// Only the churn case gets the recovery advice. Telling an operator that
+		// "a wave-stuck app needs its operation terminated" right after telling
+		// them nothing is re-comparing is two sentences that contradict each
+		// other, and it is advice for a situation they are not in.
+		cont("Track it with `adhar get status`; a wave-stuck app needs its operation",
+			"terminated before it will pick up the new revision.")
+		return b.String()
 	}
-	fmt.Println("   Track it with `adhar get status`; a wave-stuck app needs its operation")
-	fmt.Println("   terminated before it will pick up the new revision.")
-	return nil
+
+	bullet("Upgrade applied — only the environments repo changed, so the")
+	cont("application fleet is not re-comparing: nothing tracks that repo except",
+		"the Kargo projects and AppProjects built from it.")
+	return b.String()
 }
 
 // countApplications reports how many ArgoCD Applications live in the platform
@@ -376,10 +417,33 @@ func countApplications(ctx context.Context, kubeClient client.Client, namespace 
 // diffStack clones the packages and environments repos from the in-cluster
 // Gitea and diffs them against the local stack directory. It returns a
 // human-readable summary and whether any differences exist.
-func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.BuildCustomizationSpec, stackDir, tmpDir string) (string, bool, error) {
+// stackDiff records how many files differ per GitOps repository.
+//
+// Per-repo, not one boolean, because the two repos have very different
+// consequences. Every Application tracks the PACKAGES monorepo, so a push there
+// flips all of them OutOfSync; the ENVIRONMENTS repo is read by a handful of
+// Kargo/AppProject objects and a one-file change in it churns nothing. Reporting
+// a single "something differed" meant an environments-only push still warned
+// about ten minutes of fleet-wide re-comparison (seen live 2026-10-12, pushing
+// only `test/config.yaml`).
+type stackDiff map[string]int
+
+func (d stackDiff) any() bool {
+	for _, n := range d {
+		if n > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// packagesChanged reports whether the monorepo every Application tracks moved.
+func (d stackDiff) packagesChanged() bool { return d["packages"] > 0 }
+
+func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.BuildCustomizationSpec, stackDir, tmpDir string) (string, stackDiff, error) {
 	creds, err := utils.GetSecretByName(ctx, kubeClient, utils.GiteaNamespace, utils.GiteaAdminSecret)
 	if err != nil {
-		return "", false, fmt.Errorf("reading gitea credentials: %w", err)
+		return "", nil, fmt.Errorf("reading gitea credentials: %w", err)
 	}
 	username := string(creds.Data["username"])
 	password := string(creds.Data["password"])
@@ -390,33 +454,33 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 	dialAddr := gatewayDialAddress(ctx, kubeClient)
 
 	var b strings.Builder
-	hasDiff := false
+	diff := stackDiff{}
 	for _, repo := range []string{"packages", "environments"} {
 		cloneDir := filepath.Join(tmpDir, "repo-"+repo)
 		if err := cloneGiteaRepo(ctx, cfg, username, password, repo, cloneDir, dialAddr); err != nil {
-			return "", false, err
+			return "", nil, err
 		}
 		// Remove clone metadata so the directory diff sees content only.
 		if err := os.RemoveAll(filepath.Join(cloneDir, ".git")); err != nil {
-			return "", false, err
+			return "", nil, err
 		}
 
 		// Compare against the stack as it would be seeded (templates rendered,
 		// host convention rewritten), not the raw checkout.
 		staged, cleanup, err := adharplatform.StageStack(filepath.Join(stackDir, repo), cfg)
 		if err != nil {
-			return "", false, fmt.Errorf("staging %s: %w", repo, err)
+			return "", nil, fmt.Errorf("staging %s: %w", repo, err)
 		}
 		names, err := gitDiffNames(ctx, cloneDir, staged)
 		cleanup()
 		if err != nil {
-			return "", false, err
+			return "", nil, err
 		}
 		if len(names) == 0 {
 			fmt.Fprintf(&b, "   %s: no changes\n", repo)
 			continue
 		}
-		hasDiff = true
+		diff[repo] = len(names)
 		fmt.Fprintf(&b, "   %s: %d file(s) differ\n", repo, len(names))
 		const maxShown = 40
 		for i, n := range names {
@@ -427,7 +491,7 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 			fmt.Fprintf(&b, "      %s\n", n)
 		}
 	}
-	return b.String(), hasDiff, nil
+	return b.String(), diff, nil
 }
 
 // cloneGiteaRepo clones a repo from the in-cluster Gitea over its external URL
