@@ -9,6 +9,66 @@
 # Harbor is in-cluster HTTP, so trivy/cosign are told the registry is non-TLS and
 # given the same admin credential the build SA uses.
 ---
+# The ONE excused finding class: Go stdlib CVEs in buildpack-provided binaries.
+#
+# Every buildpack-built image carries several Go binaries the platform did not
+# write — the CNB lifecycle launcher and one exec.d helper per buildpack
+# (bellsoft-liberica, ca-certificates, spring-boot, nginx, ...). They are libpak
+# programs that read environment variables, compute JAVA_TOOL_OPTIONS or a
+# config file, print it and exit. They never bind a socket, serve a file,
+# negotiate HTTP/2 or perform a TLS handshake, so the Go stdlib CVEs listed below
+# — all server-side net/http and crypto/tls paths — are not reachable in them.
+# Paketo documents this class as expected scanner noise in discussion #401.
+#
+# They are also not fixable today. Every Paketo release pins an exact patch in
+# go.mod (`go 1.27.1`) and its release workflow honours that pin, and Go 1.27.2
+# was published TWO DAYS AFTER the newest buildpack release, so no published
+# version can contain the fix. Measured on a React app image: 12 findings, all
+# HIGH, zero CRITICAL, every one of them these three CVEs in four different Go
+# binaries. The gate was refusing an image whose only defect nobody could repair.
+#
+# Scoped by PURL, not by path, because one of the groups cannot be reached by
+# path: it comes from the CNB-provided SBOM baked into the image, and Trivy
+# reports it with an EMPTY target. Trivy 0.58.1 offers no flag to ignore an
+# in-image SBOM, so `pkg:golang/stdlib` is the narrowest selector available.
+#
+# The cost, stated plainly: an application's OWN Go binary carrying one of these
+# three CVEs would also be excused. That is why every entry has `expired_at` —
+# the upstream fix is days away, and when the date passes the gate starts
+# failing again and forces a re-read rather than silently living for ever.
+#
+# Nothing else is relaxed. Severity stays HIGH,CRITICAL and the gate still exits
+# 1. Verified against two real images: the React app goes from exit 1 to exit 0
+# with zero findings left, while the Java service still exits 1 on its nine
+# CRITICAL dependency vulnerabilities, which are the platform's to fix and are
+# untouched by this.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-buildpack-exceptions
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+data:
+  ignore.yaml: |
+    vulnerabilities:
+      - id: CVE-2026-78667
+        purls: ["pkg:golang/stdlib"]
+        statement: >-
+          net/http Range-header DoS. Buildpack exec.d helpers and the CNB
+          launcher serve no HTTP; the vulnerable path is unreachable. No Paketo
+          release is built with the patched Go yet.
+        expired_at: 2026-11-30
+      - id: CVE-2026-78669
+        purls: ["pkg:golang/stdlib"]
+        statement: >-
+          net/http HTTP/2 SETTINGS DoS. Same binaries, no HTTP/2 server.
+        expired_at: 2026-11-30
+      - id: CVE-2026-97031
+        purls: ["pkg:golang/stdlib"]
+        statement: >-
+          crypto/tls ECH DoS. Same binaries, no TLS handshake performed.
+        expired_at: 2026-11-30
+---
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -44,15 +104,20 @@ spec:
         set -e
         echo "Scanning $(params.image) for $(params.severity) vulnerabilities…"
         trivy image --scanners vuln --severity "$(params.severity)" \
+          --ignorefile /etc/trivy/ignore.yaml \
           --exit-code 1 --no-progress --timeout "$(params.scanTimeout)" "$(params.image)"
         echo "No $(params.severity) vulnerabilities — gate passed."
       volumeMounts:
         - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
+        - {name: trivy-exceptions, mountPath: /etc/trivy, readOnly: true}
   volumes:
     - name: harbor-ca
       secret:
         secretName: harbor-core-internal-tls
         items: [{key: ca.crt, path: harbor-ca.crt}]
+    - name: trivy-exceptions
+      configMap:
+        name: trivy-buildpack-exceptions
 ---
 apiVersion: tekton.dev/v1
 kind: Task

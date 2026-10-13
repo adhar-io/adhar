@@ -1019,6 +1019,29 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 360
           successThreshold: 1
+        # 60s of tolerance after startup, not 20.
+        #
+        # harbor-core is the registry's front door: EVERY buildpack build and
+        # every image scan on the platform goes through it. At
+        # failureThreshold 2 on a 10s period, two consecutive misses mark it
+        # unready — which empties the Service endpoints — and restart it.
+        #
+        # On 2026-10-13 a worker's kubelet stopped posting node status, and that
+        # was enough to make core flap between 1/1 and 0/1 for half an hour. The
+        # visible damage was nowhere near Harbor: every buildpack build died at
+        # the ANALYZING phase with `connect: connection refused` to the core
+        # Service, and every trivy scan with `unable to find the specified
+        # image`. Reading those at face value sends you looking for a broken
+        # pipeline or a missing tag.
+        #
+        # The platform already learned this exact lesson on Harbor's DATABASE,
+        # whose upstream probe budget let kubelet kill a healthy database 29
+        # times. Same shape, same fix. The startupProbe above keeps its
+        # failureThreshold of 360, so a genuinely slow first boot is unaffected;
+        # this only stops a brief stall from being read as death.
+        #
+        # Restarting a slow-but-healthy core makes it worse, not better: the
+        # restart costs more availability than the stall it was reacting to.
         livenessProbe:
           httpGet:
             path: /api/v2.0/ping
@@ -1026,8 +1049,8 @@ spec:
             port: 8443
           initialDelaySeconds: 0
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 2
+          timeoutSeconds: 10
+          failureThreshold: 6
           successThreshold: 1
         readinessProbe:
           httpGet:
@@ -1036,8 +1059,8 @@ spec:
             port: 8443
           initialDelaySeconds: 0
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 2
+          timeoutSeconds: 10
+          failureThreshold: 6
           successThreshold: 1
         envFrom:
         - configMapRef:

@@ -1116,6 +1116,35 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 		// names do-block-storage explicitly.
 		{"do-block-storage is not the default", kubectlAdminBase + ` patch storageclass do-block-storage -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'`},
 	}
+	// `adhar-block` is the name the PACKAGES ask for, and DigitalOcean was the
+	// one cloud that never created it.
+	//
+	// AWS, Azure and GCP each publish an `adhar-block` StorageClass over their
+	// own CSI driver; this provider only demoted `do-block-storage` and left a
+	// comment telling applications to name that instead. They do not: `nexus`
+	// and `rustfs` both name `adhar-block`, because a package manifest cannot
+	// know which cloud it will land on. So on DigitalOcean their claims bound to
+	// nothing and stayed Pending for ever.
+	//
+	// The symptom appears three hops from the cause, which is why this survived:
+	// the nexus PVC is Pending → the nexus pod is Pending → its PostSync hook
+	// never runs → `nexus-credentials` is never published → and the adhar-kit
+	// and adhar-ui release pipelines fail at `build`/`publish` with
+	// CreateContainerConfigError, which reads like a broken pipeline rather than
+	// missing storage (live 2026-10-12).
+	//
+	// Non-default on purpose, like the others: a droplet accepts only 7 attached
+	// volumes and the stack asks for ~90 claims, so node-local stays the default
+	// and this exists for the few workloads that must outlive their node.
+	for _, st := range []provider.IntegrationStep{
+		provider.StepStorageClass("adhar-block", "dobs.csi.digitalocean.com", nil, false),
+		provider.StepClearDefaultStorageClass("adhar-block"),
+	} {
+		steps = append(steps, struct {
+			desc string
+			cmd  string
+		}{st.Desc, st.Cmd})
+	}
 	for _, st := range provider.StepNodeLocalStorageClass(globals.DefaultStorageClass) {
 		steps = append(steps, struct {
 			desc string
