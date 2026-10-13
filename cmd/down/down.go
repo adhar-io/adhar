@@ -491,10 +491,12 @@ func (m downModel) View() string {
 		view += helpers.PanelSubtitleStyle.Render(" · " + status)
 	}
 
-	// One blank line before the elapsed time, not two. The panel had the title,
-	// two empty rows, the spinner, then two more — more vertical space than the
-	// three lines of content it frames.
-	timeInfo := fmt.Sprintf("\n%s %s",
+	// One blank line before the elapsed time — not two, which was the original
+	// and gave the panel more vertical space than the three lines of content it
+	// frames, and not zero, which is what a single "\n" produces: that only ends
+	// the spinner's line, so the elapsed time sat directly beneath it with the
+	// comment here claiming otherwise.
+	timeInfo := fmt.Sprintf("\n\n%s %s",
 		helpers.InfoStyle.Render("Elapsed time:"),
 		m.elapsedTime)
 

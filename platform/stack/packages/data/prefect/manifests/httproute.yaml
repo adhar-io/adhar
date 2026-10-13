@@ -1,4 +1,6 @@
 # Prefect UI + API on its own host through the Cilium Gateway.
+# SSO: the backend below is the Keycloak oauth2-proxy from sso.yaml, which
+# forwards to the original upstream: prefect-server:4200.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -6,7 +8,7 @@ metadata:
   namespace: adhar-system
   # Apply after the Service (wave 2 > 1) — see kafka-ui httproute for the
   # sync-wave deadlock this avoids.
-  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
   labels:
     app.kubernetes.io/name: prefect
     app.kubernetes.io/part-of: adhar-data
@@ -22,5 +24,5 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: prefect-server
-          port: 4200
+        - name: prefect-oauth2-proxy
+          port: 4180

@@ -1,4 +1,6 @@
 # Kafka UI on its own host through the Cilium Gateway.
+# SSO: the backend below is the Keycloak oauth2-proxy from sso.yaml, which
+# forwards to the original upstream: kafka-ui:80.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -8,7 +10,7 @@ metadata:
   # Degraded ("backend Service not found") until its backend exists, and ArgoCD
   # blocks later waves on an unhealthy earlier wave — so a wave-0 route would
   # deadlock the wave-1 Deployment/Service that back it.
-  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
   labels:
     app.kubernetes.io/name: kafka-ui
     app.kubernetes.io/part-of: adhar-data
@@ -24,5 +26,5 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: kafka-ui
-          port: 80
+        - name: kafka-ui-oauth2-proxy
+          port: 4180

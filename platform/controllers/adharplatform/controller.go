@@ -55,6 +55,9 @@ import (
 	"adhar-io/adhar/platform/events"
 	"adhar-io/adhar/platform/utils"
 	"adhar-io/adhar/platform/utils/files"
+	"encoding/base64"
+	"regexp"
+	"unicode/utf8"
 )
 
 const (
@@ -1114,9 +1117,14 @@ func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec, txtOwnerID 
 		}
 		s := string(b)
 		if rewriteHost {
-			// host:8443 (URL host:port) first, then any bare host reference.
-			s = strings.ReplaceAll(s, globals.DefaultHostName+":8443", host+suffix)
-			s = strings.ReplaceAll(s, globals.DefaultHostName, host)
+			rewrite := func(in string) string {
+				// host:8443 (URL host:port) first, then any bare host reference.
+				in = strings.ReplaceAll(in, globals.DefaultHostName+":8443", host+suffix)
+				return strings.ReplaceAll(in, globals.DefaultHostName, host)
+			}
+			s = rewrite(s)
+			// …and again inside base64, which the text pass cannot see through.
+			s = rewriteEncodedHosts(s, rewrite)
 		}
 		return os.WriteFile(dst, []byte(s), info.Mode())
 	})
@@ -1748,4 +1756,44 @@ func GetEmbeddedRawInstallResources(name string, templateData any, config v1alph
 	default:
 		return nil, fmt.Errorf("unsupported embedded app name %s", name)
 	}
+}
+
+// base64Scalar matches a long unbroken base64 run — the shape a Secret's
+// `data:` value has. Length alone would be a loose test, which is why
+// rewriteEncodedHosts also requires the blob to DECODE to text that actually
+// mentions the default host before touching it.
+var base64Scalar = regexp.MustCompile(`[A-Za-z0-9+/]{40,}={0,2}`)
+
+// rewriteEncodedHosts applies the staging host rewrite inside base64 values.
+//
+// `stageStack` rewrites the raw text of every staged file, which reaches
+// ConfigMaps, HTTPRoutes and plain `stringData` — but a Secret stores its
+// values base64-encoded under `data:`, and the hostname inside is invisible to
+// a text replace. Any package that ships configuration that way therefore
+// carries `adhar.localtest.me` onto every cloud install.
+//
+// Found on 2026-10-13: the JupyterHub chart renders its ENTIRE values file
+// into `Secret/hub` under `data: values.yaml`. Argo CD reported the app Synced
+// and Healthy, the HTTPRoute was correctly `jupyterhub.platform.adhar.io`, and
+// the hub still sent every login to
+// `https://keycloak.adhar.localtest.me:8443/realms/adhar/...` — a host that
+// does not resolve off a laptop. The seeded Git content looked right because
+// the package's own values.yaml (which Argo CD does not read) had been
+// rewritten; the Secret that is actually applied had not.
+//
+// Deliberately conservative: a blob is rewritten only when it decodes cleanly,
+// is valid UTF-8, and already contains the default host. Anything else — a TLS
+// key, a token, a binary — is left exactly as it was.
+func rewriteEncodedHosts(s string, rewrite func(string) string) string {
+	return base64Scalar.ReplaceAllStringFunc(s, func(blob string) string {
+		raw, err := base64.StdEncoding.DecodeString(blob)
+		if err != nil || !utf8.Valid(raw) {
+			return blob
+		}
+		decoded := string(raw)
+		if !strings.Contains(decoded, globals.DefaultHostName) {
+			return blob
+		}
+		return base64.StdEncoding.EncodeToString([]byte(rewrite(decoded)))
+	})
 }

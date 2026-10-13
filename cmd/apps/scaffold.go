@@ -477,7 +477,7 @@ type scaffoldedRepo struct {
 // caller can hand the repo to the same Application path a --repo deploy
 // takes. The application's source therefore lives in git from the first commit,
 // which is the point of a golden path: the generated service is editable.
-func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateID, appName, namespace string, overrides map[string]string) (*scaffoldedRepo, error) {
+func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateID, appName, namespace, env string, overrides map[string]string) (*scaffoldedRepo, error) {
 	t, err := loadBackstageTemplate(gc, templateID)
 	if err != nil {
 		return nil, err
@@ -515,7 +515,25 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	// keeps a CLI-scaffolded repo and a Console-scaffolded repo identical.
 	if base := platformBaseDomain(host); base != "" {
 		values["platformBaseDomain"] = base
-		values["hostname"] = appName + "." + base
+		// The ENVIRONMENT is part of the hostname: <app>.<env>.<base>.
+		//
+		// Without it every environment of every app competes for one name.
+		// `my-service.<base>` cannot simultaneously be the dev copy and the
+		// prod copy, so the promotion chain this platform is built around
+		// (dev -> test -> prod, prod held for a person) had nowhere to put the
+		// other two — the ml template's own comment says as much: "give each
+		// environment its own HTTPRoute hostname, since three namespaces cannot
+		// share one".
+		//
+		// This also means the Gateway must terminate TLS for `*.<env>.<base>`,
+		// which a `*.<base>` wildcard does NOT cover — a TLS wildcard matches
+		// exactly one label. The per-environment listeners in
+		// resources/gateway/gateway-cloud.yaml exist for that, and
+		// cert-manager's gateway support extends the certificate from them.
+		// Changing this line without those listeners gives every new app a URL
+		// that resolves and then serves the wrong certificate.
+		values["environment"] = env
+		values["hostname"] = appName + "." + env + "." + base
 	}
 	ctxVals := map[string]any{"values": values, "parameters": params}
 

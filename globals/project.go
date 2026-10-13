@@ -33,6 +33,21 @@ const (
 	DefaultSANWildcard       = "*.adhar.localtest.me"
 	DefaultHostName          = "adhar.localtest.me"
 
+	// PlatformEnvironmentsCSV is the canonical promotion chain, comma-joined.
+	//
+	// dev -> test -> prod, with prod held for a person. These three names are
+	// load-bearing in more places than is obvious: the namespaces `adhar up`
+	// creates, every application's Kargo pipeline, the environments GitOps
+	// repo, the CLI, and now the hostname a scaffolded app is published on and
+	// the Gateway listeners that terminate TLS for it. They drifted once
+	// already — the Kargo pipeline shipped staging/production while the
+	// environments repo held development/staging/testing/production — so they
+	// live here and every consumer reads them rather than repeating a literal.
+	//
+	// A string constant rather than a slice because Go has no constant slices
+	// and a package-level var is mutable; PlatformEnvironments() returns it.
+	PlatformEnvironmentsCSV = "dev,test,prod"
+
 	// KeycloakRealm is the platform realm every Adhar service authenticates
 	// against, and KeycloakCLIClientID is its public, direct-grant OIDC client.
 	// Both are named in three places that MUST agree — `adhar auth` (the CLI

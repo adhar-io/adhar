@@ -66,7 +66,33 @@ var (
 	destinationSrv    string
 	projectFlag       string
 	paramFlags        []string
+	envFlag           string
 )
+
+// deployEnv returns the environment a scaffolded app is published in.
+//
+// Defaults to the head of the promotion chain: nothing is promoted INTO dev, so
+// an app that has never been promoted lives there. An unrecognised value is
+// REFUSED rather than passed through, because it would reach the hostname and
+// the Gateway terminates TLS only for the canonical environments — the app
+// would get a URL that resolves and then serves the wrong certificate, which is
+// far harder to diagnose than a flag error.
+func deployEnv() string {
+	if envFlag == "" {
+		return globals.DefaultEnvironment()
+	}
+	for _, e := range globals.PlatformEnvironments() {
+		if envFlag == e {
+			return envFlag
+		}
+	}
+	// Cobra has already parsed, so this is the only place left to object. The
+	// caller treats an empty return as "leave the template's hostname alone".
+	helpers.Println(helpers.WarningStyle.Render("!") +
+		" unknown environment " + envFlag + "; the platform publishes " +
+		strings.Join(globals.PlatformEnvironments(), ", ") + ". Using " + globals.DefaultEnvironment() + ".")
+	return globals.DefaultEnvironment()
+}
 
 func init() {
 	deployCmd.Flags().StringVarP(&templateFlag, "template", "t", "", "Application template to use")
@@ -80,6 +106,7 @@ func init() {
 	deployCmd.Flags().StringVar(&destinationSrv, "dest-server", "https://kubernetes.default.svc", "Destination cluster API server")
 	deployCmd.Flags().StringVar(&projectFlag, "project", "default", "ArgoCD project to associate with the application")
 	deployCmd.Flags().StringArrayVar(&paramFlags, "param", nil, "Template parameter as key=value (repeatable); see 'adhar application templates'")
+	deployCmd.Flags().StringVar(&envFlag, "env", "", "Environment the app is published in; part of its hostname (default "+globals.DefaultEnvironment()+")")
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
@@ -163,7 +190,7 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace,
 	}
 
 	logger.Info(fmt.Sprintf("▸ Rendering template %s into %s/%s", template, globals.GiteaPlatformOrg, appName))
-	scaffolded, err := scaffoldTemplate(ctx, gc, giteaURL, template, appName, namespace, overrides)
+	scaffolded, err := scaffoldTemplate(ctx, gc, giteaURL, template, appName, namespace, deployEnv(), overrides)
 	if err != nil {
 		return "", "", err
 	}

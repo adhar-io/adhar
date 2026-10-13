@@ -13,6 +13,7 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
+	discoveryv1 "k8s.io/api/discovery/v1"
 )
 
 // GitOps convergence driver.
@@ -48,6 +49,11 @@ const (
 	// what a person opens after `adhar up`, so once it serves, the command has
 	// delivered what it promised. See ConvergenceReport.Usable.
 	readyGateApp = "adhar-console"
+	// consoleServiceName is the Service the gate application publishes. It is
+	// NOT the application name: the Argo CD Application is `adhar-console`
+	// while the Service it creates is `console`
+	// (packages/core/adhar-console/manifests/install.yaml).
+	consoleServiceName = "console"
 )
 
 // ConvergenceReport summarises one pass over the platform Applications.
@@ -180,7 +186,11 @@ func (r *AdharPlatformReconciler) nudgeApplications(ctx context.Context) (Conver
 		// loop body: the gate has to be recorded whether or not it is healthy yet.
 		if app.Name == readyGateApp {
 			report.GatePresent = true
-			report.GateReady = appConverged(app)
+			// Synced + Healthy is necessary but NOT sufficient — see
+			// consoleIsServing. The endpoint check is only paid once the
+			// Application itself is converged, so a converging run costs no
+			// extra API calls.
+			report.GateReady = appConverged(app) && r.consoleIsServing(ctx)
 		}
 		if appConverged(app) {
 			report.Healthy++
@@ -271,4 +281,40 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 	}
 	r.shouldShutdown = true
 	return ctrl.Result{}, nil
+}
+
+// consoleIsServing reports whether the console Service has a READY endpoint.
+//
+// The gate used to be the console Application being Synced + Healthy, and that
+// is a weaker statement than it reads as. Argo CD health is a verdict on the
+// resources it manages; whether the Service in front of them currently has a
+// backend that can answer is a separate fact, and it is the one that decides
+// whether opening the URL works. The two come apart exactly when it matters —
+// a pod evicted, rescheduled, or still failing its readiness probe leaves the
+// Application Healthy from its last observation while nothing serves.
+//
+// `adhar up` exists to hand over a URL a person can open, so the completion
+// message waits on the endpoint, not on an opinion about it.
+//
+// A read failure counts as NOT serving: the gate may only open on positive
+// evidence, or an unreachable API server would end the wait early — the very
+// failure this is meant to prevent.
+func (r *AdharPlatformReconciler) consoleIsServing(ctx context.Context) bool {
+	slices := &discoveryv1.EndpointSliceList{}
+	if err := r.Client.List(ctx, slices,
+		client.InNamespace(globals.AdharSystemNamespace),
+		client.MatchingLabels{discoveryv1.LabelServiceName: consoleServiceName},
+	); err != nil {
+		return false
+	}
+	for _, sl := range slices.Items {
+		for _, ep := range sl.Endpoints {
+			// Conditions.Ready is a *bool: nil means "no opinion", which the
+			// EndpointSlice spec says to treat as ready.
+			if ep.Conditions.Ready == nil || *ep.Conditions.Ready {
+				return true
+			}
+		}
+	}
+	return false
 }

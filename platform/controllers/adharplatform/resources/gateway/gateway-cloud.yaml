@@ -74,3 +74,33 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    # One listener per environment, because a scaffolded application is
+    # published at `<app>.<env>.<host>` and a TLS wildcard matches exactly ONE
+    # label. `*.{{ .Host }}` above does NOT cover `my-service.dev.{{ .Host }}`:
+    # without these the route resolves and then serves a certificate for the
+    # wrong name, which is the same class of fault as a missing DNS record and
+    # much harder to read.
+    #
+    # The environment belongs in the hostname because the promotion chain needs
+    # somewhere to put each copy — dev, test and prod cannot share one name.
+    #
+    # cert-manager's gateway support builds `adhar-cert`'s dnsNames from the
+    # listener hostnames on this Gateway, so adding a listener is all that is
+    # needed for the certificate to cover it; there is no second place to edit.
+    # Each is a separate SAN rather than a deeper wildcard for the same
+    # one-label reason.
+{{- range .RouteEnvironments }}
+    - name: https-{{ . }}
+      protocol: HTTPS
+      port: 443
+      hostname: "*.{{ . }}.{{ $.Host }}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            group: ""
+            name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: All
+{{- end }}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"adhar-io/adhar/globals"
+
 	"sigs.k8s.io/yaml"
 )
 
@@ -19,7 +21,11 @@ import (
 // development/staging/testing/production — so the Kargo UI and the console
 // showed environments that existed nowhere else, and the operator who had
 // declared three environments could not find them (2026-10-04).
-var environmentModel = []string{"dev", "test", "prod"}
+// Read from globals, not repeated here. This list drifted once already (the
+// Kargo pipeline shipped staging/production while the environments repo held
+// development/staging/testing/production), and a test carrying its own copy of
+// the thing it is policing cannot catch that.
+var environmentModel = globals.PlatformEnvironments()
 
 // The environments repo has exactly the model's directories, plus local.
 func TestEnvironmentsRepoMatchesTheModel(t *testing.T) {

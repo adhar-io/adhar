@@ -169,26 +169,57 @@ func runCost(cmd *cobra.Command, args []string) error {
 	monthly := byNamespace(mustQuery(ctx, cs, seriesMonthly))
 	budgets := byNamespace(mustQuery(ctx, cs, seriesBudget))
 
-	fmt.Println(helpers.SectionHeading("▸", "Platform cost · by namespace"))
-	t := helpers.NewTable("NAMESPACE", "$/HOUR", "$/MONTH (PROJ.)", "BUDGET", "USED")
-
 	sort.SliceStable(hourly, func(i, j int) bool { return hourly[i].Value > hourly[j].Value })
+
+	// One pass to decide the SHAPE of the table before drawing it: the totals
+	// each column must align to, and whether the budget columns have anything
+	// to say at all.
+	rows := make([]struct {
+		ns          string
+		hour, month float64
+		budget      float64
+		hasBudget   bool
+	}, 0, len(hourly))
 	var totalHour, totalMonth float64
+	anyBudget := false
 	for _, s := range hourly {
 		ns := s.Labels["namespace"]
 		if !showAll && s.Value < 0.0001 {
 			continue
 		}
-		totalHour += s.Value
-		m := monthly[ns]
-		totalMonth += m
 		b, hasBudget := budgets[ns]
-		t.Row(ns, money(s.Value), money(m), budgetCell(b, hasBudget), usedCell(m, b, hasBudget))
+		anyBudget = anyBudget || hasBudget
+		m := monthly[ns]
+		totalHour += s.Value
+		totalMonth += m
+		rows = append(rows, struct {
+			ns          string
+			hour, month float64
+			budget      float64
+			hasBudget   bool
+		}{ns, s.Value, m, b, hasBudget})
+	}
+
+	fmt.Println(helpers.SectionHeading("▸", "Platform cost · by namespace"))
+
+	t := helpers.NewTable(costHeaders(anyBudget)...)
+
+	hourFmt, monthFmt := columnMoney(totalHour), columnMoney(totalMonth)
+	for _, r := range rows {
+		cells := []string{r.ns, hourFmt(r.hour), monthFmt(r.month), shareBar(r.hour, totalHour)}
+		if anyBudget {
+			cells = append(cells, budgetCell(r.budget, r.hasBudget), usedCell(r.month, r.budget, r.hasBudget))
+		}
+		t.Row(cells...)
 	}
 	fmt.Println(t.Render())
-	fmt.Printf("  %s\n\n", helpers.SubtitleStyle.Render(fmt.Sprintf(
-		"total %s/hour · %s/month projected · cost of REQUESTS, not usage", money(totalHour), money(totalMonth))))
-	if len(budgets) == 0 {
+
+	fmt.Printf("  %s\n", helpers.SubtitleStyle.Render(fmt.Sprintf(
+		"total %s/hour · %s/month · %s/year projected",
+		money(totalHour), money(totalMonth), money(totalMonth*12))))
+	fmt.Printf("  %s\n\n", helpers.SubtitleStyle.Render(
+		"figures are the cost of resource REQUESTS, not usage — what the scheduler reserves"))
+	if !anyBudget {
 		fmt.Printf("  %s\n\n", helpers.SubtitleStyle.Render(
 			"no budgets declared — add them to the adhar-cost-governance PrometheusRule to get alerts"))
 	}
@@ -231,17 +262,32 @@ func runBreakdown(cmd *cobra.Command, args []string) error {
 		return a.cpu+a.ram > b.cpu+b.ram
 	})
 
+	var grand, cpuTotal, ramTotal float64
+	for _, n := range names {
+		grand += per[n].cpu + per[n].ram
+		cpuTotal += per[n].cpu
+		ramTotal += per[n].ram
+	}
+
 	fmt.Println(helpers.SectionHeading("▸", "Platform cost · CPU vs memory"))
 	t := helpers.NewTable("NAMESPACE", "CPU $/HR", "MEM $/HR", "TOTAL $/HR", "SPLIT")
+	// Same column-wide precision as `adhar cost`, for the same reason: these
+	// are read down, not one at a time.
+	f := columnMoney(grand)
 	for _, n := range names {
 		s := per[n]
 		total := s.cpu + s.ram
 		if total < 0.0001 {
 			continue
 		}
-		t.Row(n, money(s.cpu), money(s.ram), money(total), splitBar(s.cpu, total))
+		t.Row(n, f(s.cpu), f(s.ram), f(total), splitBar(s.cpu, total))
 	}
 	fmt.Println(t.Render())
+	if grand > 0 {
+		fmt.Printf("  %s\n", helpers.SubtitleStyle.Render(fmt.Sprintf(
+			"total %s/hour · %.0f%% cpu, %.0f%% memory",
+			money(grand), cpuTotal/grand*100, ramTotal/grand*100)))
+	}
 	fmt.Printf("  %s\n\n", helpers.SubtitleStyle.Render("a namespace dominated by memory usually wants a smaller request, not a bigger node"))
 	return nil
 }
@@ -323,4 +369,66 @@ func splitBar(cpu, total float64) string {
 		}
 	}
 	return fmt.Sprintf("%s %.0f%% cpu", bar, cpu/total*100)
+}
+
+// columnMoney gives every value in ONE column the same number of decimals,
+// chosen from the column's largest value.
+//
+// `money` picks its precision per value, which is right for a number inside a
+// sentence and wrong for a column. A namespace at `$491` printed directly above
+// one at `$11.43` made the two look like different units and lined up no digit
+// with any other, so the column could not be read down — which is the only
+// reason to put numbers in a column.
+func columnMoney(max float64) func(float64) string {
+	switch {
+	case max >= 100:
+		return func(v float64) string { return fmt.Sprintf("$%.0f", v) }
+	case max >= 1:
+		return func(v float64) string { return fmt.Sprintf("$%.2f", v) }
+	default:
+		return func(v float64) string { return fmt.Sprintf("$%.4f", v) }
+	}
+}
+
+// shareBar is each namespace's share of total spend.
+//
+// The fact the table was missing: a report whose first row is 98% of the bill
+// should say so, because "which namespace do I look at" is the question the
+// command is opened with, and two dollar figures of different magnitudes do not
+// answer it at a glance.
+func shareBar(v, total float64) string {
+	if total <= 0 {
+		return ""
+	}
+	pct := v / total * 100
+	const width = 10
+	n := int(pct/100*float64(width) + 0.5)
+	if n < 0 {
+		n = 0
+	}
+	if n > width {
+		n = width
+	}
+	bar := ""
+	for i := 0; i < width; i++ {
+		if i < n {
+			bar += "▰"
+		} else {
+			bar += "▱"
+		}
+	}
+	return fmt.Sprintf("%s %4.1f%%", bar, pct)
+}
+
+// costHeaders drops BUDGET and USED when nothing declares a budget.
+//
+// Two columns of "—" is not information. On a platform where no budget has been
+// set — the normal state, and the one the command itself prints advice about —
+// they were a third of the table's width saying nothing.
+func costHeaders(anyBudget bool) []string {
+	h := []string{"NAMESPACE", "$/HOUR", "$/MONTH (PROJ.)", "SHARE"}
+	if anyBudget {
+		h = append(h, "BUDGET", "USED")
+	}
+	return h
 }

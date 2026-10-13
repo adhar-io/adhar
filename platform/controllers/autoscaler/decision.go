@@ -254,6 +254,14 @@ func Decide(s Snapshot) Decision {
 			util.CPU*100, util.Memory*100, threshold*100)
 		return d
 	}
+	// The MEAN says the cluster is idle. Before believing it, ask the busiest
+	// worker — see `peakUtilization` for why the mean cannot answer this.
+	if peak, hottest := peakUtilization(workers, s.Pods); peak.CPU >= threshold || peak.Memory >= threshold {
+		d.Reason = fmt.Sprintf(
+			"cluster mean is low (cpu=%.0f%% memory=%.0f%%) but %s is at cpu=%.0f%% memory=%.0f%%; not shrinking while a worker is loaded",
+			util.CPU*100, util.Memory*100, hottest, peak.CPU*100, peak.Memory*100)
+		return d
+	}
 
 	// Under the threshold: start or continue the idle clock.
 	since := s.Now
@@ -282,7 +290,15 @@ func Decide(s Snapshot) Decision {
 		return d
 	}
 
-	candidate, why := scaleDownCandidate(workers, s.Pods, s.RWOClaims)
+	// A worker that joined moments ago carries nothing yet, which makes it the
+	// LOWEST-scored drain candidate and so the first to be retired. See
+	// `maturedWorkers`.
+	drainable := maturedWorkers(workers, s.Now, maxDuration(spec.ScaleDownDelay.Duration, newWorkerGrace))
+	if len(drainable) == 0 {
+		d.Reason = "cluster idle but every worker joined too recently to retire"
+		return d
+	}
+	candidate, why := scaleDownCandidate(drainable, s.Pods, s.RWOClaims)
 	if candidate == "" {
 		d.Reason = "cluster idle but no worker is safe to drain: " + why
 		return d
@@ -733,6 +749,106 @@ func WithoutTaint(taints []corev1.Taint, key string) []corev1.Taint {
 	for _, t := range taints {
 		if t.Key != key {
 			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// peakUtilization is the busiest single worker's requested share, and its name.
+//
+// `utilization` is a cluster-wide MEAN. That is the right question for "could
+// another pod be placed somewhere" (scale UP) and the wrong one for "is this
+// cluster idle enough to hand a node back" (scale DOWN), because a mean hides
+// the one thing that makes shrinking unsafe: a single node carrying everything.
+//
+// Worse, a mean makes ADDING capacity look like idleness, so the autoscaler
+// reclaims exactly the nodes that were added to relieve pressure. Live on
+// 2026-10-13: `adhar-adhar-workers-4` was at 90% memory and the kernel was
+// OOM-killing processes on it, while three freshly added empty workers pulled
+// the cluster mean to `cpu=25% memory=38%`. The next tick read that as idle and
+// retired two of them with the reason "cluster idle for 20m17s". Nothing
+// rebalances a RUNNING pod, so the hot node stayed hot and the cluster
+// oscillated back to the overloaded shape it started in, one node at a time —
+// which is what the node flapping all that day actually was.
+//
+// DaemonSet pods are excluded for the same reason `scaleDownCandidate` excludes
+// them: they exist on every node and are never rescheduled, so they describe
+// the node's floor rather than its load.
+func peakUtilization(workers []corev1.Node, pods []corev1.Pod) (Utilization, string) {
+	byNode := map[string][]corev1.Pod{}
+	for _, p := range pods {
+		if p.Spec.NodeName == "" || isTerminated(p) {
+			continue
+		}
+		byNode[p.Spec.NodeName] = append(byNode[p.Spec.NodeName], p)
+	}
+	var peak Utilization
+	hottest := ""
+	for _, n := range workers {
+		allocCPU := n.Status.Allocatable.Cpu().MilliValue()
+		allocMem := n.Status.Allocatable.Memory().Value()
+		var cpu, mem int64
+		for _, p := range byNode[n.Name] {
+			if isDaemonSetPod(p) {
+				continue
+			}
+			c, m := podRequests(p)
+			cpu += c
+			mem += m
+		}
+		var u Utilization
+		if allocCPU > 0 {
+			u.CPU = float64(cpu) / float64(allocCPU)
+		}
+		if allocMem > 0 {
+			u.Memory = float64(mem) / float64(allocMem)
+		}
+		// "Busiest" is whichever node is closest to a ceiling in EITHER
+		// dimension; a node at 95% CPU blocks scheduling just as hard as one
+		// at 95% memory.
+		if max(u.CPU, u.Memory) > max(peak.CPU, peak.Memory) {
+			peak, hottest = u, n.Name
+		}
+	}
+	return peak, hottest
+}
+
+// newWorkerGrace is the shortest time a worker is left alone after joining,
+// whatever `scaleDownDelay` says.
+//
+// The grace is not a policy preference, which is why configuration cannot set
+// it below this: it is the time the cluster physically needs before a new node
+// carries anything. Kubernetes does not migrate running pods, so a node is
+// empty until something is rescheduled, and an empty node is the first one
+// `scaleDownCandidate` picks.
+//
+// The live cluster that exposed this had `scaleDownDelay: 0s`, so every
+// cool-down check passed instantly and three freshly added workers were
+// retired within four minutes of joining.
+const newWorkerGrace = 10 * time.Minute
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// maturedWorkers drops workers too young to be retirement candidates.
+//
+// A node that joined moments ago has nothing scheduled on it — Kubernetes does
+// not migrate running pods onto it — so it scores lowest in
+// `scaleDownCandidate` and is picked first. `Status.LastScaleUp` already guards
+// nodes THIS controller added, but it knows nothing about one added by
+// `adhar cluster scale` from an operator's laptop, and that is how three
+// workers added to relieve an OOM-killing cluster were reclaimed within four
+// minutes of joining. The node's own age is the fact that does not depend on
+// who created it.
+func maturedWorkers(workers []corev1.Node, now time.Time, minAge time.Duration) []corev1.Node {
+	out := make([]corev1.Node, 0, len(workers))
+	for _, n := range workers {
+		if now.Sub(n.CreationTimestamp.Time) >= minAge {
+			out = append(out, n)
 		}
 	}
 	return out

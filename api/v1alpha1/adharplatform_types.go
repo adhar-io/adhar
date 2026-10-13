@@ -482,6 +482,18 @@ var acmeDNS01Providers = map[string]bool{
 
 // HasDNS01 reports whether the configured DNS provider supports ACME DNS-01,
 // i.e. a publicly trusted wildcard certificate can be issued for the host.
+// RouteEnvironments is the canonical promotion chain, for templates that need
+// one listener, record or hostname per environment.
+//
+// Read from globals rather than listed here: these three names are load-bearing
+// in the namespaces `adhar up` creates, every application's Kargo pipeline, the
+// environments GitOps repo, the CLI, the hostname a scaffolded app is published
+// on and the Gateway listeners that terminate TLS for it. They have drifted
+// apart once already, so there is exactly one definition.
+func (s BuildCustomizationSpec) RouteEnvironments() []string {
+	return globals.PlatformEnvironments()
+}
+
 func (s BuildCustomizationSpec) HasDNS01() bool { return acmeDNS01Providers[s.DNSProvider] }
 
 // ACMEIssuer is the ClusterIssuer the platform Gateway requests its
