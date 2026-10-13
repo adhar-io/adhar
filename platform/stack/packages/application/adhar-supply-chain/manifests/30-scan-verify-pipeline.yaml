@@ -59,9 +59,15 @@ data:
           release is built with the patched Go yet.
         expired_at: 2026-11-30
       - id: CVE-2026-78669
-        purls: ["pkg:golang/stdlib"]
+        # Also golang.org/x/net, not only stdlib: the bellsoft-liberica helper
+        # vendors x/net v0.59.0 and Trivy reports that as its own package, so a
+        # stdlib-only scope left one finding behind and the gate stayed red with
+        # everything else already clear.
+        purls: ["pkg:golang/stdlib", "pkg:golang/golang.org/x/net"]
         statement: >-
-          net/http HTTP/2 SETTINGS DoS. Same binaries, no HTTP/2 server.
+          net/http and x/net HTTP/2 SETTINGS DoS. Same buildpack binaries, which
+          serve no HTTP/2. Fixed in Go 1.27.2 and x/net 0.60.0, neither of which
+          any published Paketo buildpack is built with yet.
         expired_at: 2026-11-30
       - id: CVE-2026-97031
         purls: ["pkg:golang/stdlib"]
