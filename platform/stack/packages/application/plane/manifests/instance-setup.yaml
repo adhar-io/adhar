@@ -17,10 +17,12 @@
 #     the keycloak-clients Secret. So this Job writes the six KEYCLOAK_* rows
 #     itself, from that Secret — a cluster that ran the fork image with
 #     is_keycloak_enabled=False is exactly the gap this closes.
-#  3. FALLBACK: FEDERATED LOGIN VIA GITEA — Plane's Gitea OAuth provider
-#     pointed at the platform's own Gitea, which itself authenticates against
-#     Keycloak (Gitea auth source `keycloak`). Only enabled when (2) cannot be,
-#     so the sign-in page shows ONE button, not two that both go to Keycloak.
+#  3. (Removed 2026-10-14.) There used to be a Gitea-federation fallback —
+#     Plane's Gitea OAuth provider pointed at the platform Gitea — because the
+#     platform ran the STOCK frontend, which cannot draw a button for a method
+#     it does not know. Every image is the fork's build now (plane-frontend,
+#     plane-space and plane-admin render "Continue with Keycloak"), so the
+#     detour is gone and the Job switches IS_GITEA_ENABLED off.
 #
 # Plus the instance admin itself: until an instance admin has completed the
 # "god-mode" setup, Plane's sign-in page shows "No authentication methods
@@ -133,7 +135,7 @@ spec:
       serviceAccountName: plane-instance-setup
       containers:
         - name: setup
-          image: ghcr.io/adhar-io/plane-backend:1.4.2-1
+          image: ghcr.io/adhar-io/plane-backend:1.4.2-2
           envFrom:
             - configMapRef: {name: plane-app-vars}
             - secretRef: {name: plane-app-secrets}
@@ -157,30 +159,6 @@ spec:
               value: plane-api-token
             - name: NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
-            # Keycloak-federated login inside Plane (see the header): Plane's
-            # Gitea OAuth provider pointed at the platform Gitea, whose own
-            # login is the Keycloak auth source. The controller rewrites
-            # adhar.localtest.me:8443 to the real domain when seeding.
-            - name: GITEA_PUBLIC_URL
-              value: https://gitea.adhar.localtest.me:8443
-            # The Job's own calls to Gitea go IN-CLUSTER. Through the public URL
-            # they depended on the edge certificate being trusted at the moment
-            # the hook ran; on a fresh cluster it is still the self-signed
-            # bootstrap one (or Let's Encrypt is rate-limited), the call failed
-            # certificate verification, the bridge was skipped and Plane kept its
-            # email form — a second login after Keycloak (Azure, 2026-10-17).
-            # GITEA_HOST stored in Plane stays the PUBLIC URL: the browser is
-            # redirected there.
-            - name: GITEA_INTERNAL_URL
-              value: http://gitea-http.adhar-system.svc.cluster.local:3000
-            # Optional: absent on installs where Gitea is not present, in which
-            # case the bridge is skipped and edge SSO + password login remain.
-            - name: GITEA_ADMIN_USER
-              valueFrom: {secretKeyRef: {name: gitea-credential, key: username, optional: true}}
-            - name: GITEA_ADMIN_PASSWORD
-              valueFrom: {secretKeyRef: {name: gitea-credential, key: password, optional: true}}
-            - name: GITEA_ADMIN_TOKEN
-              valueFrom: {secretKeyRef: {name: gitea-credential, key: token, optional: true}}
             # Plane's OWN Keycloak login (method 2 in the header). The realm
             # issuer the BROWSER is sent to; the controller rewrites
             # adhar.localtest.me:8443 to the real domain when seeding.
@@ -252,10 +230,10 @@ spec:
               InstanceAdmin.objects.get_or_create(instance=instance, user=user, defaults={"role": 20})
               cfg("ENABLE_SIGNUP", "1", "AUTHENTICATION")
               cfg("ENABLE_MAGIC_LINK_LOGIN", "0", "AUTHENTICATION")
-              # Email/password starts ON and is switched off further down IF the
-              # Gitea bridge comes up — see the note there. Enabling it here
-              # first means an instance is never left with zero usable methods,
-              # which renders as "No authentication methods available".
+              # Email/password starts ON and is switched off further down once
+              # the Keycloak provider is verified — see the note there. Enabling
+              # it here first means an instance is never left with zero usable
+              # methods, which renders as "No authentication methods available".
               cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
               print(f"instance setup done; admin {'created' if created else 'updated'}: {email}", flush=True)
 
@@ -346,122 +324,12 @@ spec:
               if not keycloak_ready:
                   cfg("IS_KEYCLOAK_ENABLED", "0", "KEYCLOAK")
 
-              # ── 3. The RENDERED login: Keycloak-federated, via the platform Gitea ──
-              #
-              # This is not a fallback. It is the only method the sign-in page
-              # can draw.
-              #
-              # The Adhar fork patches the BACKEND only (plane-backend), and the
-              # frontend is the stock image. Its auth bundle knows exactly six
-              # flags — is_email_password_enabled, is_magic_login_enabled,
-              # is_google_enabled, is_github_enabled, is_gitlab_enabled,
-              # is_gitea_enabled — and `keycloak` appears in NONE of the 370
-              # asset bundles it serves. So `is_keycloak_enabled: true` is
-              # invisible to it: with every flag it understands switched off, it
-              # renders "No authentication methods available. Please contact
-              # your administrator to enable authentication for your instance."
-              # That is what a user saw on 2026-10-11 after signing in at the
-              # edge — a locked instance whose API reported an enabled method.
-              #
-              # Plane's Gitea OAuth provider talks to a Gitea whose own sign-in
-              # IS the Keycloak auth source, so this button is a genuine Keycloak
-              # login, one hop longer, and the label is honest. The native
-              # provider stays enabled alongside it: it works by direct URL
-              # (/auth/keycloak/) and becomes the rendered button the day the
-              # frontend is forked too. Best effort — never fails the run.
-              def gitea_bridge():
-                  host = (os.environ.get("GITEA_PUBLIC_URL") or "").rstrip("/")
-                  token = (os.environ.get("GITEA_ADMIN_TOKEN") or "").strip()
-                  gu = (os.environ.get("GITEA_ADMIN_USER") or "").strip()
-                  gp = os.environ.get("GITEA_ADMIN_PASSWORD") or ""
-                  if not host or not (token or (gu and gp)):
-                      return "skipped (no Gitea host or credentials)"
-                  web = (os.environ.get("WEB_URL") or "").rstrip("/")
-                  if not web:
-                      return "skipped (WEB_URL unset — cannot build a redirect URI)"
-                  redirect = f"{web}/auth/gitea/callback/"
-                  internal = (os.environ.get("GITEA_INTERNAL_URL") or host).rstrip("/")
-                  api = f"{internal}/api/v1/user/applications/oauth2"
-                  auth = {"Authorization": f"token {token}"} if token else {
-                      "Authorization": "Basic " + base64.b64encode(f"{gu}:{gp}".encode()).decode()}
-
-                  def call(method, url, payload=None):
-                      body = json.dumps(payload).encode() if payload is not None else None
-                      req = urllib.request.Request(url, method=method, data=body, headers={
-                          **auth, "Content-Type": "application/json", "Accept": "application/json"})
-                      with urllib.request.urlopen(req, timeout=20) as r:
-                          raw = r.read().decode()
-                          return json.loads(raw) if raw.strip() else {}
-
-                  def secret_accepted(client_id, client_secret):
-                      # Gitea checks the client secret before the code, so a
-                      # deliberately bogus code tells us whether the secret we
-                      # stored is still the one Gitea holds:
-                      #   wrong secret -> "invalid client secret"
-                      #   right secret -> "client is not authorized" (bad code)
-                      data = urllib.parse.urlencode({
-                          "grant_type": "authorization_code", "code": "adhar-secret-probe",
-                          "client_id": client_id, "client_secret": client_secret,
-                          "redirect_uri": redirect}).encode()
-                      probe = urllib.request.Request(
-                          f"{internal}/login/oauth/access_token", data=data, headers={
-                              "Accept": "application/json",
-                              "Content-Type": "application/x-www-form-urlencoded"})
-                      try:
-                          urllib.request.urlopen(probe, timeout=20).read()
-                          return True
-                      except urllib.error.HTTPError as err:
-                          return "invalid client secret" not in err.read().decode()
-                      except Exception:  # noqa: BLE001 — a network blip is not proof of a bad secret
-                          return True
-
-                  apps = call("GET", api) or []
-                  existing = next((a for a in apps if a.get("name") == "plane"), None)
-                  stored = {c.key: c for c in InstanceConfiguration.objects.filter(
-                      key__in=["GITEA_CLIENT_ID", "GITEA_CLIENT_SECRET"])}
-                  stored_id = (stored.get("GITEA_CLIENT_ID").value if stored.get("GITEA_CLIENT_ID") else "")
-                  stored_secret = decrypt_data(stored["GITEA_CLIENT_SECRET"].value) \
-                      if stored.get("GITEA_CLIENT_SECRET") and stored["GITEA_CLIENT_SECRET"].value else ""
-                  reusable = bool(
-                      existing and stored_secret and stored_id == existing.get("client_id")
-                      and sorted(existing.get("redirect_uris") or []) == [redirect]
-                      and secret_accepted(stored_id, stored_secret))
-                  if reusable:
-                      app = existing
-                      note = "reused existing Gitea OAuth app"
-                  else:
-                      # NEVER PATCH here: Gitea regenerates and returns a NEW
-                      # client secret on every PATCH of an OAuth2 application, so
-                      # "just refreshing the redirect URI" silently invalidates
-                      # the secret Plane holds and every Gitea login then dies
-                      # with GITEA_OAUTH_PROVIDER_ERROR (5123). Delete + create
-                      # instead, and store the secret creation hands back — it is
-                      # the only time Gitea ever discloses it (a list shows
-                      # "client_secret": "").
-                      if existing:
-                          call("DELETE", f"{api}/{existing['id']}")
-                      app = call("POST", api, {
-                          "name": "plane", "redirect_uris": [redirect], "confidential_client": True})
-                      cfg("GITEA_CLIENT_SECRET", app["client_secret"], "GITEA", encrypted=True)
-                      note = ("re-created Gitea OAuth app (previous one was stale)"
-                              if existing else "created Gitea OAuth app")
-                  cfg("GITEA_CLIENT_ID", app["client_id"], "GITEA")
-                  cfg("GITEA_HOST", host, "GITEA")
-                  cfg("IS_GITEA_ENABLED", "1", "GITEA")
-                  cfg("ENABLE_GITEA_SYNC", "1", "GITEA")
-                  return f"{note} (client_id {app['client_id']}, redirect {redirect})"
-
-              # Always attempted. Gating this on `not keycloak_ready` is what
-              # locked the instance: the native provider succeeded, the bridge
-              # was switched OFF, and the page was left with nothing to draw.
-              gitea_ready = False
-              try:
-                  print(f"gitea bridge: {gitea_bridge()}", flush=True)
-                  gitea_ready = True
-              except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
-                  detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
-                  print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
-                        "edge SSO + password login still apply", flush=True)
+              # ── 3. No Gitea detour ───────────────────────────────────────────
+              # The fork's frontend renders the native Keycloak method, so the
+              # Gitea-federation bridge that stood in for it is retired. Switch
+              # it off explicitly: a cluster that ran the bridge still holds the
+              # rows, and two buttons that both end at Keycloak is not SSO.
+              cfg("IS_GITEA_ENABLED", "0", "GITEA")
 
               # ── Single sign-on means one sign-in, so hide the password form ──
               #
@@ -469,36 +337,27 @@ spec:
               # proxy. Showing an email/password box after that reads as "log in
               # again" and invites people to create a SECOND, local identity that
               # Keycloak knows nothing about — the opposite of single sign-on.
-              # "Continue with Keycloak" (or, as the fallback, "Continue with
-              # Gitea", which is also a Keycloak login) should be the only thing
-              # on the page.
+              # "Continue with Keycloak" should be the only thing on the page.
               #
-              # Strictly conditional on a RENDERED method being on — the native
-              # Keycloak provider does not count, however well it works.
-              #
-              # This used to read `if keycloak_ready or gitea_ready`, and that is
-              # the line that locked everyone out: the native provider came up,
-              # the password form was removed, the Gitea bridge was switched off
-              # a few lines above, and the sign-in page was left with nothing it
-              # could draw. An instance with no RENDERABLE method shows
-              # "No authentication methods available" no matter what
-              # /api/instances/ reports.
+              # Strictly conditional on the method the page can DRAW being on.
+              # With the fork's frontend that is the native Keycloak provider
+              # (is_keycloak_enabled is in its auth bundle: apps/web/core/hooks/
+              # oauth/core.tsx); keycloak_ready is only True after this Job has
+              # read the client secret AND seen the realm answer discovery, so
+              # the form is never removed in favour of a method that cannot work.
               #
               # The god-mode instance admin is unaffected. That sign-in posts to
               # /api/instances/admins/sign-in/, which authenticates InstanceAdmin
               # rows directly; ENABLE_EMAIL_PASSWORD governs the WORKSPACE
               # sign-in page only. `adhar get secrets -p plane` still prints the
               # admin credentials, and they still work at /god-mode/.
-              if gitea_ready:
+              if keycloak_ready:
                   cfg("ENABLE_EMAIL_PASSWORD", "0", "AUTHENTICATION")
-                  print("auth: email/password disabled — Gitea (Keycloak) is the only rendered method"
-                        + (" ; the native Keycloak provider is also on, at /auth/keycloak/"
-                           if keycloak_ready else ""), flush=True)
+                  print("auth: email/password disabled — Keycloak is the only rendered method", flush=True)
               else:
                   cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
-                  print("auth: KEEPING email/password — the Gitea bridge is unavailable, and the native "
-                        "Keycloak provider is not rendered by the stock frontend, so removing the form "
-                        "would leave no way in", flush=True)
+                  print("auth: KEEPING email/password — the Keycloak provider is not ready, so removing "
+                        "the form would leave no way in", flush=True)
 
               # ── 4. platform workspace + console API key ──────────────────────
               slug = os.environ["WORKSPACE_SLUG"]
@@ -550,20 +409,19 @@ spec:
               # ["is_gitea_enabled"]. Drop both keys before reading.
               invalidate_cache_directly(path="/api/instances/", user=False)
               invalidate_cache_directly(path="/api/instances/configurations/", user=False)
-              # The flags the stock FRONTEND can draw a button for. Read out of
-              # the served bundle (assets/auth-base-*.js), not guessed: those six
-              # are the only `is_*_enabled` keys it contains, and `keycloak` is
-              # in none of its 370 asset files.
-              #
-              # is_keycloak_enabled is deliberately NOT in this list. Counting it
-              # is what let this Job print `OK: Plane is set up with auth methods
-              # ['is_keycloak_enabled']` about an instance whose sign-in page
-              # said "No authentication methods available" — the check and the
-              # page disagreed because the check counted a flag the page never
-              # reads. It is reported separately below.
+              # The flags the FRONTEND can draw a button for. These are the
+              # `is_*_enabled` keys the fork's auth bundle reads — the six the
+              # stock frontend knows plus is_keycloak_enabled, which the fork's
+              # web/space/admin hooks (hooks/oauth/core.tsx) added. The list must
+              # match the image install.yaml deploys: with the STOCK frontend,
+              # counting is_keycloak_enabled made this Job report success about
+              # an instance whose sign-in page said "No authentication methods
+              # available" (2026-10-11). plane_image_test.go pins the frontend
+              # to the fork build for exactly that reason.
               rendered_methods = ["is_email_password_enabled", "is_magic_login_enabled", "is_google_enabled",
-                                  "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled"]
-              methods = rendered_methods + ["is_keycloak_enabled"]
+                                  "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled",
+                                  "is_keycloak_enabled"]
+              methods = list(rendered_methods)
               payload = None
               for attempt in range(12):
                   try:
@@ -587,7 +445,7 @@ spec:
               if not drawable:
                   failures.append("no authentication method the FRONTEND can render is enabled — the sign-in "
                                   "page shows 'No authentication methods available' regardless of what "
-                                  f"/api/instances/ reports (it reports {enabled or 'nothing'}); the stock "
+                                  f"/api/instances/ reports (it reports {enabled or 'nothing'}); the fork "
                                   "frontend draws only " + ", ".join(rendered_methods))
               if keycloak_ready and not conf.get("is_keycloak_enabled"):
                   # The rows were written but the API does not report the method:
