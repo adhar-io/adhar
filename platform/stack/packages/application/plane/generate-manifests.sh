@@ -71,28 +71,36 @@ open(path, 'w').write(src)
 print(f"pinned {total} MinIO image reference(s) to quay.io")
 PYEOF
 
-# Use the platform's OWN plane-backend build, not the upstream one.
+# Use the platform's OWN Plane build — every image, not just the backend.
 #
-# adhar-io/plane is the fork the platform's Plane changes live in, and its CI
-# publishes ghcr.io/adhar-io/plane-backend. The tag is the upstream line plus a
-# build number (1.4.2-1 for v1.4.2), so it cannot come from the chart's
-# `planeVersion` value — that one tag is shared by frontend, space, admin and
-# live, which are NOT republished under adhar-io and must keep pointing at
-# artifacts.plane.so. Hence a rewrite here rather than a values override, the
-# same reason the MinIO images above are rewritten.
+# adhar-io/plane is the fork the platform's Plane changes live in: a Keycloak /
+# generic-OIDC login provider in the backend AND the sign-in button for it in the
+# web, space and admin front ends. The stock frontend cannot render a method it
+# does not know, so running the fork backend under the upstream frontend (as this
+# package did until 1.4.2-2) left the sign-in page unable to show Keycloak at all.
+# The fork's CI publishes all six images under one tag — the upstream line plus a
+# build number (1.4.2-2 for v1.4.2) — so the tag cannot come from the chart's
+# `planeVersion` value and is rewritten here, the same way the MinIO images are.
 #
 # Verified public and multi-arch (linux/amd64 + linux/arm64) before pinning:
 #   curl -H "Authorization: Bearer $(ghcr token)" \
-#     https://ghcr.io/v2/adhar-io/plane-backend/manifests/1.4.2-1
+#     https://ghcr.io/v2/adhar-io/plane-frontend/manifests/1.4.2-2
 python3 - ${INSTALL_YAML} <<'PYEOF'
 import re, sys
 
 path = sys.argv[1]
+tag = "1.4.2-2"
 src = open(path).read()
-src, n = re.subn(r'artifacts\.plane\.so/makeplane/plane-backend:\S+',
-                 'ghcr.io/adhar-io/plane-backend:1.4.2-1', src)
+total = 0
+for name in ("backend", "frontend", "admin", "space", "live"):
+    src, n = re.subn(rf'(?:artifacts\.plane\.so/makeplane|ghcr\.io/adhar-io)/plane-{name}:\S+',
+                     f'ghcr.io/adhar-io/plane-{name}:{tag}', src)
+    print(f"  plane-{name}: {n} reference(s) -> ghcr.io/adhar-io/plane-{name}:{tag}")
+    total += n
+if total < 8:
+    raise SystemExit(f"rewrote only {total} Plane image references; expected the API, worker, beat, "
+                     "migrator, web, space, admin and live workloads")
 open(path, 'w').write(src)
-print(f"pointed {n} plane-backend reference(s) at ghcr.io/adhar-io")
 PYEOF
 
 # Every workload that reads `plane-doc-store-secrets` also reads the ESO-managed
