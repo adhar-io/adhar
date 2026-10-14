@@ -99,7 +99,27 @@ spec:
           template:
             metadata: {labels: {app: ${NAME}}}
             spec:
-              imagePullSecrets: [{name: harbor-push}]
+              # harbor-dockercfg, NOT harbor-push.
+              #
+              # `imagePullSecrets` accepts ONLY kubernetes.io/dockerconfigjson
+              # (or the legacy dockercfg). `harbor-push` is
+              # kubernetes.io/basic-auth — it is kpack's PUSH credential — and
+              # the kubelet SILENTLY IGNORES a secret of the wrong type here.
+              # No event says so: the pull simply goes out anonymous and Harbor
+              # answers 401.
+              #
+              # That is invisible for as long as the pod stays on the node kpack
+              # built the image on, because containerd already has it locally.
+              # It surfaces the first time the pod is rescheduled. Live on
+              # 2026-10-13, after node churn moved them:
+              #
+              #   Failed to pull image "harbor-core.adhar-system.svc.cluster.local/
+              #   library/my-service:latest": ... 401 Unauthorized
+              #
+              # my-service and reactapp sat in ImagePullBackOff, their Services
+              # had no endpoints, and every request to them returned Envoy's
+              # "no healthy upstream".
+              imagePullSecrets: [{name: harbor-dockercfg}]
               containers:
                 - name: app
                   image: ${IMG}:latest

@@ -42,6 +42,29 @@ spec:
             {{- $pods := dig "podQuota" 50 $p -}}
             {{- $gitea := dig "createGiteaOrganisation" true $p -}}
             {{- $extra := dig "labels" dict $p -}}
+            {{- /*
+              An organisation may NOT be named after a namespace it does not own.
+              The namespace below is composed through a provider-kubernetes
+              Object with the default deletionPolicy (Delete), so an org named
+              `default` ADOPTS the Kubernetes system namespace and deleting that
+              org would delete it — taking `service/kubernetes` with it.
+
+              That is not hypothetical. On 2026-10-13 the console's org registry
+              came back empty after its database was restored, so it fell back to
+              a synthetic placeholder ("Default Organization", id `default`,
+              apps/console/app/server/organizations.ts) and the tenant back-fill
+              promoted that placeholder into a real Organisation. It adopted
+              `Namespace/default`, stamped `adhar.io/organisation: default` on it,
+              and created a Gitea org and team to match.
+
+              Rendering NOTHING is the right refusal: the XR stays unready with
+              no composed resources rather than quietly managing a namespace the
+              platform must never delete.
+            */ -}}
+            {{- $reserved := list "default" "kube-system" "kube-public" "kube-node-lease" "adhar-system" "kube-root-ca.crt" -}}
+            {{- if has $name $reserved -}}
+            {{- fail (printf "organisation %q is a reserved namespace name; an organisation composes and OWNS its home namespace, so naming one after a system namespace would adopt it and delete it with the organisation" $name) -}}
+            {{- end -}}
             {{- $adminGroup := printf "org-%s-admin" $name -}}
             {{- $memberGroup := printf "org-%s" $name -}}
             {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
