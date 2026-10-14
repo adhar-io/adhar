@@ -114,7 +114,13 @@ func TestRenderRejectsAnUnclosedConditional(t *testing.T) {
 
 func TestRenderRejectsTemplatingOutsideTheSubset(t *testing.T) {
 	// A filter this CLI does not implement must not silently render as empty.
-	_, err := renderContent("${{ values.name | upper }}", ctx(map[string]any{"name": "x"}))
+	//
+	// The example used to be `| upper`, which is now implemented along with
+	// `lower` and `dump` — the skeletons need them (see
+	// scaffold_filters_test.go). The PROPERTY under test is unchanged: an
+	// expression the renderer cannot evaluate has to fail loudly, because the
+	// alternative is a scaffolded app whose source does not parse.
+	_, err := renderContent("${{ values.name | titlecase }}", ctx(map[string]any{"name": "x"}))
 	if err == nil {
 		t.Fatal("expected an error for an unimplemented filter")
 	}

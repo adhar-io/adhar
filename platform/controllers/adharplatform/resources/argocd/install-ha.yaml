@@ -35621,6 +35621,16 @@ spec:
         image: quay.io/argoproj/argocd:v3.5.1
         imagePullPolicy: IfNotPresent
         name: application-controller
+        # Mirrors hack/argocd/values.yaml controller.resources. It is repeated
+        # here because THIS file is what installs: the values file carried
+        # cpu 500m / memory 1Gi while the generated StatefulSet carried no
+        # resources at all, so the live pod ran with `resources: {}` and the
+        # scheduler accounted nothing for a process using 2510Mi. Requests
+        # without limits is deliberate — see the values file.
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2560Mi
         env:
           - name: ARGOCD_CONTROLLER_REPLICAS
             value: "2"

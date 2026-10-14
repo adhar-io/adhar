@@ -518,7 +518,7 @@ The AI stack is **opt-in and disabled in every profile**. Nothing in the platfor
 | Package | Role | Endpoint |
 | --- | --- | --- |
 | `agentgateway` | The AI data plane — one proxy carrying identity, authorization, guardrails, budgets and telemetry for every LLM and MCP request | `https://ai.<host>/v1`, `https://mcp.<host>/mcp` |
-| `adhar-ai` | The agent runtime and seven MCP tool servers | `https://agent.<host>` |
+| `adhar-ai` | The agent runtime and eight MCP tool servers | `https://agent.<host>` |
 | `vllm` | Optional self-hosted, OpenAI-compatible inference so prompts never leave the cluster | `http://vllm.adhar-system.svc.cluster.local:8000/v1` |
 
 ### One endpoint, model-name routing
@@ -536,7 +536,7 @@ Neither hosted backend pins a model, so a new Claude or GPT model works the day 
 
 ### One MCP endpoint for external agents
 
-`https://mcp.<host>/mcp` federates all seven MCP tool servers into a single tool list, so Claude Code, an IDE or ChatOps gets every governed tool from one URL with a standard OIDC token and no Adhar-specific client code. Tool names are permanently prefixed by server (`gitops_open_pull_request`), and a restarting server costs its own tools rather than the session.
+`https://mcp.<host>/mcp` federates all eight MCP tool servers into a single tool list, so Claude Code, an IDE or ChatOps gets every governed tool from one URL with a standard OIDC token and no Adhar-specific client code. Tool names are permanently prefixed by server (`gitops_open_pull_request`), and a restarting server costs its own tools rather than the session.
 
 | Tool server | Access | What it does |
 | --- | --- | --- |
@@ -636,7 +636,7 @@ adhar ai agent "metabase keeps OOMing — propose a fix" --autonomy suggest
 
 ### Turning it on
 
-1. Enable `adhar-ai` **and** `agentgateway` together — see [Customization §1](CUSTOMIZATION.md#1-enable-or-disable-a-package). agentgateway hard-depends on the seven MCP Services; if any is missing, its whole MCP backend is rejected at config-translation time until they appear (LLM routes are unaffected).
+1. Enable `adhar-ai` **and** `agentgateway` together — see [Customization §1](CUSTOMIZATION.md#1-enable-or-disable-a-package). agentgateway hard-depends on the eight MCP Services; if any is missing, its whole MCP backend is rejected at config-translation time until they appear (LLM routes are unaffected).
 2. Put the keys in the secrets backend. **On a fresh platform, just export the key
    before `adhar up`** and there is no step 2 at all:
 

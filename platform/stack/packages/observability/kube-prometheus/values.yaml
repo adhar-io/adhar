@@ -4505,7 +4505,17 @@ prometheus:
 
     ## Resource limits & requests
     ##
-    resources: {}
+    # Prometheus carried NO request, so the scheduler placed it by request
+    # arithmetic on nodes that were already at 90% real memory, and the kernel
+    # OOM-killed it during WAL replay 27 times in a row (2026-10-14). The
+    # request is what buys it a node with room; the limit keeps a cardinality
+    # spike from taking the node down with it.
+    resources:
+      requests:
+        cpu: 500m
+        memory: 3Gi
+      limits:
+        memory: 8Gi
     # requests:
     #   memory: 400Mi
 

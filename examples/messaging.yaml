@@ -18,7 +18,7 @@ spec:
         feature: messaging
   name: payments-events
   engine: kafka
-  kafkaVersion: "3.8.0"
+  kafkaVersion: "4.3.1"
   # 1 broker is development: no in-sync replicas, so a restart loses writes.
   replicas: 3
   storageSize: 20Gi

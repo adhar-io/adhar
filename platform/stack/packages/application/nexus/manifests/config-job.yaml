@@ -27,6 +27,212 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: nexus-config}
 subjects: [{kind: ServiceAccount, name: nexus-config, namespace: adhar-system}]
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-bootstrap-script
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+data:
+  bootstrap.sh: |
+    set -euo pipefail
+    AUTH="-u ${NEXUS_USER}:${NEXUS_PASS}"
+    API="${NEXUS}/service/rest/v1"
+    # 1) Wait for Nexus to be up.
+    echo "waiting for Nexus…"
+    for i in $(seq 1 60); do
+      code=$(curl -s -o /dev/null -w "%{http_code}" "${API}/status" || echo 000)
+      [ "$code" = "200" ] && { echo "Nexus up"; break; }
+      sleep 10
+    done
+    # 2) Accept the Community Edition EULA. WITHOUT THIS NEXUS SERVES
+    # NOTHING. Every /repository/... request answers 403 with "You must
+    # accept the End User License Agreement (EULA) through the
+    # onboarding wizard or REST API before proceeding", while the admin
+    # REST API keeps working normally — so repositories are created
+    # successfully and the instance looks healthy right up until a build
+    # tries to resolve a dependency. On the first GCP deployment this
+    # failed both library releases for eight hours, and the symptoms
+    # (403 on artifacts that plainly exist) point at credentials or a
+    # blocked proxy rather than at licensing.
+    #
+    # The disclaimer text must be echoed back verbatim, so it is read
+    # from the API rather than hardcoded: Sonatype revises the wording.
+    echo "accepting the Nexus Community Edition EULA…"
+    eula_state=$(curl -s -m 30 $AUTH "${API}/system/eula" || echo '{}')
+    case "${eula_state}" in
+      *'"accepted" : true'*|*'"accepted":true'*)
+        echo "EULA already accepted" ;;
+      *)
+        disclaimer=$(printf '%s' "${eula_state}" | sed -n 's/.*"disclaimer"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p')
+        if [ -z "${disclaimer}" ]; then
+          echo "WARNING: could not read the EULA disclaimer; Nexus may refuse to serve repositories" >&2
+        else
+          code=$(curl -s -o /dev/null -w "%{http_code}" -m 30 $AUTH \
+            -H 'Content-Type: application/json' -X POST "${API}/system/eula" \
+            -d "{\"accepted\":true,\"disclaimer\":\"${disclaimer}\"}")
+          echo "EULA acceptance -> HTTP ${code}"
+        fi ;;
+    esac
+
+    # helper: create a hosted repo (idempotent — 400/already-exists ok)
+    mkrepo() {  # $1=path $2=json
+      code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
+        -X POST "${API}/repositories/$1" -d "$2")
+      case "$code" in
+        201) echo "created $1" ;;
+        400) echo "$1 exists / ok ($(head -c 80 /tmp/r))" ;;
+        *) echo "warn: $1 -> $code $(head -c 120 /tmp/r)" ;;
+      esac
+    }
+    # Create-or-UPDATE (PUT on exists). Required for anything Nexus
+    # pre-creates at first boot — maven-public ships with
+    # [maven-releases, maven-snapshots, maven-central] — because a
+    # create-only POST returns 400 and silently leaves the default
+    # member list in place. That is exactly how maven-hosted and
+    # lombok-edge went missing from the group: every adhar-kit build
+    # then failed with "Could not find org.projectlombok:lombok:
+    # edge-SNAPSHOT in nexus-public" although the proxy itself served it.
+    # $1=path (e.g. maven/group) $2=name $3=json
+    upsertrepo() {
+      code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
+        -X POST "${API}/repositories/$1" -d "$3")
+      case "$code" in
+        201) echo "created $2" ;;
+        400)
+          code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
+            -X PUT "${API}/repositories/$1/$2" -d "$3")
+          case "$code" in
+            204) echo "updated $2" ;;
+            *) echo "warn: update $2 -> $code $(head -c 120 /tmp/r)" ;;
+          esac ;;
+        *) echo "warn: $2 -> $code $(head -c 120 /tmp/r)" ;;
+      esac
+    }
+    # 2) Hosted repositories for each ecosystem.
+    mkrepo maven/hosted '{"name":"maven-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false,"writePolicy":"ALLOW"},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
+    mkrepo npm/hosted   '{"name":"npm-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
+    mkrepo pypi/hosted  '{"name":"pypi-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
+    # Proxy caches (so app builds resolve upstream deps through Nexus).
+    # Negative caching is OFF on every proxy: with it on (24h default) a
+    # transient upstream failure — Nexus restarting mid-build, a network
+    # blip — poisons "not found" for a day and every later build fails
+    # with "was not found in nexus-public" although the artifact exists.
+    mkrepo npm/proxy    '{"name":"npm-registry","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false}}'
+    mkrepo pypi/proxy   '{"name":"pypi-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://pypi.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false}}'
+    # Maven Central proxy + a public GROUP (maven-hosted + maven-central) so
+    # builds resolve deps through Nexus. The release pipeline mirrors
+    # * -> maven-public, which 404s (fails all resolution) without this group.
+    # upsertrepo, NOT mkrepo: Nexus pre-creates maven-central at first
+    # boot (see the note above) with negativeCache ENABLED and a 1440
+    # minute TTL, and a create-only call silently leaves those defaults
+    # in place. That is how a cold cluster poisons its own builds — the
+    # first Maven resolutions run before egress is reliable, every miss
+    # is cached for 24 hours, and afterwards artifacts that plainly
+    # exist keep returning 403 from a proxy that is not even blocked.
+    # Observed on GCP: release-adhar-kit failed on
+    # maven-build-cache-extension:1.2.0 for eight hours while
+    # repo1.maven.org served it fine.
+    upsertrepo maven/proxy maven-central '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
+    # Lombok edge-releases proxy: adhar-kit builds on JDK 25 and depends on
+    # org.projectlombok:lombok:edge-SNAPSHOT (only the edge channel supports
+    # the newest JDKs; it is NOT on Maven Central). versionPolicy MIXED so the
+    # -SNAPSHOT resolves. Added to maven-public below so builds see it.
+    mkrepo maven/proxy '{"name":"lombok-edge","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://projectlombok.org/edge-releases/","contentMaxAge":-1,"metadataMaxAge":60},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
+    # maven-public pre-exists (Nexus creates it at first boot), so this
+    # MUST be an upsert — see upsertrepo. Keep Nexus's own
+    # maven-releases/maven-snapshots members so nothing that already
+    # resolves through the default group regresses.
+    upsertrepo maven/group maven-public '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-releases","maven-snapshots","maven-central","lombok-edge"]}}'
+    # 3) Enable the auth realms:
+    #    - NpmToken       : `npm publish` bearer tokens
+    #    - rutauth-realm  : Rut Auth (HTTP header) — lets the Keycloak
+    #      SSO in front of Nexus (oauth2-proxy) log the user in via the
+    #      X-Forwarded-User header. Nexus OSS has no native OIDC, so this
+    #      header-trust realm is how the proxied identity becomes a Nexus
+    #      session. Order matters: rutauth-realm must precede the
+    #      authenticating realm so the header is honoured first.
+    #
+    # The list must contain ONLY ids Nexus actually knows. It carried
+    # "NexusAuthorizingRealm", which does not exist in 3.79.1 — the
+    # valid ids are ConanToken, DefaultRole, DockerToken, LdapRealm,
+    # NexusAuthenticatingRealm, NpmToken, NuGetApiKey and
+    # rutauth-realm — and Nexus validates the array as a WHOLE:
+    #   400 ValidationErrorXO{message='"Unknown realmIds:
+    #   [NexusAuthorizingRealm]"'}
+    # so one bogus id left NONE of them active. Live on the 2026-10-11
+    # GCP cluster the active list was just
+    # ["NexusAuthenticatingRealm"], which is why Nexus still drew its
+    # own sign-in form behind a working Keycloak proxy (rutauth-realm
+    # inactive) and why `npm publish` had no bearer-token realm.
+    #
+    # The response is CHECKED, not discarded. The previous version
+    # piped it to /dev/null, swallowed the failure with `|| true` and
+    # then printed "realms enabled" unconditionally, so the one thing
+    # that would have revealed this was the one thing thrown away.
+    realm_code=$(curl -s -o /tmp/realms -w '%{http_code}' $AUTH \
+      -H 'Content-Type: application/json' -X PUT "${API}/security/realms/active" \
+      -d '["rutauth-realm","NexusAuthenticatingRealm","NpmToken"]' || echo 000)
+    case "${realm_code}" in
+      2*) echo "npm token + rut-auth realms enabled" ;;
+      *)  echo "ERROR: enabling the auth realms failed (HTTP ${realm_code}): $(head -c 200 /tmp/realms 2>/dev/null)"
+          echo "ERROR: without rutauth-realm the Keycloak proxy cannot log anyone in to Nexus,"
+          echo "ERROR: and without NpmToken 'npm publish' has no bearer-token realm." ;;
+    esac
+    # 3b) Rut Auth capability — tells Nexus which HTTP header carries the
+    # authenticated username. oauth2-proxy sends X-Forwarded-User (the
+    # Keycloak preferred_username). There is no stable public v1 endpoint
+    # for capabilities, so this uses the internal UI API and is strictly
+    # best-effort (|| true): a version mismatch must not fail the sync.
+    # If it already exists Nexus returns 400 (dup) — also fine.
+    #
+    # `grep -q`, NOT `grep -c ... || echo 0`. `grep -c` PRINTS "0" and
+    # also EXITS 1 when it matches nothing, so the `|| echo 0`
+    # fallback appended a second zero and the variable became the two
+    # lines "0\n0" — which never equals "0", so the branch below was
+    # never taken and the capability was never created. On a cluster
+    # whose realms were fine this alone was enough to leave Nexus
+    # drawing its own sign-in form behind a working Keycloak proxy.
+    # Capabilities live on the Ext.Direct endpoint, not under
+    # /service/rest. Every REST spelling 404s on 3.79.1 —
+    # /service/rest/internal/ui/capabilities,
+    # /service/rest/v1/capabilities and the beta path alike — so the
+    # previous POST could never have worked on this version, and
+    # because it was best-effort nothing said so. /service/extdirect
+    # answers, and `read` is how we tell whether the capability is
+    # already there.
+    ed() {
+      curl -s -o "$2" -w '%{http_code}' $AUTH \
+        -H 'Content-Type: application/json' -H 'X-Nexus-UI: true' \
+        -X POST "${NEXUS}/service/extdirect" -d "$1" || echo 000
+    }
+    ed '{"action":"capability_Capability","method":"read","data":null,"type":"rpc","tid":1}' /tmp/caps >/dev/null
+    if grep -q '"typeId":"rutauth"' /tmp/caps 2>/dev/null; then
+      echo "rut-auth capability already present"
+    else
+      code=$(ed '{"action":"capability_Capability","method":"create","data":[{"typeId":"rutauth","enabled":true,"notes":"Keycloak SSO via oauth2-proxy (X-Forwarded-User)","properties":{"httpHeader":"X-Forwarded-User"}}],"type":"rpc","tid":2}' /tmp/rut)
+      # Ext.Direct answers 200 with success:false inside the body, so
+      # the status code alone does not tell you whether it worked.
+      if [ "${code}" = "200" ] && grep -q '"success":true' /tmp/rut 2>/dev/null; then
+        echo "rut-auth capability created"
+      else
+        echo "ERROR: creating the rut-auth capability failed (HTTP ${code}): $(head -c 200 /tmp/rut 2>/dev/null)"
+        echo "ERROR: without it Nexus ignores X-Forwarded-User, so the Keycloak proxy in front"
+        echo "ERROR: of Nexus authenticates the browser and Nexus still asks for a local login."
+      fi
+    fi
+    # 4) Publish the credentials + endpoints the supply chain consumes.
+    kubectl create secret generic nexus-credentials -n adhar-system \
+      --from-literal=username="${NEXUS_USER}" \
+      --from-literal=password="${NEXUS_PASS}" \
+      --from-literal=url="${NEXUS}" \
+      --from-literal=maven-hosted="${NEXUS}/repository/maven-hosted/" \
+      --from-literal=maven-public="${NEXUS}/repository/maven-public/" \
+      --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
+      --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "nexus bootstrap complete"
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -49,203 +255,63 @@ spec:
             - {name: NEXUS, value: "http://nexus.adhar-system.svc.cluster.local:8081"}
             - {name: NEXUS_USER, value: "admin"}
             - {name: NEXUS_PASS, value: "admin123"}
-          command: [bash, -c]
-          args:
-            - |
-              set -euo pipefail
-              AUTH="-u ${NEXUS_USER}:${NEXUS_PASS}"
-              API="${NEXUS}/service/rest/v1"
-              # 1) Wait for Nexus to be up.
-              echo "waiting for Nexus…"
-              for i in $(seq 1 60); do
-                code=$(curl -s -o /dev/null -w "%{http_code}" "${API}/status" || echo 000)
-                [ "$code" = "200" ] && { echo "Nexus up"; break; }
-                sleep 10
-              done
-              # 2) Accept the Community Edition EULA. WITHOUT THIS NEXUS SERVES
-              # NOTHING. Every /repository/... request answers 403 with "You must
-              # accept the End User License Agreement (EULA) through the
-              # onboarding wizard or REST API before proceeding", while the admin
-              # REST API keeps working normally — so repositories are created
-              # successfully and the instance looks healthy right up until a build
-              # tries to resolve a dependency. On the first GCP deployment this
-              # failed both library releases for eight hours, and the symptoms
-              # (403 on artifacts that plainly exist) point at credentials or a
-              # blocked proxy rather than at licensing.
-              #
-              # The disclaimer text must be echoed back verbatim, so it is read
-              # from the API rather than hardcoded: Sonatype revises the wording.
-              echo "accepting the Nexus Community Edition EULA…"
-              eula_state=$(curl -s -m 30 $AUTH "${API}/system/eula" || echo '{}')
-              case "${eula_state}" in
-                *'"accepted" : true'*|*'"accepted":true'*)
-                  echo "EULA already accepted" ;;
-                *)
-                  disclaimer=$(printf '%s' "${eula_state}" | sed -n 's/.*"disclaimer"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p')
-                  if [ -z "${disclaimer}" ]; then
-                    echo "WARNING: could not read the EULA disclaimer; Nexus may refuse to serve repositories" >&2
-                  else
-                    code=$(curl -s -o /dev/null -w "%{http_code}" -m 30 $AUTH \
-                      -H 'Content-Type: application/json' -X POST "${API}/system/eula" \
-                      -d "{\"accepted\":true,\"disclaimer\":\"${disclaimer}\"}")
-                    echo "EULA acceptance -> HTTP ${code}"
-                  fi ;;
-              esac
-
-              # helper: create a hosted repo (idempotent — 400/already-exists ok)
-              mkrepo() {  # $1=path $2=json
-                code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
-                  -X POST "${API}/repositories/$1" -d "$2")
-                case "$code" in
-                  201) echo "created $1" ;;
-                  400) echo "$1 exists / ok ($(head -c 80 /tmp/r))" ;;
-                  *) echo "warn: $1 -> $code $(head -c 120 /tmp/r)" ;;
-                esac
-              }
-              # Create-or-UPDATE (PUT on exists). Required for anything Nexus
-              # pre-creates at first boot — maven-public ships with
-              # [maven-releases, maven-snapshots, maven-central] — because a
-              # create-only POST returns 400 and silently leaves the default
-              # member list in place. That is exactly how maven-hosted and
-              # lombok-edge went missing from the group: every adhar-kit build
-              # then failed with "Could not find org.projectlombok:lombok:
-              # edge-SNAPSHOT in nexus-public" although the proxy itself served it.
-              # $1=path (e.g. maven/group) $2=name $3=json
-              upsertrepo() {
-                code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
-                  -X POST "${API}/repositories/$1" -d "$3")
-                case "$code" in
-                  201) echo "created $2" ;;
-                  400)
-                    code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
-                      -X PUT "${API}/repositories/$1/$2" -d "$3")
-                    case "$code" in
-                      204) echo "updated $2" ;;
-                      *) echo "warn: update $2 -> $code $(head -c 120 /tmp/r)" ;;
-                    esac ;;
-                  *) echo "warn: $2 -> $code $(head -c 120 /tmp/r)" ;;
-                esac
-              }
-              # 2) Hosted repositories for each ecosystem.
-              mkrepo maven/hosted '{"name":"maven-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false,"writePolicy":"ALLOW"},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
-              mkrepo npm/hosted   '{"name":"npm-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
-              mkrepo pypi/hosted  '{"name":"pypi-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
-              # Proxy caches (so app builds resolve upstream deps through Nexus).
-              # Negative caching is OFF on every proxy: with it on (24h default) a
-              # transient upstream failure — Nexus restarting mid-build, a network
-              # blip — poisons "not found" for a day and every later build fails
-              # with "was not found in nexus-public" although the artifact exists.
-              mkrepo npm/proxy    '{"name":"npm-registry","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false}}'
-              mkrepo pypi/proxy   '{"name":"pypi-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://pypi.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false}}'
-              # Maven Central proxy + a public GROUP (maven-hosted + maven-central) so
-              # builds resolve deps through Nexus. The release pipeline mirrors
-              # * -> maven-public, which 404s (fails all resolution) without this group.
-              # upsertrepo, NOT mkrepo: Nexus pre-creates maven-central at first
-              # boot (see the note above) with negativeCache ENABLED and a 1440
-              # minute TTL, and a create-only call silently leaves those defaults
-              # in place. That is how a cold cluster poisons its own builds — the
-              # first Maven resolutions run before egress is reliable, every miss
-              # is cached for 24 hours, and afterwards artifacts that plainly
-              # exist keep returning 403 from a proxy that is not even blocked.
-              # Observed on GCP: release-adhar-kit failed on
-              # maven-build-cache-extension:1.2.0 for eight hours while
-              # repo1.maven.org served it fine.
-              upsertrepo maven/proxy maven-central '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
-              # Lombok edge-releases proxy: adhar-kit builds on JDK 25 and depends on
-              # org.projectlombok:lombok:edge-SNAPSHOT (only the edge channel supports
-              # the newest JDKs; it is NOT on Maven Central). versionPolicy MIXED so the
-              # -SNAPSHOT resolves. Added to maven-public below so builds see it.
-              mkrepo maven/proxy '{"name":"lombok-edge","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://projectlombok.org/edge-releases/","contentMaxAge":-1,"metadataMaxAge":60},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
-              # maven-public pre-exists (Nexus creates it at first boot), so this
-              # MUST be an upsert — see upsertrepo. Keep Nexus's own
-              # maven-releases/maven-snapshots members so nothing that already
-              # resolves through the default group regresses.
-              upsertrepo maven/group maven-public '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-releases","maven-snapshots","maven-central","lombok-edge"]}}'
-              # 3) Enable the auth realms:
-              #    - NpmToken       : `npm publish` bearer tokens
-              #    - rutauth-realm  : Rut Auth (HTTP header) — lets the Keycloak
-              #      SSO in front of Nexus (oauth2-proxy) log the user in via the
-              #      X-Forwarded-User header. Nexus OSS has no native OIDC, so this
-              #      header-trust realm is how the proxied identity becomes a Nexus
-              #      session. Order matters: rutauth-realm must precede the
-              #      authenticating realm so the header is honoured first.
-              #
-              # The list must contain ONLY ids Nexus actually knows. It carried
-              # "NexusAuthorizingRealm", which does not exist in 3.79.1 — the
-              # valid ids are ConanToken, DefaultRole, DockerToken, LdapRealm,
-              # NexusAuthenticatingRealm, NpmToken, NuGetApiKey and
-              # rutauth-realm — and Nexus validates the array as a WHOLE:
-              #   400 ValidationErrorXO{message='"Unknown realmIds:
-              #   [NexusAuthorizingRealm]"'}
-              # so one bogus id left NONE of them active. Live on the 2026-10-11
-              # GCP cluster the active list was just
-              # ["NexusAuthenticatingRealm"], which is why Nexus still drew its
-              # own sign-in form behind a working Keycloak proxy (rutauth-realm
-              # inactive) and why `npm publish` had no bearer-token realm.
-              #
-              # The response is CHECKED, not discarded. The previous version
-              # piped it to /dev/null, swallowed the failure with `|| true` and
-              # then printed "realms enabled" unconditionally, so the one thing
-              # that would have revealed this was the one thing thrown away.
-              realm_code=$(curl -s -o /tmp/realms -w '%{http_code}' $AUTH \
-                -H 'Content-Type: application/json' -X PUT "${API}/security/realms/active" \
-                -d '["rutauth-realm","NexusAuthenticatingRealm","NpmToken"]' || echo 000)
-              case "${realm_code}" in
-                2*) echo "npm token + rut-auth realms enabled" ;;
-                *)  echo "ERROR: enabling the auth realms failed (HTTP ${realm_code}): $(head -c 200 /tmp/realms 2>/dev/null)"
-                    echo "ERROR: without rutauth-realm the Keycloak proxy cannot log anyone in to Nexus,"
-                    echo "ERROR: and without NpmToken 'npm publish' has no bearer-token realm." ;;
-              esac
-              # 3b) Rut Auth capability — tells Nexus which HTTP header carries the
-              # authenticated username. oauth2-proxy sends X-Forwarded-User (the
-              # Keycloak preferred_username). There is no stable public v1 endpoint
-              # for capabilities, so this uses the internal UI API and is strictly
-              # best-effort (|| true): a version mismatch must not fail the sync.
-              # If it already exists Nexus returns 400 (dup) — also fine.
-              #
-              # `grep -q`, NOT `grep -c ... || echo 0`. `grep -c` PRINTS "0" and
-              # also EXITS 1 when it matches nothing, so the `|| echo 0`
-              # fallback appended a second zero and the variable became the two
-              # lines "0\n0" — which never equals "0", so the branch below was
-              # never taken and the capability was never created. On a cluster
-              # whose realms were fine this alone was enough to leave Nexus
-              # drawing its own sign-in form behind a working Keycloak proxy.
-              # Capabilities live on the Ext.Direct endpoint, not under
-              # /service/rest. Every REST spelling 404s on 3.79.1 —
-              # /service/rest/internal/ui/capabilities,
-              # /service/rest/v1/capabilities and the beta path alike — so the
-              # previous POST could never have worked on this version, and
-              # because it was best-effort nothing said so. /service/extdirect
-              # answers, and `read` is how we tell whether the capability is
-              # already there.
-              ed() {
-                curl -s -o "$2" -w '%{http_code}' $AUTH \
-                  -H 'Content-Type: application/json' -H 'X-Nexus-UI: true' \
-                  -X POST "${NEXUS}/service/extdirect" -d "$1" || echo 000
-              }
-              ed '{"action":"capability_Capability","method":"read","data":null,"type":"rpc","tid":1}' /tmp/caps >/dev/null
-              if grep -q '"typeId":"rutauth"' /tmp/caps 2>/dev/null; then
-                echo "rut-auth capability already present"
-              else
-                code=$(ed '{"action":"capability_Capability","method":"create","data":[{"typeId":"rutauth","enabled":true,"notes":"Keycloak SSO via oauth2-proxy (X-Forwarded-User)","properties":{"httpHeader":"X-Forwarded-User"}}],"type":"rpc","tid":2}' /tmp/rut)
-                # Ext.Direct answers 200 with success:false inside the body, so
-                # the status code alone does not tell you whether it worked.
-                if [ "${code}" = "200" ] && grep -q '"success":true' /tmp/rut 2>/dev/null; then
-                  echo "rut-auth capability created"
-                else
-                  echo "ERROR: creating the rut-auth capability failed (HTTP ${code}): $(head -c 200 /tmp/rut 2>/dev/null)"
-                  echo "ERROR: without it Nexus ignores X-Forwarded-User, so the Keycloak proxy in front"
-                  echo "ERROR: of Nexus authenticates the browser and Nexus still asks for a local login."
-                fi
-              fi
-              # 4) Publish the credentials + endpoints the supply chain consumes.
-              kubectl create secret generic nexus-credentials -n adhar-system \
-                --from-literal=username="${NEXUS_USER}" \
-                --from-literal=password="${NEXUS_PASS}" \
-                --from-literal=url="${NEXUS}" \
-                --from-literal=maven-hosted="${NEXUS}/repository/maven-hosted/" \
-                --from-literal=maven-public="${NEXUS}/repository/maven-public/" \
-                --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
-                --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
-                --dry-run=client -o yaml | kubectl apply -f -
-              echo "nexus bootstrap complete"
+          command: [bash, /script/bootstrap.sh]
+          volumeMounts:
+            - {name: script, mountPath: /script}
+      volumes:
+        - name: script
+          configMap:
+            name: nexus-bootstrap-script
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nexus-reconcile
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "3"}
+spec:
+  # Every ten minutes, because the bootstrap above is a PostSync HOOK and a
+  # hook does not run again once the app has converged.
+  #
+  # Nexus keeps the accepted EULA and every repository definition in its own
+  # volume. Lose that volume and the instance comes back with only Nexus's
+  # default repositories and an UNACCEPTED EULA, at which point every
+  # /repository/... request answers 403 while the admin REST API keeps working
+  # — so the pod is Ready, the Argo CD Application is Healthy, and nothing
+  # reports a problem.
+  #
+  # Live on 2026-10-13 the nexus-data PVC was recreated and that is exactly
+  # what happened: npm-hosted and maven-hosted were gone, maven-releases was
+  # empty, and every Maven build failed with
+  #   Non-resolvable parent POM ... adhar-kit-parent:pom:0.1.0 ... 403
+  # for hours, with the only successful bootstrap Job sitting Complete from
+  # before the volume was replaced. Re-running it by hand fixed it in twelve
+  # seconds, which is the whole argument for running it on a schedule.
+  #
+  # Safe to repeat: the script creates-or-updates and is the same one the
+  # bootstrap Job runs, mounted from the same ConfigMap.
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: nexus-config
+          restartPolicy: Never
+          containers:
+            - name: config
+              image: alpine/k8s:1.31.1
+              env:
+                - {name: NEXUS, value: "http://nexus.adhar-system.svc.cluster.local:8081"}
+                - {name: NEXUS_USER, value: "admin"}
+                - {name: NEXUS_PASS, value: "admin123"}
+              command: [bash, /script/bootstrap.sh]
+              volumeMounts:
+                - {name: script, mountPath: /script}
+          volumes:
+            - name: script
+              configMap:
+                name: nexus-bootstrap-script

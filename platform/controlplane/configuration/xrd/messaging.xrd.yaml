@@ -34,7 +34,7 @@ spec:
                   default: kafka
                 kafkaVersion:
                   type: string
-                  default: "3.8.0"
+                  default: "4.3.1"
                 replicas:
                   type: integer
                   default: 1
@@ -46,8 +46,12 @@ spec:
                   description: Topics to create
                   items:
                     type: object
+                    # A topic with no name composes a KafkaTopic named
+                    # `topic-<no value>`, which the apiserver rejects and which
+                    # fails the WHOLE Messaging — the Kafka cluster included.
+                    required: [name]
                     properties:
-                      name: { type: string }
+                      name: { type: string, minLength: 1 }
                       partitions: { type: integer, default: 3 }
                       replicas: { type: integer, default: 1 }
               required: [name]

@@ -98722,6 +98722,12 @@ spec:
   tsdb:
     outOfOrderTimeWindow: 0s
   walCompression: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 3Gi
+    limits:
+      memory: 8Gi
   routePrefix: /
   serviceAccountName: prometheus-kube-prometheus-prometheus
   serviceMonitorSelector: {}

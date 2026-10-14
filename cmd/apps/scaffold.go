@@ -40,6 +40,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"net/url"
 	"path"
 	"regexp"
@@ -50,6 +51,7 @@ import (
 	"adhar-io/adhar/globals"
 
 	"code.gitea.io/sdk/gitea"
+	"encoding/json"
 	"gopkg.in/yaml.v3"
 )
 
@@ -260,7 +262,18 @@ func buildValues(spec map[string]yaml.Node, params map[string]any) (map[string]a
 /* ───────────────────────── rendering ───────────────────────── */
 
 var (
-	exprRe = regexp.MustCompile(`\$\{\{(.*?)\}\}`)
+	// `X | lower|upper|dump`
+	filterRe = regexp.MustCompile(`^(.+?)\s*\|\s*(lower|upper|dump|escape)$`)
+	// `X or Y`
+	orRe = regexp.MustCompile(`^(.+?)\s+or\s+(.+)$`)
+	// the right-hand side of `or`: 'str' / "str" / number / true / false
+	quotedRe = regexp.MustCompile(`^'(.*)'$|^"(.*)"$`)
+	numberRe = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+	// operators we deliberately do not implement — they must fail, not render ""
+	unsupportedOp = regexp.MustCompile(`\s(and|if|else|not|in)\s`)
+	// A URL scheme prefix, stripped from a RepoUrlPicker host.
+	schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
+	exprRe   = regexp.MustCompile(`\$\{\{(.*?)\}\}`)
 	// {% if … %} / {% else %} / {% endif %}, with the trimming {%- and -%} forms.
 	tagRe  = regexp.MustCompile(`\{%-?\s*(if|else|endif)\b([^%]*?)-?%\}`)
 	soleRe = regexp.MustCompile(`^\s*\$\{\{(.*?)\}\}\s*$`)
@@ -293,16 +306,64 @@ func evalExpression(expr string, ctx map[string]any) (any, error) {
 			return nil, fmt.Errorf("parseRepoUrl has no field %q", m[2])
 		}
 	}
-	if strings.ContainsAny(expr, "|()") {
-		return nil, fmt.Errorf("expression %q uses templating this CLI does not implement; instantiate this template from the Console", expr)
+	// `X or Y` — Nunjucks's default-value idiom, used by every shipped template
+	// for optional parameters: `${{ parameters.kafkaTopic or 'events' }}`. A
+	// falsy left-hand side (missing, "", false, 0) takes the default, as in
+	// Nunjucks. Left unimplemented this fell through to a path lookup of the
+	// whole expression and rendered EMPTY, which is how a scaffolded service
+	// shipped a Kafka topic with no name (see TestOrTakesTheDefault).
+	if m := orRe.FindStringSubmatch(expr); m != nil {
+		lhs, _ := evalExpression(strings.TrimSpace(m[1]), ctx)
+		if truthy(lhs) {
+			return lhs, nil
+		}
+		return evalLiteralOrPath(strings.TrimSpace(m[2]), ctx)
+	}
+	// `X | lower` / `X | upper` / `X | dump`.
+	//
+	// `dump` is JSON encoding and the skeletons depend on it for values dropped
+	// straight into source code — `const APP_NAME = ${{ values.name | dump }}`
+	// needs the QUOTES. Refusing it outright meant this CLI could not render
+	// the shipped react-spa-app template at all.
+	if m := filterRe.FindStringSubmatch(expr); m != nil {
+		v, _ := lookupPath(strings.TrimSpace(m[1]), ctx)
+		switch m[2] {
+		case "dump":
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("dumping %s: %w", m[1], err)
+			}
+			return string(b), nil
+		case "escape":
+			// HTML escaping: the SPA skeletons drop the description into a
+			// `<meta content="...">` attribute, where a quote ends the value.
+			return html.EscapeString(stringify(v)), nil
+		case "lower":
+			return strings.ToLower(stringify(v)), nil
+		default:
+			return strings.ToUpper(stringify(v)), nil
+		}
+	}
+	if strings.ContainsAny(expr, "|()~+") || unsupportedOp.MatchString(expr) {
+		return nil, fmt.Errorf("expression %q uses templating this CLI does not implement; supported: lower, upper, dump, escape, (x | parseRepoUrl).field, x or <default>", expr)
 	}
 	v, _ := lookupPath(expr, ctx)
 	return v, nil
 }
 
 // parseRepoURL splits a Backstage RepoUrlPicker value (`host?owner=X&repo=Y`).
+//
+// `host` comes back BARE — no scheme, no trailing slash — because that is what
+// the field means and what the skeletons assume; they add the scheme
+// themselves (`'https://${{ values.giteaHost }}/...'`). Returning it verbatim
+// gives every generated app a doubled scheme, which is what the Console's
+// renderer did until 2026-10-13:
+//
+//	const REPO_URL = 'https://https://gitea.platform.adhar.io/adhar/reactapp'
 func parseRepoURL(s string) (host, owner, repo string) {
 	host, query, _ := strings.Cut(s, "?")
+	host = schemeRe.ReplaceAllString(host, "")
+	host = strings.TrimRight(host, "/")
 	q, err := url.ParseQuery(query)
 	if err != nil {
 		return host, "", ""
@@ -675,4 +736,32 @@ func platformBaseDomain(giteaHost string) string {
 		return ""
 	}
 	return parts[1]
+}
+
+// evalLiteralOrPath evaluates the right-hand side of `or`: a quoted string, a
+// number, a boolean, or another context path.
+func evalLiteralOrPath(raw string, ctx map[string]any) (any, error) {
+	if m := quotedRe.FindStringSubmatch(raw); m != nil {
+		if m[1] != "" || strings.HasPrefix(raw, "'") {
+			return m[1], nil
+		}
+		return m[2], nil
+	}
+	if numberRe.MatchString(raw) {
+		if strings.Contains(raw, ".") {
+			f, err := strconv.ParseFloat(raw, 64)
+			return f, err
+		}
+		n, err := strconv.Atoi(raw)
+		return n, err
+	}
+	switch raw {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	case "null", "none", "None":
+		return nil, nil
+	}
+	return evalExpression(raw, ctx)
 }

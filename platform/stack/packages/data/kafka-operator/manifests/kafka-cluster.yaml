@@ -26,6 +26,31 @@ spec:
   roles:
     - controller
     - broker
+  # Broker compute lives on the NODE POOL, not on `spec.kafka`.
+  #
+  # The v1 Kafka schema does not declare `spec.kafka.resources` — it has
+  # jvmOptions, livenessProbe and readinessProbe, but compute moved to the pool
+  # when KafkaNodePool became the unit of scaling. Putting it on `spec.kafka`
+  # is not ignored, it is REJECTED, and with ServerSideApply the whole sync
+  # fails to build its patch:
+  #
+  #   failed to create typed patch object (adhar-system/adhar-kafka;
+  #   kafka.strimzi.io/v1, Kind=Kafka): .spec.kafka.resources: field not
+  #   declared in schema
+  #
+  # Live on 2026-10-14 that failed the kafka-operator sync 219 times, so the
+  # `adhar-kafka` cluster was never created and every Kafka-using service
+  # failed to start — my-service died in
+  # `internalKafkaListenerEndpointRegistry` with no Kafka to reach.
+  #
+  # A broker with no CPU request gets no CFS share, so it loses the race
+  # against its own probe on exactly the loaded nodes where boot is slowest.
+  # No memory limit: the heap in jvmOptions is the real bound, and a limit here
+  # would turn a slow GC into an OOMKill.
+  resources:
+    requests:
+      cpu: 300m
+      memory: 1Gi
   storage:
     type: jbod
     volumes:
@@ -87,14 +112,6 @@ spec:
       periodSeconds: 10
       timeoutSeconds: 10
       failureThreshold: 60
-    # A broker with no CPU request gets no CFS share, so it loses the race
-    # against its own probe on exactly the loaded nodes where boot is slowest.
-    # No memory limit: the heap below is the real bound, and a limit here would
-    # turn a slow GC into an OOMKill.
-    resources:
-      requests:
-        cpu: 300m
-        memory: 1Gi
     jvmOptions:
       -Xms: 512m
       -Xmx: 1g

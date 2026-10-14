@@ -77,6 +77,30 @@ spec:
             {{- $resolved = append $resolved (dict "name" $en "tier" $et "namespace" $ens "autoPromote" $auto "access" $access "cpu" (default $cpu (get $e "cpuQuota")) "mem" (default $mem (get $e "memoryQuota")) "pods" (default $pods (get $e "podQuota"))) -}}
             {{- end -}}
             {{- $labels := dict "platform.adhar.io/self-service" "true" "adhar.io/organisation" $org "adhar.io/team" $team "adhar.io/project" $name -}}
+            {{- /*
+              A project named after its ORGANISATION shares the organisation's
+              home namespace, so composing these three objects here would be a
+              SECOND manager of each of them.
+
+              The Organisation composition already emits Namespace/<org>,
+              ResourceQuota/<org>-quota and LimitRange/<org>-limits. Live on
+              2026-10-14 the platform's own org and project are both `adhar`,
+              and every one of the three existed twice:
+
+                Namespace/adhar      owners=[Organisation/adhar] and [Project/adhar]
+                ResourceQuota/adhar-quota   likewise
+                LimitRange/adhar-limits     likewise
+
+              Two provider-kubernetes Objects managing one target do not merge:
+              each reconcile re-applies its own copy, so the quota flips between
+              the organisation's numbers and the project's for as long as both
+              exist — and the resource page lists each composed object twice.
+
+              The organisation is the authority for its own namespace, so the
+              project defers. A project with any other name keeps its own
+              namespace exactly as before.
+            */ -}}
+            {{- if ne $name $org }}
             ---
             # Home namespace = Kargo project namespace.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -137,6 +161,7 @@ spec:
                       - type: Container
                         default: { cpu: "500m", memory: "512Mi" }
                         defaultRequest: { cpu: "100m", memory: "128Mi" }
+            {{- end }}
             ---
             # Team RBAC on the home namespace — the isolation boundary between
             # application teams. `ws-team-<team>` is the Keycloak group the

@@ -4,7 +4,7 @@
 #   - assistant mode: interactive, Console chat + `adhar ai` CLI over /chat;
 #     writes ALWAYS become Gitea PRs a human merges (autonomous=false).
 #   - operators: event-driven (alert-triage, drift-explain, cost-advisor,
-#     upgrade-preflight). Each subscribes to a trigger and declares its own
+#     upgrade-preflight, build-failure). Each subscribes to a trigger and declares its own
 #     allowed_tools + autonomy level, read from the adhar-ai-config ConfigMap.
 #
 # It also runs the agentic layer: a roster of specialist agents that hand work
@@ -90,6 +90,20 @@ data:
         trigger: manual
         autonomy: suggest
         allowedTools: [resource_health, app_status, findings, propose_change]
+      # The one operator a DEVELOPER reads: a failed Tekton run explains itself,
+      # naming the step that broke and quoting what it printed. Wire it to
+      # Tekton's CloudEvents sink (or any webhook that can post a run name and
+      # namespace) at POST /operators/build-failure/event.
+      #
+      # `propose_change` is listed but will usually REFUSE: a service's own
+      # source repository is not in writePolicy.allowedRepos above. That is
+      # intended — it explains the failure and says exactly what to change
+      # where, and the one case it can act on is a build config living in the
+      # platform repos.
+      build-failure:
+        trigger: tekton
+        autonomy: suggest
+        allowedTools: [pipeline_runs, pipeline_run, build_logs, builds, propose_change]
     # MCP server endpoints the runtime mounts as tool groups.
     mcpServers:
       cluster:       http://adhar-ai-mcp-cluster.adhar-system.svc.cluster.local:8080
@@ -99,6 +113,7 @@ data:
       security:      http://adhar-ai-mcp-security.adhar-system.svc.cluster.local:8080
       cost:          http://adhar-ai-mcp-cost.adhar-system.svc.cluster.local:8080
       catalog:       http://adhar-ai-mcp-catalog.adhar-system.svc.cluster.local:8080
+      delivery:      http://adhar-ai-mcp-delivery.adhar-system.svc.cluster.local:8080
     # Retrieval store: Qdrant (see stores.yaml). The runtime's own state
     # lives in CNPG (runtime-database.yaml) and the knowledge graph in the
     # platform's shared Neo4j (data/neo4j).

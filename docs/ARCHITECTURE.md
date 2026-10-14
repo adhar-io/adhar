@@ -364,9 +364,9 @@ flowchart LR
 
 | Package | What it is | Key facts |
 |---|---|---|
-| **`agentgateway`** | The AI **data plane** — agentgateway v1.5.0 (Apache 2.0, Linux Foundation) ([ADR-0025](adr/0025-ai-gateway-agentgateway.md)) | One OpenAI-compatible endpoint at `ai.<host>/v1` routing **by model name**; one federated MCP endpoint at `mcp.<host>/mcp` multiplexing all seven `adhar-ai` tool servers; Keycloak JWT + CEL authorization; regex guardrails; per-group budgets; OTel spans to Tempo |
+| **`agentgateway`** | The AI **data plane** — agentgateway v1.5.0 (Apache 2.0, Linux Foundation) ([ADR-0025](adr/0025-ai-gateway-agentgateway.md)) | One OpenAI-compatible endpoint at `ai.<host>/v1` routing **by model name**; one federated MCP endpoint at `mcp.<host>/mcp` multiplexing all eight `adhar-ai` tool servers; Keycloak JWT + CEL authorization; regex guardrails; per-group budgets; OTel spans to Tempo |
 | **`vllm`** | Self-hosted OpenAI-compatible inference | CPU profile (`vllm/vllm-openai-cpu:v0.29.0` + `Qwen/Qwen2.5-0.5B-Instruct`) and GPU profile (`vllm/vllm-openai:v0.29.0` + `Qwen/Qwen2.5-7B-Instruct`) as separate ApplicationSet elements over one shared Service `vllm:8000` |
-| **`adhar-ai`** | The agent layer: seven MCP tool servers, the agent runtime with staged autonomy, and a pgvector RAG store on CNPG ([ADR-0024](adr/0024-agentic-ai-platform.md)) | The **runtime lives in a separate repository, [`github.com/adhar-io/adhar-ai`](https://github.com/adhar-io/adhar-ai)** (Python, 162 tests); this package is the manifests that install its images |
+| **`adhar-ai`** | The agent layer: eight MCP tool servers, the agent runtime with staged autonomy, and a pgvector RAG store on CNPG ([ADR-0024](adr/0024-agentic-ai-platform.md)) | The **runtime lives in a separate repository, [`github.com/adhar-io/adhar-ai`](https://github.com/adhar-io/adhar-ai)** (Python, 162 tests); this package is the manifests that install its images |
 
 How the three compose:
 

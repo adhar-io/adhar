@@ -30,7 +30,7 @@ spec:
             {{- $name := $xr.metadata.name -}}
             {{- $ns := $xr.metadata.namespace -}}
             {{- $spec := $xr.spec -}}
-            {{- $version := dig "kafkaVersion" "3.8.0" $spec -}}
+            {{- $version := dig "kafkaVersion" "4.3.1" $spec -}}
             {{- $size := dig "storageSize" "2Gi" $spec -}}
             ---
             # JMX Prometheus exporter rules — feeds the Kafka Grafana dashboards.
@@ -41,6 +41,9 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: kafka-metrics-cm
+                # A ConfigMap has no status. function-auto-ready reads a Ready
+                # condition, finds none, and holds the Messaging unready forever.
+                gotemplating.fn.crossplane.io/ready: "True"
             data:
               kafka-metrics-config.yml: |
                 lowercaseOutputName: true
@@ -70,6 +73,11 @@ spec:
                 strimzi.io/cluster: {{ $name }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: kafka-pool
+                # Strimzi writes NO conditions on a KafkaNodePool (its readiness is
+                # the Kafka cluster's, which auto-ready does read), so without
+                # this the Messaging never becomes Ready and the Argo CD app that
+                # asked for it stays Degraded with a running broker.
+                gotemplating.fn.crossplane.io/ready: "True"
             spec:
               replicas: 1
               roles: [controller, broker]
@@ -124,6 +132,8 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: kafka-podmonitor
+                # A PodMonitor has no status either.
+                gotemplating.fn.crossplane.io/ready: "True"
               labels:
                 strimzi.io/cluster: {{ $name }}
             spec:
@@ -137,6 +147,13 @@ spec:
                     - action: labelmap
                       regex: "__meta_kubernetes_pod_label_(.+)"
             {{- range dig "topics" (list) $spec }}
+            {{- /* An unnamed topic must fail HERE, by name, not as an apiserver
+                   rejection of a KafkaTopic called `topic-<no value>` that takes
+                   the Kafka cluster down with it. The XRD requires the field too;
+                   this covers an XRD a cluster has not received yet. */}}
+            {{- if not (dig "name" "" .) }}
+            {{- fail (printf "messaging/%s: every entry in spec.topics needs a non-empty name" $name) }}
+            {{- end }}
             ---
             apiVersion: kafka.strimzi.io/v1
             kind: KafkaTopic

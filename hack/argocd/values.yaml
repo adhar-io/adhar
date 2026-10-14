@@ -1222,10 +1222,15 @@ controller:
   # workload pods and its Lua health checks fail with "context deadline
   # exceeded", wedging every sync. Guaranteeing a healthy share keeps sync
   # and health assessment responsive under bootstrap convergence load.
+  # Memory is the MEASURED figure, not an estimate: the application
+  # controller used 2510Mi on a live cluster of ~78 applications and 616
+  # CRDs (2026-10-13) while requesting nothing at all, because this block
+  # never reached the generated manifests. The controller's footprint tracks
+  # the number of applications and the size of the cluster's API surface.
   resources:
     requests:
       cpu: 500m
-      memory: 1Gi
+      memory: 2560Mi
   #  limits:
   #    cpu: 500m
   #    memory: 512Mi

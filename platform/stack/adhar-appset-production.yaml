@@ -887,14 +887,31 @@ spec:
           # dependencies make first syncs fail until the provider package has
           # applied its CRDs; a finite limit leaves them Failed forever.
           limit: -1
-        # Namespaces ArgoCD creates for packages carry the ADR-0023 placement
-        # label (platform packages run on the control plane) so the
-        # require-namespace-plane-label policy reports them as compliant.
-        managedNamespaceMetadata:
-          labels:
-            adhar.io/plane: control
+        # NOT CreateNamespace. Every element of this ApplicationSet targets a
+        # namespace that already exists before any app syncs — `adhar-system`,
+        # created by the bootstrap controller, which also stamps the ADR-0023
+        # label below (`controller.go`: nsResource.Labels["adhar.io/plane"] =
+        # "control"). So asking Argo CD to create it could never create
+        # anything; it only added the namespace to each sync's wave 0 and made
+        # the sync WAIT on its health.
+        #
+        # Argo CD does not manage that namespace — `kubectl get ns adhar-system
+        # -o json` shows no managedFields at all, because `adhar up` created it
+        # imperatively — so its health is never computed and the wait cannot be
+        # satisfied. Live on 2026-10-14 that deadlocked the platform:
+        #
+        #   26 of 79 Applications OutOfSync
+        #   10 stuck at: waiting for healthy state of /Namespace/adhar-system
+        #   kafka-operator: "Operation terminated (retried 742 times)"
+        #
+        # and because the Kafka CR sits in wave 5, the shared `adhar-kafka`
+        # cluster was never created at all — which is what stopped every
+        # Kafka-using service from starting. Terminating the operation and
+        # re-syncing re-enters the same loop; the option itself is the fault.
+        #
+        # managedNamespaceMetadata goes with it: it only applies when Argo CD
+        # creates the namespace, and the label it would set is already there.
         syncOptions:
-          - CreateNamespace=true
           - ServerSideApply=true
           # Packages ship CRs whose CRDs come from OTHER packages (ServiceMonitor
           # from kube-prometheus, Cluster from cnpg, …). Without this, ArgoCD

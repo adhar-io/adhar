@@ -920,3 +920,140 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+---
+# mcp-delivery — the commit-to-revision path: Tekton PipelineRuns and TaskRuns,
+# kpack Images and Builds, Kargo Promotions, and the preview-environment
+# Applications of ADR-0017. All read through the `adhar-ai` ClusterRole, which
+# already grants get/list/watch on tekton.dev, kpack.io and kargo.akuity.io, so
+# this server needs no RBAC of its own.
+#
+# Every one of those packages is OPTIONAL. The tools report `installed: false`
+# with the package that would provide the CRD, so a platform without Tekton gets
+# a fact rather than an error — and the agent can tell that apart from "CI is
+# installed and nothing is failing".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-delivery
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-delivery
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: delivery
+    adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-delivery
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-delivery
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: delivery
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-delivery:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=delivery", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "delivery"
+            # READ-ONLY DOMAIN. `delivery` carries no write tool: fixing a
+            # build means changing a repository, and that path exists exactly
+            # once, in mcp-gitops' `propose_change`. With this false the server
+            # refuses a write tool even if one were ever added by mistake, and
+            # it needs no Gitea credential at all.
+            - name: GITEA_WRITE_ENABLED
+              value: "false"
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
+            # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
+            # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
+            # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
+            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # provider selection any more: the model name IS the routing key.
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
+            # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
+            # request reaches these servers through agentgateway, which validates
+            # the Keycloak JWT ONCE for all seven and authorizes per tool
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # client and its `groups` mapper stay — the gateway's CEL rules read
+            # those claims — and the bearer token is preserved
+            # (preserveToken: true) so RBAC-scoped reads still run as the USER.
+          envFrom:
+            - secretRef:
+                name: adhar-ai-bot
+                # optional: the platform must run unkeyed — see the note on the first
+                # adhar-ai-bot reference in this file.
+                optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-delivery
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-delivery
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: delivery
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-delivery
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

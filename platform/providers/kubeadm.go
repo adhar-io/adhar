@@ -634,6 +634,59 @@ var kubeletTuning = []struct{ Key, Line string }{
 	// A platform component that cannot reschedule after a restart for this reason
 	// looks like an unrelated outage.
 	{"maxPods", "maxPods: 250"},
+
+	// Reserved headroom, and the reason nodes went NotReady under load.
+	//
+	// A kubeadm node reserves NOTHING by default: measured live on 2026-10-13,
+	// every worker reported cpu capacity 8 / allocatable 8 and memory capacity
+	// 15.62G / allocatable 15.52G — the 100Mi gap being only the default
+	// eviction threshold. So the scheduler was free to place pods on all eight
+	// cores and all but 100 MiB of RAM, and the kubelet and containerd compete
+	// with the pods they are supposed to manage.
+	//
+	// What that looks like is NOT a scheduling error. The kubelet misses its
+	// sync loop and the node stops heartbeating:
+	//
+	//	ContainerGCFailed: rpc error: code = DeadlineExceeded
+	//	ImageGCFailed: context deadline exceeded
+	//	NodeNotReady
+	//
+	// and because 100Mi is far too thin a margin to evict within, the kernel
+	// OOM killer wins the race instead of the kubelet — `SystemOOM` events
+	// killing java, prometheus and argocd-application-controller rather than an
+	// orderly eviction of the pod actually over its request. Pods then land on
+	// the next node and walk the failure around the cluster.
+	//
+	// `enforceNodeAllocatable` defaults to ["pods"], which caps the kubepods
+	// cgroup at Allocatable — so declaring the reserves is what physically
+	// protects the system and kubelet slices. No cgroup paths are required.
+	//
+	// Sized to the managed-provider formulas for these 8 vCPU / 16 GiB nodes,
+	// with maxPods: 250 above taken into account — because the first attempt at
+	// this reserved only 1.5 GiB and that was measurably not enough.
+	//
+	// On 2026-10-13 a worker with the 1.5 GiB reserve still wedged. The pods
+	// cgroup sat AT its cap and the box had 308 MiB left for everything else:
+	//
+	//	Mem: total 15991  used 15683  available 308
+	//	kubepods.slice/memory.max      15157968896  (14.12 GiB)
+	//	kubepods.slice/memory.current  15028252672  (13.99 GiB)
+	//
+	// and what failed was CONTAINERD, which lives in system.slice outside the
+	// pods cgroup: "container runtime is down, PLEG is not healthy", every
+	// ContainerStatus call DeadlineExceeded. That is also why pods hang
+	// Terminating for hours on a sick node — the kubelet cannot ask containerd
+	// to kill anything.
+	//
+	// So the reserve has to cover containerd under load, not just the kubelet.
+	// EKS reserves 255 MiB + 11 MiB per pod, which at maxPods 250 is ~3 GiB;
+	// GKE reserves ~2.6 GiB at 16 GiB. 2.5 GiB of reserve plus a 1 GiB eviction
+	// margin sits in that range rather than below it.
+	{"systemReserved", "systemReserved:\n  cpu: 200m\n  memory: 1Gi"},
+	{"kubeReserved", "kubeReserved:\n  cpu: 300m\n  memory: 1536Mi"},
+	// 500Mi, not the 100Mi default: the margin has to be wide enough that the
+	// kubelet notices and evicts before the kernel starts killing processes.
+	{"evictionHard", "evictionHard:\n  memory.available: 1Gi\n  nodefs.available: 10%\n  imagefs.available: 15%"},
 }
 
 // TuneImagePulls lets the kubelet pull images in parallel. Idempotent: the grep

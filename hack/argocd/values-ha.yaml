@@ -1216,7 +1216,16 @@ controller:
   podLabels: {}
 
   # -- Resource limits and requests for the application controller pods
-  resources: {}
+  # Measured, not an estimate: the application controller used 2510Mi on a
+  # live cluster of ~78 applications and 616 CRDs (2026-10-13) while
+  # requesting nothing, so the scheduler accounted none of it. Requests
+  # without limits is deliberate — on a saturated node cgroup CPU weight
+  # comes from requests, and a starved controller fails its Lua health
+  # checks with "context deadline exceeded" and wedges every sync.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2560Mi
   #  limits:
   #    cpu: 500m
   #    memory: 512Mi

@@ -1,9 +1,9 @@
-# agentgateway — MCP federation: seven tool servers behind ONE URL (ADR-0025).
+# agentgateway — MCP federation: eight tool servers behind ONE URL (ADR-0025).
 #
 # ---------------------------------------------------------------------------
 # THE PROBLEM THIS SOLVES
 # ---------------------------------------------------------------------------
-# adhar-ai (ADR-0024) splits the platform's tools across seven per-domain MCP
+# adhar-ai (ADR-0024) splits the platform's tools across eight per-domain MCP
 # servers so that read/write authority is scoped per domain. That is right for
 # authorization and wrong for clients: Claude Code, an IDE assistant or a ChatOps
 # bot would have to be configured with seven separate MCP endpoints, seven sets
@@ -14,7 +14,7 @@
 #
 #     https://mcp.adhar.localtest.me:8443/mcp
 #
-# speaks MCP to the client, fans out to all seven servers, merges their tool
+# speaks MCP to the client, fans out to all eight servers, merges their tool
 # lists into one, and routes each `tools/call` back to the server that owns it.
 # JWT validation (security.yaml) and per-tool authorization happen here, once,
 # in front of every tool — not seven times in seven Python services.
@@ -108,6 +108,17 @@ spec:
         static:
           backendRef:
             name: adhar-ai-mcp-cost
+          port: 8080
+          path: /mcp
+          protocol: StreamableHTTP
+      # The commit-to-revision path: Tekton runs, kpack builds, Kargo
+      # promotions, preview environments. Read-only, so security.yaml's read
+      # rule — every target EXCEPT the PR-opening ones — admits it for
+      # platform-developer without a new clause.
+      - name: delivery
+        static:
+          backendRef:
+            name: adhar-ai-mcp-delivery
           port: 8080
           path: /mcp
           protocol: StreamableHTTP

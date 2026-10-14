@@ -344,10 +344,23 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/alloy
+        # Measured, not guessed. alloy requested 50Mi and used 980-1120Mi on
+        # every node of a live cluster (2026-10-13) — a DaemonSet, so ~6.6 GiB
+        # cluster-wide against 300Mi declared. An agent's footprint scales with
+        # the targets it scrapes and the logs it tails, and this platform gives
+        # it several hundred pods.
+        #
+        # Understated requests are not a cosmetic problem: the scheduler places
+        # by REQUESTS, so it packed nodes it believed were nearly empty, those
+        # nodes then ran out of real memory, and the kubelet and containerd were
+        # starved by pods the scheduler never accounted for. Cluster-wide the
+        # gap was 34.6 GiB.
         resources:
           requests:
-            cpu: 10m
-            memory: 50Mi
+            cpu: 100m
+            memory: 768Mi
+          limits:
+            memory: 1536Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

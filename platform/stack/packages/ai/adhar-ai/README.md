@@ -11,17 +11,23 @@ images; this package is the standard manifest set that installs it via the Appli
 
 ## The four capabilities
 
-1. **MCP-native tools** — seven per-domain MCP servers (`cluster`, `gitops`, `provision`,
-   `observability`, `security`, `cost`, `catalog`), each serving StreamableHTTP at `/mcp` on 8080.
+1. **MCP-native tools** — eight per-domain MCP servers (`cluster`, `gitops`, `provision`,
+   `observability`, `security`, `cost`, `catalog`, `delivery`), each serving StreamableHTTP at
+   `/mcp` on 8080. `delivery` is the commit-to-revision path — Tekton runs, kpack builds, Kargo
+   promotions and the preview environments of ADR-0017 — and is read-only: fixing a build means
+   changing a repository, and `gitops`' `propose_change` is that path. Its four source packages
+   are optional, so its tools report `installed: false` naming the package to enable rather than
+   erroring on a cluster that has no CI.
    **Read** tools are RBAC-scoped (get/list/watch via the `adhar-ai` ServiceAccount). **Write**
    tools open **Gitea PRs only** — there is no `kubectl apply` / `argo sync` / cloud-mutation tool
    anywhere. They are exposed **outward** as ONE federated endpoint, `https://mcp.<host>/mcp` on
    [`agentgateway`](../agentgateway/) ([ADR-0025](../../../../../docs/adr/0025-ai-gateway-agentgateway.md)),
-   which multiplexes all seven, validates the Keycloak JWT once and authorizes per tool — so
+   which multiplexes all eight, validates the Keycloak JWT once and authorizes per tool — so
    external agents (Claude Code, IDEs, ChatOps) drive Adhar through the identical governed tools
    with one URL and one token.
 2. **GitOps-safe agent runtime** — an assistant (`adhar ai` CLI + Console chat) and event-driven
-   operators (`alert-triage`, `drift-explain`, `cost-advisor`, `upgrade-preflight`) on a
+   operators (`alert-triage`, `drift-explain`, `cost-advisor`, `upgrade-preflight`,
+   `build-failure`) on a
    **staged-autonomy** ladder (`read-only → suggest → approve-to-apply → scoped`, default
    `suggest`). Every change lands as a reviewable, revertible Git PR that ArgoCD reconciles after a
    human merges.
