@@ -120,6 +120,11 @@ func TestPlaneInstanceSetupEnablesTheForksKeycloakLogin(t *testing.T) {
 		`cfg("KEYCLOAK_CLIENT_SECRET", client_secret, "KEYCLOAK", encrypted=True)`,
 		`cfg("IS_KEYCLOAK_ENABLED", "1", "KEYCLOAK")`,
 		`cfg("ENABLE_KEYCLOAK_SYNC", "1", "KEYCLOAK")`,
+		// Membership follows the realm: the fork lands every Keycloak user in
+		// the platform workspace with a role from the `groups` claim, so SSO
+		// never ends on "create your workspace".
+		`cfg("KEYCLOAK_AUTO_JOIN_WORKSPACE", os.environ["WORKSPACE_SLUG"], "KEYCLOAK")`,
+		`cfg("KEYCLOAK_ADMIN_GROUPS", "platform-admin", "KEYCLOAK")`,
 		// The payload the sign-in page AND the Job's own verification read is
 		// cached for two hours; cfg() bypasses the admin endpoints that
 		// invalidate it. Observed: a run that switched Gitea -> Keycloak
