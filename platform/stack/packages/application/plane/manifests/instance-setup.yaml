@@ -309,6 +309,15 @@ spec:
                   cfg("KEYCLOAK_CLIENT_SECRET", client_secret, "KEYCLOAK", encrypted=True)
                   cfg("IS_KEYCLOAK_ENABLED", "1", "KEYCLOAK")
                   cfg("ENABLE_KEYCLOAK_SYNC", "1", "KEYCLOAK")
+                  # Membership follows the realm (fork feature, 1.4.2-2+): every
+                  # Keycloak user lands in the platform workspace on sign-in, with
+                  # the role taken from the `groups` claim — the same groups the
+                  # Gitea auth source maps (platform-admin / -developer / -viewer).
+                  # Nobody has to be invited, and nobody is dropped on
+                  # "create your workspace" after single sign-on.
+                  cfg("KEYCLOAK_AUTO_JOIN_WORKSPACE", os.environ["WORKSPACE_SLUG"], "KEYCLOAK")
+                  cfg("KEYCLOAK_ADMIN_GROUPS", "platform-admin", "KEYCLOAK")
+                  cfg("KEYCLOAK_GUEST_GROUPS", "platform-viewer", "KEYCLOAK")
                   return f"enabled (client {client_id}, issuer {issuer}, backchannel {internal or issuer})", True
 
               keycloak_ready = False

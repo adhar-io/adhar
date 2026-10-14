@@ -50,8 +50,12 @@ the `plane-app` client that the keycloak package exports into
 `keycloak-clients`, proves the realm answers discovery on the backchannel, and
 writes `KEYCLOAK_ISSUER_URL` / `KEYCLOAK_INTERNAL_ISSUER_URL` /
 `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` (Fernet-encrypted) /
-`IS_KEYCLOAK_ENABLED` / `ENABLE_KEYCLOAK_SYNC`. Only then does it turn the
-password form off. The Gitea-federation detour that stood in for this while
+`IS_KEYCLOAK_ENABLED` / `ENABLE_KEYCLOAK_SYNC`, plus
+`KEYCLOAK_AUTO_JOIN_WORKSPACE` (the `adhar` workspace) with
+`KEYCLOAK_ADMIN_GROUPS=platform-admin` and `KEYCLOAK_GUEST_GROUPS=platform-viewer`,
+so every Keycloak user is a workspace member the moment they first sign in,
+with a role that follows the realm's groups (everyone else is a Member). Only
+then does it turn the password form off. The Gitea-federation detour that stood in for this while
 the frontend was the stock image is retired, and the Job switches
 `IS_GITEA_ENABLED` off so clusters that ran it do not show two buttons.
 
