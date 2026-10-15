@@ -67,6 +67,7 @@ var (
 	devPassword               bool
 	kubeVersion               string
 	kubeVersionExplicit       bool
+	appsTimeoutExplicit       bool
 	extraPortsMapping         string
 	kindConfigPath            string
 	extraPackages             []string
@@ -214,6 +215,7 @@ func create(cmd *cobra.Command, args []string) error {
 	// "not given" from "given as the default", and only an explicit value may
 	// override what an environment pins in its clusterConfig.
 	kubeVersionExplicit = cmd.Flags().Changed("kube-version")
+	appsTimeoutExplicit = cmd.Flags().Changed("apps-timeout")
 
 	// The banner is already printed once by the root command's PersistentPreRun
 	// (printHeader) — do not repeat it here. Production mode shows a compact

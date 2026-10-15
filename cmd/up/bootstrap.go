@@ -428,12 +428,15 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// comment on watchAppsBudget describes this cloud case, not the Kind one.
 	stopBudget := make(chan struct{})
 	defer close(stopBudget)
-	if appsTimeout > 0 {
-		go watchAppsBudget(bootstrapCtx, kubeClient, platformName, appsTimeout, appsBudgetPoll, cancel, stopBudget)
+	// A cloud profile's critical path is the identity chain (~20-25 min); the
+	// flag's 15m default is the local core's. See cloudDefaultAppsTimeout.
+	appsBudget := effectiveAppsTimeout(appsTimeout, appsTimeoutExplicit, true)
+	if appsBudget > 0 {
+		go watchAppsBudget(bootstrapCtx, kubeClient, platformName, appsBudget, appsBudgetPoll, cancel, stopBudget)
 	}
 
 	exitCh := make(chan error)
-	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsTimeout, templateData, tmpDir, stackDir); err != nil {
+	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsBudget, templateData, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)
 	}
 

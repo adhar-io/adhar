@@ -49,14 +49,16 @@ func TestCloudBootstrapStartsTheAppsBudgetWatchdog(t *testing.T) {
 	// Found by mutation-testing this very test.
 	idx := strings.Index(src, "go watchAppsBudget(")
 	call := firstLine(src[idx:])
-	for _, want := range []string{"appsTimeout", "cancel"} {
+	// The budget is `appsBudget`, the flag resolved through effectiveAppsTimeout
+	// (a cloud bring-up gets 45m unless --apps-timeout was given).
+	for _, want := range []string{"appsBudget", "cancel"} {
 		if !strings.Contains(call, want) {
 			t.Errorf("the watchAppsBudget call in bootstrap.go does not pass %q; without it the "+
 				"watchdog cannot bound the run:\n  %s", want, firstLine(call))
 		}
 	}
-	if !regexp.MustCompile(`if appsTimeout > 0 \{`).MatchString(src) {
-		t.Error("bootstrap.go starts the watchdog without gating on `appsTimeout > 0`; " +
+	if !regexp.MustCompile(`if appsBudget > 0 \{`).MatchString(src) {
+		t.Error("bootstrap.go starts the watchdog without gating on `appsBudget > 0`; " +
 			"--apps-timeout=0 means \"exit as soon as the foundation is ready\" and must not " +
 			"arm a budget")
 	}
