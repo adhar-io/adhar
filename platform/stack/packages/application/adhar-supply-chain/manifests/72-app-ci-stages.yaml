@@ -20,9 +20,16 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "4"}
 spec:
-  description: Run the repository's unit tests, detecting the toolchain from its files.
+  description: Run the repository's unit tests with the toolchain the repository declares.
   params:
     - {name: subdirectory, type: string, default: ""}
+    # From detect-toolchain. Step images are built from these, so a project is
+    # tested on ITS JDK/Node/Go, not on one the pipeline chose.
+    - {name: jdkVersion, type: string, default: "25"}
+    - {name: mavenVersion, type: string, default: "3.9"}
+    - {name: nodeVersion, type: string, default: "22"}
+    - {name: goVersion, type: string, default: "1.24"}
+    - {name: pythonVersion, type: string, default: "3.12"}
   workspaces:
     - {name: source}
   results:
@@ -49,17 +56,19 @@ spec:
         echo "test runner: $r"
         printf '%s' "$r" > "$(results.runner.path)"
     - name: maven
-      image: docker.io/library/maven:3.9-eclipse-temurin-25
+      image: docker.io/library/maven:$(params.mavenVersion)-eclipse-temurin-$(params.jdkVersion)
       workingDir: /workspace/testsrc
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         [ "$(cat $(results.runner.path))" = maven ] || { echo "skip (not a Maven project)"; exit 0; }
         S=""; [ -f settings.xml ] && S="-s settings.xml"
-        mvn -B -q $S -Dmaven.repo.local=/workspace/.m2 test
+        # The wrapper, when the project ships one, is the project's exact Maven.
+        MVN=mvn; [ -x ./mvnw ] && MVN=./mvnw
+        $MVN -B -q $S -Dmaven.repo.local=/workspace/.m2 test
         echo "maven tests passed"
     - name: gradle
-      image: docker.io/library/eclipse-temurin:25-jdk
+      image: docker.io/library/eclipse-temurin:$(params.jdkVersion)-jdk
       workingDir: /workspace/testsrc
       script: |
         #!/usr/bin/env bash
@@ -68,7 +77,7 @@ spec:
         if [ -x ./gradlew ]; then ./gradlew --no-daemon -q test; else echo "no gradlew wrapper; cannot run tests reproducibly" >&2; exit 1; fi
         echo "gradle tests passed"
     - name: npm
-      image: docker.io/library/node:22-bookworm
+      image: docker.io/library/node:$(params.nodeVersion)-bookworm
       workingDir: /workspace/testsrc
       script: |
         #!/usr/bin/env bash
@@ -78,7 +87,7 @@ spec:
         npm test --if-present
         echo "npm tests passed"
     - name: go
-      image: docker.io/library/golang:1.24-bookworm
+      image: docker.io/library/golang:$(params.goVersion)-bookworm
       workingDir: /workspace/testsrc
       env: [{name: GOFLAGS, value: "-mod=mod"}, {name: GOCACHE, value: /workspace/.gocache}, {name: GOMODCACHE, value: /workspace/.gomod}]
       script: |
@@ -88,7 +97,7 @@ spec:
         go vet ./... && go test ./...
         echo "go tests passed"
     - name: pytest
-      image: docker.io/library/python:3.12-bookworm
+      image: docker.io/library/python:$(params.pythonVersion)-slim
       workingDir: /workspace/testsrc
       script: |
         #!/usr/bin/env bash
@@ -261,3 +270,89 @@ spec:
         echo "image     $(params.image):$(params.revision)"
         for kv in $(params.stages); do printf '%-14s %s\n' "${kv%%=*}" "${kv#*=}"; done
         echo "━━━━━━━━━━━━━━━━━━━━━━"
+---
+# The toolchain is the PROJECT's decision; the pipeline reads it, once, here.
+#
+# Every build and test stage used to carry a literal — `maven:3.9-eclipse-
+# temurin-25`, `node:22`, `golang:1.24`, BP_JVM_VERSION=25 — so a repository on
+# Java 21 was tested on 25, and one that moved to Node 24 was tested on 22. This
+# task reads what the repository declares, in the places each ecosystem makes
+# that declaration, and the stages take their images and buildpack settings
+# from its results. The `default*` params are the LAST resort for a repository
+# that declares nothing anywhere, and are the only versions this file knows.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: detect-toolchain
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Read the JDK, Maven, Node and Go versions the repository declares.
+  params:
+    - {name: subdirectory, type: string, default: ""}
+    - {name: defaultJdk, type: string, default: "25"}
+    - {name: defaultMaven, type: string, default: "3.9"}
+    - {name: defaultNode, type: string, default: "22"}
+    - {name: defaultGo, type: string, default: "1.24"}
+    - {name: defaultPython, type: string, default: "3.12"}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: jdk, description: "JDK major the repository declares (project.toml BP_JVM_VERSION, .java-version, .sdkmanrc, .tool-versions, POM compiler release), else defaultJdk"}
+    - {name: maven, description: "Maven version from .mvn/wrapper/maven-wrapper.properties (x.y.z), else defaultMaven (a tag family, not a pin)"}
+    - {name: node, description: "Node major from .nvmrc, .node-version, .tool-versions or package.json engines.node, else defaultNode"}
+    - {name: go, description: "Go minor from go.mod, else defaultGo"}
+    - {name: python, description: "Python minor from .python-version, runtime.txt or pyproject requires-python, else defaultPython"}
+  steps:
+    - name: detect
+      image: docker.io/library/bash:5.2
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      script: |
+        set -euo pipefail
+        major() { sed -E 's/^[^0-9]*//; s/^(1\.)?([0-9]+).*/\2/'; }
+
+        jdk=""
+        # project.toml [[build.env]] BP_JVM_VERSION is the buildpack's own
+        # contract, so it outranks the editor-level files.
+        if [ -f project.toml ]; then
+          jdk=$(awk '/^[[:space:]]*name[[:space:]]*=[[:space:]]*"BP_JVM_VERSION"/{f=1;next} f&&/^[[:space:]]*value/{gsub(/.*=[[:space:]]*"?|"?[[:space:]]*$/,"");print;exit}' project.toml || true)
+        fi
+        [ -z "$jdk" ] && [ -f .java-version ]  && jdk=$(head -1 .java-version | major)
+        [ -z "$jdk" ] && [ -f .sdkmanrc ]      && jdk=$(sed -nE 's/^java=(.*)$/\1/p' .sdkmanrc | head -1 | major)
+        [ -z "$jdk" ] && [ -f .tool-versions ] && jdk=$(sed -nE 's/^java[[:space:]]+(.*)$/\1/p' .tool-versions | head -1 | major)
+        [ -z "$jdk" ] && [ -f pom.xml ]        && jdk=$(sed -nE 's#.*<(java\.version|maven\.compiler\.release|maven\.compiler\.target)>[[:space:]]*([0-9.]+)[[:space:]]*</.*#\2#p' pom.xml | head -1 | major)
+        src="repository"; [ -z "$jdk" ] && { jdk="$(params.defaultJdk)"; src="default — the repository declares no JDK"; }
+        echo "jdk=$jdk ($src)"
+
+        maven=""
+        if [ -f .mvn/wrapper/maven-wrapper.properties ]; then
+          maven=$(sed -nE 's#.*apache-maven-([0-9]+\.[0-9]+\.[0-9]+)-bin\.zip.*#\1#p' .mvn/wrapper/maven-wrapper.properties | head -1)
+        fi
+        src="maven wrapper"; [ -z "$maven" ] && { maven="$(params.defaultMaven)"; src="default family — no wrapper pin"; }
+        echo "maven=$maven ($src)"
+
+        node=""
+        [ -f .nvmrc ]         && node=$(head -1 .nvmrc | major)
+        [ -z "$node" ] && [ -f .node-version ] && node=$(head -1 .node-version | major)
+        [ -z "$node" ] && [ -f .tool-versions ] && node=$(sed -nE 's/^nodejs[[:space:]]+(.*)$/\1/p' .tool-versions | head -1 | major)
+        [ -z "$node" ] && [ -f package.json ] && node=$(sed -nE 's/.*"node"[[:space:]]*:[[:space:]]*"[^0-9]*([0-9]+).*/\1/p' package.json | head -1)
+        src="repository"; [ -z "$node" ] && { node="$(params.defaultNode)"; src="default — the repository declares no Node"; }
+        echo "node=$node ($src)"
+
+        go=""
+        [ -f go.mod ] && go=$(sed -nE 's/^go[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' go.mod | head -1)
+        src="go.mod"; [ -z "$go" ] && { go="$(params.defaultGo)"; src="default — no go.mod"; }
+        echo "go=$go ($src)"
+
+        printf '%s' "$jdk"   > "$(results.jdk.path)"
+        printf '%s' "$maven" > "$(results.maven.path)"
+        printf '%s' "$node"  > "$(results.node.path)"
+        python=""
+        [ -f .python-version ] && python=$(head -1 .python-version | sed -E 's/^[^0-9]*([0-9]+\.[0-9]+).*/\1/')
+        [ -z "$python" ] && [ -f runtime.txt ] && python=$(sed -nE 's/^python-?([0-9]+\.[0-9]+).*/\1/p' runtime.txt | head -1)
+        [ -z "$python" ] && [ -f pyproject.toml ] && python=$(sed -nE 's/^requires-python[[:space:]]*=[[:space:]]*"[^0-9]*([0-9]+\.[0-9]+).*/\1/p' pyproject.toml | head -1)
+        src="repository"; [ -z "$python" ] && { python="$(params.defaultPython)"; src="default — the repository declares no Python"; }
+        echo "python=$python ($src)"
+
+        printf '%s' "$go"    > "$(results.go.path)"
+        printf '%s' "$python" > "$(results.python.path)"

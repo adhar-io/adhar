@@ -22,9 +22,10 @@ spec:
   workspaces: [{name: source}]
   params:
     - {name: subdirectory, type: string, default: ""}
+    - {name: nodeVersion, type: string, default: "22"}
   steps:
     - name: test
-      image: docker.io/library/node:20-bookworm
+      image: docker.io/library/node:$(params.nodeVersion)-bookworm
       workingDir: $(workspaces.source.path)/$(params.subdirectory)
       script: |
         #!/usr/bin/env bash
@@ -42,9 +43,10 @@ spec:
   workspaces: [{name: source}]
   params:
     - {name: subdirectory, type: string, default: ""}
+    - {name: goVersion, type: string, default: "1.24"}
   steps:
     - name: test
-      image: docker.io/library/golang:1.23-bookworm
+      image: docker.io/library/golang:$(params.goVersion)-bookworm
       workingDir: $(workspaces.source.path)/$(params.subdirectory)
       script: |
         #!/usr/bin/env bash
@@ -61,9 +63,10 @@ spec:
   workspaces: [{name: source}]
   params:
     - {name: subdirectory, type: string, default: ""}
+    - {name: pythonVersion, type: string, default: "3.12"}
   steps:
     - name: test
-      image: docker.io/library/python:3.12-bookworm
+      image: docker.io/library/python:$(params.pythonVersion)-slim
       workingDir: $(workspaces.source.path)/$(params.subdirectory)
       script: |
         #!/usr/bin/env bash

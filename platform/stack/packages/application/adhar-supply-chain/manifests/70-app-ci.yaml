@@ -153,15 +153,25 @@ spec:
         - {name: revision, value: "$(params.git-ref)"}
       workspaces: [{name: output, workspace: shared}]
 
+    # ── the repository's toolchain, read once; build and test both follow it ─
+    # The pipeline does not choose a JDK, Maven, Node or Go: detect-toolchain
+    # reads what the repository declares and every stage takes it from here.
+    - name: toolchain
+      runAfter: [clone]
+      taskRef: {name: detect-toolchain}
+      workspaces: [{name: source, workspace: shared}]
+
     # ── build first: the image is the artifact everything else judges ──────
     - name: build
       retries: 2
-      runAfter: [clone]
+      runAfter: [toolchain]
       taskRef: {name: buildpacks-build}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
         # Pushes <image>:latest AND <image>:<revision>.
         - {name: extra-tag, value: "$(params.revision)"}
+        - {name: jdkVersion, value: "$(tasks.toolchain.results.jdk)"}
+        - {name: mavenVersion, value: "$(tasks.toolchain.results.maven)"}
       workspaces: [{name: source, workspace: shared}]
 
     # ── one fan-out: five independent gates, in parallel ────────────────────
@@ -172,6 +182,12 @@ spec:
     - name: test
       runAfter: [build]
       taskRef: {name: test-auto}
+      params:
+        - {name: jdkVersion, value: "$(tasks.toolchain.results.jdk)"}
+        - {name: mavenVersion, value: "$(tasks.toolchain.results.maven)"}
+        - {name: nodeVersion, value: "$(tasks.toolchain.results.node)"}
+        - {name: goVersion, value: "$(tasks.toolchain.results.go)"}
+        - {name: pythonVersion, value: "$(tasks.toolchain.results.python)"}
       workspaces: [{name: source, workspace: shared}]
     - name: secrets
       runAfter: [build]

@@ -72,7 +72,9 @@ func TestTheScaffoldedHostnameCarriesTheEnvironment(t *testing.T) {
 	}
 	code := withoutComments(string(b))
 
-	if !strings.Contains(code, `values["hostname"] = appName + "." + env + "." + base`) {
+	// The shape lives in platformRouteHost (cmd/apps/scaffold_hosts.go, pinned by
+	// TestThePlatformRouteCarriesTheEnvironmentAndNoPort); the scaffolder must call it with the environment.
+	if !strings.Contains(code, `values["hostname"] = platformRouteHost(appName, env, base)`) {
 		t.Error("the scaffolder no longer builds the hostname as <app>.<env>.<base>; a new app then " +
 			"takes a name that every other environment of the same app also wants")
 	}

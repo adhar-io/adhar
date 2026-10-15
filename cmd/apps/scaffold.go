@@ -266,6 +266,8 @@ var (
 	filterRe = regexp.MustCompile(`^(.+?)\s*\|\s*(lower|upper|dump|escape)$`)
 	// `X or Y`
 	orRe = regexp.MustCompile(`^(.+?)\s+or\s+(.+)$`)
+	// `( X or Y ) | filter`
+	groupedFilterRe = regexp.MustCompile(`^\(\s*(.+)\s*\)\s*\|\s*(lower|upper|dump|escape)$`)
 	// the right-hand side of `or`: 'str' / "str" / number / true / false
 	quotedRe = regexp.MustCompile(`^'(.*)'$|^"(.*)"$`)
 	numberRe = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
@@ -312,6 +314,23 @@ func evalExpression(expr string, ctx map[string]any) (any, error) {
 	// Nunjucks. Left unimplemented this fell through to a path lookup of the
 	// whole expression and rendered EMPTY, which is how a scaffolded service
 	// shipped a Kafka topic with no name (see TestOrTakesTheDefault).
+	// `( … ) | filter` — a grouped expression piped to a filter, which Nunjucks
+	// needs because a filter binds tighter than `or`:
+	//
+	//	${{ (values.description or 'A React single-page app…') | dump }}
+	//
+	// Checked BEFORE `or` and evaluated inside-out. With only the `or` branch
+	// the left-hand side became `(values.description`, the expression was
+	// refused, and the scaffolder dropped App.jsx / app.component.ts from every
+	// new SPA — the build then failed on a missing module, which looks like a
+	// broken template rather than a renderer that cannot parse one line of it.
+	if m := groupedFilterRe.FindStringSubmatch(expr); m != nil {
+		inner, err := evalExpression(strings.TrimSpace(m[1]), ctx)
+		if err != nil {
+			return nil, err
+		}
+		return applyFilter(m[2], inner, m[1])
+	}
 	if m := orRe.FindStringSubmatch(expr); m != nil {
 		lhs, _ := evalExpression(strings.TrimSpace(m[1]), ctx)
 		if truthy(lhs) {
@@ -327,22 +346,7 @@ func evalExpression(expr string, ctx map[string]any) (any, error) {
 	// the shipped react-spa-app template at all.
 	if m := filterRe.FindStringSubmatch(expr); m != nil {
 		v, _ := lookupPath(strings.TrimSpace(m[1]), ctx)
-		switch m[2] {
-		case "dump":
-			b, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("dumping %s: %w", m[1], err)
-			}
-			return string(b), nil
-		case "escape":
-			// HTML escaping: the SPA skeletons drop the description into a
-			// `<meta content="...">` attribute, where a quote ends the value.
-			return html.EscapeString(stringify(v)), nil
-		case "lower":
-			return strings.ToLower(stringify(v)), nil
-		default:
-			return strings.ToUpper(stringify(v)), nil
-		}
+		return applyFilter(m[2], v, m[1])
 	}
 	if strings.ContainsAny(expr, "|()~+") || unsupportedOp.MatchString(expr) {
 		return nil, fmt.Errorf("expression %q uses templating this CLI does not implement; supported: lower, upper, dump, escape, (x | parseRepoUrl).field, x or <default>", expr)
@@ -594,8 +598,13 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 		// Changing this line without those listeners gives every new app a URL
 		// that resolves and then serves the wrong certificate.
 		values["environment"] = env
-		values["hostname"] = appName + "." + env + "." + base
+		values["hostname"] = platformRouteHost(appName, env, base)
 	}
+	// Every hostname the HTTPRoute serves, as JSON: the templates substitute it
+	// as a YAML flow sequence (`hostnames: ${{ values.hostnamesJson }}`). The
+	// platform route is always first; `--set customHostnames=a.example.org,b`
+	// adds the team's own on top (scaffold_hosts.go).
+	values["hostnamesJson"] = routeHostnamesJSON(stringify(values["hostname"]), stringify(params["customHostnames"]))
 	ctxVals := map[string]any{"values": values, "parameters": params}
 
 	tree, _, err := gc.GetTrees(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, gitea.ListTreeOptions{
@@ -764,4 +773,24 @@ func evalLiteralOrPath(raw string, ctx map[string]any) (any, error) {
 		return nil, nil
 	}
 	return evalExpression(raw, ctx)
+}
+
+// applyFilter applies one of the four implemented filters to an evaluated value.
+func applyFilter(name string, v any, src string) (any, error) {
+	switch name {
+	case "dump":
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("dumping %s: %w", src, err)
+		}
+		return string(b), nil
+	case "escape":
+		// HTML escaping: the SPA skeletons drop the description into a
+		// `<meta content="...">` attribute, where a quote ends the value.
+		return html.EscapeString(stringify(v)), nil
+	case "lower":
+		return strings.ToLower(stringify(v)), nil
+	default:
+		return strings.ToUpper(stringify(v)), nil
+	}
 }

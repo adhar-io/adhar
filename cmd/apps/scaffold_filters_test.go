@@ -157,3 +157,27 @@ func TestEscapeFilterHTMLEscapesForAttributes(t *testing.T) {
 		t.Errorf("escaped output still carries an attribute-breaking character: %q", stringify(got))
 	}
 }
+
+// `(values.description or '…') | dump` — a grouped `or` piped to a filter, the
+// form the react/angular/tanstack skeletons use for their default description.
+// With only the `or` branch the left-hand side was `(values.description`, the
+// expression was refused, and the scaffolder dropped App.jsx / app.component.ts
+// from every new SPA (2026-10-15).
+func TestAGroupedOrPipedToAFilterRendersInsideOut(t *testing.T) {
+	ctx := map[string]any{"values": map[string]any{"name": "ngapp"}}
+	got, err := evalExpression("(values.description or 'A React single-page app, shipped through Adhar.') | dump", ctx)
+	if err != nil {
+		t.Fatalf("grouped or|dump returned an error: %v", err)
+	}
+	if stringify(got) != `"A React single-page app, shipped through Adhar."` {
+		t.Errorf("got %q", stringify(got))
+	}
+	set, _ := evalExpression("(values.description or values.name) | dump", ctx)
+	if stringify(set) != `"ngapp"` {
+		t.Errorf("fallback path: got %q, want \"ngapp\"", stringify(set))
+	}
+	esc, _ := evalExpression("(values.title or 'x<y') | escape", ctx)
+	if stringify(esc) != "x&lt;y" {
+		t.Errorf("grouped escape: got %q", stringify(esc))
+	}
+}

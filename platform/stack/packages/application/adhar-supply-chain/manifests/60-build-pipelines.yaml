@@ -92,6 +92,14 @@ spec:
     # buildpack's own default is 21; a parameter rather than a literal so a
     # cluster whose libraries move can follow without editing the Task script.
     - {name: defaultJvmVersion, type: string, default: "25"}
+    # What the repository itself declares, read once by detect-toolchain and
+    # handed in here: the JDK major (.java-version / .sdkmanrc /
+    # .tool-versions / the POM's compiler release) and the Maven version its
+    # wrapper pins. Empty when the repository says nothing. The pipeline must
+    # not decide a project's toolchain; it only carries the project's own
+    # decision to the buildpack.
+    - {name: jdkVersion, type: string, default: ""}
+    - {name: mavenVersion, type: string, default: ""}
   workspaces:
     - {name: source}
   steps:
@@ -121,6 +129,15 @@ spec:
         set -euo pipefail
         chown -R 1001:1000 "$(workspaces.source.path)"
         echo "workspace handed to 1001:1000 for the CNB lifecycle"
+
+        # A retried build runs on the SAME workspace. The first attempt's
+        # `npm install` leaves node_modules behind and the npm-install
+        # buildpack then refuses with
+        #   mkdir /workspace/source/node_modules: file exists
+        # so every retry fails for a reason unrelated to the first failure —
+        # and that is the error a person reads (ngapp, 2026-10-15). Each
+        # attempt starts from the checkout.
+        rm -rf "$(workspaces.source.path)/$(params.subdirectory)/node_modules"
 
         # ── Platform npm registry ────────────────────────────────────────────
         # Point the platform's own npm scopes at the platform's own registry, so
@@ -328,10 +345,24 @@ spec:
           # BP_JVM_VERSION in its project.toml keeps it. Only a repository that
           # said nothing is moved off the buildpack default.
           if [ -s /platform/env/BP_JVM_VERSION ]; then
-            echo "  BP_JVM_VERSION=$(cat /platform/env/BP_JVM_VERSION) (declared by the application)"
+            echo "  BP_JVM_VERSION=$(cat /platform/env/BP_JVM_VERSION) (declared in project.toml)"
+          elif [ -n "$(params.jdkVersion)" ]; then
+            # The repository said so elsewhere (.java-version, .sdkmanrc,
+            # .tool-versions, the POM's compiler release) — detect-toolchain
+            # read it, so it is the project's version, not the pipeline's.
+            printf '%s' "$(params.jdkVersion)" > /platform/env/BP_JVM_VERSION
+            echo "  BP_JVM_VERSION=$(params.jdkVersion) (declared by the repository)"
           else
             printf '%s' "$(params.defaultJvmVersion)" > /platform/env/BP_JVM_VERSION
-            echo "  BP_JVM_VERSION=$(params.defaultJvmVersion) (platform default for Maven builds)"
+            echo "  BP_JVM_VERSION=$(params.defaultJvmVersion) (platform default: the repository declared no JDK anywhere)"
+          fi
+          # A Maven wrapper pins the exact Maven the project builds with; the
+          # buildpack must use that one, not its bundled default. Only a full
+          # x.y.z is a pin — detect-toolchain's family fallback (3.9) is for
+          # image tags, and is not written here.
+          if [ ! -s /platform/env/BP_MAVEN_VERSION ] && printf '%s' "$(params.mavenVersion)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            printf '%s' "$(params.mavenVersion)" > /platform/env/BP_MAVEN_VERSION
+            echo "  BP_MAVEN_VERSION=$(params.mavenVersion) (pinned by the repository's Maven wrapper)"
           fi
         fi
         # The lifecycle runs as 1001:1000 and only reads these files.
