@@ -13,7 +13,6 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
-	discoveryv1 "k8s.io/api/discovery/v1"
 )
 
 // GitOps convergence driver.
@@ -300,21 +299,5 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 // evidence, or an unreachable API server would end the wait early — the very
 // failure this is meant to prevent.
 func (r *AdharPlatformReconciler) consoleIsServing(ctx context.Context) bool {
-	slices := &discoveryv1.EndpointSliceList{}
-	if err := r.Client.List(ctx, slices,
-		client.InNamespace(globals.AdharSystemNamespace),
-		client.MatchingLabels{discoveryv1.LabelServiceName: consoleServiceName},
-	); err != nil {
-		return false
-	}
-	for _, sl := range slices.Items {
-		for _, ep := range sl.Endpoints {
-			// Conditions.Ready is a *bool: nil means "no opinion", which the
-			// EndpointSlice spec says to treat as ready.
-			if ep.Conditions.Ready == nil || *ep.Conditions.Ready {
-				return true
-			}
-		}
-	}
-	return false
+	return consoleServing(ctx, r.Client)
 }

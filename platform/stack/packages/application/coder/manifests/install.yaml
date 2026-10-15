@@ -224,13 +224,15 @@ spec:
             port: http
             scheme: HTTP
           initialDelaySeconds: 0
+        # coderd idles at ~150-250 MiB; the chart's 4 GiB / 2 CPU request held a
+        # quarter of a worker for nothing. Workspaces are their own pods.
         resources:
           limits:
             cpu: 2000m
-            memory: 4096Mi
+            memory: 2Gi
           requests:
-            cpu: 2000m
-            memory: 4096Mi
+            cpu: 250m
+            memory: 512Mi
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: null

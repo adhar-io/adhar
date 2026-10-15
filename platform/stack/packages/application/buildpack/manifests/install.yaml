@@ -501,12 +501,14 @@ spec:
               key: image
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs:/etc/adhar-ca
+        # The kpack controller is a reconciler (~100-200 MiB); builds run in
+        # their own pods. 1Gi requested here was 1Gi no build could use.
         resources:
           requests:
             cpu: 20m
-            memory: 1Gi
+            memory: 192Mi
           limits:
-            memory: 1Gi
+            memory: 768Mi
         volumeMounts:
         - name: adhar-ca
           mountPath: /etc/adhar-ca

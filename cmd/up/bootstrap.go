@@ -534,6 +534,13 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return fmt.Errorf("installing in-cluster controller manager: %w", err)
 	}
 
+	// Strict completion: whatever ended the wait, the run is a success only
+	// if the console is up. Checked AFTER the manager install so a failing
+	// run still leaves the cluster converging on its own.
+	if err := verifyConsoleReady(context.Background(), kubeClient); err != nil {
+		return err
+	}
+
 	// The checklist's completed stages and the success panel both say this, and it
 	// said it with the provider's internal ID ("adhar-cluster-adhar") rather than
 	// the name the operator uses.

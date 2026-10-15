@@ -1,6 +1,6 @@
 # Adhar Platform Documentation
 
-Adhar is an open Internal Developer Platform: one command provisions a complete, production-grade, customizable platform of **91 open-source packages**, on six clouds or your laptop. This is the index — find the right page in one screen.
+Adhar is an open Internal Developer Platform: one command provisions a complete, production-grade, customizable platform of **100+ open-source packages**, on six clouds or your laptop. This is the index — find the right page in one screen.
 
 **In one paragraph**: `adhar up` bootstraps a strictly ordered foundation — Cilium (CNI + Gateway API) → ArgoCD → Gitea — then seeds the in-cluster Git repos and hands control to GitOps. A single ApplicationSet deploys every enabled package from Git, a Crossplane v2 control plane provides namespaced self-service infrastructure APIs, and from that moment every platform change is a reviewable Git commit. The same architecture runs on a laptop (Kind), on one production cluster, or on a control plane governing a fleet of data planes.
 

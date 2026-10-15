@@ -50,19 +50,22 @@ workload profile landed 5/5 Healthy on it, and teardown left no paid resources.
 
 ### Management / platform cluster baseline
 
-| Component | Minimum production shape |
-| --- | --- |
-| Control plane | 3 nodes (managed control planes: rely on the provider SLA) |
-| Platform node pool | 3× 4 vCPU / 16 GB across ≥ 2 zones, autoscaling enabled |
-| ArgoCD | ≥ 2 replicas for server/repo-server; HA Redis |
-| Gitea | ≥ 2 replicas; **external PostgreSQL via CNPG** (3 instances, streaming replication); RWX or object-backed storage |
-| Gateway (Cilium Envoy) | ≥ 2 replicas behind the cloud LB; PodDisruptionBudget |
-| Keycloak | ≥ 2 replicas + CNPG PostgreSQL |
-| Observability | Mimir/Loki/Tempo on object storage; retention by policy, not disk size |
+| Component | Recommended production shape | What Adhar gives you today |
+| --- | --- | --- |
+| Control plane | Managed control plane (rely on the provider SLA), or multiple masters once supported | Compute-mode (kubeadm) clusters run **1 control-plane node**; the providers reject more (multi-master needs a load balancer + stacked etcd and is not implemented yet) |
+| Platform node pool | 3× 4 vCPU / 16 GB across ≥ 2 zones, autoscaling enabled | Worker count and size come from your config; node autoscaling is available |
+| ArgoCD | ≥ 2 replicas for server/repo-server; HA Redis | HA mode: application controller ×2, server and repo-server autoscaled 2–5, redis-ha ×3 + haproxy ×3, PDBs |
+| Gitea | ≥ 2 replicas; external PostgreSQL via CNPG | HA mode: Gitea stays at **1 replica** behind a PDB; its database is the CNPG cluster `gitea-db` with 2 instances |
+| Gateway (Cilium Envoy) | ≥ 2 replicas behind the cloud LB; PodDisruptionBudget | Not changed by HA mode |
+| Keycloak | ≥ 2 replicas + CNPG PostgreSQL | Keycloak 1 replica; HA mode runs `keycloak-db` (CNPG) with 2 instances |
+| Crossplane | Leader-elected replicas | HA mode: Crossplane and its RBAC manager ×2 |
+| Observability | Mimir/Loki/Tempo on object storage; retention by policy, not disk size | Mimir/Loki store on the in-cluster RustFS object store |
 
-Set `globalSettings.enableHAMode: true` (or pass `--ha` to `adhar up`) so the
-environment templates apply replicas, PDBs and topology-spread constraints.
-Anti-affinity across zones for every stateful service.
+Set `globalSettings.enableHAMode: true` (or pass `--ha` to `adhar up`) to
+select the HA manifest variants listed in the last column. HA mode also adds
+the CNPG operator to the foundation (ahead of Gitea) so `gitea-db` can be a
+replicated CNPG cluster. It does **not** add control-plane nodes. Anti-affinity
+across zones for every stateful service is still on you.
 
 > HA changes which foundation manifests are used. Two defects only ever
 > appeared in the HA variant — see
@@ -72,9 +75,10 @@ Anti-affinity across zones for every stateful service.
 
 ### What actually constrains the size
 
-The package catalogue is **91 packages** (94 ApplicationSet elements — three
-packages ship more than one variant), of which **76 are enabled in the
-production profile** and 32 in the curated local core. Every package installs
+The package catalogue is **100+ packages** (some ship more than one
+ApplicationSet variant). The production profile enables most of them; the local
+profile is a curated subset. Run `adhar stack list` for the live numbers on
+your build. Every package installs
 into **`adhar-system`**; the single exception is `buildpack` (kpack), which
 keeps `kpack-system`
 ([ADR-0011](adr/0011-shared-platform-namespace.md); the reason is in
@@ -216,7 +220,7 @@ globalSettings:
 
 | Concern | What ships | To go publicly trusted |
 | --- | --- | --- |
-| DNS | `external-dns` (enabled in production), `--domain-filter=<defaultHost>`, `--txt-owner-id=adhar-<cluster>`, publishing a record per platform HTTPRoute hostname against the Gateway's LoadBalancer address | Delegate `<defaultHost>` to the provider; credentials are materialised into the `adhar-dns-provider` Secret and never enter Git |
+| DNS | `external-dns` (enabled in production), `--domain-filter=<defaultHost>`, `--txt-owner-id=adhar-<defaultHost, dots as dashes>`, publishing a record per platform HTTPRoute hostname against the Gateway's LoadBalancer address | Delegate `<defaultHost>` to the provider; credentials are materialised into the `adhar-dns-provider` Secret and never enter Git |
 | TLS | cert-manager with `adhar-selfsigned` (default, no configuration), `adhar-letsencrypt-staging`, `adhar-letsencrypt-prod` (HTTP-01 through `adhar-gateway`) and `adhar-letsencrypt-dns` (DNS-01, rendered with the provider's solver) | The platform **wildcard** needs DNS-01 — HTTP-01 cannot issue wildcards. With a DNS-01-capable provider the wildcard `*.<defaultHost>` is issued into the `adhar-cert` Secret the HTTPS listener already references |
 | Ingress | Cilium Gateway API, one cloud LoadBalancer on 80/443 | — |
 
@@ -274,17 +278,23 @@ you need peer identity.
 `adhar-platform-daily` (02:00 UTC, `adhar-system` + cluster-scoped objects,
 30-day TTL) and `adhar-cluster-weekly` (Sunday 03:00 UTC, all namespaces, 90-day
 TTL) — against the `default` BackupStorageLocation. The platform CNPG databases
-have WAL archiving plus a daily 01:30 UTC base backup (`ScheduledBackup`, 30-day
-retention). Velero's node agent is not deployed: Velero covers *objects*, CNPG
-covers *database data*; generic PVC file data needs CSI snapshots or the node
-agent.
+have WAL archiving plus a daily 01:30 UTC base backup (`ScheduledBackup`, 7-day
+`retentionPolicy`). Velero's node agent **is** deployed (`deployNodeAgent:
+true`), but file-system backup is **opt-in per volume**
+(`defaultVolumesToFsBackup: false`): a pod volume is file-copied only when its
+pod carries `backup.velero.io/backup-volumes: <volume-name>`. Gitea's `data`
+volume carries it in the standard foundation manifest. Velero covers cluster
+*objects* and opted-in volumes; CNPG covers *database data*; caches and the
+object store's own volume are deliberately left out (an opt-out default once
+had Velero copy the object store into itself and fill the disk).
 
 > **Repoint the BackupStorageLocation at real object storage in production.**
-> The default is the in-cluster MinIO bucket `adhar-backups`, and a full MinIO
-> stops WAL archiving for **every** database at once, which then fills the
-> Postgres volumes and takes SSO down —
-> [TROUBLESHOOTING §7.2](TROUBLESHOOTING.md#72-minio-filled--cnpg-wal-archiving-stops-platform-wide).
-> Also set a CNPG `retentionPolicy` (7d) on every database.
+> The default is the in-cluster RustFS object store (bucket `adhar-backups`,
+> Velero under the `velero/` prefix, CNPG under `cnpg/`, data on the
+> `rustfs-data` PVC). A full RustFS volume stops WAL archiving for **every**
+> database at once, which then fills the Postgres volumes and takes SSO down —
+> [TROUBLESHOOTING §7.2](TROUBLESHOOTING.md#72-object-store-filled--cnpg-wal-archiving-stops-platform-wide).
+> Keep a CNPG `retentionPolicy` (7d is the platform default) on every database.
 
 The Crossplane CronOperations schedule daily backups and weekly secret rotation;
 they require the core `--enable-operations` flag and an object store.
@@ -401,7 +411,7 @@ version.
 | Gitea / Keycloak / CNPG | availability, replication lag, **`lastFailedBackup` on any CNPG cluster** |
 | Gateway | 5xx rate, cert expiry (< 21 days), LB health |
 | Cilium | agent health, policy drop anomalies (Hubble) |
-| Capacity | node memory pressure, **PVC usage > 80% (especially the MinIO claim)**, pods `Pending` for capacity, OpenCost spend anomalies |
+| Capacity | node memory pressure, **PVC usage > 80% (especially the RustFS `rustfs-data` claim)**, pods `Pending` for capacity, OpenCost spend anomalies |
 
 Route via Alertmanager / Grafana OnCall; keep runbook links in alert
 annotations — pointing at the matching

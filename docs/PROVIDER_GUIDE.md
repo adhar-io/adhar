@@ -45,10 +45,10 @@ paths have run against real hardware.
 
 | Path | Status | Evidence |
 | --- | --- | --- |
-| **DigitalOcean — droplets + kubeadm** | ✅ **Live-verified end to end** | Cluster creation (~5 min to a serving API), SSH-fetched admin kubeconfig, node registration, Cilium to `Ready`, worker scale-up (join) and scale-down (drain), node autoscaling in both directions, full 76-package production profile, HA mode, `adhar upgrade`, Velero backup+restore, publicly trusted wildcard TLS via DO DNS-01, clean teardown leaving no paid resources |
+| **DigitalOcean — droplets + kubeadm** | ✅ **Live-verified end to end** | Cluster creation (~5 min to a serving API), SSH-fetched admin kubeconfig, node registration, Cilium to `Ready`, worker scale-up (join) and scale-down (drain), node autoscaling in both directions, full production profile, HA mode, `adhar upgrade`, Velero backup+restore, publicly trusted wildcard TLS via DO DNS-01, clean teardown leaving no paid resources |
 | **DigitalOcean — DOKS via `Cluster`** | ✅ **Live-verified** | A `Cluster` XR provisioned a real DOKS cluster in ~11 min, auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster`, `adhar.io/dataplane`, `adhar.io/dataplane-mode`), the thin workload profile landed 5/5 Healthy, teardown left nothing behind |
 | **Cilium Cluster Mesh** | ✅ **Live-verified** | `adhar-mgmt` (id 1, `10.244.0.0/16`) meshed with `adhar-test` (id 2, `10.245.0.0/16`); `clustermesh status` green both sides, bidirectional traffic over a global service. See [PRODUCTION §7](PRODUCTION.md#7-cluster-mesh-t3) for the VPC rule and why SPIFFE/SPIRE is deliberately not deployed |
-| **GCP — GCE instances + kubeadm** | ✅ **Live-verified** | Cluster creation on `adhar-cloud` (kubeadm on e2-standard-8, external CCM, PD CSI), a real load balancer for the Gateway, node autoscaling, the 80-package production profile, and a clean `adhar down` that removed every instance, the forwarding rule, the target pool, the `k8s-*` firewall rules and 41 `pvc-*` disks with no manual intervention. See [GCP_PROVIDER.md](GCP_PROVIDER.md) |
+| **GCP — GCE instances + kubeadm** | ✅ **Live-verified** | Cluster creation on `adhar-cloud` (kubeadm on e2-standard-8, external CCM, PD CSI), a real load balancer for the Gateway, node autoscaling, the full production profile, and a clean `adhar down` that removed every instance, the forwarding rule, the target pool, the `k8s-*` firewall rules and 41 `pvc-*` disks with no manual intervention. See [GCP_PROVIDER.md](GCP_PROVIDER.md) |
 | **AWS, Azure, Civo** | ⚙️ **Built, render-verified only** | Provider registration, config-schema validation and `--dry-run` pass; the kubeadm code path — node prep, join, drain, scale plan, cloud-controller-manager, CSI + default StorageClass, upgrade — is shared with DigitalOcean (see §2.1 for the per-row status), and the managed opt-in (EKS / AKS / GKE / Civo k3s via `clusterMode: managed`) is implemented end to end (create, kubeconfig, node groups, scale, upgrade, health, delete). **No live run yet** — treat first use on these clouds as a bring-up exercise |
 | **`custom` (bring your own hosts)** | ⚙️ Render-verified | Same kubeadm flow over SSH against machines you own |
 | **Kind (local)** | ✅ Exercised continuously | `make e2e` runs a full `adhar up` → verify → `adhar down` cycle |
@@ -204,9 +204,8 @@ on an environment template, which every environment using it inherits):
 ```yaml
 environments:
   production:
-    provider: digitalocean
-    name: adhar-prod
-    region: nyc3
+    provider: digitalocean        # cluster name comes from --name (default: adhar);
+    region: nyc3                  # an environment has no `name` field
     clusterConfig:
       - { key: nodeSize,  value: s-8vcpu-16gb }
       - { key: nodeCount, value: "3" }
@@ -578,7 +577,8 @@ globalSettings:
 environments:
   production:
     provider: digitalocean
-    name: adhar-prod
+    # no `name` here: an environment has no name field; the cluster name
+    # comes from --name (default: adhar)
     region: nyc3
     clusterConfig:
       - { key: nodeSize,  value: s-8vcpu-16gb }

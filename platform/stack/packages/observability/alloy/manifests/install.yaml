@@ -335,15 +335,6 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/alloy
-      - name: config-reloader
-        image: quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0@sha256:7d9e4eea5f1139e602508871f422b0116c60e87c662f3dcd234d5ab60cd0d8c1
-        imagePullPolicy: IfNotPresent
-        args:
-        - --watched-dir=/etc/alloy
-        - --reload-url=http://localhost:12345/-/reload
-        volumeMounts:
-        - name: config
-          mountPath: /etc/alloy
         # Measured, not guessed. alloy requested 50Mi and used 980-1120Mi on
         # every node of a live cluster (2026-10-13) — a DaemonSet, so ~6.6 GiB
         # cluster-wide against 300Mi declared. An agent's footprint scales with
@@ -361,6 +352,22 @@ spec:
             memory: 768Mi
           limits:
             memory: 1536Mi
+      - name: config-reloader
+        image: quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0@sha256:7d9e4eea5f1139e602508871f422b0116c60e87c662f3dcd234d5ab60cd0d8c1
+        imagePullPolicy: IfNotPresent
+        args:
+        - --watched-dir=/etc/alloy
+        - --reload-url=http://localhost:12345/-/reload
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alloy
+        # The reloader watches one directory and POSTs a reload; ~10 MiB.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

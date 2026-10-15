@@ -58,14 +58,19 @@ When `adhar up` finishes bootstrapping a production cluster it **automatically**
 
 1. saves the cluster's kubeconfig to `~/.adhar/clusters/<cluster>/kubeconfig`
    (mode `0600`, next to the cluster's SSH key), and
-2. merges it into `~/.kube/config` as the context **`adhar-<cluster>`**, and
-   makes it the **current** context.
+2. merges it into `~/.kube/config` as the context **`adhar`** (or
+   **`adhar-<cluster>`** for any other name), and makes it the **current**
+   context.
+
+The cluster is named **`adhar`** unless you pass `--name <cluster>` (a
+multi-environment run suffixes the environment: `adhar-<env>`), so by default
+the file is `~/.adhar/clusters/adhar/kubeconfig` and the context is `adhar`.
 
 So on the machine that ran `adhar up`, both `kubectl` and the `adhar` CLI
 already point at the new cluster:
 
 ```bash
-kubectl config current-context      # adhar-dev
+kubectl config current-context      # adhar
 kubectl get nodes
 ```
 
@@ -73,10 +78,10 @@ To use the standalone file instead (a script, CI, or another shell with its own
 `KUBECONFIG`):
 
 ```bash
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 ```
 
-Re-running `adhar up` for the same cluster **replaces** the `adhar-<cluster>`
+Re-running `adhar up` for the same cluster **replaces** its context
 entries rather than duplicating them.
 
 ## 3. Getting credentials
@@ -151,7 +156,7 @@ seeded.
 | --- | --- |
 | **DNS provider** | Derived from the environment's cloud (DigitalOcean DNS, Route53, Cloud DNS, Azure DNS, Civo DNS). Override with `globalSettings.dnsProvider` — `cloudflare` for on-prem/custom, `none` to disable. The zone must be `<defaultHost>`, delegated to that provider |
 | **Credentials** | The CLI materialises the provider's credentials (from the `providers.<name>` block or its usual environment variables) into the `adhar-dns-provider` Secret in `adhar-system`. They never enter Git |
-| **external-dns** | Runs with `--provider=<dnsProvider> --domain-filter=<defaultHost> --txt-owner-id=adhar-<cluster>` and publishes a record for every platform HTTPRoute hostname pointing at the Cilium Gateway's LoadBalancer IP. Without a DNS provider it stays inert (`inmemory`) |
+| **external-dns** | Runs with `--provider=<dnsProvider> --domain-filter=<defaultHost> --txt-owner-id=adhar-<defaultHost, dots as dashes>` and publishes a record for every platform HTTPRoute hostname pointing at the Cilium Gateway's LoadBalancer IP. Without a DNS provider it stays inert (`inmemory`) |
 | **cert-manager** | Issues the wildcard `*.<defaultHost>` from Let's Encrypt through the DNS-01 `adhar-letsencrypt-dns` ClusterIssuer, requested by the Gateway's `cert-manager.io/cluster-issuer` annotation and stored in the `adhar-cert` Secret the HTTPS listener already references. Without a DNS-01-capable provider the Gateway keeps `adhar-selfsigned` (browser warning, same as local) |
 | **Ingress** | Cilium Gateway API fronts everything through a single cloud LoadBalancer (ports 80/443) |
 
@@ -189,7 +194,7 @@ kubectl port-forward -n adhar-system svc/adhar-console        3000:3000   # http
 ## 5. Checklist after `adhar up`
 
 ```bash
-kubectl config current-context                      # adhar-<cluster>
+kubectl config current-context                      # adhar (or adhar-<cluster> with --name)
 adhar get status                                    # platform conditions + per-package health
 adhar get secrets -p argocd                         # credentials
 adhar cluster list --file config.yaml               # --file is REQUIRED (see below)

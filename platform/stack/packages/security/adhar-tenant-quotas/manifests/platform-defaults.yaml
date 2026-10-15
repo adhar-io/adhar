@@ -1,0 +1,31 @@
+# Every container in the platform namespace gets a REQUEST, even when its
+# package declares none.
+#
+# The scheduler places by requests. On 2026-10-14 a hundred containers in this
+# namespace declared no memory request at all, so nodes the scheduler believed
+# half-empty ran at 90-98% real memory, and the kubelet, containerd and
+# whatever landed there last were OOM-killed or starved — Prometheus 27 times
+# in a row, a freshly built service through its startup probe. The symptom was
+# "nodes keep crashing"; the cause was pods the scheduler never counted.
+#
+# Only `defaultRequest`, deliberately: a default LIMIT would OOM-kill the
+# processes whose packages omit one precisely because their footprint varies
+# (JVMs, build pods), and a `max` would reject them at admission. A request
+# changes nothing a pod can do; it only makes the scheduler's arithmetic honest.
+# Packages that DO declare requests are untouched (a LimitRange default applies
+# only where the container is silent).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: adhar-platform-defaults
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+  labels:
+    adhar.io/component: tenant-quotas
+    app.kubernetes.io/part-of: adhar
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 20m
+        memory: 64Mi

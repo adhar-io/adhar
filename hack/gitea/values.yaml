@@ -486,7 +486,12 @@ gitea:
   additionalConfigFromEnvs: []
 
   ## @param gitea.podAnnotations Annotations for the Gitea pod
-  podAnnotations: {}
+  # Velero file-system backup is opt-in per volume (defaultVolumesToFsBackup is
+  # false; core/velero/manifests/schedules.yaml explains why), so Gitea's `data`
+  # volume — every GitOps and user repository — must name itself. Set here, not
+  # as a hand edit on the rendered manifest, so a regeneration keeps it.
+  podAnnotations:
+    backup.velero.io/backup-volumes: data
 
   ## @param gitea.ssh.logLevel Configure OpenSSH's log level. Only available for root-based Gitea image.
   ssh:

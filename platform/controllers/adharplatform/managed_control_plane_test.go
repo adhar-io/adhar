@@ -1,0 +1,125 @@
+package adharplatform
+
+import (
+	"context"
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
+)
+
+func civoNode(name string, external string) *corev1.Node {
+	addrs := []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "192.168.1." + name[len(name)-1:]}}
+	if external != "" {
+		addrs = append(addrs, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: external})
+	}
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status:     corev1.NodeStatus{Addresses: addrs},
+	}
+}
+
+func civoSpecCM(mode string) *corev1.ConfigMap {
+	cm := clusterSpecCM(mode)
+	cm.Data["provider"] = "civo"
+	return cm
+}
+
+// On Civo's managed k3s the control plane runs on the node that carries the
+// cluster's public address. Left untainted it fills with platform pods and the
+// API server dies under the first sync wave (mum1, 2026-10-15). The Cilium
+// stage — the first thing the controller does — must reserve it.
+func TestTheCivoManagedControlPlaneNodeIsReservedBeforeAnythingIsScheduled(t *testing.T) {
+	s := providedScheme(t)
+	ctx := context.Background()
+	platform := &v1alpha1.AdharPlatform{ObjectMeta: metav1.ObjectMeta{
+		Name: "adhar", Namespace: globals.AdharSystemNamespace, UID: "uid",
+	}}
+	r := &AdharPlatformReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(
+			platform, foreignCiliumDaemonSet(), civoSpecCM("managed"),
+			ciliumConfig(foreignCiliumNamespace, map[string]string{"kube-proxy-replacement": "true"}),
+			takenOverBinding("cilium", "cilium"),
+			civoNode("k3s-adhar-node-1", "212.2.252.7"),
+			civoNode("k3s-adhar-node-2", ""),
+			civoNode("k3s-adhar-node-3", ""),
+		).Build(),
+		Scheme: s,
+	}
+	if _, err := r.ReconcileCilium(ctx, ctrlRequestFor(platform), platform); err != nil {
+		t.Fatalf("ReconcileCilium: %v", err)
+	}
+
+	master := &corev1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: "k3s-adhar-node-1"}, master); err != nil {
+		t.Fatal(err)
+	}
+	if !hasControlPlaneTaint(master) {
+		t.Error("the node hosting the k3s server (the one with the public address) was not tainted NoSchedule; " +
+			"platform pods will share it with the control plane")
+	}
+	if _, ok := master.Labels[controlPlaneRoleLabel]; !ok {
+		t.Error("the control-plane node carries no control-plane role label")
+	}
+	for _, worker := range []string{"k3s-adhar-node-2", "k3s-adhar-node-3"} {
+		n := &corev1.Node{}
+		if err := r.Get(ctx, client.ObjectKey{Name: worker}, n); err != nil {
+			t.Fatal(err)
+		}
+		if hasControlPlaneTaint(n) {
+			t.Errorf("worker %s was tainted; only the node with the public address hosts the control plane", worker)
+		}
+	}
+
+	// Idempotent: a second pass adds no second taint.
+	if _, err := r.ReconcileCilium(ctx, ctrlRequestFor(platform), platform); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Get(ctx, client.ObjectKey{Name: "k3s-adhar-node-1"}, master); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(master.Spec.Taints); n != 1 {
+		t.Errorf("after two passes the control-plane node carries %d taints, want 1", n)
+	}
+}
+
+// Hosted control planes have no special node; a non-Civo managed cluster and a
+// cluster with no single public node must be left alone.
+func TestOnlyCivoManagedClustersGetAControlPlaneNodeReserved(t *testing.T) {
+	s := providedScheme(t)
+	ctx := context.Background()
+	platform := &v1alpha1.AdharPlatform{ObjectMeta: metav1.ObjectMeta{
+		Name: "adhar", Namespace: globals.AdharSystemNamespace, UID: "uid",
+	}}
+	doks := clusterSpecCM("managed")
+	doks.Data["provider"] = "digitalocean"
+	r := &AdharPlatformReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(
+			platform, foreignCiliumDaemonSet(), doks,
+			ciliumConfig(foreignCiliumNamespace, map[string]string{"kube-proxy-replacement": "true"}),
+			takenOverBinding("cilium", "cilium"),
+			civoNode("pool-1", "1.2.3.4"),
+		).Build(),
+		Scheme: s,
+	}
+	if _, err := r.ReconcileCilium(ctx, ctrlRequestFor(platform), platform); err != nil {
+		t.Fatal(err)
+	}
+	n := &corev1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: "pool-1"}, n); err != nil {
+		t.Fatal(err)
+	}
+	if hasControlPlaneTaint(n) {
+		t.Error("a DOKS node was tainted; its control plane is hosted by the cloud")
+	}
+
+	// Two public nodes: ambiguous, so nothing is chosen.
+	if got := managedControlPlaneNode([]corev1.Node{*civoNode("a1", "1.1.1.1"), *civoNode("b2", "2.2.2.2")}); got != nil {
+		t.Errorf("with two public nodes %s was picked; guessing taints a worker", got.Name)
+	}
+}

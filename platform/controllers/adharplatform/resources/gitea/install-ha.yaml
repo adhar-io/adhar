@@ -2950,6 +2950,7 @@ spec:
     metadata:
       annotations:
         checksum/config: 05647565fdbb8aa0fd1c65383f80dc1c5224bffdff85a26f7de706f62324433a
+        backup.velero.io/backup-volumes: data
       labels:
         helm.sh/chart: gitea-12.7.0
         app: gitea

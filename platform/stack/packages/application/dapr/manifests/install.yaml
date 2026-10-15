@@ -3248,7 +3248,9 @@ metadata:
     app.kubernetes.io/part-of: dapr
     app.kubernetes.io/version: 1.18.3
 spec:
-  replicas: 3
+  # One replica: the platform runs one copy of every component by default and
+  # scales where a cluster asks for HA (enableHAMode), not by shipping three.
+  replicas: 1
   serviceName: dapr-scheduler-server
   podManagementPolicy: Parallel
   selector:

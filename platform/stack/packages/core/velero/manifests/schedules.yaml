@@ -1,12 +1,15 @@
 # Platform backup schedules (roadmap P1.5). Shipped enabled: backups that are
 # not scheduled do not exist.
 #
-# Scope: Kubernetes objects (platform state). The node agent is not deployed,
-# so PVC file data is NOT part of these backups — databases are covered by
-# CNPG's own scheduled barman backups (see the keycloak/cnpg packages), and
-# Git content is recoverable from the platform's own repos plus the
+# Scope: Kubernetes objects (platform state), plus PVC file data ONLY for
+# volumes that opt in. The node agent is deployed (deployNodeAgent: true) but
+# defaultVolumesToFsBackup is false, so a pod must name its volumes with the
+# backup.velero.io/backup-volumes annotation — Gitea's `data` volume does. The
+# opt-out default copied the object store into itself and filled the disk.
+# Databases are covered by CNPG's own scheduled barman backups (see the
+# keycloak/cnpg packages), and Git content is also recoverable from the
 # reconstructability model (Git is the source of truth, ADR-0001/0021).
-# Storage: the `default` BackupStorageLocation (in-cluster MinIO bucket
+# Storage: the `default` BackupStorageLocation (in-cluster RustFS bucket
 # adhar-backups; point it at real object storage in cloud environments).
 apiVersion: velero.io/v1
 kind: Schedule

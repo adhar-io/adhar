@@ -23,7 +23,7 @@ Using the platform rather than changing it? [User Guide](USER_GUIDE.md). Startin
 
 ## 1. Enable or disable a package
 
-The catalogue is **91 packages**, wired as **94 ApplicationSet entries** (three packages ship more than one variant: `supply-chain-policies` as audit/enforce, `vllm` as shared surface/cpu/gpu). The local profile enables a curated **32**; production enables **76**.
+The catalogue is **100+ packages**, wired as ApplicationSet entries (a few packages ship more than one variant, e.g. `supply-chain-policies` as audit/enforce, `vllm` as shared surface/cpu/gpu). The local profile enables a curated subset; production enables most of the catalogue. Run `adhar stack list` for the live numbers.
 
 Each entry carries an `enabled` gate:
 

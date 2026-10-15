@@ -1,13 +1,13 @@
 # Adhar on Google Cloud — kubeadm on Compute Engine, autoscaled.
 #
-# This file asks for GKE: `clusterMode: managed` below. The platform has three
-# modes on every cloud — `compute` (Adhar builds the cluster itself with kubeadm
-# on plain GCE instances), `managed` (Google runs the control plane) and
-# `provided` (the cluster already exists and Adhar only installs onto it).
-# Everything above the cluster is identical in all three; managed is the default
-# in the shipped configs because only a managed control plane brings a
-# cloud-controller-manager, and without one the Gateway never gets a load
-# balancer address and the platform's URLs do not resolve.
+# This file builds the cluster with kubeadm on GCE: `clusterMode: compute`
+# below. The platform has three modes on every cloud — `compute` (Adhar builds
+# the cluster itself with kubeadm on plain GCE instances), `managed` (GKE; Google
+# runs the control plane) and `provided` (the cluster already exists and Adhar
+# only installs onto it). Everything above the cluster is identical in all
+# three. Compute is the default; it installs the GCP cloud-controller-manager,
+# so the Gateway still gets a real load-balancer address. Set `managed` below
+# if you want GKE instead.
 #
 #   adhar up -f examples/gcp-config.yaml --env production --dry-run   # validate
 #   adhar up -f examples/gcp-config.yaml --env production             # deploy

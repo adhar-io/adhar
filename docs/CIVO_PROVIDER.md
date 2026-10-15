@@ -34,14 +34,19 @@ civo domain list
 3. At your registrar, in the `example.com` zone, add **NS records named `platform`**
    pointing at Civo's nameservers. The apex stays where it is.
 
-**Certificates are the exception on Civo.** external-dns publishes records through
-the Civo API, but cert-manager ships **no Civo DNS-01 solver**, so the platform keeps
-its self-signed certificate and browsers warn. Two ways to get a trusted wildcard:
+**Certificates on Civo use a webhook solver.** external-dns publishes records
+through the Civo API, and cert-manager issues the trusted wildcard over DNS-01
+through the Civo webhook solver: cert-manager has no *built-in* Civo provider, so
+the cert-manager package renders `civo-dns-webhook.yaml.tmpl`
+(okteto/cert-manager-webhook-civo, image pinned) and a `civo` branch of the
+`adhar-letsencrypt-dns` ClusterIssuer, both applied only when `dnsProvider: civo`.
+The webhook reads the same `adhar-dns-provider` Secret (`CIVO_TOKEN`) external-dns
+uses. DNS-01 needs no public A record, so this works in compute mode too.
 
-- host the platform zone at a DNS-01-capable provider and point `dnsProvider` there
-  (`cloudflare` is the lightest option — one API token), while the cluster itself
-  stays on Civo; or
-- accept the self-signed certificate and distribute the platform CA.
+The webhook is a third-party component in the certificate path. If you would
+rather not run it, host the platform zone at a provider cert-manager supports
+natively and point `dnsProvider` there (`cloudflare` is the lightest option — one
+API token), while the cluster itself stays on Civo:
 
 ```yaml
 globalSettings:
@@ -159,7 +164,7 @@ export CIVO_TOKEN="…"
 ./adhar up -f config.yaml --env dev --dry-run
 ./adhar up -f config.yaml --env dev
 
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 ./adhar get status
 ```
 

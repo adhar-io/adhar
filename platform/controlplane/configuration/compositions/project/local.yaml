@@ -310,8 +310,10 @@ spec:
             # Credentials Kargo discovers by label in the project namespace:
             # `git` for cloning/pushing application repositories, `image` for
             # listing Harbor tags. Materialised by ESO from the platform's own
-            # Secrets through the in-cluster ClusterSecretStore (`platform`
-            # reads adhar-system), so no composition ever copies a password.
+            # Secrets through `platform-delivery`, a ClusterSecretStore that can
+            # read only gitea-ci-creds and harbor-push and serves only workload
+            # and preview namespaces, so no composition ever copies a password
+            # and a tenant cannot reach any other platform Secret through it.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -329,7 +331,7 @@ spec:
                     labels: { adhar.io/project: {{ $name | quote }} }
                   spec:
                     refreshInterval: 1h
-                    secretStoreRef: { kind: ClusterSecretStore, name: platform }
+                    secretStoreRef: { kind: ClusterSecretStore, name: platform-delivery }
                     target:
                       name: kargo-git
                       template:
@@ -363,7 +365,7 @@ spec:
                     labels: { adhar.io/project: {{ $name | quote }} }
                   spec:
                     refreshInterval: 1h
-                    secretStoreRef: { kind: ClusterSecretStore, name: platform }
+                    secretStoreRef: { kind: ClusterSecretStore, name: platform-delivery }
                     target:
                       name: kargo-image
                       template:

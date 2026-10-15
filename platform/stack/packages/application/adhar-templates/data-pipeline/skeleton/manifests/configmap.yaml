@@ -39,7 +39,7 @@ metadata:
     app.kubernetes.io/name: ${{values.name}}
 spec:
   refreshInterval: 1m
-  secretStoreRef: {name: gitea, kind: ClusterSecretStore}
+  secretStoreRef: {name: platform-object-storage, kind: ClusterSecretStore}
   target: {name: ${{values.name}}-object-store, creationPolicy: Owner}
   data:
     - secretKey: S3_ACCESS_KEY_ID

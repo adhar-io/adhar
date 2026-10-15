@@ -42,6 +42,13 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 		logger.Info("The cluster already runs Cilium; the platform will not install its own",
 			"daemonSet", existing.Namespace+"/"+existing.Name, "clusterMode", mode)
 		if provider.ClusterLifecycleIsOurs(mode) {
+			// Before anything is scheduled: on Civo's managed k3s the control
+			// plane runs on one of OUR nodes, and it must not share that node
+			// with the platform (see managed_control_plane.go).
+			if err := r.reserveManagedControlPlaneNode(ctx); err != nil {
+				logger.Info("Could not reserve the managed control-plane node; platform pods may be scheduled onto it",
+					"error", err)
+			}
 			// This cluster is ours (we asked the cloud to build it WITH Cilium),
 			// so the one feature the platform needs from it may be turned on, and
 			// the damage an earlier release did may be repaired.

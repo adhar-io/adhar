@@ -414,7 +414,7 @@ spec:
                 {{- end }}
             spec:
               refreshInterval: 1h
-              secretStoreRef: {kind: ClusterSecretStore, name: platform}
+              secretStoreRef: {kind: ClusterSecretStore, name: platform-object-storage}
               target:
                 name: {{ $name }}-backup-s3
               data:

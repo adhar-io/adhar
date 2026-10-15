@@ -2283,7 +2283,9 @@ metadata:
     app.kubernetes.io/component: core
   annotations:
 spec:
-  replicas: 2
+  # One replica: the platform runs one copy of every component by default and
+  # scales where a cluster asks for HA (enableHAMode), not by shipping three.
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: falcosidekick

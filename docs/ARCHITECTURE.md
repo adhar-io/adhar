@@ -68,11 +68,11 @@ flowchart TB
         cli["Adhar CLI"]
         ui["Headlamp · Hubble UI · Grafana"]
     end
-    subgraph L2["Layer 2 — Platform Services (91 GitOps packages)"]
+    subgraph L2["Layer 2 — Platform Services (100+ GitOps packages)"]
         sec["Security<br/>Keycloak · OpenBao · Kyverno<br/>cert-manager · ESO"]
         obs["Observability<br/>Prometheus · Loki · Tempo<br/>Mimir · Alloy"]
         app["Delivery<br/>Tekton · Harbor · Kargo<br/>Argo Workflows · KEDA"]
-        data["Data<br/>CNPG · MinIO · Kafka<br/>Valkey · Spark · Trino"]
+        data["Data<br/>CNPG · RustFS · Kafka<br/>Valkey · Spark · Trino"]
         ai["AI (opt-in)<br/>agentgateway · vLLM · adhar-ai"]
     end
     subgraph L1["Layer 1 — Cluster Foundation (bootstrap, embedded manifests)"]
@@ -92,7 +92,7 @@ flowchart TB
 |-------|-----------|------------|----------------------|
 | **L0 Infrastructure** | Clusters, networks, load balancers, storage | Provider interface + Crossplane | Provider implementations, Compositions |
 | **L1 Foundation** | CNI, Gateway, GitOps engine, Git server, control plane | AdharPlatform controller (embedded manifests) | Helm values in `hack/`, `AdharPlatform` spec |
-| **L2 Platform Services** | 91 packages across seven categories ([§4.3](#43-the-package-catalogue)) | ArgoCD ApplicationSet from Gitea | Package toggles, values, custom packages |
+| **L2 Platform Services** | 100+ packages across seven categories ([§4.3](#43-the-package-catalogue)) | ArgoCD ApplicationSet from Gitea | Package toggles, values, custom packages |
 | **L3 Developer Experience** | Console, CLI, dashboards, golden-path templates | GitOps packages + CLI releases | Templates, Backstage plugins, CLI config |
 
 ## 4. Deployment Lifecycle
@@ -156,24 +156,13 @@ Each ApplicationSet wires every package as a list element with `name`, `namespac
 
 ### 4.3 The package catalogue
 
-**91 deployable packages** (each carrying an `adhar-package.yaml` contract) are wired as **94 ApplicationSet elements** — three packages ship more than one variant: `supply-chain-policies` (audit / enforce) and `vllm` (shared surface / CPU / GPU).
+**100+ deployable packages** (each carrying an `adhar-package.yaml` contract) are wired as ApplicationSet elements — a few packages ship more than one variant, e.g. `supply-chain-policies` (audit / enforce) and `vllm` (shared surface / CPU / GPU). They fall into seven categories: `ai`, `application`, `core`, `data`, `infrastructure`, `observability` and `security`. The production profile enables most of them; the curated local profile enables a small core that fits on one node. Run `adhar stack list` for the live count and per-package enablement on your build.
 
-| Category | Packages | Elements | Enabled in production | Enabled in the local core |
-|---|---:|---:|---:|---:|
-| `ai` | 3 | 5 | 0 | 0 |
-| `application` | 26 | 26 | 22 | 10 |
-| `core` | 6 | 6 | 4 | 1 |
-| `data` | 22 | 22 | 22 | 6 |
-| `infrastructure` | 2 | 2 | 2 | 0 |
-| `observability` | 16 | 16 | 13 | 8 |
-| `security` | 16 | 17 | 13 | 7 |
-| **Total** | **91** | **94** | **76** | **32** |
-
-Directory counts under `platform/stack/packages/` are slightly higher than the package counts: `application/adhar-templates` is a scaffolder template collection, four `SKIPPED.md` placeholders (`backup/velero`, `application/{strapi,tldraw,webstudio}`) and three empty directories (`application/pyroscope`, `core/amarda`, `data/dbt`) carry no contract and are not deployed. Every disabled entry in `adhar-appset-production.yaml` carries its reason inline.
+Directory counts under `platform/stack/packages/` are slightly higher than the package counts: `application/adhar-templates` is a scaffolder template collection, `SKIPPED.md` placeholders (e.g. `backup/velero`) and empty directories carry no contract and are not deployed. Every disabled entry in `adhar-appset-production.yaml` carries its reason inline.
 
 ### 4.4 One namespace, one exception
 
-Every platform package installs into **`adhar-system`** — the same namespace as the bootstrap foundation — with exactly one exception: **`buildpack` (kpack) keeps `kpack-system`** ([ADR-0011](adr/0011-shared-platform-namespace.md)). kpack's webhook and cosign's policy-controller both hardcode `Secret/webhook-certs` in their binaries, and two knative webhooks cannot share it; a name a binary hardcodes cannot be fixed by renaming the manifest, so the smaller package keeps its own namespace. Those are the only two destination namespaces in the ApplicationSets (93 elements + 1).
+Every platform package installs into **`adhar-system`** — the same namespace as the bootstrap foundation — with exactly one exception: **`buildpack` (kpack) keeps `kpack-system`** ([ADR-0011](adr/0011-shared-platform-namespace.md)). kpack's webhook and cosign's policy-controller both hardcode `Secret/webhook-certs` in their binaries, and two knative webhooks cannot share it; a name a binary hardcodes cannot be fixed by renaming the manifest, so the smaller package keeps its own namespace. Those are the only two destination namespaces in the ApplicationSets (every element but one, plus kpack).
 
 The only other namespaces the platform creates are **Kargo `Project` namespaces** (`adhar-environments`, where the namespace *is* the Project) and **data-plane vclusters** (`dp-<name>`). Application environments get their own namespaces — that is the boundary that matters; platform components do not need one.
 
@@ -286,8 +275,8 @@ The same architecture deploys at three sizes. This is a spectrum, not separate p
 
 | Topology | Shape | Status |
 |---|---|---|
-| **T1 — Local** | Single Kind cluster; the manager runs in the CLI process and exits after deployment; 32-package curated core; self-signed TLS; < 10 minutes on a laptop | ✅ The default path |
-| **T2 — Single-cluster production** | One cloud cluster runs platform and workloads. Manager runs in-cluster; HA mode gives 3 control-plane nodes, ≥ 2 replicas for ArgoCD/Gitea/Gateway, PDBs, topology spread; Gitea/Keycloak/Harbor back onto CNPG PostgreSQL; cert-manager + external-dns automate the edge; Velero backs up state | ✅ **Verified on DigitalOcean** ([Roadmap](ROADMAP.md) Phase 1) |
+| **T1 — Local** | Single Kind cluster; the manager runs in the CLI process and exits after deployment; the curated local profile (`adhar stack list` shows what it enables); self-signed TLS; < 10 minutes on a laptop | ✅ The default path |
+| **T2 — Single-cluster production** | One cloud cluster runs platform and workloads. Manager runs in-cluster on a single control-plane node (compute-mode providers reject more; multi-master is not implemented yet). HA mode (`enableHAMode`) replicates the *platform*: ArgoCD application controller ×2, server and repo-server autoscaled 2–5, redis-ha ×3 + haproxy ×3, PDBs; the CNPG operator joins the foundation; `gitea-db` and `keycloak-db` run 2 CNPG instances; Crossplane ×2. Gitea itself stays at 1 replica. cert-manager + external-dns automate the edge; Velero backs up state | ✅ **Verified on DigitalOcean** ([Roadmap](ROADMAP.md) Phase 1) |
 | **T3 — Management + workload clusters** | Control plane governs a fleet of data planes | ✅ **Live-verified** ([Roadmap](ROADMAP.md) Phase 2) |
 
 **Node autoscaling is live-verified in both directions**: a cluster created with 3 workers and `maxWorkers: 10` grew to 9 while the catalogue synced, then removed a node when idle (`cluster idle for 1h40m46s (cpu=21% memory=27%)`) — with both guards observed, the cooldown between moves and the refusal to drain a node holding a ReadWriteOnce volume. Note that on DigitalOcean the binding capacity constraint is the **7 block-volumes-per-droplet attach limit**, not CPU or memory, so `exceed max volume count` is a scale-up signal the autoscaler acts on ([DigitalOcean reference](DIGITALOCEAN_PROVIDER.md)).
@@ -329,7 +318,7 @@ Every supported customization maps to one of these extension points — if somet
 
 | # | Extension point | Mechanism | Typical use |
 |---|----------------|-----------|-------------|
-| 1 | **Package toggles** | `enabled` flag in the ApplicationSet / environment config | Turn any of the 94 wired elements on or off per environment |
+| 1 | **Package toggles** | `enabled` flag in the ApplicationSet / environment config | Turn any wired element on or off per environment |
 | 2 | **Package values** | `values.yaml` + `generate-manifests.sh` per package | Pin versions, resize resources, change chart options |
 | 3 | **New packages** | Drop a directory under `packages/<category>/` with an `adhar-package.yaml`, add one ApplicationSet entry | Bring your own chart or manifests into the same GitOps flow |
 | 4 | **Custom applications** | `CustomPackage` CRD / `examples/*.yaml` | Team workloads deployed via the platform's ArgoCD |

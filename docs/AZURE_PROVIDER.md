@@ -306,7 +306,7 @@ az login                                   # if using useAzureCLI
 ./adhar up -f config.yaml --env dev --dry-run
 ./adhar up -f config.yaml --env dev
 
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 ./adhar get status
 ```
 

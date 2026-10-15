@@ -68,7 +68,7 @@ file is provisioned.
 **6 — Verify.**
 
 ```bash
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 kubectl get nodes
 ./adhar get status
 ./adhar get secrets -p argocd
@@ -152,7 +152,7 @@ and the repository checkout — the GitOps stack is seeded from `platform/stack`
 | Droplet limit | account-specific | Must cover control plane + workers + any other cluster. A create failing with `422` usually means this; ask DigitalOcean to raise it. |
 | Volumes per region | account-specific | ~55–60 per full platform. |
 
-A curated profile (~30 packages) is comfortable on 3–4 workers.
+A curated subset of the catalogue is comfortable on 3–4 workers.
 
 ## 1. Configuration (`config.yaml`)
 
@@ -205,7 +205,7 @@ environments:
     provider: digitalocean
     template: nonprod-defaults
     clusterConfig:
-      - { key: name,      value: adhar-mgmt }     # cluster name; droplets are adhar-<env>-<role>-<n>
+      - { key: name,      value: adhar-mgmt }     # Cilium cluster-mesh name only; the cluster is `adhar` unless --name
       - { key: nodeSize,  value: s-8vcpu-16gb }   # overrides provider droplet_size for this env
       - { key: nodeCount, value: "3" }            # workers at creation; the autoscaler grows it
       # - { key: kubeVersion,  value: v1.37.0 }   # pin the Kubernetes version for this environment
@@ -330,14 +330,17 @@ autoscaler adds workers as PersistentVolumes exhaust the 7-per-droplet limit
 (3 → 9 on this run). Expect the app count to move around while that happens.
 
 During bootstrap the CLI:
-- saves the kubeconfig to `~/.adhar/clusters/dev/kubeconfig` and merges it into
-  `~/.kube/config` as context `adhar-dev` (made current);
+- saves the kubeconfig to `~/.adhar/clusters/adhar/kubeconfig` and merges it into
+  `~/.kube/config` as context `adhar` (made current). The cluster is named
+  `adhar` unless you pass `--name <name>`, in which case the path is
+  `~/.adhar/clusters/<name>/kubeconfig` and the context `adhar-<name>`;
 - creates the `adhar-dns-provider` Secret (DO token) for external-dns and
   cert-manager;
 - renders the stack for the domain (`*.yaml.tmpl` → ClusterIssuers with the
   DigitalOcean DNS-01 solver, external-dns with
   `--provider=digitalocean --domain-filter=platform.adhar.io
-  --txt-owner-id=adhar-dev`) and seeds it into Gitea;
+  --txt-owner-id=adhar-platform-adhar-io`, derived from `defaultHost`) and
+  seeds it into Gitea;
 - applies the cloud Gateway (`Service` type LoadBalancer → a DigitalOcean LB
   on 80/443, wildcard HTTPS listener annotated
   `cert-manager.io/cluster-issuer: adhar-letsencrypt-dns`).
@@ -345,7 +348,7 @@ During bootstrap the CLI:
 ## 3. Verify
 
 ```bash
-kubectl config current-context                          # adhar-dev
+kubectl config current-context                          # adhar
 kubectl get nodes                                       # 9 × Ready
 kubectl -n adhar-system get gateway adhar-gateway       # ADDRESS = LB IP
 dig +short console.platform.adhar.io                    # = LB IP (external-dns)
@@ -568,7 +571,7 @@ kubectl -n adhar-system get deploy adhar-controller-manager            # 1/1
 adhar get dataplanes                                                   # planes + readiness
 adhar get status                                                       # conditions, packages, Data Planes roll-up
 
-# backup / restore drill (Velero -> platform MinIO, prefix velero/)
+# backup / restore drill (Velero -> platform RustFS, bucket adhar-backups, prefix velero/)
 kubectl -n adhar-system get backupstoragelocation default              # Available
 kubectl -n adhar-system create -f - <<'EOF'
 apiVersion: velero.io/v1
@@ -666,17 +669,19 @@ external URL was wrong: the HA install variant shipped
 `https://argocd.<host>`; on a running cluster patch `argocd-cm` and restart
 `argo-cd-argocd-server`.
 
-**If every SSO login suddenly fails with 503**, check the shared MinIO
-before anything else: `kubectl -n adhar-system exec deploy/minio -- df -h
-/export`. A full MinIO stops CNPG WAL archiving on every platform database
+**If every SSO login suddenly fails with 503**, check the shared RustFS object
+store before anything else: `kubectl -n adhar-system exec deploy/rustfs -- df -h
+/data`. A full object store stops CNPG WAL archiving on every platform database
 (`ContinuousArchiving=False`, `barman-cloud-wal-archive: exit status 4`,
 underneath it `no space left on device`); WAL then piles up on the Postgres
 volumes until CNPG reports `Not enough disk space` and Keycloak's database
-stops. The MinIO volume now ships at 100 GiB with 7-day backup retention
-(Keycloak alone archives ~2 GiB of WAL a day); expand it live with
-`kubectl patch pvc minio -p '{"spec":{"resources":{"requests":{"storage":"200Gi"}}}}'`
+stops. The RustFS volume (`rustfs-data`) ships at 150 GiB with 7-day backup
+retention (Keycloak alone archives ~2 GiB of WAL a day); expand it live with
+`kubectl -n adhar-system patch pvc rustfs-data -p '{"spec":{"resources":{"requests":{"storage":"200Gi"}}}}'`
+(and raise the request in the rustfs package so Argo CD does not diff it back)
 and the archivers recover on their own. Then check Keycloak's database: `kubectl -n adhar-system get cluster keycloak-db` — its volume was
-1 GiB and filled with retained WAL the moment archiving to MinIO hiccupped.
+1 GiB and filled with retained WAL the moment archiving to the object store
+(then MinIO) hiccupped.
 Platform databases now start at 5 GiB and CNPG grows them online
 (`resizeInUseVolumes`).
 
@@ -983,7 +988,7 @@ export DIGITALOCEAN_ACCESS_TOKEN="dop_v1_…"     # DIGITALOCEAN_TOKEN also acce
 ./adhar up -f ../do-config.yaml --env dev
 
 # 2. Verify the cluster itself.
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 kubectl get nodes
 ./adhar get status
 ./adhar get secrets                # every platform credential, incl. user1 + user2
@@ -1081,7 +1086,7 @@ someone else, so the browser shows a stranger's certificate.
   can never skew.
 - First boot ordering: every package's ServiceMonitor/PodMonitor/PrometheusRule
   is applied in sync-wave 10 so a package's core resources and PostSync hooks
-  (Keycloak client provisioning, ClusterIssuers, MinIO credentials) land before
+  (Keycloak client provisioning, ClusterIssuers, object-store credentials) land before
   the Prometheus Operator CRDs exist; ArgoCD's unlimited retries pick the
   monitors up minutes later. Expect ~20 apps to show Progressing/Degraded for
   the first 10–15 minutes and then converge on their own.
@@ -1089,7 +1094,7 @@ someone else, so the browser shows a stranger's certificate.
   inotify/file-descriptor and systemd task limits); before that, a wedged
   `systemd-resolved` stub failed every image pull cluster-wide and dense nodes
   refused to create container cgroups.
-- Loki ingests through MinIO (`loki` bucket) with raised ingestion limits
+- Loki stores chunks in RustFS (`loki` bucket) with raised ingestion limits
   (32 MB/s, 64 MB burst, 8 MB per stream); the chart default of 4 MB/s dropped
   lines from the busier namespaces ("ingestion rate limit exceeded").
 - PostHog runs `posthog/posthog:latest`, which tracks PostHog master; its
@@ -1124,13 +1129,13 @@ someone else, so the browser shows a stranger's certificate.
 
 | Resource | Name / shape | Notes |
 |---|---|---|
-| Droplets | `adhar-<env>-master-<n>`, `adhar-<env>-workers-<n>` | Ubuntu 24.04, size from `nodeSize`/`droplet_size`. Tagged `adhar`, the provider `tags`, a per-cluster tag `adhar-cluster-<env>` and a role tag. |
-| VPC | `adhar-<env>-vpc`, or an existing one when `reuse_existing_vpc: true` | CIDR from `vpc_cidr`. Meshed clusters must share it. |
-| Firewall | `adhar-<env>-fw` | Opens the Kubernetes API, node ports and — for a mesh — VXLAN 8472/udp across the VPC CIDR. |
+| Droplets | `adhar-<cluster>-master-<n>`, `adhar-<cluster>-workers-<n>` (`<cluster>` is `adhar` unless `--name` is passed) | Ubuntu 24.04, size from `nodeSize`/`droplet_size`. Tagged `adhar`, the provider `tags`, a per-cluster tag `adhar-cluster-<cluster>` and a role tag. |
+| VPC | `adhar-<cluster>-vpc`, or an existing one when `reuse_existing_vpc: true` | CIDR from `vpc_cidr`. Meshed clusters must share it. |
+| Firewall | `adhar-<cluster>-fw` | Opens the Kubernetes API, node ports and — for a mesh — VXLAN 8472/udp across the VPC CIDR. |
 | Load balancer | one, created by the DO cloud-controller-manager for the Cilium Gateway Service | Ports 80/443. Its IP is what every DNS record points at. |
-| Block volumes | `pvc-<uuid>`, tagged `adhar-cluster-<env>` | ~55 for the full profile. **7 per droplet maximum.** |
-| SSH key | `adhar-<env>` | Private half at `~/.adhar/clusters/<env>/id_ed25519`; also mirrored into the cluster as `adhar-cluster-ssh` so the node autoscaler can `kubeadm join` new workers. |
-| DNS records | one `A` per platform hostname, plus ACME `TXT` during issuance | Written by external-dns with `--txt-owner-id=adhar-<env>`, policy `upsert-only`. |
+| Block volumes | `pvc-<uuid>`, tagged `adhar-cluster-<cluster>` | ~55 for the full profile. **7 per droplet maximum.** |
+| SSH key | `adhar-<cluster>` | Private half at `~/.adhar/clusters/<cluster>/id_ed25519`; also mirrored into the cluster as `adhar-cluster-ssh` so the node autoscaler can `kubeadm join` new workers. |
+| DNS records | one `A` per platform hostname, plus ACME `TXT` during issuance | Written by external-dns with `--txt-owner-id=adhar-<defaultHost, dots as dashes>`, policy `upsert-only`. |
 
 Inside the cluster, `adhar up` also writes two objects the autoscaler depends on:
 the `adhar-cluster-spec` ConfigMap (provider, region, cluster name, node group,

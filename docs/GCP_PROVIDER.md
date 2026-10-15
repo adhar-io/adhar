@@ -423,7 +423,7 @@ create an orphan instance and then fail.
 Then:
 
 ```bash
-export KUBECONFIG=~/.adhar/clusters/production/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 ./adhar get status                     # platform conditions + per-package health
 ./adhar get apps                       # application sync/health
 ./adhar get secrets                    # service credentials

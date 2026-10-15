@@ -23,7 +23,7 @@ This is the fast path. [User Guide](USER_GUIDE.md) is the task reference for eve
 | --- | --- | --- |
 | **Docker** | v20.10+ | Runs the Kind node. Give it at least 8 GB of RAM |
 | **kubectl** | v1.24+ | Not required to bootstrap — Adhar drives the cluster — but you will want it |
-| **RAM** | 8 GB minimum, 16 GB comfortable | The curated local profile runs 32 applications |
+| **RAM** | 8 GB minimum, 16 GB comfortable | The curated local profile runs a small core of the catalogue (`adhar stack list` shows which) |
 | **Disk** | 20 GB+ free | Container images and volumes |
 | **CPU** | 4+ cores | |
 
@@ -59,7 +59,7 @@ What just happened, in order:
 1. A Kind node was created with the default CNI and kube-proxy disabled, host ports `8443`/`8080` mapped to the Gateway.
 2. The foundation was installed from manifests **embedded in the binary** (no network fetch): Gateway API CRDs → Cilium → the Cilium Gateway → ArgoCD → Gitea → Crossplane.
 3. Three Git repositories were created in the in-cluster Gitea under the `adhar` org and seeded from the platform stack: **`packages`** (every package's rendered manifests), **`environments`** (per-environment package sets) and **`templates`** (service scaffolding templates).
-4. An ArgoCD ApplicationSet wiring **94 entries across 91 packages** was applied. Locally a curated **32** are enabled — a single node cannot run the full catalogue. ArgoCD synced them from Gitea.
+4. An ArgoCD ApplicationSet wiring the whole catalogue (**100+ packages**) was applied. Locally only the curated local profile is enabled — a single node cannot run the full catalogue. ArgoCD synced them from Gitea.
 
 Variants worth knowing:
 
@@ -88,7 +88,7 @@ Every service is a subdomain of `adhar.localtest.me`, which resolves to `127.0.0
 | Harbor | `https://harbor.adhar.localtest.me:8443` | Container registry |
 | Tekton | `https://tekton.adhar.localtest.me:8443` | CI pipeline runs |
 | LibreDB Studio | `https://libredb.adhar.localtest.me:8443` | Browser SQL IDE over the platform's databases |
-| MinIO | `https://minio.adhar.localtest.me:8443` | Object storage |
+| RustFS | `https://rustfs.adhar.localtest.me:8443` | Object storage |
 | Policy Reporter | `https://policy-reporter.adhar.localtest.me:8443` | Kyverno policy results |
 
 The full list for your platform is whatever ships an `HTTPRoute`: `kubectl get httproute -A`.
@@ -146,7 +146,7 @@ The richer paths — the four Console golden paths (`microservice`, `frontend`, 
 
 ## 6. Turn on another capability
 
-62 of the 94 wired entries are off locally. Turning one on is a platform change, and platform changes are edits to the Adhar stack followed by `adhar upgrade`:
+Most wired entries are off locally (`adhar stack list` shows which). Turning one on is a platform change, and platform changes are edits to the Adhar stack followed by `adhar upgrade`:
 
 ```bash
 # In your adhar checkout — flip enabled: "false" -> "true" for the package,
@@ -160,20 +160,20 @@ adhar upgrade                 # converge, re-apply the ApplicationSet, re-push t
 
 ArgoCD picks the new Application up and deploys it; when it reports `Healthy` it is live at `https://<name>.adhar.localtest.me:8443` if it ships an HTTPRoute.
 
-> A single Kind node cannot run all 94. Check `kubectl top nodes` before enabling anything heavy, and read the mutual-exclusion notes in `platform/stack/packages/CONFLICTS.md` — a few packages (`vault`/`openbao`, `vllm-cpu`/`vllm-gpu`) must not both be on.
+> A single Kind node cannot run the whole catalogue. Check `kubectl top nodes` before enabling anything heavy, and read the mutual-exclusion notes in `platform/stack/packages/CONFLICTS.md` — a few packages (`vault`/`openbao`, `vllm-cpu`/`vllm-gpu`) must not both be on.
 
 Full details, including changing a package's values and adding your own: [Customization Guide](CUSTOMIZATION.md).
 
 ## 7. Run it on a cloud
 
-The same binary and the same package stack target AWS EKS, Azure AKS, GCP GKE, DigitalOcean DOKS, Civo, or any conformant cluster. Declare a config file and pass it with `-f`:
+The same binary and the same package stack target AWS, Azure, GCP, DigitalOcean and Civo — by default as a self-managed cluster on the cloud's own VMs (`clusterMode: compute`), or on the cloud's managed Kubernetes (EKS, AKS, GKE, DOKS, Civo k3s) with `clusterMode: managed` — or any conformant cluster you already run (`clusterMode: provided`). Declare a config file and pass it with `-f`:
 
 ```bash
 adhar up -f adhar-config.yaml --env production
 adhar get status
 ```
 
-Cloud runs use the production profile (**76 of the 94 entries enabled**), install the controller manager in-cluster for continuous reconciliation, render the foundation in HA mode, and put the Gateway behind a real LoadBalancer with cert-manager-issued TLS.
+Cloud runs use the production profile (most of the catalogue enabled; `adhar stack list` for the live count), install the controller manager in-cluster for continuous reconciliation, render the foundation in HA mode, and put the Gateway behind a real LoadBalancer with cert-manager-issued TLS.
 
 Credentials, regions, node pools and per-cloud caveats: [Provider Guide](PROVIDER_GUIDE.md). Before real workloads: [Production Guide](PRODUCTION.md).
 

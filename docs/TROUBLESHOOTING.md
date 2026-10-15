@@ -36,7 +36,7 @@ the local Kind topology (`adhar up` with no `-f`), whose default host
 | Status update conflict on the last reconcile before shutdown | [2.6 Status write conflict](#26-status-write-conflict-on-the-final-local-pass) |
 | App stuck at **`waiting for healthy state of <resource>`**; pushing to Gitea changes nothing; `kubectl` edits revert within a minute | [3.1 Wave-stuck sync](#31-a-wave-stuck-sync-replays-the-revision-it-started-with) |
 | `415 Unsupported Media Type` when terminating an operation | [3.1 Wave-stuck sync](#31-a-wave-stuck-sync-replays-the-revision-it-started-with) |
-| **All ~80 applications flip `OutOfSync`** right after a Gitea push | [3.2 Monorepo sync storm](#32-every-application-goes-outofsync-after-a-push-expected) |
+| **Every application flips `OutOfSync`** right after a Gitea push | [3.2 Monorepo sync storm](#32-every-application-goes-outofsync-after-a-push-expected) |
 | Apps `Degraded`/`Progressing` for the first few minutes after bootstrap | [3.3 First-convergence churn](#33-applications-degraded-during-first-convergence) |
 | ArgoCD Keycloak login → **`Invalid redirect URL`** | [3.4 Wrong `argocd-cm.url`](#34-ha-only-invalid-redirect-url-on-keycloak-login) |
 | Keycloak login succeeds but the **application list is empty** (admin sees all) | [3.5 Empty RBAC policy](#35-ha-only-empty-application-list-after-a-keycloak-login) |
@@ -58,7 +58,7 @@ the local Kind topology (`adhar up` with no `-f`), whose default host
 | Webhook `certificate signed by unknown authority`; APIService discovery broken | [6.6 A chart baked its namespace](#66-a-chart-baked-its-own-namespace) |
 | Scorecard job: `jq: Argument list too long` or `DeadlineExceeded` | [6.7 Scorecards](#67-the-scorecard-job-fails-or-scores-everything-the-same) |
 | **Every SSO login returns 503**; Keycloak logs `Not enough disk space` | [7.1 Keycloak database full](#71-keycloak-503-on-every-login--its-database-filled) |
-| `barman-cloud-wal-archive: exit status 4`, `no space left on device` | [7.2 Shared MinIO full](#72-minio-filled--cnpg-wal-archiving-stops-platform-wide) |
+| `barman-cloud-wal-archive: exit status 4`, `no space left on device` | [7.2 Shared object store (RustFS) full](#72-object-store-filled--cnpg-wal-archiving-stops-platform-wide) |
 | `kubectl cluster-info` cannot reach the API server at all | [8 Management-cluster outage](#8-management-cluster-outage) |
 | Anything else, locally | [9 When in doubt, re-run `adhar up`](#9-when-in-doubt-re-run-adhar-up) |
 
@@ -411,7 +411,7 @@ investigate an app still `Degraded` after the storm settles.
 **Symptom** — after bootstrap several apps show `OutOfSync` or
 `Degraded`/`Progressing` for the first few minutes.
 
-**Root cause** — normal early convergence. The curated local core (32 apps
+**Root cause** — normal early convergence. The curated local profile (the apps
 selected by the ApplicationSet's `enabled: "true"` filter) is still rolling out.
 CNPG-backed databases wait on the operator and PVC binding; Keycloak takes 2–3
 minutes for its first boot.
@@ -986,7 +986,7 @@ kubectl -n adhar-system logs keycloak-db-1 -c postgres --tail=50
 ```
 
 **Root cause** — usually *not* Keycloak: WAL archiving stopped
-([7.2](#72-minio-filled--cnpg-wal-archiving-stops-platform-wide)), so unarchived
+([7.2](#72-object-store-filled--cnpg-wal-archiving-stops-platform-wide)), so unarchived
 WAL accumulated on the database volume until it filled. Keycloak archives
 roughly **2.2 GiB of WAL per day**; a 5 GiB volume fills in days.
 
@@ -1001,7 +1001,7 @@ The DigitalOcean CSI expands online. Note that CNPG's own `resizeInUseVolumes`
 does nothing while the cluster is in the disk-space phase — patch the PVC
 directly.
 
-### 7.2 MinIO filled → CNPG WAL archiving stops platform-wide
+### 7.2 Object store filled → CNPG WAL archiving stops platform-wide
 
 **Symptom:**
 
@@ -1012,32 +1012,38 @@ barman-cloud-wal-archive: exit status 4
 
 on **every** CNPG database at once.
 
-**Root cause** — the shared in-cluster MinIO is the default backup target for
-every platform database. When its PVC fills, every `barman-cloud-wal-archive`
+**Root cause** — the shared in-cluster RustFS object store (bucket
+`adhar-backups`) is the default backup target for every platform database and
+for Velero. When its `rustfs-data` PVC fills, every `barman-cloud-wal-archive`
 fails, so no database can retire WAL, so every Postgres volume starts filling —
 and the first one to hit zero takes its service down
-([7.1](#71-keycloak-503-on-every-login--its-database-filled)). A 10 GiB MinIO
-filled in **two days** on a full platform.
+([7.1](#71-keycloak-503-on-every-login--its-database-filled)). The same store
+also holds Loki chunks and Mimir blocks, so logs and metrics stop too. (History:
+a 10 GiB MinIO, the previous object store, filled in **two days** on a full
+platform; RustFS once hit 100 % when Velero file-copied the object store's own
+volume into itself, which is why Velero file backup is now opt-in.)
 
 **Confirm:**
 
 ```bash
-kubectl -n adhar-system get pvc | grep minio
+kubectl -n adhar-system get pvc rustfs-data
+kubectl -n adhar-system exec deploy/rustfs -- df -h /data
 kubectl -n adhar-system get cluster -o custom-columns=\
 NAME:.metadata.name,STATUS:.status.phase,LASTFAILED:.status.lastFailedBackup
 ```
 
 **Fix:**
 
-1. Expand MinIO (`persistence.size: 100Gi` in the package values, plus a live
-   PVC patch so it takes effect now).
-2. Set a CNPG `retentionPolicy` (7d) on **every** platform database so WAL is
-   actually retired.
+1. Expand `rustfs-data` (the request in
+   `platform/stack/packages/data/rustfs/manifests/install.yaml`, plus a live
+   PVC patch so it takes effect now; PVCs can grow but never shrink).
+2. Keep a CNPG `retentionPolicy` (7d is the platform default) on **every**
+   platform database so WAL is actually retired.
 3. Expand any Postgres PVC that already filled ([7.1](#71-keycloak-503-on-every-login--its-database-filled)).
 4. In production, point the BackupStorageLocation at real object storage rather
-   than in-cluster MinIO — see [PRODUCTION §8](PRODUCTION.md#8-backup-and-disaster-recovery).
+   than the in-cluster store — see [PRODUCTION §8](PRODUCTION.md#8-backup-and-disaster-recovery).
 
-**Alert on this before it happens:** PVC usage > 80% on the MinIO claim, and
+**Alert on this before it happens:** PVC usage > 80% on the `rustfs-data` claim, and
 CNPG `lastFailedBackup` on any cluster.
 
 ---
@@ -1114,11 +1120,13 @@ controller never runs there — and pushing a dev image needs Harbor, which need
 volumes, which needs nodes. Run the manager out-of-cluster instead:
 
 ```bash
+# kubeconfig: the cluster is `adhar` unless --name was passed; --platform-name is
+# the AdharPlatform resource, which is named after the environment (here `dev`).
 # Stop the released one first, or leader election keeps the lease and your build idles
 kubectl -n adhar-system scale deploy adhar-controller-manager --replicas=0
 
 ./adhar controller \
-  --kubeconfig ~/.adhar/clusters/dev/kubeconfig \
+  --kubeconfig ~/.adhar/clusters/adhar/kubeconfig \
   --platform-name dev \
   --leader-elect=false \
   --log-level debug

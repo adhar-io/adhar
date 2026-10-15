@@ -377,6 +377,10 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		finish(true)
 		return err
 	}
+	if err := verifyConsoleReady(context.Background(), kubeClient); err != nil {
+		finish(true)
+		return err
+	}
 
 	finish(false)
 	return nil
@@ -429,7 +433,7 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 					// cursor under the tracker's feet and orphaned a copy of the
 					// whole block — two "Provisioning Adhar Platform" headers, 15s
 					// apart, on the 2026-10-09 AWS bring-up.
-					logger.Warnf("could not read platform status for %s (%v) — stopping the wait; ArgoCD keeps converging in the background",
+					logger.Warnf("could not read platform status for %s (%v) — stopping the wait; `adhar up` completes only if adhar-console is Healthy and serving",
 						time.Duration(readFailures)*interval, err)
 					if cancel != nil {
 						cancel()
@@ -470,7 +474,7 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 				continue
 			}
 			if time.Since(started) >= budget {
-				logger.Infof("apps budget of %s spent — ArgoCD keeps converging in the background", budget)
+				logger.Infof("apps budget of %s spent — stopping the wait; `adhar up` completes only if adhar-console is Healthy and serving", budget)
 				if cancel != nil {
 					cancel()
 				}

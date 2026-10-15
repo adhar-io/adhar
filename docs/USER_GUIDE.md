@@ -26,7 +26,7 @@ New here? [Getting Started](GETTING_STARTED.md) gets you a platform in 10 minute
 Four facts explain almost everything you will hit.
 
 - **Git is the write path.** The platform's desired state lives in three Gitea repositories under the `adhar` org — `packages` (rendered manifests for every package), `environments` (the package set per environment) and `templates` (service scaffolding). ArgoCD reconciles from them with `selfHeal` on, so a `kubectl edit` on a managed object is reverted within a minute. Change Git instead.
-- **Everything is a package behind an `enabled` flag.** 91 packages, wired as **94 ApplicationSet entries** (three packages ship more than one variant). The local profile enables a curated **32**; production enables **76**.
+- **Everything is a package behind an `enabled` flag.** 100+ packages, wired as ApplicationSet entries (a few packages ship more than one variant). The local profile enables a curated subset; production enables most of the catalogue. `adhar stack list` shows the live numbers.
 - **One namespace.** Every platform package installs into `adhar-system` (ADR-0011). The single exception is `buildpack` (kpack), which keeps `kpack-system` because kpack's and Cosign's webhooks both hardcode the same Secret name. Your applications get their own namespaces.
 - **Self-service infrastructure is a Kubernetes API.** Databases, clusters, networks and environments are requested as namespaced Crossplane composite resources (`Database`, `Cluster`, …) in *your* namespace, so ordinary RBAC decides who may ask for what.
 
@@ -55,7 +55,7 @@ Every UI is a subdomain of the platform host on the shared Cilium Gateway. Local
 | Nexus | `https://nexus.adhar.localtest.me:8443` | Language artifact repository |
 | Tekton | `https://tekton.adhar.localtest.me:8443` | CI pipeline runs |
 | LibreDB Studio | `https://libredb.adhar.localtest.me:8443` | Browser SQL IDE — see [§7](#7-query-the-platforms-data) |
-| MinIO | `https://minio.adhar.localtest.me:8443` | S3-compatible object storage |
+| RustFS | `https://rustfs.adhar.localtest.me:8443` | S3-compatible object storage (the platform store) |
 | Kafka UI | `https://kafka-ui.adhar.localtest.me:8443` | Topics and consumer groups |
 | Loki / Mimir / Tempo | `https://{loki,mimir,tempo}.adhar.localtest.me:8443` | Log, metric and trace backends (use Grafana normally) |
 | Policy Reporter | `https://policy-reporter.adhar.localtest.me:8443` | Kyverno policy results |
@@ -337,7 +337,7 @@ The Console executes a scaffold through its own `POST /api/scaffold`, which crea
 **The `ml` golden path in detail.** It is the one path that does *not* use `adhar:create-argocd-app`; instead the skeleton ships `.adhar/app.yaml`, a `Application`, and the platform's `adhar-services` ApplicationSet adopts any org repo carrying that descriptor. You get:
 
 - `pipelines/pipeline.py` — a KFP v2 pipeline (`kfp==2.11.0`) with two components: `load_data` (a scikit-learn sample dataset → parquet, **the placeholder you replace** with a real extract, e.g. the Iceberg table from the `data-pipeline` path) and `train_model` (RandomForest, logging `accuracy` / `f1` / `roc_auc`, `joblib.dump` to `Output[Model]`). Compile with `python pipelines/pipeline.py`; submit with `kfp --endpoint "$KFP_ENDPOINT" run create --experiment-name <modelName> --package-file pipelines/pipeline.yaml`.
-- **Artifacts on the platform MinIO.** KFP v2's pipeline root is the shared `data/minio`, so `Output[Model]` *is* the model registry entry — versioned per run, addressable as an `s3://` URI on the run's artifact page. No MLflow package ships; wiring one is a single `MLFLOW_TRACKING_URI` in the ConfigMap plus uncommenting the `mlflow.log_*` calls.
+- **Artifacts on the platform object store (RustFS).** KFP v2's pipeline root is the shared `data/rustfs` store (`mlpipeline` bucket), so `Output[Model]` *is* the model registry entry — versioned per run, addressable as an `s3://` URI on the run's artifact page. MLflow is in the catalogue (`data/mlflow`) but off by default; to use it, `adhar stack enable mlflow`, then set `MLFLOW_TRACKING_URI` in the ConfigMap and uncomment the `mlflow.log_*` calls.
 - `serving/main.py` — FastAPI model server on :8080 with `/healthz`, `/readyz` and `POST /predict` taking `{"features": [...]}`. It downloads the model from `MODEL_URI` via boto3 at first use. **With `MODEL_URI` unset it serves a deterministic stub and still reports ready**, so the Deployment and every PR preview are green from the first commit.
 - `manifests/cronjob.yaml` — the retraining job, default `0 3 * * 0` (weekly, Sunday 03:00 UTC), `concurrencyPolicy: Forbid`. It does **not** train in-cluster: it submits the compiled pipeline to Kubeflow Pipelines so runs are tracked and artifacts land in the platform store.
 - ConfigMap `<name>-model` carrying `MODEL_NAME`, `MODEL_VERSION`, `MODEL_URI`, `S3_ENDPOINT`, `KFP_ENDPOINT`, `KFP_EXPERIMENT`, `TRAINING_FRAMEWORK`.
@@ -354,7 +354,7 @@ A repo carrying `.adhar/app.yaml` is adopted by the `adhar-services` Application
 
 ## 5. Preview a pull request
 
-Every pull request can get its own running copy of your application at its own URL: created when the PR is labelled, updated on every push, destroyed when it closes. It is shipped by the `application/preview-environments` package (enabled in the local, production and gitops profiles) and is entirely declarative — nothing in CI creates or deletes an environment.
+Every pull request can get its own running copy of your application at its own URL: created when the PR is labelled, updated on every push, destroyed when it closes. It is shipped by the `application/adhar-preview-environments` package — enabled in the production and gitops profiles, **off in the curated local profile** (turn it on locally with `adhar stack enable adhar-preview-environments`, then `adhar upgrade`). It is entirely declarative: nothing in CI creates or deletes an environment.
 
 ### One-time, per repository
 
@@ -709,7 +709,7 @@ client.chat.completions.create(model="qwen2.5-0.5b-instruct",
 
 There is also a direct route at `https://vllm.<host>/v1` for curling from a laptop. **It is unauthenticated** — a debugging path. Do not expose it on an internet-facing platform: delete the package's `httproute.yaml`, or front it with the Keycloak oauth2-proxy pattern from `application/n8n`. Real access control belongs in agentgateway.
 
-Locally, free headroom first: the CPU profile asks for 6Gi on top of the 32-app core, and cold start is image pull → ~1 GB model download → torch compile (all cached on the PVC, so the second start is fast). The GPU profile needs a GPU node pool with the NVIDIA device plugin advertising `nvidia.com/gpu` and nodes labelled `nvidia.com/gpu.present=true`; without it the pod stays `Pending` forever. Watch it in Grafana → *Platform* → **Adhar - vLLM Inference** (throughput, time-to-first-token, queue depth, KV-cache utilisation); sustained preemptions mean the KV cache is full. Gated models (Llama, Gemma) need a HuggingFace token at `secret/vllm/hf`, property `HF_TOKEN`, read through the `vault` ClusterSecretStore.
+Locally, free headroom first: the CPU profile asks for 6Gi on top of the curated local profile, and cold start is image pull → ~1 GB model download → torch compile (all cached on the PVC, so the second start is fast). The GPU profile needs a GPU node pool with the NVIDIA device plugin advertising `nvidia.com/gpu` and nodes labelled `nvidia.com/gpu.present=true`; without it the pod stays `Pending` forever. Watch it in Grafana → *Platform* → **Adhar - vLLM Inference** (throughput, time-to-first-token, queue depth, KV-cache utilisation); sustained preemptions mean the KV cache is full. Gated models (Llama, Gemma) need a HuggingFace token at `secret/vllm/hf`, property `HF_TOKEN`, read through the `vault` ClusterSecretStore.
 
 ### Self-hosted inference behind llm-d (the secondary model)
 
@@ -887,7 +887,7 @@ With no config file `adhar up` creates a **local Kind** platform and runs the co
 - **Gateway `Programmed=True`**, with the `cilium-gateway-adhar-gateway` Service a NodePort pinned to `30080` / `30443` / `8443`.
 - **GitOps seeded** — the `adhar` org exists in Gitea with `packages`, `environments` and `templates` populated, and the `gitea-argocd` Service (ArgoCD → Gitea repo auth) is present.
 - **2 ApplicationSets** — the platform one plus the workload one (which generates nothing until workload clusters register).
-- **32 applications** converging locally. A few (CNPG-backed apps, Keycloak) sit `Progressing`/`Degraded` for the first 2–3 minutes; that is normal.
+- **The curated local profile's applications** converging locally (`adhar stack list` shows which). A few (CNPG-backed apps, Keycloak) sit `Progressing`/`Degraded` for the first 2–3 minutes; that is normal.
 - **`AdharPlatform` conditions all True** — `ArgoCDReady`, `GatewayReady`, `GiteaReady`, `CrossplaneReady`, `GitOpsReady`, and aggregate `Ready`.
 
 ### Verify it is healthy
@@ -942,7 +942,7 @@ The same CRDs, reconcile pipeline and embedded manifests drive both. They differ
 | Controller | **in-process, exits on convergence** | in-process bootstrap → `adhar-controller-manager` Deployment, continuous |
 | Foundation | single replica | HA: replicas, PDBs, HA redis, CNPG for Gitea |
 | Gateway edge | NodePort pinned 30080/30443/8443 | LoadBalancer + cert-manager listener cert |
-| Packages enabled | 32 of 94 | 76 of 94 |
+| Packages enabled | the curated local profile (a small core) | the production profile (most of the 100+ packages); `adhar stack list` for live numbers |
 | Secrets backend | none (kubernetes-provider stores) | OpenBao |
 | Recovery | **re-run `adhar up`** | the in-cluster controller self-heals every 15s |
 

@@ -6,3 +6,6 @@ metadata:
     entity-id: ${{values.name}}
     app.kubernetes.io/name: ${{values.name}}
     adhar.io/owner: ${{values.owner}}
+    # Workload plane: required by the namespace-governance policy, and what
+    # lets the platform-object-storage store serve this namespace.
+    adhar.io/plane: workload

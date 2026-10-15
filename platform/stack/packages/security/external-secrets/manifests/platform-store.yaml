@@ -52,6 +52,14 @@ metadata:
     argocd.argoproj.io/sync-wave: "5"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
+  # PLATFORM-ONLY. A ClusterSecretStore with no `conditions` serves every
+  # namespace, so anyone allowed to create an ExternalSecret anywhere (the
+  # built-in edit/admin roles are) could read whatever this store can reach.
+  # Restricted by namespace NAME, which a tenant cannot create or rename.
+  # Tenant namespaces use the narrow stores in
+  # security/external-secrets/manifests/platform-store.yaml instead.
+  conditions:
+    - namespaces: [adhar-system]
   provider:
     kubernetes:
       remoteNamespace: adhar-system
@@ -59,3 +67,126 @@ spec:
         caProvider: {type: ConfigMap, name: kube-root-ca.crt, namespace: adhar-system, key: ca.crt}
       auth:
         serviceAccount: {name: eso-store-platform, namespace: adhar-system}
+# ---------------------------------------------------------------------------
+# Narrow stores for TENANT namespaces.
+#
+# `platform` above reads every Secret in adhar-system, so it is restricted to
+# adhar-system. A few things the platform creates in tenant namespaces still
+# need one specific platform credential; each gets a store whose
+# ServiceAccount can `get` ONLY those named Secrets (RBAC `resourceNames`), so
+# a tenant who writes their own ExternalSecret against it can reach those keys
+# and nothing else. ESO validates a kubernetes-provider store by checking for
+# `get` on `secrets` in a SelfSubjectRulesReview, which a resourceNames rule
+# satisfies, and reads by name, which the rule permits.
+#
+# Both serve only namespaces the platform itself labels `adhar.io/plane`
+# workload (Project namespaces, golden-path namespaces) or preview (PR
+# previews). Tenant roles are namespace-scoped and cannot label a Namespace.
+#
+#   platform-object-storage  root-creds                  database / pipeline backups to RustFS
+#   platform-delivery        gitea-ci-creds, harbor-push  Kargo in a Project namespace
+# ---------------------------------------------------------------------------
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-store-object-storage
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eso-store-object-storage
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [root-creds]
+    verbs: [get]
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectrulesreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eso-store-object-storage
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+subjects:
+  - {kind: ServiceAccount, name: eso-store-object-storage, namespace: adhar-system}
+roleRef: {kind: Role, name: eso-store-object-storage, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: platform-object-storage
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  conditions:
+    - namespaceSelector:
+        matchExpressions:
+          - {key: adhar.io/plane, operator: In, values: [workload, preview]}
+  provider:
+    kubernetes:
+      remoteNamespace: adhar-system
+      server:
+        caProvider: {type: ConfigMap, name: kube-root-ca.crt, namespace: adhar-system, key: ca.crt}
+      auth:
+        serviceAccount: {name: eso-store-object-storage, namespace: adhar-system}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-store-delivery
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eso-store-delivery
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [gitea-ci-creds, harbor-push]
+    verbs: [get]
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectrulesreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eso-store-delivery
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+subjects:
+  - {kind: ServiceAccount, name: eso-store-delivery, namespace: adhar-system}
+roleRef: {kind: Role, name: eso-store-delivery, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: platform-delivery
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  conditions:
+    - namespaceSelector:
+        matchExpressions:
+          - {key: adhar.io/plane, operator: In, values: [workload, preview]}
+  provider:
+    kubernetes:
+      remoteNamespace: adhar-system
+      server:
+        caProvider: {type: ConfigMap, name: kube-root-ca.crt, namespace: adhar-system, key: ca.crt}
+      auth:
+        serviceAccount: {name: eso-store-delivery, namespace: adhar-system}

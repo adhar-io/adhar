@@ -506,7 +506,7 @@ export AWS_ACCESS_KEY_ID="…" AWS_SECRET_ACCESS_KEY="…"
 ./adhar up -f examples/aws-config.yaml --env dev --dry-run   # config only, no spend
 ./adhar up -f examples/aws-config.yaml --env dev             # ~25-40 min on a first run
 
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 ./adhar get status
 ```
 

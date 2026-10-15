@@ -11,7 +11,7 @@ no configuration file, and the only path exercised continuously by CI.
 |---|---|
 | Provisioning model | Kind (Kubernetes in containers) on Docker, Podman or nerdctl; Adhar supplies the CNI |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
-| Package set | A curated local-development core (15 of 97 elements): the console with its database, SSO, cache and object store, the golden path (Tekton, buildpack, Harbor, supply-chain with its Kyverno policies), plus metrics-server, kube-prometheus and Headlamp. Production delivery, CI infrastructure and heavy JVM services (Kafka, Nexus, Dapr, the Loki/Tempo/Mimir pipelines, preview environments) stay wired but disabled, not the full catalogue |
+| Package set | The curated local profile (a small core of the 100+ package catalogue; `adhar stack list` for the live set): the console with its database, SSO, cache and object store, the golden path (Tekton, buildpack, Harbor, supply-chain with its Kyverno policies), plus metrics-server, kube-prometheus and Headlamp. Production delivery, CI infrastructure and heavy JVM services (Kafka, Nexus, Dapr, the Loki/Tempo/Mimir pipelines, preview environments) stay wired but disabled, not the full catalogue |
 
 ## 1. Requirements
 

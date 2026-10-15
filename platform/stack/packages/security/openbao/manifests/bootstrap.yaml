@@ -240,6 +240,36 @@ data:
       policies="external-secrets" \
       ttl="1h" >/dev/null
 
+    # Tenant secrets. ClusterSecretStore/vault is restricted to adhar-system
+    # (it can read every path), so a tenant reads OpenBao through a
+    # SecretStore in its OWN namespace instead. One kubernetes-auth role
+    # serves every namespace, and one templated policy confines each login to
+    # secret/tenants/<that namespace>/*, using the service_account_namespace
+    # the kubernetes auth method records on the login's entity alias. A tenant
+    # can only mint a token for a ServiceAccount in a namespace it controls,
+    # so it can never name another namespace's path.
+    K8S_ACCESSOR="$(bao auth list 2>/dev/null | awk '/^kubernetes\//{print $3; exit}')"
+    if [ -n "${K8S_ACCESSOR}" ]; then
+      log "writing policy tenant-secrets"
+      NS_TMPL="{{identity.entity.aliases.${K8S_ACCESSOR}.metadata.service_account_namespace}}"
+      printf '%s\n' \
+        "path \"secret/data/tenants/${NS_TMPL}/*\" {" \
+        '  capabilities = ["read"]' \
+        '}' \
+        "path \"secret/metadata/tenants/${NS_TMPL}/*\" {" \
+        '  capabilities = ["read", "list"]' \
+        '}' > /tmp/tenant-secrets.hcl
+      bao policy write tenant-secrets /tmp/tenant-secrets.hcl
+      log "creating kubernetes auth role tenant"
+      bao write auth/kubernetes/role/tenant \
+        bound_service_account_names="adhar-secrets" \
+        bound_service_account_namespaces="*" \
+        policies="tenant-secrets" \
+        ttl="1h" >/dev/null
+    else
+      log "ERROR: kubernetes auth accessor not found — tenant role not created; re-run by syncing the openbao app"
+    fi
+
     # ---------------------------------------------------------------------
     # 5. OIDC auth method (Keycloak) — enables "Sign in with OIDC" in the
     #    OpenBao UI. It needs the `openbao` Keycloak client secret (openbao-oidc
@@ -343,9 +373,15 @@ data:
       log "mapping Keycloak groups to OpenBao policies"
       printf 'path "*" { capabilities = ["create","read","update","delete","list","patch","sudo"] }\n' \
         | bao policy write platform-admin - >/dev/null 2>&1 || true
-      printf 'path "secret/*" { capabilities = ["create","read","update","delete","list","patch"] }\npath "sys/mounts" { capabilities = ["read","list"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n' \
+      # Platform-owned paths (bootstrap break-glass credentials, the AI
+      # layer's LLM key, the Hugging Face token) are DENIED to developers and
+      # viewers; an explicit deny overrides the broad secret/* grant. Without
+      # this a platform-viewer, whose Kubernetes role cannot read Secrets,
+      # could read the bootstrap admin passwords here.
+      PLATFORM_DENY='path "secret/data/adhar/*" { capabilities = ["deny"] }\npath "secret/metadata/adhar/*" { capabilities = ["deny"] }\npath "secret/data/adhar-ai/*" { capabilities = ["deny"] }\npath "secret/metadata/adhar-ai/*" { capabilities = ["deny"] }\npath "secret/data/vllm/*" { capabilities = ["deny"] }\npath "secret/metadata/vllm/*" { capabilities = ["deny"] }\n'
+      printf "path \"secret/*\" { capabilities = [\"create\",\"read\",\"update\",\"delete\",\"list\",\"patch\"] }\npath \"sys/mounts\" { capabilities = [\"read\",\"list\"] }\npath \"auth/token/lookup-self\" { capabilities = [\"read\"] }\n${PLATFORM_DENY}" \
         | bao policy write platform-developer - >/dev/null 2>&1 || true
-      printf 'path "secret/*" { capabilities = ["read","list"] }\npath "sys/mounts" { capabilities = ["read","list"] }\n' \
+      printf "path \"secret/*\" { capabilities = [\"read\",\"list\"] }\npath \"sys/mounts\" { capabilities = [\"read\",\"list\"] }\n${PLATFORM_DENY}" \
         | bao policy write platform-viewer - >/dev/null 2>&1 || true
       OIDC_ACCESSOR="$(bao auth list 2>/dev/null | awk '/^oidc\//{print $3; exit}')"
       for g in platform-admin platform-developer platform-viewer; do

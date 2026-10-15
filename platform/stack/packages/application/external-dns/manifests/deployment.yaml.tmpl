@@ -9,7 +9,8 @@
 #                   derived from the cloud provider / globalSettings.dnsProvider;
 #                   "inmemory" on a local cluster (no cloud calls, no credentials)
 #   domain-filter   the platform host, so only the platform zone is touched
-#   txt-owner-id    adhar-<cluster>, so several clusters can share one zone
+#   txt-owner-id    adhar-<host> (adhar-<cluster> only when no host is set);
+#                   see BuildCustomizationSpec.TXTOwnerID for why the host
 #   credentials     the adhar-dns-provider Secret created by the CLI at bootstrap
 #                   (never in Git), exposed as the provider's own env vars/files
 #

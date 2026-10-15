@@ -30,7 +30,7 @@
 
 Traditional platforms force organizations to choose: either give developers freedom (leading to inconsistent architectures and security gaps) or enforce governance (creating bottlenecks and slowing teams down). Adhar takes a fundamentally different approach—**standardization as enablement, not constraint.**
 
-Adhar delivers battle-tested architectural patterns with 50+ production-grade services—from Kubernetes and Cilium to ArgoCD, Vault, Prometheus, and beyond—all pre-configured, security-hardened, and ready to use. A single `adhar up` command provisions complete platforms across **AWS, Azure, GCP, DigitalOcean, Civo, or local Kind clusters in under 10 minutes**. No infrastructure tickets, no security reviews, no integration projects. Developers get instant self-service access to everything they need, while organizations get consistent, secure, compliant infrastructure enforced automatically through code.
+Adhar delivers battle-tested architectural patterns with 100+ production-grade packages—from Kubernetes and Cilium to ArgoCD, Vault, Prometheus, and beyond—all pre-configured, security-hardened, and ready to use. A single `adhar up` command provisions complete platforms across **AWS, Azure, GCP, DigitalOcean, Civo, or local Kind clusters in under 10 minutes**. No infrastructure tickets, no security reviews, no integration projects. Developers get instant self-service access to everything they need, while organizations get consistent, secure, compliant infrastructure enforced automatically through code.
 
 **The result:** Teams spend 100% of their time on business value, zero time on undifferentiated infrastructure work. 100% open source (Apache 2.0) with no vendor lock-in. This is the foundation modern engineering teams deserve.
 
@@ -50,7 +50,7 @@ Adhar delivers battle-tested architectural patterns with 50+ production-grade se
 | **🛡️ Security Built-In** | Zero-trust networking, secrets vault, vulnerability scanning, policy enforcement |
 | **📊 Complete Observability** | Prometheus, Grafana, Loki, Tempo and Hubble configured with auto instrument |
 | **🤖 AI/ML Platform** | Jupyter, analytics, ETL and pipeline orchestration ready for data teams |
-| **📦 50+ Services Integrated** | From Kafka to databases - production-ready out-of-the-box services |
+| **📦 100+ Packages Integrated** | From Kafka to databases - production-ready out-of-the-box services |
 
 ---
 
@@ -174,7 +174,7 @@ Edit three fields: `globalSettings.defaultHost` (your zone),
 **5. Verify and get in.**
 
 ```bash
-export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+export KUBECONFIG=~/.adhar/clusters/adhar/kubeconfig   # cluster is `adhar` unless --name is passed
 kubectl get nodes
 ./adhar get status
 ./adhar get secrets -p argocd
@@ -197,7 +197,7 @@ Full reference, including day-2 operations and the limits that actually bite:
 
 ---
 
-## 📦 Integrated Tools (50+ Components)
+## 📦 Integrated Tools (100+ Packages)
 
 <details>
 <summary><b>Core Platform & Infrastructure (15)</b></summary>
@@ -292,7 +292,7 @@ Full reference, including day-2 operations and the limits that actually bite:
 - **Metabase** - Business intelligence dashboard
 - **PostgreSQL** - Relational database
 - **Valkey** - In-memory data store (Redis fork)
-- **MinIO** - S3-compatible object storage
+- **RustFS** - S3-compatible object storage (the platform store; MinIO remains an optional package)
 - **Kafka** - Distributed event streaming platform
 - **Airbyte** - Data integration & ELT platform
 - **Iceberg** - Open table format for data lakes

@@ -19022,7 +19022,9 @@ spec:
       app.kubernetes.io/instance: argo-rollouts
   strategy:
     type: RollingUpdate
-  replicas: 2
+  # One replica: the platform runs one copy of every component by default and
+  # scales where a cluster asks for HA (enableHAMode), not by shipping three.
+  replicas: 1
   revisionHistoryLimit: 10
   template:
     metadata:

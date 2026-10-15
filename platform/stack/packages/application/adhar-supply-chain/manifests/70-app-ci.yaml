@@ -397,7 +397,7 @@ spec:
             - name: filter
               value: >-
                 body.ref == 'refs/heads/main' &&
-                !(body.repository.name in ['adhar-ui','adhar-kit','packages','environments','templates','adhar-templates']) &&
+                !(body.repository.name in ['adhar-ui','adhar-kit','packages','environments','templates','adhar-templates','adhar']) &&
                 (!has(body.head_commit) || !body.head_commit.message.contains('[skip ci]'))
       bindings:
         - {ref: gitea-push}
@@ -418,7 +418,7 @@ spec:
               value: >-
                 has(body.pull_request) &&
                 body.action in ['opened','synchronized','reopened','label_updated'] &&
-                !(body.repository.name in ['adhar-ui','adhar-kit','packages','environments','templates','adhar-templates']) &&
+                !(body.repository.name in ['adhar-ui','adhar-kit','packages','environments','templates','adhar-templates','adhar']) &&
                 body.pull_request.labels.exists(l, l.name == 'preview')
       bindings:
         - {ref: gitea-pull-request}
