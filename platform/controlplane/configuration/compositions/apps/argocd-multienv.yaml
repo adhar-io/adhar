@@ -52,6 +52,19 @@ spec:
             {{- $source := default (dict) $params.source -}}
             {{- $repoURL := get $source "repoURL" -}}
             {{- if not $repoURL }}{{ fail "source.repoURL must be provided" }}{{ end -}}
+            {{- /* The platform's own Gitea is addressed IN-CLUSTER. The Argo CD
+                   AppProject allow-list and the Kargo git credential the Project
+                   composes are both written for gitea-http.adhar-system, while the
+                   console and CLI hand us the repository's PUBLIC clone URL
+                   (https://gitea.<domain>/<org>/<repo>.git) — a form that differs
+                   per installation and that nothing in-cluster needs. Left as-is,
+                   Argo CD refused the repo ("not permitted in project") and Kargo
+                   could not push ("could not read Username") on every app
+                   (2026-10-17). Repositories hosted elsewhere pass through unchanged. */ -}}
+            {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            {{- if regexMatch "^https?://gitea\\.[^/]+/" $repoURL -}}
+            {{-   $repoURL = regexReplaceAll "^https?://gitea\\.[^/]+/" $repoURL (printf "http://%s/" $giteaHost) -}}
+            {{- end -}}
             {{- $path := default "deploy" (get $source "path") -}}
             {{- $revision := default "main" (get $source "targetRevision") -}}
             {{- $project := default "adhar" $params.project -}}
@@ -59,6 +72,14 @@ spec:
             {{- $promo := default (dict) $params.promotion -}}
             {{- $promote := ternary (get $promo "enabled") true (hasKey $promo "enabled") -}}
             {{- $soak := default "0s" (get $promo "soakTime") -}}
+            {{- $verifyCfg := default (dict) (get $promo "verification") -}}
+            {{- $verify := ternary (get $verifyCfg "enabled") true (hasKey $verifyCfg "enabled") -}}
+            {{- $vInterval := default "60s" (get $verifyCfg "interval") -}}
+            {{- $vCount := default 5 (get $verifyCfg "count") -}}
+            {{- $vFail := default 1 (get $verifyCfg "failureLimit") -}}
+            {{- $errQuery := default "" (get $verifyCfg "errorRateQuery") -}}
+            {{- $errThreshold := default 0.01 (get $verifyCfg "errorRateThreshold") -}}
+            {{- $prom := "http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090" -}}
             {{- $imageCfg := default (dict) $params.image -}}
             {{- $strategy := default "NewestBuild" (get $imageCfg "selectionStrategy") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
@@ -128,12 +149,20 @@ spec:
                       {{ $k }}: {{ $v | quote }}
                       {{- end }}
                   spec:
+                    interval: 2m
                     subscriptions:
                       - image:
                           repoURL: {{ quote $image }}
                           # NewestBuild by default: CI tags images with the commit
                           # SHA, which has no order; Kargo ranks by creation time.
                           imageSelectionStrategy: {{ $strategy }}
+                          # Only what app-ci publishes is freight: it tags the SIGNED
+                          # image with the full commit SHA. Anything else in the
+                          # repository (a `latest`, a kpack `bN.<timestamp>` build,
+                          # a hand-pushed tag) is unsigned, Kyverno flags the pod,
+                          # and promoting it by digest would still deploy it.
+                          # (`allowTags` is refused outright since Kargo 1.11.)
+                          allowTagsRegexes: ["^[0-9a-f]{40}$"]
                           # Harbor serves its own internal CA; this hop never leaves
                           # the cluster network.
                           insecureSkipTLSVerify: true
@@ -166,6 +195,12 @@ spec:
                   metadata:
                     name: {{ quote $appName }}
                     namespace: adhar-system
+                    annotations:
+                      # Kargo refuses to update an Application that does not NAME
+                      # the Stage allowed to touch it ("is not authorized"), so the
+                      # promotion's last step failed after the commit was pushed
+                      # (2026-10-17). <kargo project namespace>:<stage>.
+                      kargo.akuity.io/authorized-stage: {{ quote (printf "%s:%s" $project $stage) }}
                     labels:
                       {{- range $k, $v := $labels }}
                       {{ $k }}: {{ $v | quote }}
@@ -197,6 +232,81 @@ spec:
                         kind: HTTPRoute
                         jsonPointers: ['/status']
             {{- if $promote }}
+            {{- if $verify }}
+            ---
+            # What "healthy in this environment" means, asked of Prometheus after
+            # every promotion: the Rollout reports Healthy, pods are Ready and none
+            # restarted during the window, plus the application's own error-rate
+            # query when it declares one. Kargo marks the freight verified only when
+            # every metric passes on every sample, and the next Stage requests only
+            # VERIFIED freight — so dev's measured health decides whether test gets
+            # the build, without anyone clicking; prod still waits for a Release.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: analysis-{{ $envName }}
+              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
+            spec:
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: argoproj.io/v1alpha1
+                  kind: AnalysisTemplate
+                  metadata:
+                    name: {{ quote (printf "%s-%s-health" $name $envName) }}
+                    namespace: {{ quote $project }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                      adhar.io/environment: {{ quote $envName }}
+                  spec:
+                    metrics:
+                      - name: rollout-healthy
+                        interval: {{ $vInterval }}
+                        count: {{ $vCount }}
+                        failureLimit: {{ $vFail }}
+                        successCondition: result[0] >= 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            # Argo Rollouts labels a finished canary "Completed" (and a stable one "Healthy");
+                            # matching only "Healthy" read 0 for every healthy rollout and failed each verification (2026-10-17).
+                            query: |
+                              sum(rollout_info{namespace="{{ $ns }}",name="{{ $name }}",phase=~"Healthy|Completed"}) or vector(0)
+                      - name: pods-ready
+                        interval: {{ $vInterval }}
+                        count: {{ $vCount }}
+                        failureLimit: {{ $vFail }}
+                        successCondition: result[0] >= 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: |
+                              sum(kube_pod_status_ready{namespace="{{ $ns }}",pod=~"{{ $name }}-[a-z0-9]+-[a-z0-9]+",condition="true"}) or vector(0)
+                      - name: no-restarts
+                        interval: {{ $vInterval }}
+                        count: {{ $vCount }}
+                        failureLimit: {{ $vFail }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: |
+                              sum(increase(kube_pod_container_status_restarts_total{namespace="{{ $ns }}",pod=~"{{ $name }}-[a-z0-9]+-[a-z0-9]+",container!="POD"}[5m])) or vector(0)
+                      {{- if $errQuery }}
+                      - name: error-rate
+                        interval: {{ $vInterval }}
+                        count: {{ $vCount }}
+                        failureLimit: {{ $vFail }}
+                        successCondition: result[0] < {{ $errThreshold }}
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (replace "$NAMESPACE" $ns $errQuery) }}
+                      {{- end }}
+            {{- end }}
             ---
             # Kargo Stage for this environment. Its label is what the project's
             # ProjectConfig promotion policy selects on (dev/test auto, prod manual).
@@ -232,6 +342,11 @@ spec:
                           {{- else }}
                           direct: true
                           {{- end }}
+                    {{- if $verify }}
+                    verification:
+                      analysisTemplates:
+                        - name: {{ quote (printf "%s-%s-health" $name $envName) }}
+                    {{- end }}
                     promotionTemplate:
                       spec:
                         steps:
@@ -250,8 +365,16 @@ spec:
                           - uses: git-commit
                             config:
                               path: ./src
-                              message: {{ printf "promote(%s): %s imageFrom(%q).Digest }}" $envName $ex $image | quote }}
+                              # "[skip ci]" — the app-ci trigger's CEL filter drops
+                              # pushes carrying it. A promotion commit that built again
+                              # would publish a new digest, which is new freight, which
+                              # is another promotion commit: a loop with no end.
+                              message: {{ printf "promote(%s): %s imageFrom(%q).Digest }} [skip ci]" $envName $ex $image | quote }}
+                          # `as` names the step's outputs: Kargo keys them by this
+                          # alias, not by `uses`, so a reference by step name read nil and every
+                          # promotion died at the Argo CD step AFTER pushing (2026-10-17).
                           - uses: git-push
+                            as: push
                             config:
                               path: ./src
                               targetBranch: {{ quote $revision }}
@@ -264,7 +387,7 @@ spec:
                                 - name: {{ quote $appName }}
                                   sources:
                                     - repoURL: {{ quote $repoURL }}
-                                      desiredRevision: {{ $ex }} outputs['git-push'].commit }}
+                                      desiredRevision: {{ $ex }} outputs.push.commit }}
             {{- end }}
             {{- $prev = $stage -}}
             {{- end }}

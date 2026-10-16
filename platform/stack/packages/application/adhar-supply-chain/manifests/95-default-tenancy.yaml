@@ -68,6 +68,13 @@ spec:
     description: The platform's default project — the home of applications onboarded without naming one.
     tier: prod
     createRepository: false
+    # Explicit, not left to the XRD default: a default is stamped into the XR
+    # once, when it is created, so a cluster built before the default was raised
+    # keeps the old cap for ever. These are caps per environment namespace, not
+    # consumption, and every application of the project shares them.
+    cpuQuota: "16"
+    memoryQuota: 32Gi
+    podQuota: 100
     environments:
       - {name: dev, tier: dev, namespace: dev, autoPromote: true, access: admin}
       - {name: test, tier: test, namespace: test, autoPromote: true, access: admin}

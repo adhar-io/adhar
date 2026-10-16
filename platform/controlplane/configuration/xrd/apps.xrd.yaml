@@ -275,6 +275,35 @@ spec:
                         default: 0s
                         description: Minimum time freight must be healthy in an upstream environment before it may
                           be promoted (Kargo requiredSoakTime).
+                      verification:
+                        type: object
+                        description: The Prometheus check every Stage runs after a promotion. Freight moves to the
+                          next environment only once verified here — the Rollout Healthy, pods Ready, no restarts
+                          over the window, and the application's own error-rate query when given.
+                        properties:
+                          enabled:
+                            type: boolean
+                            default: true
+                          interval:
+                            type: string
+                            default: 60s
+                            description: Time between samples.
+                          count:
+                            type: integer
+                            default: 5
+                            description: Samples that must pass (count × interval is the soak).
+                          failureLimit:
+                            type: integer
+                            default: 1
+                            description: Failed samples tolerated before the run fails.
+                          errorRateQuery:
+                            type: string
+                            description: Optional PromQL returning the application's error ratio (0-1), e.g. over
+                              http_server_requests_seconds_count. Write $NAMESPACE where the environment's
+                              namespace goes; it is substituted per Stage. Compared against errorRateThreshold.
+                          errorRateThreshold:
+                            type: number
+                            default: 0.01
               writeConnectionSecretToRef:
                 type: object
                 properties:

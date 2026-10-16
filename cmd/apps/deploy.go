@@ -104,7 +104,7 @@ func init() {
 	deployCmd.Flags().StringVar(&sourcePathFlag, "path", "", "Path within the repository or template to deploy")
 	deployCmd.Flags().StringVar(&destinationNSFlag, "dest-namespace", "", "Destination namespace for application workloads")
 	deployCmd.Flags().StringVar(&destinationSrv, "dest-server", "https://kubernetes.default.svc", "Destination cluster API server")
-	deployCmd.Flags().StringVar(&projectFlag, "project", "default", "ArgoCD project to associate with the application")
+	deployCmd.Flags().StringVar(&projectFlag, "project", "adhar", "Platform Project the application belongs to; its environments (dev/test/prod namespaces) and promotion policy come from it")
 	deployCmd.Flags().StringArrayVar(&paramFlags, "param", nil, "Template parameter as key=value (repeatable); see 'adhar application templates'")
 	deployCmd.Flags().StringVar(&envFlag, "env", "", "Environment the app is published in; part of its hostname (default "+globals.DefaultEnvironment()+")")
 }

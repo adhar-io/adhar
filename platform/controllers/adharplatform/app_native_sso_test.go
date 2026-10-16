@@ -520,7 +520,9 @@ func TestConsoleMayWriteTenancyXRs(t *testing.T) {
 			for _, v := range toSlice(rule["verbs"]) {
 				verbs[toString(v)] = true
 			}
-			for _, want := range []string{"organisations", "teams"} {
+			// `applications`: a scaffold registers its deployable as an Application XR
+			// (the composition fans it out to per-environment Argo CD apps + Kargo).
+			for _, want := range []string{"organisations", "teams", "applications"} {
 				if !have[want] {
 					t.Errorf("console-tenant-provisioner's platform.adhar.io rule lacks %s", want)
 				}

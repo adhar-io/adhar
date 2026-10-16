@@ -110,3 +110,12 @@ func TestMessagingMarksItsStatuslessResourcesReady(t *testing.T) {
 		}
 	}
 }
+
+// A KafkaTopic object is named after its cluster, with the requested topic name
+// in spec.topicName: two Messaging XRs in one namespace may both want "events".
+func TestMessagingTopicObjectsAreNamedByTheirCluster(t *testing.T) {
+	comp := readConfigurationFile(t, "compositions", "messaging", "local-strimzi.yaml")
+	if !strings.Contains(comp, "name: {{ $name }}-{{ .name }}") || !strings.Contains(comp, "topicName: {{ .name }}") {
+		t.Error("KafkaTopic objects are named by the bare topic name; two Messaging XRs asking for the same topic in one namespace compose the same object")
+	}
+}

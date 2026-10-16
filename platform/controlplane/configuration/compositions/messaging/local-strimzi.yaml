@@ -81,6 +81,21 @@ spec:
             spec:
               replicas: 1
               roles: [controller, broker]
+              # Explicit, because the broker otherwise inherits whatever LimitRange
+              # the namespace carries: in an environment namespace that is a 512Mi
+              # default limit, Strimzi sizes the heap from the limit, and the log
+              # cleaner's 128 MB dedupe buffer alone pushed it into
+              # "java.lang.OutOfMemoryError: Java heap space" on every start —
+              # exit 1, CrashLoopBackOff, while the SAME composition in
+              # adhar-system (no LimitRange) ran fine (2026-10-17). The request
+              # stays small; the limit and -Xmx are what a one-node KRaft broker
+              # needs to start.
+              resources:
+                requests: {cpu: 200m, memory: 768Mi}
+                limits: {memory: 1536Mi}
+              jvmOptions:
+                -Xms: 512m
+                -Xmx: 1024m
               storage:
                 type: persistent-claim
                 size: {{ $size }}
@@ -109,6 +124,9 @@ spec:
                   transaction.state.log.min.isr: 1
                   default.replication.factor: 1
                   min.insync.replicas: 1
+                  # A one-node team broker does not need Kafka's 128 MB per-thread
+                  # dedupe buffer for log compaction; 32 MB keeps the heap small.
+                  log.cleaner.dedupe.buffer.size: 33554432
                 metricsConfig:
                   type: jmxPrometheusExporter
                   valueFrom:
@@ -158,13 +176,20 @@ spec:
             apiVersion: kafka.strimzi.io/v1
             kind: KafkaTopic
             metadata:
-              name: {{ .name }}
+              # The OBJECT is named after its cluster; the Kafka topic keeps the
+              # name the team asked for (spec.topicName). Two Messaging XRs in one
+              # namespace both asking for a topic called "events" otherwise
+              # compose the same object and fight over it ("Only one reference
+              # can have Controller set to true", 2026-10-17) — the second
+              # team's topic never exists and its XR never becomes Ready.
+              name: {{ $name }}-{{ .name }}
               namespace: {{ $ns }}
               labels:
                 strimzi.io/cluster: {{ $name }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: topic-{{ .name }}
             spec:
+              topicName: {{ .name }}
               partitions: {{ dig "partitions" 3 . }}
               replicas: {{ dig "replicas" 1 . }}
             {{- end }}

@@ -604,7 +604,18 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	// as a YAML flow sequence (`hostnames: ${{ values.hostnamesJson }}`). The
 	// platform route is always first; `--set customHostnames=a.example.org,b`
 	// adds the team's own on top (scaffold_hosts.go).
-	values["hostnamesJson"] = routeHostnamesJSON(stringify(values["hostname"]), stringify(params["customHostnames"]))
+	values["hostnamesJson"] = routeHostnamesJSON(stringify(values["hostname"]), "")
+	// One list per environment for the dev/test/prod overlays. The platform
+	// route is <app>.<env>.<base>; custom hostnames are a production concern
+	// and go on prod only.
+	for _, e := range []string{"dev", "test", "prod"} {
+		h := envHostname(stringify(values["hostname"]), env, e)
+		custom := ""
+		if e == "prod" {
+			custom = stringify(params["customHostnames"])
+		}
+		values[e+"HostnamesJson"] = routeHostnamesJSON(h, custom)
+	}
 	ctxVals := map[string]any{"values": values, "parameters": params}
 
 	tree, _, err := gc.GetTrees(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, gitea.ListTreeOptions{

@@ -1,0 +1,136 @@
+# The Adhar Console's API token for Strapi.
+# Target: platform/stack/packages/application/strapi/manifests/console-token.yaml
+#
+# Develop → Content reads and writes through Strapi's Content API (`/api/…`),
+# which accepts only an API token. Nothing provisioned one: Strapi's admin is
+# Keycloak SSO only, so the console asked an operator to create a token by hand.
+#
+# Strapi stores an API token only as HMAC-SHA512(API_TOKEN_SALT, key) in
+# `strapi_api_tokens` (admin/server/src/services/api-token.ts `hash`). The salt
+# is already ours (strapi-secrets), so the platform decides the key itself:
+#   1. this file generates the key once into Secret `strapi-api-token`;
+#   2. Strapi's boot script (install.yaml step 3c) registers its hash as a
+#      full-access token named "Adhar Console", repairing it if edited/deleted;
+#   3. the console lists the Secret in envFrom (optional); the Job below
+#      restarts the console once if it started before the Secret existed.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: strapi-console-token
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 64
+  digits: 10
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: strapi-api-token
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: strapi-api-token
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: strapi
+      data:
+        STRAPI_TOKEN: '{{ .TOKEN }}'
+        STRAPI_URL: http://strapi.adhar-system.svc.cluster.local:1337
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: strapi-console-token
+      rewrite:
+        - transform:
+            template: 'TOKEN'
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: strapi-console-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: strapi-console-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["strapi-api-token"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: strapi-console-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: strapi-console-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: strapi-console-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: strapi-console-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: strapi-console-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/alpine/k8s:1.31.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system; DEPLOY=adhar-console; SECRET=strapi-api-token
+              if ! kubectl -n "$NS" get deployment "$DEPLOY" >/dev/null 2>&1; then
+                echo "$DEPLOY is not deployed in this profile; nothing to reload."; exit 0
+              fi
+              ok=""
+              for i in $(seq 1 12); do
+                if kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.data.STRAPI_TOKEN}' 2>/dev/null | grep -q .; then ok=1; break; fi
+                echo "waiting for $SECRET ($i)"; sleep 10
+              done
+              [ -n "$ok" ] || { echo "$SECRET not ready; retries next sync"; exit 0; }
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              POD_TS=$(kubectl -n "$NS" get pods -l app=console -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
+              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+                echo "console pod is newer than $SECRET; nothing to do."; exit 0
+              fi
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=180s || true
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}

@@ -100,3 +100,14 @@ func contains(list []string, s string) bool {
 	}
 	return false
 }
+
+// envHostname moves a platform route from one environment to another:
+// `app.dev.base` → `app.test.base`. A hostname that does not carry the
+// current environment label (a template's local fallback) is returned as is.
+func envHostname(hostname, currentEnv, targetEnv string) string {
+	marker := "." + currentEnv + "."
+	if i := strings.Index(hostname, marker); i > 0 {
+		return hostname[:i] + "." + targetEnv + "." + hostname[i+len(marker):]
+	}
+	return hostname
+}

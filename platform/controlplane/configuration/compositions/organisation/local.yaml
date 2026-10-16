@@ -86,6 +86,15 @@ spec:
                       platform.adhar.io/self-service: "true"
                       adhar.io/organisation: {{ $name | quote }}
                       adhar.io/plane: workload
+                      # A project named after its organisation lives in THIS
+                      # namespace (the project composition defers the namespace
+                      # to the organisation), and Kargo refuses to initialise a
+                      # Project whose namespace it did not label: on 2026-10-16
+                      # `Project adhar` sat Ready=False with "namespace adhar
+                      # does not belong to Kargo", so no application in it could
+                      # get a Warehouse or a Stage. Harmless on an organisation
+                      # that never hosts a Kargo project.
+                      kargo.akuity.io/project: "true"
                       {{- range $k, $v := $extra }}
                       {{ $k }}: {{ $v | quote }}
                       {{- end }}

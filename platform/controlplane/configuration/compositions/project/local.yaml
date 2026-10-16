@@ -53,9 +53,14 @@ spec:
             {{- $team := dig "team" "platform" $p -}}
             {{- $tier := dig "tier" "dev" $p -}}
             {{- $desc := dig "description" "" $p -}}
-            {{- $cpu := dig "cpuQuota" "4" $p -}}
-            {{- $mem := dig "memoryQuota" "8Gi" $p -}}
-            {{- $pods := dig "podQuota" 30 $p -}}
+            {{- /* Quota defaults are CAPS for one environment of one project, which hosts
+                   every application of that project: at 4 CPU / 8Gi / 30 pods the default
+                   project's dev namespace was full after five small services and refused
+                   the sixth's cache ("exceeded quota: dev-quota", 2026-10-17). They must
+                   agree with the XRD defaults (project.xrd.yaml, env.xrd.yaml). */ -}}
+            {{- $cpu := dig "cpuQuota" "16" $p -}}
+            {{- $mem := dig "memoryQuota" "32Gi" $p -}}
+            {{- $pods := dig "podQuota" 100 $p -}}
             {{- $repo := dig "createRepository" true $p -}}
             {{- $registry := dig "imageRegistry" "harbor-core.adhar-system.svc.cluster.local/library" $p -}}
             {{- $extraRepos := dig "allowedSourceRepos" (list) $p -}}
@@ -339,7 +344,12 @@ spec:
                         metadata:
                           labels: { kargo.akuity.io/cred-type: git }
                         data:
-                          repoURLPattern: {{ printf "^http://%s/%s/.*$" $giteaHost $org | quote }}
+                          # Kargo >= 1.0 reads `repoURL` (+ `repoURLIsRegex`); the
+                          # `repoURLPattern` key of 0.x is ignored silently, so every
+                          # promotion push failed with "could not read Username"
+                          # while a credential sat right beside it (2026-10-17).
+                          repoURL: {{ printf "^http://%s/%s/.*$" $giteaHost $org | quote }}
+                          repoURLIsRegex: "true"
                           username: {{ `{{ .username }}` | quote }}
                           password: {{ `{{ .password }}` | quote }}
                     data:
@@ -373,7 +383,8 @@ spec:
                         metadata:
                           labels: { kargo.akuity.io/cred-type: image }
                         data:
-                          repoURLPattern: {{ printf "^%s/.*$" $registry | quote }}
+                          repoURL: {{ printf "^%s/.*$" $registry | quote }}
+                          repoURLIsRegex: "true"
                           username: {{ `{{ .username }}` | quote }}
                           password: {{ `{{ .password }}` | quote }}
                     data:

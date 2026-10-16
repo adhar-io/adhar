@@ -35,3 +35,12 @@ func TestAValueThatIsNotAHostnameIsDropped(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestAnEnvironmentHostnameMovesBetweenEnvironments(t *testing.T) {
+	if got := envHostname("shop.dev.platform.adhar.io", "dev", "prod"); got != "shop.prod.platform.adhar.io" {
+		t.Errorf("got %q", got)
+	}
+	if got := envHostname("shop.adhar.localtest.me", "dev", "test"); got != "shop.adhar.localtest.me" {
+		t.Errorf("a hostname without the environment label must be left alone, got %q", got)
+	}
+}

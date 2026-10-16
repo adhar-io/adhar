@@ -77,6 +77,14 @@ externalWebhooksServer:
     enabled: false
 
 controller:
+  # Argo CD lives in adhar-system like every other package (ADR-0011). The
+  # chart's default is `argocd`, and with it every promotion's argocd-update
+  # step failed with 'unable to find Argo CD Application "..." in namespace
+  # "argocd"' AFTER the commit had been pushed (2026-10-17). Changing this
+  # value alone does nothing on a cluster: manifests/install.yaml is generated
+  # from it and must carry the same namespace.
+  argocd:
+    namespace: adhar-system
   # The environments repo is reached over the in-cluster Gitea service
   # (plain HTTP inside the cluster, TLS terminates at the Gateway). Kargo
   # otherwise "refused to get credentials for insecure HTTP endpoint" and every

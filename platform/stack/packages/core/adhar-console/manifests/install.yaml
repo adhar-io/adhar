@@ -174,6 +174,11 @@ rules:
   resources:
   - organisations
   - teams
+  # A scaffolded service is registered as an Application XR in its project;
+  # the control plane composes its per-environment Argo CD Applications and
+  # Kargo promotion from it (ADR-0026). The console used to POST a raw Argo CD
+  # Application into `default` instead — no promotion, wrong namespace.
+  - applications
   verbs:
   - create
   - get

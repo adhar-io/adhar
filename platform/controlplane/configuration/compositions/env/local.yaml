@@ -160,6 +160,43 @@ spec:
                           - namespaceSelector:
                               matchLabels:
                                 kubernetes.io/metadata.name: {{ $name }}
+                          # The platform plane (ADR-0011: every platform service is in
+                          # adhar-system): the Gateway's Envoy, which answers the
+                          # environment's URLs; Prometheus, which scrapes the apps the
+                          # Kargo verification reads; and the operators (CNPG, Strimzi,
+                          # Valkey) that drive the data services composed beside the app.
+                          # Same-namespace only was tried: every *.test.<domain> URL
+                          # answered 503 from a Healthy rollout (2026-10-17).
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: adhar-system
+            ---
+            # The Gateway's Envoy reaches a backend with Cilium's reserved `ingress`
+            # IDENTITY, not with its pod's namespace labels, so the Kubernetes
+            # NetworkPolicy above cannot admit it: Hubble showed every request as
+            # "(ingress) <> test/reactapp:8080 Policy denied DROPPED" and Envoy
+            # answered 503 "connection timeout" from a Healthy rollout (2026-10-17).
+            # Only a CiliumNetworkPolicy can name an entity; policies are additive.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: netpol-gateway
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: cilium.io/v2
+                  kind: CiliumNetworkPolicy
+                  metadata:
+                    name: {{ $name }}-allow-gateway
+                    namespace: {{ $name }}
+                  spec:
+                    endpointSelector: {}
+                    ingress:
+                      - fromEntities: [ingress]
             {{- end }}
             ---
             # The owning team's access to this environment (see header).

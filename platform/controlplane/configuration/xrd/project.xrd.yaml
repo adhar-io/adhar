@@ -62,13 +62,13 @@ spec:
                       tiers are set per entry of `environments`.
                   cpuQuota:
                     type: string
-                    default: '4'
+                    default: '16'
                   memoryQuota:
                     type: string
-                    default: 8Gi
+                    default: 32Gi
                   podQuota:
                     type: integer
-                    default: 30
+                    default: 100
                   createRepository:
                     type: boolean
                     description: Auto-create a Gitea repo for the project
