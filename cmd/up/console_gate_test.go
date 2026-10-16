@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"adhar-io/adhar/platform/k8s"
+
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	gitopsengine "github.com/cnoe-io/argocd-api/api/argo/gitops-engine"
 
@@ -89,5 +91,31 @@ func TestEveryBringUpPathEndsWithTheConsoleVerdict(t *testing.T) {
 	verdict := strings.Index(src, "verifyConsoleReady(context.Background(), kubeClient)")
 	if install < 0 || verdict < install {
 		t.Error("on the cloud path the console verdict must come AFTER the in-cluster manager install, so a failed run still converges on its own")
+	}
+}
+
+// The CLI reads the gate with the platform's shared scheme (k8s.GetScheme). On
+// 2026-10-16 that scheme had no discovery.k8s.io/v1, the EndpointSlice list
+// failed with "no kind is registered", and the verdict said "not serving"
+// against a console whose endpoint was ready. The gate must work with the
+// scheme the bring-up actually uses, and a read failure must be reported as
+// one, never as "not serving".
+func TestTheVerdictReadsEndpointsWithTheBringUpScheme(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(k8s.GetScheme()).WithObjects(consoleApp("Synced", "Healthy"), consoleEndpoint(true)).Build()
+	if err := verifyConsoleReady(context.Background(), c); err != nil {
+		t.Fatalf("with the bring-up's own scheme a Healthy, serving console must complete the run: %v", err)
+	}
+	// A scheme that cannot list EndpointSlices is a caller problem and must say so.
+	s := runtime.NewScheme()
+	if err := argov1alpha1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	blind := fake.NewClientBuilder().WithScheme(s).WithObjects(consoleApp("Synced", "Healthy")).Build()
+	err := verifyConsoleReady(context.Background(), blind)
+	if err == nil {
+		t.Fatal("a client that cannot read endpoints reported completion")
+	}
+	if strings.Contains(err.Error(), "not serving") || !strings.Contains(err.Error(), "could not be determined") {
+		t.Errorf("a read failure was reported as the console's fault: %v", err)
 	}
 }

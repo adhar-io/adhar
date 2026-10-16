@@ -55,16 +55,28 @@ func DefaultControllerImage(version string) string {
 // quiet. `derived` is this build's own default, which may legitimately be
 // swapped for the fallback.
 //
-// `warn` receives anything the operator needs to know; nil is allowed.
+// `warn` receives anything the operator needs to ACT on; `note` receives the
+// one routine outcome — a build ahead of its published release tracks
+// `latest`, which is exactly what a development build should do. That used to
+// be a WARN on every `adhar up` from a tag that goreleaser had not shipped yet
+// (2026-10-16, "No published image for this build (…0.1.41)"), and a warning
+// that fires on the normal path trains people to ignore the two that matter.
+// Either may be nil.
 func ResolveControllerImage(
 	ctx context.Context,
 	configured, derived string,
 	exists func(context.Context, string) bool,
 	warn func(string),
+	note func(string),
 ) string {
 	say := func(msg string) {
 		if warn != nil {
 			warn(msg)
+		}
+	}
+	tell := func(msg string) {
+		if note != nil {
+			note(msg)
 		}
 	}
 
@@ -88,7 +100,7 @@ func ResolveControllerImage(
 	if derived == "" || exists(ctx, derived) {
 		return derived
 	}
-	say(fmt.Sprintf("No published image for this build (%s); the in-cluster manager will run %s instead. "+
+	tell(fmt.Sprintf("No published image for this build (%s); the in-cluster manager will run %s instead. "+
 		"Pass --controller-image to pin a different one", derived, FallbackControllerImage))
 	return FallbackControllerImage
 }

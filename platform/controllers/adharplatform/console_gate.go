@@ -38,34 +38,41 @@ func ConsoleGate(ctx context.Context, c client.Client) (ready bool, detail strin
 	if err := c.Get(ctx, client.ObjectKey{Name: readyGateApp, Namespace: globals.AdharSystemNamespace}, app); err != nil {
 		return false, fmt.Sprintf("Application %s could not be read: %v", readyGateApp, err)
 	}
-	serving := consoleServing(ctx, c)
+	serving, err := consoleServing(ctx, c)
 	state := fmt.Sprintf("%s is %s/%s", readyGateApp, app.Status.Sync.Status, app.Status.Health.Status)
-	if serving {
+	switch {
+	case err != nil:
+		// A read failure is a fact about the CALLER (scheme, RBAC, API), not
+		// about the console; saying "not serving" here sent an operator
+		// chasing a healthy console (2026-10-16).
+		state += fmt.Sprintf("; whether it is serving could not be determined (listing EndpointSlices of Service %s: %v)", consoleServiceName, err)
+	case serving:
 		state += " and serving"
-	} else {
+	default:
 		state += fmt.Sprintf(" and not serving (no ready endpoint behind Service %s)", consoleServiceName)
 	}
-	return appConverged(app) && serving, state
+	return appConverged(app) && serving && err == nil, state
 }
 
 // consoleServing reports whether the console Service has a READY endpoint —
 // a Healthy Application with no endpoint is a console a browser cannot open.
-// A read failure counts as not serving; the question is "can it be reached",
-// and the answer to an unreadable cluster is no.
-func consoleServing(ctx context.Context, c client.Client) bool {
+// The error is returned, not folded into false: a client that cannot list
+// EndpointSlices (scheme, RBAC, API) has learned nothing about the console,
+// and the caller must say so rather than claim it is down.
+func consoleServing(ctx context.Context, c client.Client) (bool, error) {
 	slices := &discoveryv1.EndpointSliceList{}
 	if err := c.List(ctx, slices,
 		client.InNamespace(globals.AdharSystemNamespace),
 		client.MatchingLabels{discoveryv1.LabelServiceName: consoleServiceName},
 	); err != nil {
-		return false
+		return false, err
 	}
 	for _, sl := range slices.Items {
 		for _, ep := range sl.Endpoints {
 			if ep.Conditions.Ready == nil || *ep.Conditions.Ready {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }

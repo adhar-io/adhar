@@ -528,7 +528,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// The image is CHECKED, not assumed: see helpers.ResolveControllerImage for
 	// what a version tag with no published image did to a live cluster.
 	image := helpers.ResolveControllerImage(installCtx, controllerImage, defaultControllerImage(),
-		helpers.ControllerImageExists, func(msg string) { logger.Warnf("%s", msg) })
+		helpers.ControllerImageExists, func(msg string) { logger.Warnf("%s", msg) }, func(msg string) { logger.Debugf("%s", msg) })
 	if err := controllers.EnsureControllerManager(installCtx, kubeClient, controllers.ManagerConfig{
 		Image:        image,
 		Namespace:    globals.AdharSystemNamespace,

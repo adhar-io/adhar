@@ -9,6 +9,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -28,6 +29,13 @@ func GetScheme() *runtime.Scheme {
 		autoscalingv2.AddToScheme,
 		batchv1.AddToScheme,
 		corev1.AddToScheme,
+		// EndpointSlices are how the platform decides "is the console
+		// serving" (adharplatform.ConsoleGate). Without this group the List
+		// fails with "no kind is registered", and on 2026-10-16 that read
+		// failure was reported as "no ready endpoint behind Service console"
+		// against a console that was serving — adhar up failed a healthy
+		// bring-up.
+		discoveryv1.AddToScheme,
 		networkingv1.AddToScheme,
 		policyv1.AddToScheme,
 		rbacv1.AddToScheme,

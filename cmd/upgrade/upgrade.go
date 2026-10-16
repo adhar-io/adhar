@@ -629,7 +629,7 @@ func liveControllerImage(ctx context.Context, c client.Client, namespace string)
 	// unpullable tag (see helpers.ResolveControllerImage for the live incident).
 	if deployed != "" {
 		return helpers.ResolveControllerImage(ctx, deployed, helpers.DefaultControllerImage(version.Version),
-			helpers.ControllerImageExists, func(msg string) { fmt.Println(helpers.CreateWarning(msg)) })
+			helpers.ControllerImageExists, func(msg string) { fmt.Println(helpers.CreateWarning(msg)) }, nil)
 	}
 	// Same rule as `adhar up`, from the same place.
 	return helpers.DefaultControllerImage(version.Version)

@@ -30,7 +30,7 @@ const (
 func TestDerivedControllerImageFallsBackWhenItWasNeverPublished(t *testing.T) {
 	missing := func(context.Context, string) bool { return false }
 
-	got := ResolveControllerImage(context.Background(), "", unpublished, missing, nil)
+	got := ResolveControllerImage(context.Background(), "", unpublished, missing, nil, nil)
 	if got != FallbackControllerImage {
 		t.Errorf("resolveControllerImage = %q, want the %q fallback: a version-derived tag with no published image "+
 			"leaves the platform with no controller at all", got, FallbackControllerImage)
@@ -40,7 +40,7 @@ func TestDerivedControllerImageFallsBackWhenItWasNeverPublished(t *testing.T) {
 func TestDerivedControllerImageIsKeptWhenItExists(t *testing.T) {
 	present := func(context.Context, string) bool { return true }
 
-	got := ResolveControllerImage(context.Background(), "", published, present, nil)
+	got := ResolveControllerImage(context.Background(), "", published, present, nil, nil)
 	if got != published {
 		t.Errorf("resolveControllerImage = %q, want the release's own image %q: a published version-derived "+
 			"image must not be replaced by :latest", got, published)
@@ -56,7 +56,7 @@ func TestAnExplicitControllerImageIsCheckedNotAssumed(t *testing.T) {
 		var probed []string
 		probe := func(_ context.Context, ref string) bool { probed = append(probed, ref); return true }
 
-		got := ResolveControllerImage(context.Background(), published, unpublished, probe, nil)
+		got := ResolveControllerImage(context.Background(), published, unpublished, probe, nil, nil)
 		if got != published {
 			t.Errorf("resolved %q, want the operator's own %q", got, published)
 		}
@@ -70,7 +70,7 @@ func TestAnExplicitControllerImageIsCheckedNotAssumed(t *testing.T) {
 		missing := func(context.Context, string) bool { return false }
 
 		got := ResolveControllerImage(context.Background(), unpublished, "", missing,
-			func(m string) { warned = append(warned, m) })
+			func(m string) { warned = append(warned, m) }, nil)
 		if got != unpublished {
 			t.Errorf("resolved %q, want the operator's own %q", got, unpublished)
 		}
@@ -89,7 +89,7 @@ func TestAnExplicitControllerImageIsCheckedNotAssumed(t *testing.T) {
 		probe := func(_ context.Context, ref string) bool { return ref == published }
 
 		got := ResolveControllerImage(context.Background(), unpublished, published, probe,
-			func(m string) { warned = append(warned, m) })
+			func(m string) { warned = append(warned, m) }, nil)
 		if got != published {
 			t.Errorf("resolved %q, want %q: a deployed image that cannot be pulled is not worth keeping", got, published)
 		}
@@ -103,7 +103,7 @@ func TestAnExplicitControllerImageIsCheckedNotAssumed(t *testing.T) {
 // install, a private registry or a 5xx are all "unknown", not "missing".
 func TestAnUnreachableRegistryDoesNotChangeTheImage(t *testing.T) {
 	unknown := func(context.Context, string) bool { return true }
-	if got := ResolveControllerImage(context.Background(), "", unpublished, unknown, nil); got != unpublished {
+	if got := ResolveControllerImage(context.Background(), "", unpublished, unknown, nil, nil); got != unpublished {
 		t.Errorf("an unanswerable probe changed the image to %q; unknown must count as present", got)
 	}
 }
@@ -171,3 +171,22 @@ func TestOnlyA404MeansTheImageIsMissing(t *testing.T) {
 }
 
 var errUnreachable = errors.New("dial tcp: lookup ghcr.io: no such host")
+
+// A build ahead of its release tracks latest; that is routine, and it must not
+// be a warning. The two warnings — a configured image that is missing, or
+// missing and replaced — are what an operator must act on.
+func TestAnUnpublishedBuildFallsBackQuietly(t *testing.T) {
+	missing := func(context.Context, string) bool { return false }
+	var warned, noted []string
+	got := ResolveControllerImage(context.Background(), "", "ghcr.io/adhar-io/adhar:0.1.41", missing,
+		func(m string) { warned = append(warned, m) }, func(m string) { noted = append(noted, m) })
+	if got != FallbackControllerImage {
+		t.Fatalf("got %s", got)
+	}
+	if len(warned) != 0 {
+		t.Errorf("the routine fallback to latest was WARNED: %v", warned)
+	}
+	if len(noted) != 1 {
+		t.Errorf("the fallback was not noted on the quiet channel: %v", noted)
+	}
+}

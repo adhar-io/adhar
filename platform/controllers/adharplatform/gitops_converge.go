@@ -299,5 +299,6 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 // evidence, or an unreachable API server would end the wait early — the very
 // failure this is meant to prevent.
 func (r *AdharPlatformReconciler) consoleIsServing(ctx context.Context) bool {
-	return consoleServing(ctx, r.Client)
+	serving, err := consoleServing(ctx, r.Client)
+	return err == nil && serving
 }

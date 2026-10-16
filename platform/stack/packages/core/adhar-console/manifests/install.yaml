@@ -442,6 +442,24 @@ spec:
           value: http://coder.adhar-system.svc.cluster.local:80
         - name: AIRBYTE_URL
           value: http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001
+        # Airbyte 2.x serves its API only to a Bearer minted from an
+        # application's client credentials (API_AUTHORIZATION_ENABLED=true);
+        # with just the URL the console got 401 on every call (2026-10-16).
+        # The instance-admin application the airbyte package provisions
+        # (data/airbyte manifests/auth.yaml) is the console's identity there;
+        # the BFF mints and re-mints the short-lived token itself.
+        - name: AIRBYTE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: airbyte-auth-secrets
+              key: instance-admin-client-id
+              optional: true
+        - name: AIRBYTE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: airbyte-auth-secrets
+              key: instance-admin-client-secret
+              optional: true
         - name: FALCO_URL
           value: http://falco-falcosidekick-ui.adhar-system.svc.cluster.local:2802
         # Analytics: PostHog over the cluster network, authenticated with the
