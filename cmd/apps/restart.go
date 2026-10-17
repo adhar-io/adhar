@@ -8,6 +8,7 @@ you may not use this file except in compliance with the License.
 package apps
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"fmt"
 	"time"
@@ -40,7 +41,7 @@ func runRestart(cmd *cobra.Command, args []string) error {
 	appName := args[0]
 	ns := namespace
 	if ns == "" {
-		ns = "default"
+		ns = globals.DefaultEnvironment()
 	}
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")

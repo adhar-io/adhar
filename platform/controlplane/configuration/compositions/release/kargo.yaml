@@ -41,49 +41,99 @@ spec:
             {{- if not $app }}{{ fail "parameters.application is required" }}{{ end -}}
             {{- if not $freight }}{{ fail "parameters.freight is required" }}{{ end -}}
             {{- $stage := printf "%s-%s" $app $env -}}
-            {{- $observed := dig "promotion" "resource" dict (default dict .observed.resources) -}}
-            {{- $manifest := dig "status" "atProvider" "manifest" dict $observed -}}
-            {{- $phase := dig "status" "phase" "" $manifest -}}
+            {{- $job := dig "promotion-job" "resource" dict (default dict .observed.resources) -}}
+            {{- $jobStatus := dig "status" "atProvider" "manifest" "status" dict $job -}}
+            {{- $succeeded := dig "succeeded" 0 $jobStatus -}}
+            {{- $failed := dig "failed" 0 $jobStatus -}}
+            {{- $jobName := printf "release-%s" $xr.metadata.name -}}
             ---
+            # The Promotion is CREATED by a one-shot Job, never applied by name.
+            # Kargo's mutating webhook renames every Promotion to
+            # <stage>.<ulid>.<freight>; an apply that names the object leaves it
+            # stored under the OLD key with the new name inside — a ghost the list
+            # shows, GET cannot find and Kargo never reconciles, which also wedged
+            # the stage's queue behind it (Azure, 2026-10-17). A create with
+            # generateName lets the webhook name it. The Job is idempotent: it
+            # submits nothing when a Promotion already carries this Release's label.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
               annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: promotion
+                gotemplating.fn.crossplane.io/composition-resource-name: promotion-job
             spec:
               providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
               forProvider:
                 manifest:
-                  apiVersion: kargo.akuity.io/v1alpha1
-                  kind: Promotion
+                  apiVersion: batch/v1
+                  kind: Job
                   metadata:
-                    name: {{ $xr.metadata.name }}
+                    name: {{ $jobName | quote }}
                     namespace: {{ $project }}
                     labels:
                       adhar.io/project: {{ $project | quote }}
                       adhar.io/application: {{ $app | quote }}
                       adhar.io/environment: {{ $env | quote }}
                       adhar.io/release: {{ $xr.metadata.name | quote }}
-                    annotations:
-                      adhar.io/reason: {{ dig "reason" "" $p | quote }}
-                      adhar.io/released-by: {{ $xr.metadata.namespace }}/{{ $xr.metadata.name }}
                   spec:
-                    # Quoted: a freight name is a 40-hex content hash, and one
-                    # made of digits only parses as an INTEGER unquoted — Kargo
-                    # then rejects the Promotion (".spec.freight: expected string").
-                    stage: {{ $stage | quote }}
-                    freight: {{ $freight | quote }}
+                    backoffLimit: 3
+                    ttlSecondsAfterFinished: 604800
+                    template:
+                      metadata:
+                        labels: { adhar.io/release: {{ $xr.metadata.name | quote }} }
+                      spec:
+                        serviceAccountName: adhar-release
+                        restartPolicy: OnFailure
+                        containers:
+                          - name: promote
+                            image: docker.io/alpine/k8s:1.31.0
+                            env:
+                              - { name: NS, value: {{ $project | quote }} }
+                              - { name: RELEASE, value: {{ $xr.metadata.name | quote }} }
+                              - { name: RELEASED_BY, value: {{ printf "%s/%s" $xr.metadata.namespace $xr.metadata.name | quote }} }
+                              - { name: STAGE, value: {{ $stage | quote }} }
+                              - { name: FREIGHT, value: {{ $freight | quote }} }
+                              - { name: APP, value: {{ $app | quote }} }
+                              - { name: ENV, value: {{ $env | quote }} }
+                              - { name: PROJECT, value: {{ $project | quote }} }
+                              - { name: REASON, value: {{ dig "reason" "" $p | quote }} }
+                            command: [sh, -ec]
+                            args:
+                              - |
+                                if kubectl -n "$NS" get promotions.kargo.akuity.io -l "adhar.io/release=$RELEASE" -o name | grep -q .; then
+                                  echo "promotion for release $RELEASE already submitted"; exit 0
+                                fi
+                                kubectl create -f - <<EOF
+                                apiVersion: kargo.akuity.io/v1alpha1
+                                kind: Promotion
+                                metadata:
+                                  generateName: ${STAGE}-
+                                  namespace: $NS
+                                  labels:
+                                    adhar.io/project: "$PROJECT"
+                                    adhar.io/application: "$APP"
+                                    adhar.io/environment: "$ENV"
+                                    adhar.io/release: "$RELEASE"
+                                  annotations:
+                                    adhar.io/reason: "$REASON"
+                                    adhar.io/released-by: "$RELEASED_BY"
+                                spec:
+                                  stage: "$STAGE"
+                                  freight: "$FREIGHT"
+                                EOF
             ---
             apiVersion: platform.adhar.io/v1alpha1
             kind: Release
             status:
-              promotion: {{ $xr.metadata.name | quote }}
+              promotion: {{ printf "label adhar.io/release=%s in namespace %s" $xr.metadata.name $project | quote }}
               stage: {{ $stage | quote }}
-              {{- if $phase }}
-              phase: {{ $phase }}
-              message: {{ dig "status" "message" "" $manifest | quote }}
-              finishedAt: {{ dig "status" "finishedAt" "" $manifest | quote }}
-              ready: {{ eq $phase "Succeeded" }}
+              {{- if gt (int $succeeded) 0 }}
+              phase: Submitted
+              message: "Promotion submitted to Kargo; its progress is on the Stage"
+              ready: true
+              {{- else if gt (int $failed) 0 }}
+              phase: Failed
+              message: {{ printf "the release Job %s failed %v time(s); see its pod logs" $jobName $failed | quote }}
+              ready: false
               {{- else }}
               phase: Pending
               ready: false

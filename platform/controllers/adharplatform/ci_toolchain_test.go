@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/yaml"
 )
 
 // The CI pipeline must not decide a project's toolchain.
@@ -65,8 +67,12 @@ func TestTheCiToolchainComesFromTheRepository(t *testing.T) {
 			t.Errorf("app-ci does not carry %s", want)
 		}
 	}
-	if strings.Count(pipeline, `value: "$(tasks.toolchain.results.jdk)"`) < 2 {
-		t.Error("the detected JDK reaches only one of build/test; both must follow the repository")
+	// The build reads the detected JDK from toolchain; the test reads it from the
+	// build it judges (a pass-through result), so both follow the repository
+	// while the pipeline graph stays a line.
+	if !strings.Contains(pipeline, `{name: jdkVersion, value: "$(tasks.toolchain.results.jdk)"}`) ||
+		!strings.Contains(pipeline, `{name: jdkVersion, value: "$(tasks.build.results.jdk)"}`) {
+		t.Error("the detected JDK does not reach both build (from toolchain) and test (from build); both must follow the repository")
 	}
 
 	// The buildpack build honours the detected JDK and a wrapper-pinned Maven
@@ -92,11 +98,85 @@ func TestTheCiToolchainComesFromTheRepository(t *testing.T) {
 func TestARetriedBuildStartsFromTheCheckout(t *testing.T) {
 	build := readStackFile(t, "application/adhar-supply-chain/manifests/60-build-pipelines.yaml")
 	prepare := strings.Index(build, "- name: prepare")
-	buildStep := strings.Index(build, "command: [\"/cnb/lifecycle/creator\"]")
+	buildStep := strings.Index(build, "exec /cnb/lifecycle/creator")
 	if prepare < 0 || buildStep < 0 || prepare > buildStep {
 		t.Fatal("buildpacks-build no longer has a prepare step before the lifecycle; update this guard")
 	}
 	if !strings.Contains(build[prepare:buildStep], `rm -rf "$(workspaces.source.path)/$(params.subdirectory)/node_modules"`) {
 		t.Error("prepare does not remove node_modules, so a retried build fails on `mkdir node_modules: file exists` instead of its real cause")
+	}
+}
+
+// The pipeline graph is a line: only the build reads detect-toolchain's results;
+// the test takes the versions from the build it judges. A direct reference from
+// test to toolchain drew a second edge (the "connection line") in the console.
+func TestOnlyTheBuildReadsTheToolchainDirectly(t *testing.T) {
+	ci := readStackFile(t, "application/adhar-supply-chain/manifests/70-app-ci.yaml")
+	i := strings.Index(ci, "    - name: test\n")
+	j := strings.Index(ci[i:], "    - name: secrets\n")
+	if i < 0 || j < 0 {
+		t.Fatal("the app-ci pipeline no longer has test followed by secrets; update this guard")
+	}
+	testTask := ci[i : i+j]
+	if strings.Contains(testTask, "tasks.toolchain.") {
+		t.Error("the test task reads detect-toolchain's results directly; it must read them from the build (tasks.build.results.*)")
+	}
+	for _, want := range []string{"tasks.build.results.jdk", "tasks.build.results.node", "tasks.build.results.python"} {
+		if !strings.Contains(testTask, want) {
+			t.Errorf("the test task lacks %s", want)
+		}
+	}
+	tasks := readStackFile(t, "application/adhar-supply-chain/manifests/60-build-pipelines.yaml")
+	for _, want := range []string{"{name: jdk, description", "{name: maven, description", "{name: node, description", "{name: go, description", "{name: python, description", `> "$(results.python.path)"`} {
+		if !strings.Contains(tasks, want) {
+			t.Errorf("buildpacks-build does not pass the toolchain through as a result (%s)", want)
+		}
+	}
+}
+
+// Every build's image carries the time it was BUILT: the lifecycle otherwise
+// stamps a fixed 1980 timestamp, and the Warehouse orders builds by it, so a
+// second build of an app never became freight.
+func TestBuildsCarryTheirOwnCreationTime(t *testing.T) {
+	build := readStackFile(t, "application/adhar-supply-chain/manifests/60-build-pipelines.yaml")
+	if !strings.Contains(build, `SOURCE_DATE_EPOCH="$(date +%s)" exec /cnb/lifecycle/creator`) {
+		t.Error("the buildpacks lifecycle runs without SOURCE_DATE_EPOCH; every image is dated 1980 and Kargo cannot order builds")
+	}
+	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
+	if !strings.Contains(comp, "imageSelectionStrategy: {{ $strategy }}") || !strings.Contains(comp, `default "NewestBuild"`) {
+		t.Error("the Warehouse no longer selects by build time; the SOURCE_DATE_EPOCH reasoning above needs revisiting")
+	}
+}
+
+// A Tekton Task or Pipeline whose results or params carry a key Tekton does not
+// know is rejected by its webhook, and Argo CD then cannot even COMPARE the
+// supply-chain app — every change in it stops reaching the cluster. An unquoted
+// comma inside a flow mapping (`description: a, b`) did exactly that.
+func TestCiTasksDecodeWithoutUnknownFields(t *testing.T) {
+	for _, f := range []string{"60-build-pipelines.yaml", "65-build-by-type.yaml", "70-app-ci.yaml", "72-app-ci-stages.yaml"} {
+		docs := strings.Split(readStackFile(t, "application/adhar-supply-chain/manifests/"+f), "\n---")
+		for _, doc := range docs {
+			var obj struct {
+				Kind     string `json:"kind"`
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+				Spec struct {
+					Params  []map[string]interface{} `json:"params"`
+					Results []map[string]interface{} `json:"results"`
+				} `json:"spec"`
+			}
+			if err := yaml.Unmarshal([]byte(doc), &obj); err != nil || (obj.Kind != "Task" && obj.Kind != "Pipeline") {
+				continue
+			}
+			allowed := map[string]bool{"name": true, "description": true, "type": true, "default": true, "properties": true, "enum": true, "value": true}
+			for _, fields := range append(obj.Spec.Params, obj.Spec.Results...) {
+				for k := range fields {
+					if !allowed[k] {
+						t.Errorf("%s %s/%s has a param/result with unknown field %q; Tekton's webhook rejects it and Argo CD stops syncing the package", f, obj.Kind, obj.Metadata.Name, k)
+					}
+				}
+			}
+		}
 	}
 }

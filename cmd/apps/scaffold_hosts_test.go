@@ -44,3 +44,19 @@ func TestAnEnvironmentHostnameMovesBetweenEnvironments(t *testing.T) {
 		t.Errorf("a hostname without the environment label must be left alone, got %q", got)
 	}
 }
+
+// A host named after an environment (test.adhar.io) cannot carry
+// `<app>.test.test.adhar.io`: Let's Encrypt refuses the repeated label and the
+// Gateway has no such listener. That environment's route moves under the host's
+// own wildcard as `<app>-test.test.adhar.io`.
+func TestAnEnvironmentThatRepeatsTheHostLabelRoutesUnderTheHostWildcard(t *testing.T) {
+	if got := platformRouteHost("ngapp", "test", "test.adhar.io"); got != "ngapp-test.test.adhar.io" {
+		t.Fatalf("platformRouteHost = %q, want ngapp-test.test.adhar.io", got)
+	}
+	if got := platformRouteHost("ngapp", "dev", "test.adhar.io"); got != "ngapp.dev.test.adhar.io" {
+		t.Fatalf("a non-colliding environment changed: %q", got)
+	}
+	if got := platformRouteHost("ngapp", "test", "platform.adhar.io"); got != "ngapp.test.platform.adhar.io" {
+		t.Fatalf("a neutral host changed: %q", got)
+	}
+}

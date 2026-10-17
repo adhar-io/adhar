@@ -358,6 +358,77 @@ spec:
                       - secretKey: password
                         remoteRef: { key: gitea-ci-creds, property: password }
             ---
+            # The identity a Release uses to submit a Promotion. A Promotion must be
+            # CREATED (a POST): Kargo's webhook renames every Promotion to
+            # <stage>.<ulid>.<freight>, and an apply by name over that rename leaves
+            # a ghost stored under the old key that Kargo never reconciles (Azure,
+            # 2026-10-17). So the Release composition runs a one-shot Job as this
+            # ServiceAccount instead of composing the Promotion directly; the Role
+            # is the least Kargo's webhook accepts (`promote` on the Stage is what
+            # it checks for the creating actor).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: release-sa
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata:
+                    name: adhar-release
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: release-role
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: Role
+                  metadata:
+                    name: adhar-release
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+                  rules:
+                    - apiGroups: [kargo.akuity.io]
+                      resources: [promotions]
+                      verbs: [create, get, list, watch]
+                    - apiGroups: [kargo.akuity.io]
+                      resources: [stages]
+                      verbs: [get, list, promote]
+                    - apiGroups: [kargo.akuity.io]
+                      resources: [freights]
+                      verbs: [get, list]
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: release-rolebinding
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: adhar-release
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-release }
+                  subjects:
+                    - kind: ServiceAccount
+                      name: adhar-release
+                      namespace: {{ $name }}
+            ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:

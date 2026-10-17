@@ -17,6 +17,7 @@ limitations under the License.
 package apps
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"fmt"
 
@@ -65,7 +66,7 @@ func runScale(cmd *cobra.Command, args []string) error {
 
 	scaleNamespace := namespace
 	if scaleNamespace == "" {
-		scaleNamespace = "default"
+		scaleNamespace = globals.DefaultEnvironment()
 	}
 
 	logger.Info(fmt.Sprintf("▸ Scaling application %s to %d replicas", appName, replicas))

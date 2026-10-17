@@ -68,6 +68,8 @@ var (
 	labelSelector string
 	fieldSelector string
 	includeSystem bool
+	// workloads lists every Deployment instead of the custom applications.
+	workloads bool
 )
 
 // infraNamespaces are Kubernetes' and Kind's own namespaces. They hold no Adhar
@@ -110,6 +112,7 @@ func init() {
 	applicationsCmd.Flags().StringVarP(&labelSelector, "selector", "l", "", "Label selector to filter applications")
 	applicationsCmd.Flags().StringVar(&fieldSelector, "field-selector", "", "Field selector to filter applications")
 	applicationsCmd.Flags().BoolVar(&includeSystem, "include-system", false, "Also list Kubernetes' own namespaces (kube-system, local-path-storage, ...)")
+	applicationsCmd.Flags().BoolVar(&workloads, "workloads", false, "List every Deployment (platform services included) instead of the custom applications")
 }
 
 type ApplicationInfo struct {
@@ -194,7 +197,20 @@ func runGetApplications(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get applications
-	applications, err := getApplications(clientset, queryNamespace, args)
+	var applications []ApplicationInfo
+	if workloads || labelSelector != "" || fieldSelector != "" {
+		applications, err = getApplications(clientset, queryNamespace, args)
+	} else {
+		// Custom applications only, across every environment unless a
+		// namespace was asked for explicitly; see custom_apps.go.
+		dc, dErr := getDynamicClient()
+		if dErr != nil {
+			return fmt.Errorf("failed to get Kubernetes client: %w", dErr)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		applications, err = listCustomApplications(ctx, dc, args, appNamespace)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to get applications: %w", err)
 	}

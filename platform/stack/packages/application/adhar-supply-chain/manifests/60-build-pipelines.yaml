@@ -100,9 +100,33 @@ spec:
     # decision to the buildpack.
     - {name: jdkVersion, type: string, default: ""}
     - {name: mavenVersion, type: string, default: ""}
+    - {name: nodeVersion, type: string, default: ""}
+    - {name: goVersion, type: string, default: ""}
+    - {name: pythonVersion, type: string, default: ""}
+  # The toolchain, passed THROUGH. detect-toolchain decides the versions and the
+  # build is the one stage that must take them from it directly; every later
+  # stage (test) reads them from the build instead, so the pipeline graph stays
+  # a line — clone → toolchain → build → test — rather than fanning a second
+  # edge from toolchain to test (the "connection line" the console drew, which
+  # read as test depending on something other than the artifact it tests).
+  results:
+    - {name: jdk, description: "the JDK major the build used, from detect-toolchain"}
+    - {name: maven, description: the Maven version the build used}
+    - {name: node, description: the Node major the build used}
+    - {name: go, description: the Go version the build used}
+    - {name: python, description: the Python version the build used}
   workspaces:
     - {name: source}
   steps:
+    - name: toolchain
+      image: docker.io/library/bash:5.2
+      script: |
+        #!/usr/bin/env bash
+        printf '%s' "$(params.jdkVersion)"    > "$(results.jdk.path)"
+        printf '%s' "$(params.mavenVersion)"  > "$(results.maven.path)"
+        printf '%s' "$(params.nodeVersion)"   > "$(results.node.path)"
+        printf '%s' "$(params.goVersion)"     > "$(results.go.path)"
+        printf '%s' "$(params.pythonVersion)" > "$(results.python.path)"
     # The CNB lifecycle runs as the builder image's `cnb` user, but the workspace
     # PVC arrives owned by whoever cloned into it, so the first thing npm/maven
     # does — creating node_modules or target/ — failed with
@@ -382,15 +406,22 @@ spec:
         - {name: DOCKER_CONFIG, value: /harbor-creds}
         # Trust Harbor's internal CA (mounted below) alongside the system store.
         - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
-      command: ["/cnb/lifecycle/creator"]
+      # The lifecycle stamps every image with a FIXED creation time (1980-01-01,
+      # for reproducible builds) unless SOURCE_DATE_EPOCH says otherwise. Kargo's
+      # Warehouse picks the newest build by that time, so with every image
+      # "created" at the same instant it could not tell a new build from the
+      # last: after an app's first promotion, later builds were discovered and
+      # never became freight (my-service, 2026-10-17). The build's own wall
+      # clock gives the Warehouse a real order; the image content stays
+      # reproducible, only its timestamp moves.
+      command: ["/bin/bash", "-c"]
       args:
-        - "-app=$(workspaces.source.path)/$(params.subdirectory)"
-        # Where the prepare step wrote project.toml's [[build.env]] entries.
-        - "-platform=/platform"
-        # Both tags name one manifest digest, so a cosign signature made against
-        # either verifies for the other.
-        - "-tag=$(params.image):$(params.extra-tag)"
-        - "$(params.image):latest"
+        - >-
+          SOURCE_DATE_EPOCH="$(date +%s)" exec /cnb/lifecycle/creator
+          "-app=$(workspaces.source.path)/$(params.subdirectory)"
+          "-platform=/platform"
+          "-tag=$(params.image):$(params.extra-tag)"
+          "$(params.image):latest"
       volumeMounts:
         - {name: harbor-dockercfg, mountPath: /harbor-creds}
         - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}

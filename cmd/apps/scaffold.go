@@ -578,7 +578,8 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	// A template cannot know the domain; the scaffolder can, so it decides. The
 	// Console's scaffolder pins the same two values the same way, which is what
 	// keeps a CLI-scaffolded repo and a Console-scaffolded repo identical.
-	if base := platformBaseDomain(host); base != "" {
+	base := platformBaseDomain(host)
+	if base != "" {
 		values["platformBaseDomain"] = base
 		// The ENVIRONMENT is part of the hostname: <app>.<env>.<base>.
 		//
@@ -610,6 +611,9 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	// and go on prod only.
 	for _, e := range []string{"dev", "test", "prod"} {
 		h := envHostname(stringify(values["hostname"]), env, e)
+		if base != "" {
+			h = platformRouteHost(appName, e, base)
+		}
 		custom := ""
 		if e == "prod" {
 			custom = stringify(params["customHostnames"])

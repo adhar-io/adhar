@@ -125,6 +125,83 @@ spec:
                   metadata:
                     name: {{ quote $project }}
                     namespace: {{ quote $xrns }}
+            ---
+            # One Grafana dashboard per application, in the "Applications" folder:
+            # the Rollout's phase and readiness, restarts, CPU and memory of its
+            # pods, and HTTP traffic when the service publishes Micrometer
+            # metrics (Spring, through the platform's kube-prometheus scrape).
+            # Switch environments with the dashboard's `env` variable. Grafana's
+            # sidecar picks up any ConfigMap labelled grafana_dashboard=1 in this
+            # namespace, so composing the ConfigMap is all that is needed.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dashboard
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels: {feature: apps, managed-by: adhar}
+            spec:
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ConfigMap
+                  metadata:
+                    name: {{ quote (printf "app-dashboard-%s" $name) }}
+                    namespace: adhar-system
+                    labels:
+                      grafana_dashboard: "1"
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                    annotations:
+                      grafana_folder: Applications
+                  data:
+                    {{ printf "%s.json" $name }}: |
+                      {{- $podRe := printf "%s-[a-z0-9]+-[a-z0-9]+" $name -}}
+                      {{- $envNames := list -}}
+                      {{- range $envs }}{{ $envNames = append $envNames .name }}{{ end -}}
+                      {{- $envCSV := join "," $envNames -}}
+                      {{- $firstEnv := index $envNames 0 }}
+                      {
+                        "uid": {{ printf "app-%s" $name | quote }},
+                        "title": {{ printf "%s · application" $name | quote }},
+                        "tags": ["adhar", "application", {{ quote $name }}],
+                        "editable": false,
+                        "schemaVersion": 39,
+                        "time": {"from": "now-1h", "to": "now"},
+                        "refresh": "30s",
+                        "templating": {"list": [
+                          {"name": "env", "label": "Environment", "type": "custom", "query": {{ quote $envCSV }},
+                           "current": {"text": {{ quote $firstEnv }}, "value": {{ quote $firstEnv }}},
+                           "options": [{{- range $i, $e := $envNames }}{{ if $i }},{{ end }}{"text": {{ quote $e }}, "value": {{ quote $e }}, "selected": {{ eq $i 0 }}}{{- end }}]}
+                        ]},
+                        "panels": [
+                          {"id": 1, "type": "stat", "title": "Rollout phase", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+                           "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^phase$/"}, "textMode": "name"},
+                           "targets": [{"refId": "A", "expr": {{ printf "rollout_info{namespace=\"$env\",name=\"%s\"} == 1" $name | quote }}, "format": "table", "instant": true}]},
+                          {"id": 2, "type": "stat", "title": "Ready pods", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+                           "targets": [{"refId": "A", "expr": {{ printf "sum(kube_pod_status_ready{namespace=\"$env\",pod=~\"%s\",condition=\"true\"}) or vector(0)" $podRe | quote }}}]},
+                          {"id": 3, "type": "stat", "title": "Restarts (1h)", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+                           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+                           "targets": [{"refId": "A", "expr": {{ printf "sum(increase(kube_pod_container_status_restarts_total{namespace=\"$env\",pod=~\"%s\",container!=\"POD\"}[1h])) or vector(0)" $podRe | quote }}}]},
+                          {"id": 4, "type": "stat", "title": "Image", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+                           "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^image$/"}, "textMode": "name"},
+                           "targets": [{"refId": "A", "expr": {{ printf "kube_pod_container_info{namespace=\"$env\",pod=~\"%s\",container!=\"POD\"}" $podRe | quote }}, "format": "table", "instant": true}]},
+                          {"id": 5, "type": "timeseries", "title": "CPU (cores)", "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+                           "targets": [{"refId": "A", "expr": {{ printf "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$env\",pod=~\"%s\",container!=\"\",container!=\"POD\"}[$__rate_interval]))" $podRe | quote }}}]},
+                          {"id": 6, "type": "timeseries", "title": "Memory (working set)", "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+                           "fieldConfig": {"defaults": {"unit": "bytes"}},
+                           "targets": [{"refId": "A", "expr": {{ printf "sum by (pod) (container_memory_working_set_bytes{namespace=\"$env\",pod=~\"%s\",container!=\"\",container!=\"POD\"})" $podRe | quote }}}]},
+                          {"id": 7, "type": "timeseries", "title": "HTTP requests / s (by status)", "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+                           "targets": [{"refId": "A", "expr": {{ printf "sum by (status) (rate(http_server_requests_seconds_count{namespace=\"$env\",pod=~\"%s\"}[$__rate_interval]))" $podRe | quote }}}]},
+                          {"id": 8, "type": "timeseries", "title": "HTTP 5xx ratio", "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+                           "fieldConfig": {"defaults": {"unit": "percentunit", "max": 1, "min": 0}},
+                           "targets": [{"refId": "A", "expr": {{ printf "sum(rate(http_server_requests_seconds_count{namespace=\"$env\",pod=~\"%s\",status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_server_requests_seconds_count{namespace=\"$env\",pod=~\"%s\"}[$__rate_interval])), 1e-9)" $podRe $podRe | quote }}}]},
+                          {"id": 9, "type": "timeseries", "title": "HTTP latency p95 (s)", "gridPos": {"x": 0, "y": 20, "w": 24, "h": 8},
+                           "targets": [{"refId": "A", "expr": {{ printf "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"$env\",pod=~\"%s\"}[$__rate_interval])))" $podRe | quote }}}]}
+                        ]
+                      }
             {{- if $envs }}
             {{- if $promote }}
             ---

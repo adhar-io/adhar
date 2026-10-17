@@ -251,7 +251,9 @@ func TestReleaseComposesAPromotionWithoutItsOwnSteps(t *testing.T) {
 	s := string(b)
 	// `| quote`: a digits-only freight hash renders as an integer otherwise and
 	// Kargo refuses the Promotion (seen live, 2026-10-04).
-	for _, want := range []string{"kind: Promotion", "stage: {{ $stage | quote }}", "freight: {{ $freight | quote }}"} {
+	// The Promotion is created by the release Job (see delivery_chain_test.go);
+	// its fields are still quoted, now in the Job's heredoc.
+	for _, want := range []string{"kind: Promotion", `stage: "$STAGE"`, `freight: "$FREIGHT"`, "{ name: FREIGHT, value: {{ $freight | quote }} }"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("release composition lost %q", want)
 		}

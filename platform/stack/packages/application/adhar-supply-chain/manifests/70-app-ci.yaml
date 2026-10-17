@@ -184,6 +184,9 @@ spec:
         - {name: extra-tag, value: "$(params.revision)"}
         - {name: jdkVersion, value: "$(tasks.toolchain.results.jdk)"}
         - {name: mavenVersion, value: "$(tasks.toolchain.results.maven)"}
+        - {name: nodeVersion, value: "$(tasks.toolchain.results.node)"}
+        - {name: goVersion, value: "$(tasks.toolchain.results.go)"}
+        - {name: pythonVersion, value: "$(tasks.toolchain.results.python)"}
       workspaces: [{name: source, workspace: shared}]
 
     # ── one fan-out: five independent gates, in parallel ────────────────────
@@ -195,11 +198,14 @@ spec:
       runAfter: [build]
       taskRef: {name: test-auto}
       params:
-        - {name: jdkVersion, value: "$(tasks.toolchain.results.jdk)"}
-        - {name: mavenVersion, value: "$(tasks.toolchain.results.maven)"}
-        - {name: nodeVersion, value: "$(tasks.toolchain.results.node)"}
-        - {name: goVersion, value: "$(tasks.toolchain.results.go)"}
-        - {name: pythonVersion, value: "$(tasks.toolchain.results.python)"}
+        # From the BUILD, not from toolchain: the test judges the artifact the
+        # build produced, with the versions the build used. Reading toolchain's
+        # results here drew a second graph edge toolchain → test.
+        - {name: jdkVersion, value: "$(tasks.build.results.jdk)"}
+        - {name: mavenVersion, value: "$(tasks.build.results.maven)"}
+        - {name: nodeVersion, value: "$(tasks.build.results.node)"}
+        - {name: goVersion, value: "$(tasks.build.results.go)"}
+        - {name: pythonVersion, value: "$(tasks.build.results.python)"}
       workspaces: [{name: source, workspace: shared}]
     - name: secrets
       runAfter: [build]

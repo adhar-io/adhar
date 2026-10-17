@@ -17,6 +17,7 @@ limitations under the License.
 package apps
 
 import (
+	"adhar-io/adhar/globals"
 	"bufio"
 	"context"
 	"fmt"
@@ -65,7 +66,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	deleteNamespace := namespace
 	if deleteNamespace == "" {
-		deleteNamespace = "default"
+		deleteNamespace = globals.DefaultEnvironment()
 	}
 
 	if !force {

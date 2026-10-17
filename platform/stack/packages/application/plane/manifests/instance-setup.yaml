@@ -163,6 +163,16 @@ spec:
             # adhar.localtest.me:8443 to the real domain when seeding.
             - name: GITEA_PUBLIC_URL
               value: https://gitea.adhar.localtest.me:8443
+            # The Job's own calls to Gitea go IN-CLUSTER. Through the public URL
+            # they depended on the edge certificate being trusted at the moment
+            # the hook ran; on a fresh cluster it is still the self-signed
+            # bootstrap one (or Let's Encrypt is rate-limited), the call failed
+            # certificate verification, the bridge was skipped and Plane kept its
+            # email form — a second login after Keycloak (Azure, 2026-10-17).
+            # GITEA_HOST stored in Plane stays the PUBLIC URL: the browser is
+            # redirected there.
+            - name: GITEA_INTERNAL_URL
+              value: http://gitea-http.adhar-system.svc.cluster.local:3000
             # Optional: absent on installs where Gitea is not present, in which
             # case the bridge is skipped and edge SSO + password login remain.
             - name: GITEA_ADMIN_USER
@@ -370,7 +380,8 @@ spec:
                   if not web:
                       return "skipped (WEB_URL unset — cannot build a redirect URI)"
                   redirect = f"{web}/auth/gitea/callback/"
-                  api = f"{host}/api/v1/user/applications/oauth2"
+                  internal = (os.environ.get("GITEA_INTERNAL_URL") or host).rstrip("/")
+                  api = f"{internal}/api/v1/user/applications/oauth2"
                   auth = {"Authorization": f"token {token}"} if token else {
                       "Authorization": "Basic " + base64.b64encode(f"{gu}:{gp}".encode()).decode()}
 
@@ -393,7 +404,7 @@ spec:
                           "client_id": client_id, "client_secret": client_secret,
                           "redirect_uri": redirect}).encode()
                       probe = urllib.request.Request(
-                          f"{host}/login/oauth/access_token", data=data, headers={
+                          f"{internal}/login/oauth/access_token", data=data, headers={
                               "Accept": "application/json",
                               "Content-Type": "application/x-www-form-urlencoded"})
                       try:

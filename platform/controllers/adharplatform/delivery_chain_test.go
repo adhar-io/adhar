@@ -265,3 +265,44 @@ func TestComposedKafkaBrokersSizeTheirOwnHeap(t *testing.T) {
 		}
 	}
 }
+
+// Every application gets a Grafana dashboard of its own: the Rollout, its pods,
+// their resources and HTTP traffic per environment, discovered by Grafana's
+// sidecar through the grafana_dashboard label.
+func TestEveryApplicationComposesAGrafanaDashboard(t *testing.T) {
+	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
+	for _, want := range []string{
+		"composition-resource-name: dashboard",
+		`grafana_dashboard: "1"`,
+		"grafana_folder: Applications",
+		`rollout_info{namespace=\"$env\",name=\"%s\"}`,
+		"http_server_requests_seconds_count",
+		"container_memory_working_set_bytes",
+	} {
+		if !strings.Contains(comp, want) {
+			t.Errorf("the Application composition's dashboard lacks %q", want)
+		}
+	}
+}
+
+// A Promotion must be CREATED, never applied by name: Kargo's webhook renames
+// every Promotion, and an apply over the rename leaves a ghost Kargo never
+// reconciles. The Release composes a one-shot Job that creates it with
+// generateName, as an identity the Project composition grants.
+func TestAReleaseCreatesItsPromotionInsteadOfApplyingOne(t *testing.T) {
+	rel := readConfigurationFile(t, "compositions", "release", "kargo.yaml")
+	if strings.Contains(rel, "kind: Promotion\n                  metadata:\n                    name:") {
+		t.Error("the Release composition still applies a Promotion by name; Kargo's webhook renames it and the result is a ghost")
+	}
+	for _, want := range []string{"kind: Job", "generateName: ${STAGE}-", "serviceAccountName: adhar-release", `kubectl create -f -`} {
+		if !strings.Contains(rel, want) {
+			t.Errorf("the Release composition lacks %q", want)
+		}
+	}
+	proj := readConfigurationFile(t, "compositions", "project", "local.yaml")
+	for _, want := range []string{"name: adhar-release", "verbs: [get, list, promote]", "resources: [promotions]"} {
+		if !strings.Contains(proj, want) {
+			t.Errorf("the Project composition does not grant the release identity %q", want)
+		}
+	}
+}

@@ -124,7 +124,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	deploymentNamespace := namespace
 	if deploymentNamespace == "" {
-		deploymentNamespace = "default"
+		deploymentNamespace = globals.DefaultEnvironment()
 	}
 
 	if destinationNSFlag == "" {

@@ -922,3 +922,21 @@ func TestNexusEnablesTheHeaderRealmThatCarriesKeycloak(t *testing.T) {
 			"an unknown realm id for the life of the cluster")
 	}
 }
+
+// Plane's setup reaches Gitea in-cluster: through the public URL the bridge
+// depended on the edge certificate being trusted when the hook ran, and on a
+// fresh cluster it was not, so Plane kept its email form (2026-10-17).
+func TestPlaneSetupReachesGiteaInCluster(t *testing.T) {
+	b := readStackFile(t, "application/plane/manifests/instance-setup.yaml")
+	for _, want := range []string{
+		"name: GITEA_INTERNAL_URL",
+		"value: http://gitea-http.adhar-system.svc.cluster.local:3000",
+		`api = f"{internal}/api/v1/user/applications/oauth2"`,
+		`f"{internal}/login/oauth/access_token"`,
+		`cfg("GITEA_HOST", host, "GITEA")`,
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("plane instance-setup lacks %q", want)
+		}
+	}
+}

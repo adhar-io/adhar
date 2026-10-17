@@ -8,6 +8,7 @@ you may not use this file except in compliance with the License.
 package apps
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -54,7 +55,7 @@ func runBind(cmd *cobra.Command, args []string) error {
 	appName, serviceName := args[0], args[1]
 	ns := namespace
 	if ns == "" {
-		ns = "default"
+		ns = globals.DefaultEnvironment()
 	}
 	secretName := bindSecretFlag
 	if secretName == "" {

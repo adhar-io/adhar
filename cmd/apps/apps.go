@@ -17,6 +17,7 @@ limitations under the License.
 package apps
 
 import (
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -61,7 +62,7 @@ var (
 
 func init() {
 	// Global flags
-	ApplicationCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "default", "Namespace for the application")
+	ApplicationCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", globals.DefaultEnvironment(), "Namespace for the application (defaults to the dev environment; custom applications never land in `default`)")
 	ApplicationCmd.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format (table, json, yaml)")
 	// Verbose flag is handled globally by root command
 

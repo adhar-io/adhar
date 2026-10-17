@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"encoding/json"
 	"errors"
@@ -70,7 +71,7 @@ var ErrApplicationNotFound = errors.New("application not found")
 // GetApplicationStatus retrieves the status for a single Application claim.
 func GetApplicationStatus(ctx context.Context, kubeconfigPath, namespace, name string) (*ApplicationStatusView, error) {
 	if namespace == "" {
-		namespace = "default"
+		namespace = globals.DefaultEnvironment()
 	}
 
 	if ctx == nil {
@@ -407,7 +408,7 @@ func ListApplications(ctx context.Context, kubeconfigPath, namespace string, all
 	if allNamespaces {
 		listNamespace = metav1.NamespaceAll
 	} else if listNamespace == "" {
-		listNamespace = "default"
+		listNamespace = globals.DefaultEnvironment()
 	}
 
 	opts := metav1.ListOptions{}
@@ -512,7 +513,7 @@ func applyApplication(ctx context.Context, kubeconfigPath string, app *unstructu
 
 	namespace := app.GetNamespace()
 	if namespace == "" {
-		namespace = "default"
+		namespace = globals.DefaultEnvironment()
 		app.SetNamespace(namespace)
 	}
 
@@ -543,7 +544,7 @@ func waitForApplicationReady(ctx context.Context, kubeconfigPath, namespace, nam
 	}
 
 	if namespace == "" {
-		namespace = "default"
+		namespace = globals.DefaultEnvironment()
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)

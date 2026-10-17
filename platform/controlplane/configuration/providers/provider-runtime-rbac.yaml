@@ -68,7 +68,9 @@ rules:
   # pipeline per application) and materialises its credentials with ESO; an
   # organisation and an environment bind their groups with RoleBindings.
   - apiGroups: ["kargo.akuity.io"]
-    resources: ["projects", "projectconfigs", "warehouses", "stages", "promotions"]
+    # freights: the Project composition grants a Release's Job `get, list` on
+    # them, and Kubernetes lets a Role grant only what its creator holds.
+    resources: ["projects", "projectconfigs", "warehouses", "stages", "promotions", "freights"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Kargo's admission webhook lets a Promotion be CREATED only by a subject that
   # may `promote` to its Stage (a Kargo-specific verb); a Release is

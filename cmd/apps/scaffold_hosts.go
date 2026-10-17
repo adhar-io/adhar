@@ -43,7 +43,21 @@ var hostnameRe = regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-
 // platformRouteHost is <name>.<env>.<base>, the base with no port.
 func platformRouteHost(name, environment, baseDomain string) string {
 	base := strings.Trim(stripPort(baseDomain), ".")
+	if environmentRepeatsHostLabel(environment, base) {
+		// `<app>.test.test.<zone>` is a name Let's Encrypt refuses (repeated
+		// label) and the Gateway omits that listener; `<app>-test.<zone>` sits
+		// under the host's own wildcard instead, so the environment stays
+		// reachable with a trusted certificate.
+		return name + "-" + environment + "." + base
+	}
 	return name + "." + environment + "." + base
+}
+
+// environmentRepeatsHostLabel reports whether the environment's name is also
+// the first label of the host (host test.adhar.io, environment test).
+func environmentRepeatsHostLabel(environment, base string) bool {
+	first, _, _ := strings.Cut(strings.ToLower(base), ".")
+	return first != "" && first == strings.ToLower(environment)
 }
 
 func stripPort(host string) string {
