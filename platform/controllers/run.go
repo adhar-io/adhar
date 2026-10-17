@@ -113,6 +113,7 @@ func RunControllers(
 		Recorder:  mgr.GetEventRecorderFor("node-autoscaler"),
 		Namespace: globals.AdharSystemNamespace,
 		Events:    bus,
+		NodeUsage: autoscaler.KubeletUsageReader(mgr.GetConfig()),
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create node autoscaler controller")
 	}

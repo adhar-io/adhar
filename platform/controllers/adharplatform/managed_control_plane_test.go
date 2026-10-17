@@ -2,6 +2,8 @@ package adharplatform
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -121,5 +123,60 @@ func TestOnlyCivoManagedClustersGetAControlPlaneNodeReserved(t *testing.T) {
 	// Two public nodes: ambiguous, so nothing is chosen.
 	if got := managedControlPlaneNode([]corev1.Node{*civoNode("a1", "1.1.1.1"), *civoNode("b2", "2.2.2.2")}); got != nil {
 		t.Errorf("with two public nodes %s was picked; guessing taints a worker", got.Name)
+	}
+}
+
+// Civo's cloud-controller assigns the public address AFTER the cluster reports
+// ready, so a reservation that runs once during the Cilium step finds no node.
+// It must run every reconcile until the node is known.
+func TestTheControlPlaneNodeIsReservedOnceItsPublicAddressAppears(t *testing.T) {
+	s := providedScheme(t)
+	ctx := context.Background()
+	r := &AdharPlatformReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(
+			civoSpecCM("managed"), civoNode("k3s-adhar-node-1", ""), civoNode("k3s-adhar-node-2", ""),
+		).Build(),
+		Scheme: s,
+	}
+	if err := r.reserveManagedControlPlaneNode(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"k3s-adhar-node-1", "k3s-adhar-node-2"} {
+		n := &corev1.Node{}
+		if err := r.Get(ctx, client.ObjectKey{Name: name}, n); err != nil {
+			t.Fatal(err)
+		}
+		if hasControlPlaneTaint(n) {
+			t.Fatalf("%s was tainted before any node had a public address", name)
+		}
+	}
+	// The cloud-controller catches up.
+	late := &corev1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: "k3s-adhar-node-1"}, late); err != nil {
+		t.Fatal(err)
+	}
+	late.Status.Addresses = append(late.Status.Addresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "212.2.254.162"})
+	if err := r.Status().Update(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.reserveManagedControlPlaneNode(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Get(ctx, client.ObjectKey{Name: "k3s-adhar-node-1"}, late); err != nil {
+		t.Fatal(err)
+	}
+	if !hasControlPlaneTaint(late) {
+		t.Fatal("the node was not reserved on the pass after its public address appeared")
+	}
+
+	b, err := os.ReadFile("controller.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	call := strings.Index(src, "r.reserveManagedControlPlaneNode(ctx)")
+	foundation := strings.Index(src, "// Install FOUNDATION packages only")
+	if call < 0 || foundation < 0 || call > foundation {
+		t.Error("Reconcile does not reserve the managed control-plane node on every pass before the foundation steps; a late public address leaves the k3s server unprotected")
 	}
 }

@@ -220,7 +220,27 @@ const LocalPathDataDir = "/opt/adhar-local-path"
 // disk. Anything that genuinely needs a network block device pins
 // `adhar-block`, which is still installed.
 func StepNodeLocalStorageClass(className string) []IntegrationStep {
-	manifest := fmt.Sprintf(`apiVersion: v1
+
+	// Applied and left to start on its own — deliberately NOT waited for.
+	// Cloud integration runs over SSH right after the first kubeadm joins, which
+	// is BEFORE Cilium: there is no CNI yet, so a Deployment on pod networking
+	// cannot become Available and waiting for its rollout just fails the whole
+	// `adhar up` five minutes later (it did). Nothing needs the provisioner that
+	// early either — the class binds WaitForFirstConsumer, so the first claim
+	// waits for a pod to be scheduled, long after the CNI is up. This is why the
+	// other steps here only wait for an object to EXIST (StepWaitDaemonSet).
+	return []IntegrationStep{
+		StepManifest("node-local provisioner ("+className+")", NodeLocalStorageManifest(className)),
+	}
+}
+
+// NodeLocalStorageManifest is the manifest StepNodeLocalStorageClass applies:
+// local-path-provisioner plus className as the default StorageClass. Exported
+// so a MANAGED cluster, where there is no node to SSH into, can have the same
+// default applied through the API (Civo's managed k3s has a 40-volume account
+// quota that the platform's ~90 claims exceed on the first wave, 2026-10-17).
+func NodeLocalStorageManifest(className string) string {
+	return fmt.Sprintf(`apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: local-path-provisioner-service-account
@@ -370,18 +390,6 @@ provisioner: rancher.io/local-path
 # the node cannot be chosen before the pod is scheduled.
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete`, LocalPathProvisionerVersion, LocalPathDataDir, className, globals.NodeCSIStartupTaint)
-
-	// Applied and left to start on its own — deliberately NOT waited for.
-	// Cloud integration runs over SSH right after the first kubeadm joins, which
-	// is BEFORE Cilium: there is no CNI yet, so a Deployment on pod networking
-	// cannot become Available and waiting for its rollout just fails the whole
-	// `adhar up` five minutes later (it did). Nothing needs the provisioner that
-	// early either — the class binds WaitForFirstConsumer, so the first claim
-	// waits for a pod to be scheduled, long after the CNI is up. This is why the
-	// other steps here only wait for an object to EXIST (StepWaitDaemonSet).
-	return []IntegrationStep{
-		StepManifest("node-local provisioner ("+className+")", manifest),
-	}
 }
 
 // StepClearDefaultStorageClass removes the default-class annotation from a

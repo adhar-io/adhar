@@ -181,6 +181,26 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// On Civo's managed k3s the control plane shares a node with the platform
+	// unless that node is reserved. This used to run once, inside the Cilium
+	// step — and at that moment Civo's cloud-controller had not yet given the
+	// node its public address, so nothing was found and the k3s server spent
+	// the whole bring-up under platform pods (2026-10-17). It is idempotent and
+	// cheap, so it runs every pass until the node is known. A no-op elsewhere.
+	if err := r.reserveManagedControlPlaneNode(ctx); err != nil {
+		log.FromContext(ctx).Info("Could not reserve the managed control-plane node yet", "error", err)
+	}
+	// Managed clouds with a tight volume quota get node-local storage as the
+	// default before the first claim (Gitea's) is made; see managed_storage.go.
+	if err := r.reconcileManagedNodeLocalStorage(ctx, &localBuild); err != nil {
+		log.FromContext(ctx).Info("Could not make node-local storage the default yet", "error", err)
+	}
+	// Envoy serves Cilium's synced COPY of the edge certificate, which the sync
+	// never refreshes in the platform namespace; see gateway_secret_sync.go.
+	if err := r.reconcileGatewaySecretSync(ctx); err != nil {
+		log.FromContext(ctx).Info("Could not refresh Cilium's synced Gateway secrets", "error", err)
+	}
+
 	// Click-free SSO for the Argo CD UI, once the platform can supply the
 	// identity it needs. Placed HERE, above the "already deployed" shortcut that
 	// returns straight into convergence: below it this never ran once the

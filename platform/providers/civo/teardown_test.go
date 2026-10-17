@@ -8,6 +8,7 @@ you may not use this file except in compliance with the License.
 package civo
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -260,5 +261,58 @@ func TestNetworkLabelIsTheSameForCreateAndTeardown(t *testing.T) {
 	// convention, which is what teardown used to look for.
 	if configured.computeNetworkLabel("adhar") == convention.computeNetworkLabel("adhar") {
 		t.Error("a configured network_label must not collapse to the convention; that mismatch is what leaked the network")
+	}
+}
+
+// An account out of volumes cannot host the bootstrap: Gitea alone claims three
+// before anything syncs. The check must fail BEFORE the cluster is built, on the
+// managed path too — that path never ran the quota preflight (2026-10-17).
+func TestQuotaPreflightCountsVolumesAndRunsForManagedClusters(t *testing.T) {
+	t.Parallel()
+	q := &civogo.Quota{
+		InstanceCountLimit: 16, CPUCoreLimit: 50, RAMMegabytesLimit: 64512, DiskGigabytesLimit: 1000, NetworkCountLimit: 10,
+		DiskVolumeCountLimit: 40, DiskVolumeCountUsage: 40,
+	}
+	joined := strings.Join(quotaShortfall(q, 3, 12, 24576, 150), "; ")
+	if !strings.Contains(joined, "disk volumes") {
+		t.Errorf("an account at 40 of 40 volumes was not reported: %q", joined)
+	}
+	q.DiskVolumeCountUsage = 37
+	if got := quotaShortfall(q, 3, 12, 24576, 150); len(got) != 0 {
+		t.Errorf("three free volumes carry the bootstrap, yet: %v", got)
+	}
+
+	b, err := os.ReadFile("provider.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	check := strings.Index(src, "p.checkQuota(plan)")
+	create := strings.Index(src, "p.client.NewKubernetesClusters(clusterConfig)")
+	if check < 0 || create < 0 || check > create {
+		t.Error("the managed CreateCluster does not run the quota preflight before creating the cluster")
+	}
+}
+
+// Quota usage with no cluster or instance behind it is not a reason to refuse a
+// build; usage WITH something behind it still is.
+func TestPhantomQuotaUsageDoesNotBlockAnEmptyAccount(t *testing.T) {
+	t.Parallel()
+	short := []string{"RAM (MB): need 49152, 49152 of 64512 already in use"}
+	if !quotaUsageIsPhantom(short, true) {
+		t.Fatal("a shortfall on an empty account was not treated as phantom usage")
+	}
+	if quotaUsageIsPhantom(short, false) {
+		t.Fatal("a shortfall on an account that holds resources was waved through")
+	}
+	if quotaUsageIsPhantom(nil, true) {
+		t.Fatal("no shortfall is not phantom usage")
+	}
+	b, err := os.ReadFile("teardown.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "if quotaUsageIsPhantom(shortfalls, p.accountLooksEmpty()) {") {
+		t.Error("checkQuota does not consult the account inventory before refusing on quota numbers")
 	}
 }

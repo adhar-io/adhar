@@ -322,8 +322,18 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	// provider's configured size/count when none are supplied.
 	pools := p.buildCivoPools(spec)
 	targetNodes := 0
+	var plan []string
 	for _, pool := range pools {
 		targetNodes += pool.Count
+		for i := 0; i < pool.Count; i++ {
+			plan = append(plan, pool.Size)
+		}
+	}
+	// The same quota preflight the compute path runs. The managed path never
+	// had one, so an account out of volumes built the cluster and stalled on
+	// Gitea's first PersistentVolumeClaim (2026-10-17).
+	if err := p.checkQuota(plan); err != nil {
+		return nil, err
 	}
 
 	tags := strings.Join(append([]string{"adhar-cluster", spec.Name}, p.config.Tags...), " ")

@@ -141,13 +141,21 @@ type Snapshot struct {
 	// it sizes a scale-up burst. Zero means "unknown": the burst then falls
 	// back to one worker at a time.
 	VolumesPerNode int
-	Now            time.Time
+	// NodeCPUUsageMilli is each node's MEASURED CPU use (kubelet stats), when it
+	// could be read. Requests understate what the platform's pods use while they
+	// boot, so utilization takes the larger of the two. See usage.go.
+	NodeCPUUsageMilli map[string]int64
+	Now               time.Time
 }
 
 // Utilization is the cluster-wide requested share of worker capacity.
 type Utilization struct {
 	CPU    float64
 	Memory float64
+	// MeasuredCPU is the fleet's actual CPU use over allocatable, when the
+	// kubelets could be read; CPU is the larger of requests and this.
+	MeasuredCPU float64
+	Measured    bool
 }
 
 // Decision is the outcome of one tick.
@@ -187,6 +195,12 @@ func Decide(s Snapshot) Decision {
 	spec := s.Spec
 	workers := schedulableWorkers(s.Nodes)
 	util := utilization(workers, s.Pods)
+	if measured, ok := measuredUtilization(workers, s.NodeCPUUsageMilli); ok {
+		util.MeasuredCPU, util.Measured = measured, true
+		if measured > util.CPU {
+			util.CPU = measured
+		}
+	}
 	d := Decision{
 		Action:      ActionNone,
 		Workers:     int32(len(workers)),
@@ -241,8 +255,15 @@ func Decide(s Snapshot) Decision {
 		default:
 			d.Action = ActionScaleUp
 			d.ScaleUpBy = 1
-			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold; adding a worker (%d/%d)",
-				util.CPU*100, util.Memory*100, upThreshold*100, len(workers)+1, spec.MaxWorkers)
+			if util.Measured && util.MeasuredCPU >= upThreshold {
+				// A fleet whose every core is busy cannot say how much more it
+				// needs — usage is capped at capacity. Growing by half is the
+				// smallest step that gets a starved bring-up moving in one
+				// cooldown instead of four.
+				d.ScaleUpBy = saturationBurst(int32(len(workers)), spec.MaxWorkers)
+			}
+			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% (measured %.0f%%) memory=%.0f%% at or above the %.0f%% scale-up threshold; adding %d worker(s) (%d/%d)",
+				util.CPU*100, util.MeasuredCPU*100, util.Memory*100, upThreshold*100, d.ScaleUpBy, int32(len(workers))+d.ScaleUpBy, spec.MaxWorkers)
 			return d
 		}
 	}
@@ -911,4 +932,39 @@ func nodesForDemand(pods []corev1.Pod, pending map[string]bool, cpuMilli, memByt
 	byCPU := math.Ceil(float64(cpu) / perNodeCPU)
 	byMem := math.Ceil(float64(mem) / perNodeMem)
 	return int32(math.Max(byCPU, byMem))
+}
+
+// measuredUtilization is the fleet's actual CPU use over its allocatable, over
+// the workers whose kubelet could be read. False when none could.
+func measuredUtilization(workers []corev1.Node, usage map[string]int64) (float64, bool) {
+	var used, alloc int64
+	for _, n := range workers {
+		u, ok := usage[n.Name]
+		if !ok {
+			continue
+		}
+		used += u
+		alloc += n.Status.Allocatable.Cpu().MilliValue()
+	}
+	if alloc <= 0 {
+		return 0, false
+	}
+	return float64(used) / float64(alloc), true
+}
+
+// saturationBurst is how many workers to add to a fleet that is saturated by
+// measured CPU: half of it (at least one), within the burst cap and the room
+// left to maxWorkers.
+func saturationBurst(workers, maxWorkers int32) int32 {
+	n := (workers + 1) / 2
+	if n < 1 {
+		n = 1
+	}
+	if n > maxScaleUpBurst {
+		n = maxScaleUpBurst
+	}
+	if room := maxWorkers - workers; n > room && room >= 1 {
+		n = room
+	}
+	return n
 }

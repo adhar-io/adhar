@@ -105,6 +105,9 @@ type Reconciler struct {
 	// Scaler defaults to the real cloud-provider implementation; tests
 	// substitute a fake.
 	Scaler scaler
+	// NodeUsage reads each node's measured CPU (kubelet stats); nil skips it and
+	// the decision falls back to requests alone. See usage.go.
+	NodeUsage NodeUsageReader
 	// Now is injectable so cooldown behaviour is testable.
 	Now func() time.Time
 
@@ -329,15 +332,25 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 		status = *platform.Status.Autoscaling
 	}
 
+	var usage map[string]int64
+	if r.NodeUsage != nil {
+		names := make([]string, 0, len(nodes.Items))
+		for _, n := range nodes.Items {
+			names = append(names, n.Name)
+		}
+		usage = r.NodeUsage(ctx, names)
+	}
+
 	return &snapshotWithCluster{
 		Snapshot: Snapshot{
-			Spec:           spec,
-			Status:         status,
-			Nodes:          nodes.Items,
-			Pods:           pods.Items,
-			RWOClaims:      rwo,
-			VolumesPerNode: r.volumesPerNode(ctx),
-			Now:            r.Now(),
+			Spec:              spec,
+			Status:            status,
+			Nodes:             nodes.Items,
+			Pods:              pods.Items,
+			RWOClaims:         rwo,
+			VolumesPerNode:    r.volumesPerNode(ctx),
+			NodeCPUUsageMilli: usage,
+			Now:               r.Now(),
 		},
 		cluster: cluster,
 	}, nil

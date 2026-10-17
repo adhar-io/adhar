@@ -299,6 +299,11 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		// success panel) — so confirming the happy path here told them only what
 		// they had already written down.
 		logger.Debugf("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
+		for _, env := range templateData.SkippedRouteEnvironments() {
+			logger.Warnf("Environment %q has no public hostname on %s: *.%s.%s is a name Let's Encrypt refuses (repeated label), so its Gateway listener is omitted — "+
+				"applications promoted to %q are reachable only inside the cluster. Choose a host whose first label is not an environment name to avoid this.",
+				env, host, env, host, env)
+		}
 
 		// Say so NOW if a publicly trusted certificate cannot be issued. Without
 		// this the ACME order simply goes to "invalid", the Gateway keeps serving
@@ -462,6 +467,18 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		autoscaling, err = autoscalingSpecFromConfig(envConfig.Autoscaling)
 		if err != nil {
 			return err
+		}
+	}
+	// Say now whether the workers can hold the profile. A slow bring-up is almost
+	// always this, and until now the only sign was the apps count climbing slowly.
+	if workers, perWorker, cErr := workerCapacity(ctx, kubeClient); cErr == nil {
+		scaling := v1alpha1.AutoscalingSpec{}
+		if autoscaling != nil {
+			scaling = *autoscaling
+		}
+		effective := scaling.WithDefaults()
+		if advice := capacityAdvice(workers, perWorker, productionProfileRequestCPUMilli, effective.MaxWorkers, effective.ScaleUpCooldown.Duration, 4); advice != "" {
+			logger.Warnf("Capacity: %s", advice)
 		}
 	}
 

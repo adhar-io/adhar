@@ -344,10 +344,15 @@ environments:
       - key: machineType
         value: Standard_E4bds_v5
       - key: nodeCount
-        value: '2'
+        # The production profile requests ~18 vCPU; a Standard_E4bds_v5 worker
+        # offers 3.5 allocatable. Two of them left the identity chain
+        # (CNPG → Keycloak → console) starved while the autoscaler grew the
+        # cluster one cooldown at a time (2026-10-17). Five workers carry the
+        # profile from the first wave; the autoscaler trims idle ones later.
+        value: '5'
       - key: diskSizeGb
         value: '100'
     autoscaling:
       enabled: true
-      minWorkers: 2
-      maxWorkers: 5
+      minWorkers: 3
+      maxWorkers: 8

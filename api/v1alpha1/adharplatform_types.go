@@ -490,8 +490,41 @@ var acmeDNS01Providers = map[string]bool{
 // environments GitOps repo, the CLI, the hostname a scaffolded app is published
 // on and the Gateway listeners that terminate TLS for it. They have drifted
 // apart once already, so there is exactly one definition.
+//
+// An environment whose name is also the FIRST label of the host is left out:
+// its listener would be `*.test.test.adhar.io`, and Let's Encrypt refuses such
+// a name ("too many subdomain labels indicative of recursion"). Because every
+// listener's name goes into ONE certificate, that single name failed the whole
+// order and every URL on the host served the self-signed bootstrap certificate
+// (Azure, host test.adhar.io, 2026-10-17). The environment still exists; its
+// applications simply have no public hostname on that host — see
+// SkippedRouteEnvironments, which the bring-up reports.
 func (s BuildCustomizationSpec) RouteEnvironments() []string {
-	return globals.PlatformEnvironments()
+	var out []string
+	for _, env := range globals.PlatformEnvironments() {
+		if routeEnvironmentCollidesWithHost(env, s.Host) {
+			continue
+		}
+		out = append(out, env)
+	}
+	return out
+}
+
+// SkippedRouteEnvironments are the environments RouteEnvironments left out for
+// this host, so the bring-up can say so.
+func (s BuildCustomizationSpec) SkippedRouteEnvironments() []string {
+	var out []string
+	for _, env := range globals.PlatformEnvironments() {
+		if routeEnvironmentCollidesWithHost(env, s.Host) {
+			out = append(out, env)
+		}
+	}
+	return out
+}
+
+func routeEnvironmentCollidesWithHost(env, host string) bool {
+	first, _, _ := strings.Cut(strings.ToLower(host), ".")
+	return first != "" && first == strings.ToLower(env)
 }
 
 func (s BuildCustomizationSpec) HasDNS01() bool { return acmeDNS01Providers[s.DNSProvider] }

@@ -66,6 +66,20 @@ func (r *AdharPlatformReconciler) ReconcileGatewayAPICRDs(ctx context.Context, r
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Gateway API CRDs")
 
+	// A cluster that already carries the Gateway API — Civo's managed k3s ships
+	// the STANDARD channel with Cilium, plus the upstream `safe-upgrades`
+	// ValidatingAdmissionPolicy — refuses the platform's EXPERIMENTAL bundle
+	// outright: "Installing experimental CRDs on top of standard channel CRDs is
+	// prohibited". Every reconcile then failed at this step and the bring-up
+	// never reached Argo CD (mum1, 2026-10-17). The platform's own objects
+	// (Gateway, GatewayClass, HTTPRoute, ReferenceGrant, GRPCRoute) are all
+	// standard, so the cluster's CRDs are used as they are; the two packages
+	// that declare experimental kinds (agentgateway's TLSRoute, open-function)
+	// stay OutOfSync there, which is a missing feature, not a broken cluster.
+	if foreign, detail := r.foreignGatewayAPICRDs(ctx); foreign {
+		logger.Info("The cluster already provides the Gateway API CRDs; the platform's bundle is not applied over them", "existing", detail)
+		return ctrl.Result{}, nil
+	}
 	manifestBytes, err := gatewayFS.ReadFile("resources/gateway-api/crds.yaml")
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reading gateway-api crds manifest: %w", err)
@@ -75,6 +89,32 @@ func (r *AdharPlatformReconciler) ReconcileGatewayAPICRDs(ctx context.Context, r
 	}
 	logger.Info("Gateway API CRDs installed")
 	return ctrl.Result{}, nil
+}
+
+const (
+	gatewayAPIChannelAnnotation = "gateway.networking.k8s.io/channel"
+	gatewayAPIBundleAnnotation  = "gateway.networking.k8s.io/bundle-version"
+	gatewayAPIProbeCRD          = "gateways.gateway.networking.k8s.io"
+)
+
+// foreignGatewayAPICRDs reports whether another party installed the Gateway API
+// CRDs from the STANDARD channel. The platform's bundle is experimental; the
+// upstream safe-upgrades policy forbids layering it over standard, and nothing
+// the platform itself creates needs the experimental kinds. An absent CRD, or
+// one already on the experimental channel (the platform's own earlier apply),
+// is not foreign.
+func (r *AdharPlatformReconciler) foreignGatewayAPICRDs(ctx context.Context) (bool, string) {
+	crd := &unstructured.Unstructured{}
+	crd.SetAPIVersion("apiextensions.k8s.io/v1")
+	crd.SetKind("CustomResourceDefinition")
+	if err := r.Get(ctx, client.ObjectKey{Name: gatewayAPIProbeCRD}, crd); err != nil {
+		return false, ""
+	}
+	ann := crd.GetAnnotations()
+	if ann[gatewayAPIChannelAnnotation] != "standard" {
+		return false, ""
+	}
+	return true, fmt.Sprintf("%s channel %s", ann[gatewayAPIChannelAnnotation], ann[gatewayAPIBundleAnnotation])
 }
 
 // ReconcileGateway installs the platform GatewayClass, CiliumGatewayClassConfig

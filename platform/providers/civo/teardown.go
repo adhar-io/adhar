@@ -281,13 +281,26 @@ func quotaShortfall(q *civogo.Quota, nodes, cpu, ramMB, diskGB int) []string {
 	check("disk (GB)", diskGB, q.DiskGigabytesUsage, q.DiskGigabytesLimit)
 	// One network per cluster: the create fails outright without it.
 	check("networks", 1, q.NetworkCountUsage, q.NetworkCountLimit)
+	// Volumes: on managed k3s every PersistentVolumeClaim is a Civo volume, and
+	// the bootstrap alone claims three (Gitea, its database, its cache) before
+	// a single application syncs. A bring-up on an account at 40 of 40 volumes
+	// — 37 of them unattached pvc-* leftovers of a cluster deleted outside
+	// `adhar down` — built the cluster, then sat with Gitea Pending on
+	// `OutOfRange: Requested volume would exceed volume count limit quota of 40`
+	// (mum1, 2026-10-17). The floor is what the bootstrap needs; the profile
+	// needs far more, and that shortfall surfaces as Pending claims later.
 	// The Gateway Service's load balancer is deliberately NOT checked. An
 	// exhausted load-balancer quota leaves that one Service Pending while the
 	// whole platform still comes up and is reachable on its node ports, so
 	// refusing to build the cluster over it would trade a recoverable
 	// inconvenience for a hard failure.
+	check("disk volumes", minBootstrapVolumes, q.DiskVolumeCountUsage, q.DiskVolumeCountLimit)
 	return out
 }
+
+// minBootstrapVolumes is how many volumes the foundation claims before any
+// application syncs: Gitea's shared storage, its PostgreSQL and its Valkey.
+const minBootstrapVolumes = 3
 
 // Minimum shape the platform's own control plane needs on Civo. Measured, not
 // guessed: a g3.medium (2 vCPU, 4096 MB) control plane carried kubeadm, etcd and
@@ -338,14 +351,11 @@ func (p *Provider) checkQuota(plan []string) error {
 		log.Printf("Warning: could not read the account quota (%v); proceeding without a preflight check", err)
 		return nil
 	}
+	shortfalls := quotaShortfallForPlan(p, q, plan)
 	// Sum the REAL shapes. A cluster is a control plane plus workers and those are
 	// routinely different sizes, so one size times a node count is the wrong model:
 	// it refuses clusters that fit.
-	var cpu, ram, disk int
-	for _, size := range plan {
-		c, r, d := p.sizeShape(size)
-		cpu, ram, disk = cpu+c, ram+r, disk+d
-	}
+	cpu, ram, disk := p.planShape(plan)
 	// plannedInstanceSizes puts the control plane first, which is the one node
 	// whose size decides whether the cluster stays reachable.
 	if len(plan) > 0 {
@@ -355,15 +365,28 @@ func (p *Provider) checkQuota(plan []string) error {
 		}
 	}
 
-	shortfalls := quotaShortfall(q, len(plan), cpu, ram, disk)
 	summary := strings.Join(plan, " + ")
 	if len(shortfalls) == 0 {
 		log.Printf("Quota preflight passed: %s (%d vCPU, %d MB RAM, %d GB disk) fits within the account limits",
 			summary, cpu, ram, disk)
 		return nil
 	}
+	// Usage with nothing behind it. Ten minutes after the last cluster was
+	// deleted the account still reported 3 instances / 49152 MB while every
+	// region listed no clusters and no instances (2026-10-17): Civo's quota
+	// accounting had not caught up, or never would. The numbers cannot be
+	// trusted over the inventory, so the build goes ahead and Civo's own
+	// enforcement at create time has the final word — exactly what happened
+	// before this preflight existed.
+	if quotaUsageIsPhantom(shortfalls, p.accountLooksEmpty()) {
+		log.Printf("Warning: the Civo quota reports resources in use (%s) but the account holds no clusters or instances; "+
+			"proceeding and leaving the final word to Civo", strings.Join(shortfalls, "; "))
+		return nil
+	}
 	return fmt.Errorf("the Civo account cannot hold this cluster (%s):\n  %s\n"+
-		"Request an increase at https://dashboard.civo.com/quota, or lower nodeCount / choose a smaller size",
+		"Request an increase at https://dashboard.civo.com/quota, or lower nodeCount / choose a smaller size. "+
+		"Unattached pvc-* volumes left by an earlier cluster count against the volume quota: "+
+		"`adhar down --purge-orphaned-volumes` or `civo volume ls` removes them",
 		summary, strings.Join(shortfalls, "\n  "))
 }
 
@@ -572,4 +595,42 @@ func (p *Provider) sweepManagedClusterResources(id clusterIdentity) {
 	for _, problem := range problems {
 		log.Printf("Warning: %s", problem)
 	}
+}
+
+// planShape sums the REAL shapes of a plan. A cluster is a control plane plus
+// workers and those are routinely different sizes, so one size times a node
+// count is the wrong model: it refuses clusters that fit.
+func (p *Provider) planShape(plan []string) (cpu, ram, disk int) {
+	for _, size := range plan {
+		c, r, d := p.sizeShape(size)
+		cpu, ram, disk = cpu+c, ram+r, disk+d
+	}
+	return cpu, ram, disk
+}
+
+func quotaShortfallForPlan(p *Provider, q *civogo.Quota, plan []string) []string {
+	cpu, ram, disk := p.planShape(plan)
+	return quotaShortfall(q, len(plan), cpu, ram, disk)
+}
+
+// quotaUsageIsPhantom says whether a shortfall should be overridden: only when
+// there IS a shortfall and the account provably holds nothing that could be
+// using the quota.
+func quotaUsageIsPhantom(shortfalls []string, accountEmpty bool) bool {
+	return len(shortfalls) > 0 && accountEmpty
+}
+
+// accountLooksEmpty reports whether the account has no Kubernetes clusters and
+// no instances in this region. Any read error counts as NOT empty: the override
+// needs positive evidence.
+func (p *Provider) accountLooksEmpty() bool {
+	clusters, err := p.client.ListKubernetesClusters()
+	if err != nil || clusters == nil || len(clusters.Items) > 0 {
+		return false
+	}
+	instances, err := p.client.ListInstances(1, 50)
+	if err != nil || instances == nil || len(instances.Items) > 0 {
+		return false
+	}
+	return true
 }
