@@ -38,6 +38,7 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/controllers"
+	"adhar-io/adhar/platform/domain"
 	"adhar-io/adhar/platform/k8s"
 	"adhar-io/adhar/platform/logger"
 	pfactory "adhar-io/adhar/platform/providers"
@@ -262,6 +263,19 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	// Self-signed certificate as the initial Gateway TLS material; the
 	// production edge (cert-manager ClusterIssuer) replaces it when configured.
+	// The edge certificate is a property of the DOMAIN, not of this cluster.
+	// Restore the one an earlier cluster was issued (saved by `adhar down` and
+	// by the end of `adhar up`) BEFORE the self-signed bootstrap below, so
+	// cert-manager adopts it and orders nothing: Let's Encrypt allows five
+	// certificates per exact name set per week, and a fresh cluster per run
+	// exhausted that (2026-10-17). See platform/domain/edgecert.go.
+	if dnsProvider != "" {
+		if ec, rErr := domain.RestoreEdgeCertificate(ctx, kubeClient, host, []string{"*." + host}); rErr != nil {
+			logger.Warnf("Could not reuse the cached edge certificate for %s: %v", host, rErr)
+		} else if ec != nil {
+			logger.Infof("● Reusing the %s certificate for *.%s issued earlier (valid until %s); no new ACME order", ec.Issuer, host, ec.NotAfter.UTC().Format("2006-01-02"))
+		}
+	}
 	cert, err := kind.SetupSelfSignedCertificate(ctx, kubeClient, templateData)
 	if err != nil {
 		return fmt.Errorf("setting up TLS certificate: %w", err)
@@ -542,6 +556,19 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// run still leaves the cluster converging on its own.
 	if err := verifyConsoleReady(context.Background(), kubeClient); err != nil {
 		return err
+	}
+
+	// Keep the issued edge certificate for the next cluster of this domain
+	// (best effort: it is usually still being issued at this point, and
+	// `adhar down` saves it again on the way out).
+	if dnsProvider != "" {
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if ec, sErr := domain.SaveEdgeCertificate(saveCtx, kubeClient); sErr != nil {
+			logger.Debugf("edge certificate not cached: %v", sErr)
+		} else if ec != nil {
+			logger.Debugf("Cached the %s edge certificate for %s (valid until %s)", ec.Issuer, ec.Host, ec.NotAfter.UTC().Format("2006-01-02"))
+		}
+		saveCancel()
 	}
 
 	// The checklist's completed stages and the success panel both say this, and it

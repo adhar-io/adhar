@@ -1,6 +1,11 @@
 package adharplatform
 
 import (
+	"adhar-io/adhar/globals"
+	synccommon "github.com/cnoe-io/argocd-api/api/argo/gitops-engine"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"context"
 	"testing"
 	"time"
@@ -150,5 +155,72 @@ func TestRefreshKindPicksHardNormalOrNothing(t *testing.T) {
 		if got := refreshKind(a, now); got != "" {
 			t.Errorf("a just-nudged app must be skipped, got %q", got)
 		}
+	}
+}
+
+// The bootstrap controller hands over only once the ready gate has HELD for
+// gateHold: the console's PostSync hook restarts the console seconds after it
+// first reads Healthy, and a hand-over on that first read left the CLI's verdict
+// facing a Progressing console (2026-10-17).
+func TestDriveConvergenceHandsOverOnlyAfterTheGateHolds(t *testing.T) {
+	s := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{argov1alpha1.AddToScheme, discoveryv1.AddToScheme, v1alpha1.AddToScheme} {
+		if err := add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &argov1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: readyGateApp, Namespace: globals.AdharSystemNamespace}}
+	app.Status.Sync.Status = argov1alpha1.SyncStatusCodeSynced
+	app.Status.Health.Status = "Healthy"
+	ready := true
+	slice := &discoveryv1.EndpointSlice{
+		ObjectMeta:  metav1.ObjectMeta{Name: "console-x", Namespace: globals.AdharSystemNamespace, Labels: map[string]string{discoveryv1.LabelServiceName: consoleServiceName}},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints:   []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
+	}
+	platform := &v1alpha1.AdharPlatform{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: globals.AdharSystemNamespace}}
+	r := &AdharPlatformReconciler{
+		Client:              fake.NewClientBuilder().WithScheme(s).WithObjects(app, slice, platform).WithStatusSubresource(platform).Build(),
+		AppsConvergeTimeout: time.Hour,
+	}
+	r.convergeStart = time.Now()
+
+	res, err := r.driveConvergence(context.Background(), platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.shouldShutdown || res.RequeueAfter == 0 {
+		t.Fatalf("the controller handed over on the FIRST open read of the gate (requeue=%v shutdown=%v); the hook restart lands right after it", res.RequeueAfter, r.shouldShutdown)
+	}
+	if r.gateReadySince.IsZero() {
+		t.Fatal("an open gate did not start the hold clock")
+	}
+
+	r.gateReadySince = time.Now().Add(-gateHold)
+	res, err = r.driveConvergence(context.Background(), platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.shouldShutdown || res.RequeueAfter != 0 {
+		t.Fatalf("a gate held for the full hold did not hand over (requeue=%v shutdown=%v)", res.RequeueAfter, r.shouldShutdown)
+	}
+
+	// The clock resets when the gate closes again (the restart in progress).
+	r2 := &AdharPlatformReconciler{Client: r.Client, AppsConvergeTimeout: time.Hour}
+	r2.convergeStart = time.Now()
+	r2.gateReadySince = time.Now().Add(-time.Minute)
+	fresh := &argov1alpha1.Application{}
+	if err := r2.Client.Get(context.Background(), client.ObjectKeyFromObject(app), fresh); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Status.OperationState = &argov1alpha1.OperationState{Phase: synccommon.OperationRunning}
+	if err := r2.Client.Update(context.Background(), fresh); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r2.driveConvergence(context.Background(), platform); err != nil {
+		t.Fatal(err)
+	}
+	if !r2.gateReadySince.IsZero() || r2.shouldShutdown {
+		t.Fatalf("a console mid-operation kept the hold clock running (since=%v shutdown=%v)", r2.gateReadySince, r2.shouldShutdown)
 	}
 }

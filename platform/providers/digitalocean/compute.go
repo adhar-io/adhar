@@ -841,6 +841,15 @@ func (p *Provider) isComputeCluster(ctx context.Context, clusterID string) bool 
 	if strings.HasPrefix(clusterID, computeClusterTagPrefix) {
 		return true
 	}
+	// A provider configured for kubeadm-on-droplets never owns a DOKS cluster,
+	// so the answer must not depend on the API. It did: when the droplet
+	// listing failed ("context canceled" on an autoscaler tick that ran out of
+	// time) this returned false and ScaleNodeGroup went on to "Scaling node
+	// pool workers in DOKS cluster adhar" — a cluster that is not DOKS
+	// (2026-10-17). A lookup failure must never flip the cluster's MODE.
+	if p.config != nil && !p.config.isManaged() {
+		return true
+	}
 	droplets, err := p.computeClusterDroplets(ctx, clusterID)
 	return err == nil && len(droplets) > 0
 }

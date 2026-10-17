@@ -87,10 +87,13 @@ type AdharPlatformReconciler struct {
 	// ready before it exits anyway (0: exit as soon as the foundation is ready).
 	AppsConvergeTimeout time.Duration
 	convergeStart       time.Time
-	Config              v1alpha1.BuildCustomizationSpec
-	TempDir             string
-	StackDir            string // Path to the platform/stack directory on the host filesystem
-	RepoMap             *utils.RepoMap
+	// gateReadySince is when the ready gate was last seen open without
+	// interruption; zero while it is closed. See driveConvergence.
+	gateReadySince time.Time
+	Config         v1alpha1.BuildCustomizationSpec
+	TempDir        string
+	StackDir       string // Path to the platform/stack directory on the host filesystem
+	RepoMap        *utils.RepoMap
 
 	// Events publishes platform lifecycle events onto the bus. Nil is a
 	// working configuration and the normal one locally: publishing is advisory

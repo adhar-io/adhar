@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"adhar-io/adhar/platform/k8s"
 
@@ -61,7 +62,7 @@ func TestAdharUpDoesNotCompleteUntilTheConsoleIsHealthyAndServing(t *testing.T) 
 		"console endpoint not ready": {consoleApp("Synced", "Healthy"), consoleEndpoint(false)},
 		"console app missing":        {},
 	} {
-		err := verifyConsoleReady(ctx, gateClient(t, objs...))
+		err := verifyConsoleReadyWithin(ctx, gateClient(t, objs...), 0, time.Millisecond)
 		if err == nil {
 			t.Errorf("%s: adhar up reported completion", name)
 			continue
@@ -111,11 +112,47 @@ func TestTheVerdictReadsEndpointsWithTheBringUpScheme(t *testing.T) {
 		t.Fatal(err)
 	}
 	blind := fake.NewClientBuilder().WithScheme(s).WithObjects(consoleApp("Synced", "Healthy")).Build()
-	err := verifyConsoleReady(context.Background(), blind)
+	err := verifyConsoleReadyWithin(context.Background(), blind, 0, time.Millisecond)
 	if err == nil {
 		t.Fatal("a client that cannot read endpoints reported completion")
 	}
 	if strings.Contains(err.Error(), "not serving") || !strings.Contains(err.Error(), "could not be determined") {
 		t.Errorf("a read failure was reported as the console's fault: %v", err)
+	}
+}
+
+// The verdict waits for a console that is still settling instead of failing on
+// the first read: the PostSync restart leaves it Progressing for a minute.
+func TestTheVerdictWaitsForAConsoleThatIsStillSettling(t *testing.T) {
+	app := consoleApp("Synced", "Progressing")
+	c := gateClient(t, app, consoleEndpoint(true))
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		fresh := &argov1alpha1.Application{}
+		if err := c.Get(context.Background(), client.ObjectKeyFromObject(app), fresh); err != nil {
+			t.Error(err)
+			return
+		}
+		fresh.Status.Health.Status = gitopsengine.HealthStatusCode("Healthy")
+		// The fake client has no status subresource registered here, so status travels with Update.
+		if err := c.Update(context.Background(), fresh); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := verifyConsoleReadyWithin(context.Background(), c, 5*time.Second, 50*time.Millisecond); err != nil {
+		t.Fatalf("a console that became Healthy within the grace failed the run: %v", err)
+	}
+	if err := verifyConsoleReadyWithin(context.Background(), gateClient(t, consoleApp("Synced", "Progressing"), consoleEndpoint(true)), 200*time.Millisecond, 50*time.Millisecond); err == nil {
+		t.Fatal("a console that never settles within the grace reported completion")
+	}
+}
+
+// A Healthy console whose sync operation (hooks included) is still running is
+// not settled: its PostSync hook is about to restart it.
+func TestTheVerdictDoesNotTrustAHealthyConsoleMidOperation(t *testing.T) {
+	app := consoleApp("Synced", "Healthy")
+	app.Status.OperationState = &argov1alpha1.OperationState{Phase: gitopsengine.OperationRunning}
+	if err := verifyConsoleReadyWithin(context.Background(), gateClient(t, app, consoleEndpoint(true)), 0, time.Millisecond); err == nil {
+		t.Fatal("a console with a sync operation in flight completed the run")
 	}
 }

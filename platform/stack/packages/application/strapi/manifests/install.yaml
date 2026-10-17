@@ -211,6 +211,11 @@ spec:
             # strapi-super-admin | strapi-editor | strapi-author). A Super
             # Admin promotes people from Settings → Users.
             - {name: STRAPI_SSO_DEFAULT_ROLE, value: strapi-editor}
+            # The Adhar Console's Content API key (console-token.yaml). Step 3c
+            # registers its hash as a full-access API token. Optional so Strapi
+            # still boots before ESO writes it; 3c then skips.
+            - name: ADHAR_CONSOLE_TOKEN
+              valueFrom: {secretKeyRef: {name: strapi-api-token, key: STRAPI_TOKEN, optional: true}}
           command: [bash, -c]
           args:
             - |
@@ -580,6 +585,64 @@ spec:
                 ( until node -e 'fetch("http://127.0.0.1:1337/_health").then(r=>process.exit(r.status===204?0:1),()=>process.exit(1))' 2>/dev/null; do sleep 10; done
                   NODE_PATH="$APP/node_modules" node /tmp/adhar-sso-options.js ) &
               fi
+
+              # ── 3c. Register the Adhar Console's API token ──
+              # Strapi keeps only HMAC-SHA512(API_TOKEN_SALT, key) per token
+              # (admin::api-token `hash`), so the hash of the platform-generated
+              # key (console-token.yaml) IS the token — no admin session needed,
+              # which SSO-only Strapi could not script anyway. Upserts one
+              # full-access, non-expiring "Adhar Console" row and repairs it if
+              # it was edited or deleted in the admin. Runs once the server is up
+              # (the table exists only after Strapi's bootstrap).
+              cat > /tmp/adhar-console-token.js <<'JS'
+              const crypto = require('crypto');
+              const { Client } = require('pg');
+              (async () => {
+                const key = process.env.ADHAR_CONSOLE_TOKEN, salt = process.env.API_TOKEN_SALT;
+                if (!key || !salt) { console.log('console token: no ADHAR_CONSOLE_TOKEN; skipping'); return; }
+                const hash = crypto.createHmac('sha512', salt).update(key).digest('hex');
+                const NAME = 'Adhar Console';
+                const c = new Client({
+                  host: process.env.DATABASE_HOST, port: Number(process.env.DATABASE_PORT || 5432),
+                  database: process.env.DATABASE_NAME, user: process.env.DATABASE_USERNAME,
+                  password: process.env.DATABASE_PASSWORD, ssl: false,
+                });
+                await c.connect();
+                try {
+                  // Columns differ across Strapi 5 minors; write only the ones present.
+                  const cols = new Set((await c.query(
+                    "select column_name from information_schema.columns where table_name = 'strapi_api_tokens'",
+                  )).rows.map((r) => r.column_name));
+                  if (!cols.size) { console.log('console token: strapi_api_tokens missing; skipping'); return; }
+                  const row = (await c.query('select id, access_key, type, expires_at from strapi_api_tokens where name = $1 order by id limit 1', [NAME])).rows[0];
+                  if (row && row.access_key === hash && row.type === 'full-access' && !row.expires_at) {
+                    console.log('console token: already registered'); return;
+                  }
+                  const now = new Date();
+                  if (row) {
+                    await c.query("update strapi_api_tokens set access_key = $1, type = 'full-access', lifespan = null, expires_at = null, updated_at = $2 where id = $3", [hash, now, row.id]);
+                    console.log('console token: repaired'); return;
+                  }
+                  const data = {
+                    name: NAME,
+                    description: 'Used by the Adhar Console (Develop → Content). Managed by the platform; deleting it is undone on the next Strapi start.',
+                    type: 'full-access', access_key: hash, lifespan: null, expires_at: null,
+                    created_at: now, updated_at: now,
+                  };
+                  if (cols.has('published_at')) data.published_at = now;
+                  if (cols.has('document_id')) data.document_id = 'a' + crypto.randomBytes(16).toString('hex').slice(0, 23);
+                  const names = Object.keys(data).filter((k) => cols.has(k));
+                  await c.query(
+                    `insert into strapi_api_tokens (${names.join(', ')}) values (${names.map((_, i) => `$${i + 1}`).join(', ')})`,
+                    names.map((k) => data[k]),
+                  );
+                  console.log('console token: registered');
+                } finally { await c.end(); }
+              })().catch((e) => console.error('console token:', e.message));
+              JS
+              sed -i 's/^              //' /tmp/adhar-console-token.js
+              ( until node -e 'fetch("http://127.0.0.1:1337/_health").then(r=>process.exit(r.status===204?0:1),()=>process.exit(1))' 2>/dev/null; do sleep 10; done
+                NODE_PATH="$APP/node_modules" node /tmp/adhar-console-token.js ) &
 
               # ── 4. Serve ──
               echo "==> starting Strapi"

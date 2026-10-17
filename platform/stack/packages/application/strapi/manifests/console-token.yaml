@@ -1,5 +1,4 @@
 # The Adhar Console's API token for Strapi.
-# Target: platform/stack/packages/application/strapi/manifests/console-token.yaml
 #
 # Develop → Content reads and writes through Strapi's Content API (`/api/…`),
 # which accepts only an API token. Nothing provisioned one: Strapi's admin is

@@ -958,6 +958,9 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		}
 		handledCluster[found.Cluster.ID] = envName
 
+		// The issued edge certificate outlives the cluster: keep it for the next one.
+		saveEdgeCertificateBeforeTeardown(ctx, clusterName, detail)
+
 		emit(logger.StatusMsg(fmt.Sprintf("deleting '%s' on %s", clusterName, found.ProviderName)))
 		if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
 			detail("  ✖ %v", err)

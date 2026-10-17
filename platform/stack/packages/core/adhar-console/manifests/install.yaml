@@ -492,6 +492,13 @@ spec:
         - secretRef:
             name: plane-api-token
             optional: true
+        # Strapi's Content API: STRAPI_URL (in-cluster) + STRAPI_TOKEN, generated
+        # and registered by the strapi package (application/strapi
+        # manifests/console-token.yaml), which also restarts the console once
+        # when the Secret lands after it started.
+        - secretRef:
+            name: strapi-api-token
+            optional: true
         resources:
           requests:
             cpu: 100m

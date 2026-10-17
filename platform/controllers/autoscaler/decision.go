@@ -18,6 +18,7 @@ package autoscaler
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -655,8 +656,8 @@ func scaleUpBurst(s Snapshot, pending []string, workers, maxWorkers int32) int32
 
 	perNode := int32(s.VolumesPerNode)
 	if perNode <= 0 {
-		// No CSI limit advertised: we cannot say how much one worker absorbs.
-		return 1
+		// Unknown attach budget: volumes cannot size the burst, demand still can.
+		perNode = 1 << 30
 	}
 
 	pendingSet := make(map[string]bool, len(pending))
@@ -674,12 +675,25 @@ func scaleUpBurst(s Snapshot, pending []string, workers, maxWorkers int32) int32
 			volumeBlocked++
 		}
 	}
-	if volumeBlocked == 0 {
+	// CPU/memory demand sizes the burst too. A fresh cloud bring-up starts at
+	// nodeCount workers and the whole platform arrives at once; adding ONE
+	// worker per three-minute cooldown took a 2-worker DO cluster 20 minutes
+	// to reach the six it needed, with the identity chain starved the whole
+	// way, and `adhar up` ran out of patience on the console (2026-10-17).
+	// Pods that are pending for capacity are summed and divided by what one
+	// worker can take (its allocatable, less a packing margin, since pods do
+	// not tile a node perfectly).
+	shapeCPU, shapeMem := workerShape(s.Nodes)
+	demandNodes := nodesForDemand(s.Pods, pendingSet, shapeCPU, shapeMem)
+	if volumeBlocked == 0 && demandNodes <= 1 {
 		return 1
 	}
 
 	// Round up: 8 blocked pods against 7 slots per node needs 2 workers.
 	needed := (volumeBlocked + perNode - 1) / perNode
+	if demandNodes > needed {
+		needed = demandNodes
+	}
 	if needed < 1 {
 		needed = 1
 	}
@@ -852,4 +866,49 @@ func maturedWorkers(workers []corev1.Node, now time.Time, minAge time.Duration) 
 		}
 	}
 	return out
+}
+
+// packingMargin is the share of a worker's allocatable the burst sizing assumes
+// pending pods can actually occupy; the rest is lost to imperfect bin-packing
+// and the DaemonSets every node carries.
+const packingMargin = 0.85
+
+// workerShape is the allocatable of the largest existing worker (CPU in milli,
+// memory in bytes), or zeros when no worker is known.
+func workerShape(nodes []corev1.Node) (cpuMilli, memBytes int64) {
+	for _, n := range schedulableWorkers(nodes) {
+		if c := n.Status.Allocatable.Cpu().MilliValue(); c > cpuMilli {
+			cpuMilli = c
+		}
+		if m := n.Status.Allocatable.Memory().Value(); m > memBytes {
+			memBytes = m
+		}
+	}
+	return cpuMilli, memBytes
+}
+
+// nodesForDemand is how many workers of the given shape the pending pods'
+// requests fill, whichever of CPU or memory runs out first. Zero when the shape
+// is unknown or nothing is pending.
+func nodesForDemand(pods []corev1.Pod, pending map[string]bool, cpuMilli, memBytes int64) int32 {
+	if cpuMilli <= 0 || memBytes <= 0 {
+		return 0
+	}
+	var cpu, mem int64
+	for _, p := range pods {
+		if !pending[p.Namespace+"/"+p.Name] {
+			continue
+		}
+		c, m := podRequests(p)
+		cpu += c
+		mem += m
+	}
+	if cpu == 0 && mem == 0 {
+		return 0
+	}
+	perNodeCPU := float64(cpuMilli) * packingMargin
+	perNodeMem := float64(memBytes) * packingMargin
+	byCPU := math.Ceil(float64(cpu) / perNodeCPU)
+	byMem := math.Ceil(float64(mem) / perNodeMem)
+	return int32(math.Max(byCPU, byMem))
 }

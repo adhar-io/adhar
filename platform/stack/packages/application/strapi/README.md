@@ -77,3 +77,22 @@ SSO and the `strapi.<host>` HTTPRoute.
 - A production CMS carrying **your own** content types is still better served by
   the golden path: scaffold a Strapi repo and let `app-ci` build your image.
   This package gives you a working CMS without that step.
+
+## The console's API token
+
+The Adhar Console's Develop → Content page uses Strapi's Content API, which
+accepts only API tokens, and this Strapi's admin is Keycloak SSO only — so no
+human or script can mint one through the admin. The package provisions it:
+
+1. `manifests/console-token.yaml` generates a key once into Secret
+   `strapi-api-token` (`STRAPI_TOKEN`, plus the in-cluster `STRAPI_URL`).
+2. The boot script (step 3c) registers `HMAC-SHA512(API_TOKEN_SALT, key)` —
+   exactly how Strapi stores tokens — as a full-access, non-expiring token
+   named **Adhar Console**, and repairs it if it is edited or deleted. Look for
+   `console token: registered` / `already registered` in the Strapi log.
+3. The console Deployment loads the Secret (`envFrom`, optional), and the
+   `strapi-console-reload` PostSync Job restarts the console once if it started
+   before the Secret existed.
+
+Rotate by deleting the `strapi-api-token` Secret and re-syncing: ESO mints a
+new key, and the next Strapi start re-registers it.

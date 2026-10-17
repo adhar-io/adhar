@@ -39,11 +39,44 @@ import (
 // the in-cluster manager is already installed, and a re-run of `adhar up`
 // picks the wait back up.
 func verifyConsoleReady(ctx context.Context, c client.Client) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	ready, detail := adharplatform.ConsoleGate(ctx, c)
-	if ready {
-		return nil
+	return verifyConsoleReadyWithin(ctx, c, consoleVerdictGrace, consoleVerdictPoll)
+}
+
+// consoleVerdictGrace is how long the final verdict waits for the console to
+// settle after the wait ended, and consoleVerdictPoll how often it re-reads.
+//
+// The verdict used to be ONE read. The bootstrap controller hands over when the
+// console first reads Healthy and serving, the in-cluster manager install takes
+// up to two minutes, and in that window the console's PostSync hook restarts
+// the console Deployment (it reloads the OIDC client it has just been given) —
+// so the single read landed on Progressing and failed a run whose console was
+// ninety seconds from Healthy. Three DO bring-ups in a row ended that way
+// (2026-10-17). The grace is generous because a console still rolling out is
+// the common case here, not a fault; a console that never settles still fails.
+const (
+	consoleVerdictGrace = 10 * time.Minute
+	consoleVerdictPoll  = 10 * time.Second
+)
+
+func verifyConsoleReadyWithin(ctx context.Context, c client.Client, grace, poll time.Duration) error {
+	deadline := time.Now().Add(grace)
+	var detail string
+	for {
+		readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		var ready bool
+		ready, detail = adharplatform.ConsoleGate(readCtx, c)
+		cancel()
+		if ready {
+			return nil
+		}
+		if time.Now().Add(poll).After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
 	}
 	return fmt.Errorf("adhar up did not complete: %s. The run completes only once the console is Healthy and serving; "+
 		"ArgoCD keeps converging in the background and the in-cluster manager is installed — re-run `adhar up` to resume "+

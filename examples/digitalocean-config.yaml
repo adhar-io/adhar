@@ -174,10 +174,16 @@ environments:
       - key: nodeSize
         value: s-8vcpu-16gb
       - key: nodeCount
-        value: '2'
+        # The production profile (77 packages) settles at six to eight of these
+        # workers. Starting at two left the identity chain (CNPG → Keycloak →
+        # console) starved while the autoscaler grew the cluster, and three
+        # bring-ups in a row ran past the console budget (2026-10-17). Four is
+        # the smallest start that brings the console up inside it; the
+        # autoscaler still trims idle workers afterwards.
+        value: '4'
     autoscaling:
       enabled: true
-      minWorkers: 2
+      minWorkers: 3
       maxWorkers: 5
 
 # ---------------------------------------------------------------------------

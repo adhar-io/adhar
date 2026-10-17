@@ -94,14 +94,30 @@ func resolveHealthProbes(t *testing.T) []string {
 // measured well over an hour on a laptop with an empty image cache, so the
 // defaults are generous and every budget is overridable for CI tuning.
 //
-//	ADHAR_E2E_TIMEOUT       overall test budget (default 90m)
-//	ADHAR_E2E_UP_TIMEOUT    `adhar up` budget (default 60m)
+//	ADHAR_E2E_TIMEOUT        overall test budget (default 90m)
+//	ADHAR_E2E_UP_TIMEOUT     `adhar up` budget (default 60m)
+//	ADHAR_E2E_APPS_TIMEOUT   `adhar up --apps-timeout` (default: the up budget less 20m)
 //	ADHAR_E2E_HEALTH_TIMEOUT package-health wait (default 25m)
+//
+// The apps budget is PASSED to `adhar up`: left to the flag's default (15m, the
+// laptop core), a 4-vCPU CI runner reached 12/15 apps when the console verdict
+// fired and the whole run failed on a cluster that was two minutes from done —
+// with the test's own 45-minute up budget mostly unspent (2026-10-16). Twenty
+// minutes is kept back for the bootstrap before the apps and the verdict's
+// ten-minute grace after them.
 var (
 	overallTimeout = envDuration("ADHAR_E2E_TIMEOUT", 90*time.Minute)
 	upTimeout      = envDuration("ADHAR_E2E_UP_TIMEOUT", 60*time.Minute)
+	appsTimeout    = envDuration("ADHAR_E2E_APPS_TIMEOUT", maxDuration(upTimeout-20*time.Minute, 15*time.Minute))
 	healthTimeout  = envDuration("ADHAR_E2E_HEALTH_TIMEOUT", 25*time.Minute)
 )
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
+}
 
 // envDuration reads a Go duration string from env, falling back to def.
 func envDuration(key string, def time.Duration) time.Duration {
@@ -121,8 +137,8 @@ func Test_FullBootstrapSequence(t *testing.T) {
 	defer cancel()
 
 	if !skipUp {
-		t.Logf("running adhar up --recreate (full bootstrap, budget %s)", upTimeout)
-		b, err := e2e.RunAdhar(ctx, upTimeout, "up", "--recreate")
+		t.Logf("running adhar up --recreate (full bootstrap, budget %s, apps budget %s)", upTimeout, appsTimeout)
+		b, err := e2e.RunAdhar(ctx, upTimeout, "up", "--recreate", "--apps-timeout", appsTimeout.String())
 		require.NoError(t, err, "adhar up failed: %s", string(b))
 
 		if !keep {

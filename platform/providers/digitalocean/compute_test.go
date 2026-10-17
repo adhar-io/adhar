@@ -1,6 +1,7 @@
 package digitalocean
 
 import (
+	"context"
 	"testing"
 
 	provider "adhar-io/adhar/platform/providers"
@@ -44,5 +45,21 @@ func TestLastLines(t *testing.T) {
 	}
 	if got := provider.LastLines("a", 5); got != "a" {
 		t.Errorf("lastLines short = %q", got)
+	}
+}
+
+// A compute-configured provider decides its cluster mode from its OWN config,
+// never from a droplet listing that may fail: a cancelled listing used to turn a
+// kubeadm cluster into "DOKS" for the duration of one scale-up.
+func TestAComputeProviderNeverMistakesItsClusterForDOKS(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // every API call would fail the way the autoscaler tick did
+	compute := &Provider{config: &Config{ClusterMode: "compute"}}
+	if !compute.isComputeCluster(ctx, "adhar") {
+		t.Fatal("a compute-configured provider reported its cluster as not compute when the API was unreachable")
+	}
+	managed := &Provider{config: &Config{ClusterMode: "managed"}}
+	if !managed.isComputeCluster(ctx, computeClusterTagPrefix+"adhar") {
+		t.Fatal("the tag prefix no longer identifies a compute cluster")
 	}
 }

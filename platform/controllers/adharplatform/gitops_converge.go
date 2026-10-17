@@ -48,6 +48,12 @@ const (
 	// what a person opens after `adhar up`, so once it serves, the command has
 	// delivered what it promised. See ConvergenceReport.Usable.
 	readyGateApp = "adhar-console"
+	// gateHold is how long the ready gate must stay open before the bootstrap
+	// controller hands over, and gatePoll how often it re-reads it meanwhile.
+	// Long enough to outlast the console's post-sync restart (the hook fires
+	// within seconds of the first Healthy), short enough not to be noticed.
+	gateHold = 45 * time.Second
+	gatePoll = 5 * time.Second
 	// consoleServiceName is the Service the gate application publishes. It is
 	// NOT the application name: the Argo CD Application is `adhar-console`
 	// while the Service it creates is `console`
@@ -69,7 +75,9 @@ type ConvergenceReport struct {
 
 // Converged reports whether every Application is Synced and Healthy.
 func (c ConvergenceReport) Converged() bool {
-	return c.Total > 0 && c.Healthy == c.Total
+	// "Every app Healthy" is not convergence while the gate app is still
+	// mid-operation: its PostSync hook has yet to restart it.
+	return c.Total > 0 && c.Healthy == c.Total && (!c.GatePresent || c.GateReady)
 }
 
 // Usable reports whether `adhar up` can hand the platform over.
@@ -189,7 +197,7 @@ func (r *AdharPlatformReconciler) nudgeApplications(ctx context.Context) (Conver
 			// consoleIsServing. The endpoint check is only paid once the
 			// Application itself is converged, so a converging run costs no
 			// extra API calls.
-			report.GateReady = appConverged(app) && r.consoleIsServing(ctx)
+			report.GateReady = consoleSettled(app) && r.consoleIsServing(ctx)
 		}
 		if appConverged(app) {
 			report.Healthy++
@@ -262,6 +270,21 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 	r.publishConvergence(ctx, resource, report)
+	// The gate must HOLD, not merely be observed: the console's PostSync hook
+	// restarts the console right after it first reads Healthy, so a single
+	// positive read handed over to a console that was about to go Progressing
+	// (2026-10-17). Hand over only once the gate has stayed open for gateHold.
+	if report.Usable() {
+		if r.gateReadySince.IsZero() {
+			r.gateReadySince = time.Now()
+		}
+		if held := time.Since(r.gateReadySince); held < gateHold && !expired {
+			logger.Info("◌ Console is up; confirming it stays up before handing over", "held", held.Round(time.Second), "required", gateHold)
+			return ctrl.Result{RequeueAfter: gatePoll}, nil
+		}
+	} else {
+		r.gateReadySince = time.Time{}
+	}
 	switch {
 	case report.Converged():
 		logger.Info("● Platform GitOps sync complete: every application is Synced and Healthy", "apps", report.Total)

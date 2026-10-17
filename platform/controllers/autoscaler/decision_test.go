@@ -574,3 +574,53 @@ func TestAntiAffinityPendingCountsOnlyWhenAHostWouldFixIt(t *testing.T) {
 		})
 	}
 }
+
+// A scale-up is sized by what is pending, not fixed at one worker: a fresh
+// cloud bring-up lands the whole platform at once, and one worker per cooldown
+// starved it for twenty minutes (2026-10-17).
+func TestScaleUpBurstsForCpuAndMemoryDemand(t *testing.T) {
+	const cpuMsg = "0/3 nodes are available: 3 Insufficient cpu."
+	pendingPods := func(n int) []corev1.Pod {
+		out := make([]corev1.Pod, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, pending(fmt.Sprintf("p%d", i), cpuMsg)) // 500m / 1Gi each
+		}
+		return out
+	}
+	names := func(pods []corev1.Pod) []string {
+		out := make([]string, 0, len(pods))
+		for _, p := range pods {
+			out = append(out, p.Namespace+"/"+p.Name)
+		}
+		return out
+	}
+	// Workers are 4000m / 8Gi; with the packing margin one takes 3400m / 6.8Gi.
+	tests := []struct {
+		name string
+		pods int
+		want int32
+	}{
+		{"one small pod needs one worker", 1, 1},
+		{"six pods (3000m) still fit one", 6, 1},
+		{"twelve pods (6000m) need two", 12, 2},
+		{"forty pods (20000m) are capped at the burst maximum", 40, maxScaleUpBurst},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pods := pendingPods(tc.pods)
+			s := Snapshot{Nodes: []corev1.Node{worker("w1"), worker("w2")}, Pods: pods, VolumesPerNode: 7}
+			if got := scaleUpBurst(s, names(pods), 2, 10); got != tc.want {
+				t.Fatalf("scaleUpBurst(%d pending pods) = %d, want %d", tc.pods, got, tc.want)
+			}
+		})
+	}
+	pods := pendingPods(40)
+	s := Snapshot{Nodes: []corev1.Node{worker("w1"), worker("w2")}, Pods: pods, VolumesPerNode: 7}
+	if got := scaleUpBurst(s, names(pods), 2, 4); got != 2 {
+		t.Fatalf("burst exceeded the room to maxWorkers: %d", got)
+	}
+	s.VolumesPerNode = 0
+	if got := scaleUpBurst(s, names(pods), 2, 10); got != maxScaleUpBurst {
+		t.Fatalf("an unknown attach budget disabled demand sizing: %d", got)
+	}
+}
