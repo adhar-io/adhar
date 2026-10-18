@@ -18,6 +18,24 @@ spec:
     - jupyterhub.adhar.localtest.me
     - localhost
   rules:
+    # Single sign-on: the hub's login page only offers a "Sign in with keycloak"
+    # button, so a person who already signed in to Keycloak was asked to click
+    # again. Its OAuth start URL completes silently against the Keycloak session.
+    - matches:
+        - path:
+            type: Exact
+            value: /hub/login
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /hub/oauth_login
+            # Stated, or Gateway API defaults it to 443 and a local platform on
+            # 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

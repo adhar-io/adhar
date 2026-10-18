@@ -16,6 +16,238 @@ metadata:
     app.kubernetes.io/part-of: adhar
     app.kubernetes.io/managed-by: argocd
 data:
+  score.jq: |
+    # adhar production-readiness scoring program (run by score.sh; see model.yaml
+    # in adhar-scorecard-config for the model). Inputs arrive as --slurpfile /
+    # --argjson; every file holds one document, hence the `[0]` unwraps.
+    ($appsf[0]) as $apps
+    | ($workloadsf[0]) as $wlIdx
+    | ($reportsf[0].byKey) as $polByKey
+    | ($reportsf[0].byNs) as $polByNs
+    | ($routesf[0].nsSet) as $routeNs
+    | ($cnpgf[0].byKey) as $cnpgByKey
+    | ($cnpgf[0].byNs) as $cnpgByNs
+    | ($schedulesf[0]) as $sched
+    | ($hpasf[0].byTarget // {}) as $hpaBy
+    | ($pdbsf[0].byNs // {}) as $pdbBy
+    | ($podsf[0] // {}) as $podsBy
+    | ($evidencef[0] // {}) as $evidence
+    | ($envorder | split(",")) as $order
+    |
+    # ---- helpers ----------------------------------------------------------------
+    def imgbad($img):
+      ($img | type == "string")
+      and (($img | test(":latest$")) or (($img | test(":")) | not));
+    def grade($s):
+      if   $s >= $ga then "A"
+      elif $s >= $gb then "B"
+      elif $s >= $gc then "C"
+      elif $s >= $gd then "D"
+      else "F" end;
+    def b($x): if $x then 1 else 0 end;
+    def sig($name; $cat; $applicable; $score; $detail):
+      {name: $name, category: $cat, applicable: $applicable, score: $score}
+      + (if $detail == null then {} else {detail: $detail} end);
+    # every key/value of $sel is in $labels
+    def selects($sel; $labels): ($sel | length) > 0 and all($sel | to_entries[]; $labels[.key] == .value);
+    def ms($x): if $x == null then "?" else ($x | floor | tostring) + " ms" end;
+    def pct($x): if $x == null then "?" else (($x * 10000 | round) / 100 | tostring) + "%" end;
+    def ago($epoch): (($now - $epoch) / 3600 | floor) as $h
+      | if $h < 1 then "under an hour ago" elif $h < 48 then "\($h)h ago" else "\($h / 24 | floor)d ago" end;
+    def envrank($e): ($order | index($e)) // 99;
+
+    # Category fraction = mean of applicable signals. With NO applicable signal,
+    # the four original categories stay neutral (1.0, as they always have, so a
+    # platform package's grade does not move), while performance and resilience
+    # — which only applications are measured on — leave the score entirely and
+    # report null: a free 100% there would grade a package as load- and
+    # chaos-tested when nothing was tested.
+    def finish:
+      . as $rec
+      | ($rec.signals) as $signals
+      | { reliability: $wrel, security: $wsec, observability: $wobs, operations: $wops,
+          performance: $wperf, resilience: $wres } as $w
+      | ( $w | keys_unsorted | map( . as $cat
+            | [ $signals[] | select(.category == $cat and .applicable) ] as $s
+            | { key: $cat,
+                value: (if ($s | length) > 0 then (([ $s[].score ] | add) / ($s | length))
+                        elif ($cat == "performance" or $cat == "resilience") then null
+                        else 1 end) } )
+          | from_entries ) as $cf
+      | ([ $cf | to_entries[] | select(.value != null) | $w[.key] ] | add // 0) as $wtot
+      | (if $wtot > 0
+         then ([ $cf | to_entries[] | select(.value != null) | .value * $w[.key] ] | add) / $wtot * 100 | floor
+         else 0 end) as $score
+      | $rec + { score: $score, grade: grade($score),
+                 categories: ($cf | map_values(if . == null then null else (. * 100 | floor) end)) };
+
+    # ---- per Argo CD Application: the signals its own resources earn ------------
+    def base:
+      . as $app |
+      ($app.name) as $name |
+      ($app.ns) as $ns |
+      # What this Application actually owns, per ArgoCD. When ArgoCD knows the
+      # inventory that IS the answer: an Application that owns no workload has no
+      # containers to grade, and its container signals drop out as not-applicable
+      # rather than borrow other workloads from the namespace. The instance label
+      # and the destination namespace are fallbacks only for an Application that
+      # has never synced.
+      (($app.own.total // 0) > 0) as $hasOwn |
+      (if $hasOwn
+       then [ ($app.own.wl // [])[] | $wlIdx.byKey[.] // empty ]
+       else ($wlIdx.byInstance[$name] // $wlIdx.byNs[$ns] // []) end) as $wl |
+      ([ $wl[] | (.containers // [])[] ]) as $cs |
+      (($cs | length) > 0) as $hasC |
+      ($app.health == "Healthy") as $healthy |
+      ($hasC and (all($cs[]; .probes))) as $probesOk |
+      ($hasC and (all($cs[]; .res))) as $resOk |
+      ($hasC and (all($cs[]; (imgbad(.image)) | not))) as $imgOk |
+      # Kyverno reports are scoped to individual workloads, so they can be
+      # attributed exactly; the namespace aggregate is only for the never-synced
+      # fallback above.
+      (if $hasOwn
+       then { pass: ([ ($app.own.wl // [])[] | ($polByKey[.].pass // 0) ] | add // 0),
+              fail: ([ ($app.own.wl // [])[] | ($polByKey[.].fail // 0) ] | add // 0) }
+       else ($polByNs[$ns] // {pass:0, fail:0}) end) as $pol |
+      (($pol.pass + $pol.fail) > 0) as $hasPol |
+      (if $hasPol then ($pol.pass / ($pol.pass + $pol.fail)) else 0 end) as $passRate |
+      ($app.sync == "Synced") as $synced |
+      (if $hasOwn then (($app.own.routes // 0) > 0) else ($routeNs[$ns] // false) end) as $exposed |
+      (any($wl[]?; .kind == "StatefulSet")) as $hasSts |
+      ([ ($app.own.cnpg // [])[] | $cnpgByKey[.] // empty ]) as $cnpgOwn |
+      (if $hasOwn then $cnpgOwn
+       else (($cnpgByNs[$ns] // {count: 0, backup: false})
+             | if .count > 0 then [{backup: .backup}] else [] end) end) as $cnpgHere |
+      ($hasSts or (($cnpgHere | length) > 0)) as $stateful |
+      ( ($sched.all or ($sched.nsSet[$ns] // false)) or (any($cnpgHere[]?; .backup)) ) as $backupOk |
+      {
+        name: $name, namespace: $ns, stateful: $stateful,
+        health: $app.health, sync: $app.sync, wl: $wl, cs: $cs, hasC: $hasC,
+        signals: [
+          sig("argocd_healthy";    "reliability";   true;      b($healthy);  null),
+          sig("probes";            "reliability";   $hasC;     b($probesOk); null),
+          sig("resources";         "reliability";   $hasC;     b($resOk);    null),
+          sig("image_not_latest";  "security";      $hasC;     b($imgOk);    null),
+          sig("kyverno_pass_rate"; "security";      $hasPol;   $passRate;    null),
+          sig("argocd_synced";     "observability"; true;      b($synced);   null),
+          sig("httproute_exposed"; "observability"; true;      b($exposed);  null),
+          sig("backup";            "operations";    $stateful; b($backupOk); null)
+        ]
+      };
+
+    # ---- resilience the running workload already shows --------------------------
+    # Measured on the application's most-promoted environment: production
+    # readiness is a property of how it runs where it is closest to production.
+    def static_resilience($env):
+      . as $r |
+      ([ $r.wl[] | select(.kind == "Rollout" or .kind == "Deployment") ]) as $ws |
+      (($ws | length) > 0) as $has |
+      [ $ws[] | . as $w | ($hpaBy["\($w.ns)/\($w.kind)/\($w.name)"]) as $h
+        | { w: $w, hpa: $h,
+            minReplicas: ([ $w.replicas, ($h.min // 0) ] | max),
+            pdb: any(($pdbBy[$w.ns] // [])[]; selects(.; $w.podLabels)),
+            restarts: ([ ($podsBy[$w.ns] // [])[] | select(selects($w.podLabels; .labels)) | .restarts ] | add // null) } ] as $x |
+      ([ $x[] | .minReplicas ] | min // 0) as $minRep |
+      ([ $x[] | .restarts | select(. != null) ] | add // null) as $restarts |
+      [
+        sig("replicas_ha"; "resilience"; $has; b($has and $minRep >= 2);
+            "at least \($minRep) replica(s) in \($env)" + (if $minRep < 2 then " — one pod is a single point of failure" else "" end)),
+        sig("pod_disruption_budget"; "resilience"; $has; b($has and all($x[]; .pdb));
+            if all($x[]; .pdb) then "a PodDisruptionBudget covers every pod in \($env)"
+            else "no PodDisruptionBudget in \($env): a node drain can evict every replica at once" end),
+        sig("autoscaling"; "resilience"; $has; b($has and all($x[]; .hpa != null));
+            if all($x[]; .hpa != null) then "HorizontalPodAutoscaler \($x[0].hpa.min)-\($x[0].hpa.max) in \($env)"
+            else "no HorizontalPodAutoscaler in \($env)" end),
+        sig("spread_across_nodes"; "resilience"; $has; b($has and all($ws[]; .spread));
+            if all($ws[]; .spread) then "topology spread / anti-affinity keeps replicas on different nodes"
+            else "replicas may all land on one node (no topologySpreadConstraints or podAntiAffinity)" end),
+        sig("graceful_shutdown"; "resilience"; $r.hasC; b($r.hasC and all($r.cs[]; .preStop));
+            if ($r.hasC and all($r.cs[]; .preStop)) then "every container drains with a preStop hook"
+            else "no preStop hook: in-flight requests are cut when a pod is replaced" end),
+        sig("restart_stability"; "resilience"; ($restarts != null); b(($restarts // 0) < 3);
+            "\($restarts // 0) container restart(s) across the running pods in \($env)"),
+        sig("progressive_delivery"; "resilience"; $has; b($has and any($ws[]; .progressive));
+            if any($ws[]; .progressive) then "Argo Rollouts canary/blue-green" else "plain rolling update; no canary or blue-green" end)
+      ];
+
+    # ---- what the resilience runner proved ---------------------------------------
+    def evidence_signals($ev):
+      ($ev.testedAtEpoch // 0) as $at |
+      (($now - $at) <= ($evdays * 86400)) as $fresh |
+      ($ev.performance // null) as $perf |
+      ($ev.chaos // null) as $chaos |
+      ($ev.slo // null) as $slo |
+      (($perf.thresholdP95Ms // $p95default)) as $p95t |
+      ($ev.pending // "awaiting the first automated run") as $pending |
+      [
+        sig("load_test"; "performance"; true;
+            b($perf != null and $perf.status == "passed" and $fresh);
+            if $perf == null then $pending
+            elif ($perf.status == "error") then "load test could not run: \($perf.detail // "unknown error")"
+            else "\($perf.status): p95 \(ms($perf.p95Ms)) (target < \($p95t) ms), errors \(pct($perf.errorRate)), \(($perf.rps // 0) | floor) req/s with \($perf.vus // "?") users in \($ev.environment), \(ago($at))"
+                 + (if $fresh then "" else " — STALE, older than \($evdays) days" end) end),
+        sig("latency_slo"; "performance"; ($slo != null and $slo.p95Ms != null);
+            b($slo != null and $slo.p95Ms != null and $slo.p95Ms <= $p95t);
+            if $slo == null or $slo.p95Ms == null then "no request-latency metrics yet"
+            else "p95 \(ms($slo.p95Ms)) over 24h in \($slo.environment) (target < \($p95t) ms)" end),
+        ((($slo.targetAvailability // 99.9)) as $target | (1 - $target / 100) as $budget |
+        sig("error_budget"; "performance"; ($slo != null and $slo.errorRatio != null);
+            b($slo != null and $slo.errorRatio != null and $slo.errorRatio <= $budget);
+            if $slo == null or $slo.errorRatio == null then "no request metrics yet"
+            else "5xx \(pct($slo.errorRatio)) of \($slo.requests | floor) requests over 24h in \($slo.environment) (budget \(pct($budget)) for \($target)%)" end)),
+        sig("chaos_pod_delete"; "resilience"; ($chaos == null or $chaos.status != "unavailable");
+            b($chaos != null and $chaos.status == "passed" and $fresh);
+            if $chaos == null then $pending
+            elif ($chaos.status == "passed" or $chaos.status == "failed")
+            then "\($chaos.status): \($chaos.detail); steady-state probe \($chaos.probeSuccessPercentage // "?")% in \($ev.environment), \(ago($at))"
+                 + (if $fresh then "" else " — STALE, older than \($evdays) days" end)
+            else ($chaos.detail // $chaos.status) end),
+        sig("recovery_time"; "resilience";
+            ($chaos != null and ($chaos.status == "passed" or $chaos.status == "failed"));
+            b(($chaos.recoverySeconds // null) != null and $chaos.recoverySeconds <= $recoverymax);
+            if ($chaos.recoverySeconds // null) == null then "did not return to full readiness within 3 minutes of the experiment"
+            else "back to \($chaos.replicas // "?") ready replica(s) \($chaos.recoverySeconds)s after the experiment (target ≤ \($recoverymax)s)" end)
+      ];
+
+    # ---- assemble ------------------------------------------------------------------
+    ($apps.items // []) as $items
+    | [ $items[] | select(.app == null) | base | {kind: "package"} + . | del(.wl, .cs, .hasC) | finish ] as $packages
+    | [ $items[] | select(.app != null) ] | group_by(.app)
+    | map(
+        . as $group
+        | ($group[0].app) as $appName
+        # the most-promoted environment that has actually been deployed
+        | ($group | map(. + {rank: envrank(.env // ""), deployed: ((.own.total // 0) > 0)})
+                  | (map(select(.deployed)) | sort_by(.rank) | first) // (sort_by(.rank) | first)) as $rep
+        | ($rep | base) as $b
+        | ($evidence[$appName] // {}) as $ev
+        | {
+            kind: "application",
+            name: $appName,
+            namespace: $b.namespace,
+            environment: ($rep.env // $rep.ns),
+            environments: [ $group | sort_by(envrank(.env // ""))[] | {name: (.env // .ns), namespace: .ns, health, sync, argocdApp: .name} ],
+            stateful: $b.stateful,
+            health: $b.health,
+            sync: $b.sync,
+            evidence: ($ev | {environment, image, testedAt, target, performance, chaos, slo, pending} | with_entries(select(.value != null))),
+            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + evidence_signals($ev))
+          }
+        | finish )
+    | . as $applications
+    | ($applications + $packages) as $services
+    | {
+        generatedAt: $ts,
+        weights: {reliability:$wrel, security:$wsec, observability:$wobs, operations:$wops,
+                  performance:$wperf, resilience:$wres},
+        gradeThresholds: {A:$ga, B:$gb, C:$gc, D:$gd},
+        serviceCount: ($services | length),
+        applicationCount: ($applications | length),
+        averageScore: (if ($services | length) > 0
+                       then ([ $services[].score ] | add) / ($services | length) | floor
+                       else 0 end),
+        services: ($services | sort_by(.score) | reverse)
+      }
   score.sh: |
     #!/usr/bin/env bash
     # adhar production-readiness scorer. Gathers real in-cluster signals and
@@ -38,6 +270,16 @@ data:
     W_SEC=$(readcfg weight_security 25)
     W_OBS=$(readcfg weight_observability 15)
     W_OPS=$(readcfg weight_operations 25)
+    W_PERF=$(readcfg weight_performance 20)
+    W_RES=$(readcfg weight_resilience 25)
+    # Evidence from the resilience runner older than this no longer counts.
+    EVIDENCE_DAYS=$(readcfg evidence_max_age_days 7)
+    P95_DEFAULT=$(readcfg perf_p95_ms 500)
+    RECOVERY_MAX=$(readcfg chaos_recovery_max_seconds 120)
+    # Most-promoted first: an application is graded on the first of these it
+    # has actually been deployed to.
+    ENV_ORDER=$(readcfg environment_order prod,test,dev)
+    SCRIPT_DIR="${SCRIPT_DIR:-/scripts}"
     G_A=$(readcfg grade_a 90)
     G_B=$(readcfg grade_b 80)
     G_C=$(readcfg grade_c 70)
@@ -69,12 +311,28 @@ data:
     # DaemonSets count: several platform components (alloy, the eBPF agents)
     # ship only as DaemonSets and were ungradable while this listed just
     # Deployments and StatefulSets.
-    kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null >"$WORKDIR/workloads.raw" || true
-    [ -s "$WORKDIR/workloads.raw" ] || echo '{"items":[]}' >"$WORKDIR/workloads.raw"
+    kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null >"$WORKDIR/core-workloads.raw" || true
+    [ -s "$WORKDIR/core-workloads.raw" ] || echo '{"items":[]}' >"$WORKDIR/core-workloads.raw"
+    # Argo Rollouts are what every application template ships. They are fetched
+    # on their own: one unknown type in a combined `kubectl get` makes it return
+    # NOTHING for the others, so a cluster without the Rollouts CRD would have
+    # lost every Deployment too.
+    fetch rollouts.argoproj.io rollouts
+    jq -s '{items: ((.[0].items // []) + (.[1].items // []))}' \
+      "$WORKDIR/core-workloads.raw" "$WORKDIR/rollouts.raw" >"$WORKDIR/workloads.raw"
+    rm -f "$WORKDIR/core-workloads.raw" "$WORKDIR/rollouts.raw"
     fetch policyreports.wgpolicyk8s.io reports
     fetch httproutes.gateway.networking.k8s.io routes
     fetch schedules.velero.io schedules
     fetch clusters.postgresql.cnpg.io cnpg
+    fetch horizontalpodautoscalers.autoscaling hpas
+    fetch poddisruptionbudgets.policy pdbs
+
+    # Evidence from the resilience runner (load test, chaos, live SLO). It is
+    # runtime data the runner writes; absent until its first run.
+    kubectl -n "$OUT_NS" get configmap "${EVIDENCE_CONFIGMAP:-adhar-resilience-results}" \
+      -o jsonpath='{.data.results\.json}' >"$WORKDIR/evidence.json" 2>/dev/null || true
+    jq -e 'type == "object"' "$WORKDIR/evidence.json" >/dev/null 2>&1 || echo '{}' >"$WORKDIR/evidence.json"
 
     echo "adhar-scorecard: indexing signals..."
     # `.status.resources` is ArgoCD's own inventory of what each Application
@@ -84,28 +342,54 @@ data:
     # about an individual service.
     project apps '{items: [ (.items // [])[] | (.status.resources // []) as $rs | {
         name: .metadata.name,
+        app:  (.metadata.labels["adhar.io/application"] // null),
+        env:  (.metadata.labels["adhar.io/environment"] // .spec.destination.namespace // null),
         ns:   (.spec.destination.namespace // .metadata.namespace // "default"),
         health: (.status.health.status // "Unknown"),
         sync:   (.status.sync.status // "Unknown"),
         own: {
           total:  ($rs | length),
-          wl:     [ $rs[] | select(.kind == "Deployment" or .kind == "StatefulSet" or .kind == "DaemonSet")
+          wl:     [ $rs[] | select(.kind == "Deployment" or .kind == "StatefulSet" or .kind == "DaemonSet" or .kind == "Rollout")
                     | "\(.namespace // "")/\(.kind)/\(.name)" ],
           routes: ([ $rs[] | select(.kind == "HTTPRoute") ] | length),
           cnpg:   [ $rs[] | select(.kind == "Cluster" and ((.group // "") == "postgresql.cnpg.io"))
                     | "\(.namespace // "")/\(.name)" ] } } ]}'
+
+    # Pods only for the namespaces applications are delivered into: their
+    # restart counts are a resilience signal, and listing every platform pod
+    # just to throw them away would cost more than the rest of the run.
+    : >"$WORKDIR/pods.ndjson"
+    for ns in $(jq -r '[.items[] | select(.app != null) | .ns] | unique | .[]' "$WORKDIR/apps.json"); do
+      kubectl -n "$ns" get pods -o json 2>/dev/null | jq -c '(.items // [])[] | {
+          ns: .metadata.namespace, labels: (.metadata.labels // {}),
+          restarts: ([ (.status.containerStatuses // [])[].restartCount ] | add // 0) }' >>"$WORKDIR/pods.ndjson" || true
+    done
+    jq -s 'group_by(.ns) | map({key: .[0].ns, value: .}) | from_entries' "$WORKDIR/pods.ndjson" >"$WORKDIR/pods.json" \
+      || echo '{}' >"$WORKDIR/pods.json"
+
     project workloads '[ (.items // [])[] | {
         kind: .kind,
         ns:   .metadata.namespace,
         name: .metadata.name,
         inst: (.metadata.labels["app.kubernetes.io/instance"] // null),
+        replicas: (.spec.replicas // 1),
+        podLabels: (.spec.template.metadata.labels // {}),
+        progressive: (.kind == "Rollout" and (((.spec.strategy.canary // .spec.strategy.blueGreen) // null) != null)),
+        spread: ((((.spec.template.spec.topologySpreadConstraints // []) | length) > 0)
+                 or (.spec.template.spec.affinity.podAntiAffinity != null)),
         containers: [ (.spec.template.spec.containers // [])[] | {
             image: .image,
             probes: ((.readinessProbe != null) and (.livenessProbe != null)),
-            res:    ((.resources.requests != null) and (.resources.limits != null)) } ] } ]
+            res:    ((.resources.requests != null) and (.resources.limits != null)),
+            preStop: (.lifecycle.preStop != null) } ] } ]
       | { byKey:      (map({key: "\(.ns)/\(.kind)/\(.name)", value: .}) | from_entries),
           byInstance: (group_by(.inst) | map(select(.[0].inst != null) | {key: .[0].inst, value: .}) | from_entries),
           byNs:       (group_by(.ns)   | map({key: .[0].ns, value: .}) | from_entries) }'
+    project hpas '{ byTarget: ( reduce (.items // [])[] as $h ({};
+        .["\($h.metadata.namespace)/\($h.spec.scaleTargetRef.kind)/\($h.spec.scaleTargetRef.name)"] =
+          { min: ($h.spec.minReplicas // 1), max: ($h.spec.maxReplicas // 1) } ) ) }'
+    project pdbs '{ byNs: ( reduce (.items // [])[] as $p ({};
+        .[$p.metadata.namespace] = ((.[$p.metadata.namespace] // []) + [ ($p.spec.selector.matchLabels // {}) ]) ) ) }'
     project reports '{
         byKey: ( reduce (.items // [])[] as $r ({};
           "\($r.scope.namespace // $r.metadata.namespace // "")/\($r.scope.kind // "")/\($r.scope.name // "")" as $k
@@ -131,139 +415,25 @@ data:
     echo "adhar-scorecard: computing scores..."
     # --slurpfile binds an ARRAY of the file's documents; each file holds one
     # document, hence the `[0]` unwrap below.
-    jq -n \
+    jq -n -f "$SCRIPT_DIR/score.jq" \
       --slurpfile appsf "$WORKDIR/apps.json" \
       --slurpfile workloadsf "$WORKDIR/workloads.json" \
       --slurpfile reportsf "$WORKDIR/reports.json" \
       --slurpfile routesf "$WORKDIR/routes.json" \
       --slurpfile schedulesf "$WORKDIR/schedules.json" \
       --slurpfile cnpgf "$WORKDIR/cnpg.json" \
+      --slurpfile hpasf "$WORKDIR/hpas.json" \
+      --slurpfile pdbsf "$WORKDIR/pdbs.json" \
+      --slurpfile podsf "$WORKDIR/pods.json" \
+      --slurpfile evidencef "$WORKDIR/evidence.json" \
       --argjson wrel "$W_REL" --argjson wsec "$W_SEC" \
       --argjson wobs "$W_OBS" --argjson wops "$W_OPS" \
+      --argjson wperf "$W_PERF" --argjson wres "$W_RES" \
       --argjson ga "$G_A" --argjson gb "$G_B" --argjson gc "$G_C" --argjson gd "$G_D" \
-      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
-      # ---- inputs (projected + indexed above; unwrapped from --slurpfile) ---
-      ($appsf[0]) as $apps
-      | ($workloadsf[0]) as $wlIdx
-      | ($reportsf[0].byKey) as $polByKey
-      | ($reportsf[0].byNs) as $polByNs
-      | ($routesf[0].nsSet) as $routeNs
-      | ($cnpgf[0].byKey) as $cnpgByKey
-      | ($cnpgf[0].byNs) as $cnpgByNs
-      | ($schedulesf[0]) as $sched
-      |
-      # ---- helpers ----------------------------------------------------------
-      def imgbad($img):
-        ($img | type == "string")
-        and (($img | test(":latest$")) or (($img | test(":")) | not));
-      def grade($s):
-        if   $s >= $ga then "A"
-        elif $s >= $gb then "B"
-        elif $s >= $gc then "C"
-        elif $s >= $gd then "D"
-        else "F" end;
-
-      [ ($apps.items // [])[] |
-        . as $app |
-        ($app.name) as $name |
-        ($app.ns) as $ns |
-        ($app.health) as $health |
-        ($app.sync) as $sync |
-
-        # What this Application actually owns, per ArgoCD. When ArgoCD knows the
-        # inventory that IS the answer: an Application that owns no workload
-        # (an ApplicationSet, a policy bundle, a set of Tekton tasks) has no
-        # containers to grade, and its container signals must drop out as
-        # not-applicable rather than borrow other workloads from the namespace.
-        # The instance label and the destination namespace are fallbacks only
-        # for an Application that has never synced.
-        (($app.own.total // 0) > 0) as $hasOwn |
-        (if $hasOwn
-         then [ ($app.own.wl // [])[] | $wlIdx.byKey[.] // empty ]
-         else ($wlIdx.byInstance[$name] // $wlIdx.byNs[$ns] // []) end) as $wl |
-        ([ $wl[] | (.containers // [])[] ]) as $cs |
-        (($cs | length) > 0) as $hasC |
-
-        # reliability
-        ($health == "Healthy") as $healthy |
-        ($hasC and (all($cs[]; .probes))) as $probesOk |
-        ($hasC and (all($cs[]; .res))) as $resOk |
-
-        # security
-        ($hasC and (all($cs[]; (imgbad(.image)) | not))) as $imgOk |
-        # Kyverno reports are scoped to individual workloads, so they can be
-        # attributed exactly; the namespace aggregate is only for the
-        # never-synced fallback above.
-        (if $hasOwn
-         then { pass: ([ ($app.own.wl // [])[] | ($polByKey[.].pass // 0) ] | add // 0),
-                fail: ([ ($app.own.wl // [])[] | ($polByKey[.].fail // 0) ] | add // 0) }
-         else ($polByNs[$ns] // {pass:0, fail:0}) end) as $pol |
-        (($pol.pass + $pol.fail) > 0) as $hasPol |
-        (if $hasPol then ($pol.pass / ($pol.pass + $pol.fail)) else 0 end) as $passRate |
-
-        # observability
-        ($sync == "Synced") as $synced |
-        (if $hasOwn then (($app.own.routes // 0) > 0) else ($routeNs[$ns] // false) end) as $exposed |
-
-        # operations
-        (any($wl[]?; .kind == "StatefulSet")) as $hasSts |
-        ([ ($app.own.cnpg // [])[] | $cnpgByKey[.] // empty ]) as $cnpgOwn |
-        (if $hasOwn then $cnpgOwn
-         else (($cnpgByNs[$ns] // {count: 0, backup: false})
-               | if .count > 0 then [{backup: .backup}] else [] end) end) as $cnpgHere |
-        ($hasSts or (($cnpgHere | length) > 0)) as $stateful |
-        ( ($sched.all or ($sched.nsSet[$ns] // false)) or (any($cnpgHere[]?; .backup)) ) as $backupOk |
-
-        # signal ledger
-        [
-          {name:"argocd_healthy",    category:"reliability",    applicable:true,      score:(if $healthy  then 1 else 0 end)},
-          {name:"probes",            category:"reliability",    applicable:$hasC,     score:(if $probesOk then 1 else 0 end)},
-          {name:"resources",         category:"reliability",    applicable:$hasC,     score:(if $resOk    then 1 else 0 end)},
-          {name:"image_not_latest",  category:"security",       applicable:$hasC,     score:(if $imgOk    then 1 else 0 end)},
-          {name:"kyverno_pass_rate", category:"security",       applicable:$hasPol,   score:$passRate},
-          {name:"argocd_synced",     category:"observability",  applicable:true,      score:(if $synced  then 1 else 0 end)},
-          {name:"httproute_exposed", category:"observability",  applicable:true,      score:(if $exposed then 1 else 0 end)},
-          {name:"backup",            category:"operations",     applicable:$stateful, score:(if $backupOk then 1 else 0 end)}
-        ] as $signals |
-
-        # Category fraction = mean of applicable signals; neutral 1.0 if none apply.
-        ( ["reliability","security","observability","operations"]
-          | map( . as $cat
-            | [ $signals[] | select(.category == $cat and .applicable) ] as $s
-            | { key: $cat,
-                value: (if ($s | length) > 0 then (([ $s[].score ] | add) / ($s | length)) else 1 end) }
-          ) | from_entries ) as $cf |
-
-        (($wrel + $wsec + $wobs + $wops)) as $wtot |
-        ( ( $cf.reliability   * $wrel
-          + $cf.security      * $wsec
-          + $cf.observability * $wobs
-          + $cf.operations    * $wops ) / $wtot * 100 | floor ) as $score |
-
-        {
-          name: $name,
-          namespace: $ns,
-          stateful: $stateful,
-          score: $score,
-          grade: grade($score),
-          health: $health,
-          sync: $sync,
-          categories: ($cf | map_values((. * 100) | floor)),
-          signals: $signals
-        }
-      ] as $services |
-
-      {
-        generatedAt: $ts,
-        weights: {reliability:$wrel, security:$wsec, observability:$wobs, operations:$wops},
-        gradeThresholds: {A:$ga, B:$gb, C:$gc, D:$gd},
-        serviceCount: ($services | length),
-        averageScore: (if ($services | length) > 0
-                       then ([ $services[].score ] | add) / ($services | length) | floor
-                       else 0 end),
-        services: ($services | sort_by(.score) | reverse)
-      }
-    ' > "$WORKDIR/summary.json"
+      --argjson evdays "$EVIDENCE_DAYS" --argjson p95default "$P95_DEFAULT" \
+      --argjson recoverymax "$RECOVERY_MAX" --arg envorder "$ENV_ORDER" \
+      --argjson now "$(date -u +%s)" \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$WORKDIR/summary.json"
 
     # Compact lookup: service name -> {score, grade} (what the Console reads).
     jq '{ generatedAt: .generatedAt,

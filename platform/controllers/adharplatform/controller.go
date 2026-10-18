@@ -200,6 +200,10 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.reconcileGatewaySecretSync(ctx); err != nil {
 		log.FromContext(ctx).Info("Could not refresh Cilium's synced Gateway secrets", "error", err)
 	}
+	// CI workspaces need a volume that follows the pod; see globals.CIStorageClass.
+	if err := r.reconcileCIStorageClass(ctx); err != nil {
+		log.FromContext(ctx).Info("Could not publish the CI StorageClass yet", "error", err)
+	}
 
 	// Click-free SSO for the Argo CD UI, once the platform can supply the
 	// identity it needs. Placed HERE, above the "already deployed" shortcut that

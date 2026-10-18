@@ -60,6 +60,8 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: table-ddl
+                # No status of its own: auto-ready would hold the XR unready for ever.
+                gotemplating.fn.crossplane.io/ready: "True"
               labels:
                 platform.adhar.io/table: {{ $name }}
             data:

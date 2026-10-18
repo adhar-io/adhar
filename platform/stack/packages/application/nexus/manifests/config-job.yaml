@@ -17,6 +17,8 @@ metadata:
   annotations: {argocd.argoproj.io/sync-wave: "2"}
 rules:
   - {apiGroups: [""], resources: [secrets], verbs: [get, create, update, patch]}
+  # Read the Keycloak user directory to provision Nexus accounts (step 5).
+  - {apiGroups: [""], resources: [configmaps], resourceNames: [keycloak-directory], verbs: [get]}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -206,11 +208,24 @@ data:
         -H 'Content-Type: application/json' -H 'X-Nexus-UI: true' \
         -X POST "${NEXUS}/service/extdirect" -d "$1" || echo 000
     }
+    # The header is X-Forwarded-Preferred-Username, NOT X-Forwarded-User:
+    # oauth2-proxy puts the token's `sub` (Keycloak's internal UUID) in
+    # X-Forwarded-User, which matches no Nexus account, so Nexus drew its own
+    # login form after a successful Keycloak sign-in (2026-10-18). The
+    # preferred username is what step 5 names the accounts after. A capability
+    # naming any other header is replaced.
+    RUT_HEADER="X-Forwarded-Preferred-Username"
     ed '{"action":"capability_Capability","method":"read","data":null,"type":"rpc","tid":1}' /tmp/caps >/dev/null
-    if grep -q '"typeId":"rutauth"' /tmp/caps 2>/dev/null; then
-      echo "rut-auth capability already present"
+    stale=$(jq -r --arg h "$RUT_HEADER" '.result.data[]? | select(.typeId=="rutauth" and .properties.httpHeader != $h) | .id' /tmp/caps 2>/dev/null || true)
+    for id in $stale; do
+      ed "{\"action\":\"capability_Capability\",\"method\":\"remove\",\"data\":[\"${id}\"],\"type\":\"rpc\",\"tid\":3}" /tmp/rm >/dev/null
+      echo "replaced rut-auth capability ${id} (it trusted a header no Nexus account matches)"
+    done
+    ed '{"action":"capability_Capability","method":"read","data":null,"type":"rpc","tid":1}' /tmp/caps >/dev/null
+    if jq -e --arg h "$RUT_HEADER" '.result.data[]? | select(.typeId=="rutauth" and .properties.httpHeader == $h)' /tmp/caps >/dev/null 2>&1; then
+      echo "rut-auth capability already present (${RUT_HEADER})"
     else
-      code=$(ed '{"action":"capability_Capability","method":"create","data":[{"typeId":"rutauth","enabled":true,"notes":"Keycloak SSO via oauth2-proxy (X-Forwarded-User)","properties":{"httpHeader":"X-Forwarded-User"}}],"type":"rpc","tid":2}' /tmp/rut)
+      code=$(ed '{"action":"capability_Capability","method":"create","data":[{"typeId":"rutauth","enabled":true,"notes":"Keycloak SSO via oauth2-proxy (X-Forwarded-Preferred-Username)","properties":{"httpHeader":"X-Forwarded-Preferred-Username"}}],"type":"rpc","tid":2}' /tmp/rut)
       # Ext.Direct answers 200 with success:false inside the body, so
       # the status code alone does not tell you whether it worked.
       if [ "${code}" = "200" ] && grep -q '"success":true' /tmp/rut 2>/dev/null; then
@@ -231,6 +246,52 @@ data:
       --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
       --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
       --dry-run=client -o yaml | kubectl apply -f -
+    # 5) One Nexus account per Keycloak user, so the proxy's X-Forwarded-User
+    # resolves to SOMEONE. Rut Auth authenticates the header but only for a
+    # user Nexus already has; a Keycloak user without one got Nexus's own
+    # sign-in form after logging in to Keycloak (2026-10-18). The accounts get
+    # a random password nobody is told (sign-in is always through the proxy),
+    # and roles follow Keycloak groups on every run:
+    #   platform-admin           -> nx-admin
+    #   platform-developer/other -> adhar-developer (browse, read, search, publish)
+    #   platform-viewer          -> adhar-viewer    (browse, read, search)
+    ensure_role() {
+      local id="$1" desc="$2" privs="$3"
+      code=$(curl -s -o /dev/null -w '%{http_code}' $AUTH "${API}/security/roles/${id}" || echo 000)
+      body=$(jq -nc --arg id "$id" --arg d "$desc" --argjson p "$privs" '{id:$id,name:$id,description:$d,privileges:$p,roles:[]}')
+      if [ "$code" = "200" ]; then
+        curl -s -o /dev/null $AUTH -H 'Content-Type: application/json' -X PUT "${API}/security/roles/${id}" -d "$body" || true
+      else
+        curl -s -o /dev/null $AUTH -H 'Content-Type: application/json' -X POST "${API}/security/roles" -d "$body" || true
+      fi
+    }
+    ensure_role adhar-viewer "Keycloak platform-viewer" '["nx-repository-view-*-*-browse","nx-repository-view-*-*-read","nx-search-read","nx-healthcheck-read"]'
+    ensure_role adhar-developer "Keycloak platform-developer" '["nx-repository-view-*-*-browse","nx-repository-view-*-*-read","nx-repository-view-*-*-add","nx-repository-view-*-*-edit","nx-search-read","nx-component-upload","nx-healthcheck-read","nx-apikey-all"]'
+    if kubectl -n adhar-system get configmap keycloak-directory -o jsonpath='{.data.users\.json}' > /tmp/users.json 2>/dev/null && [ -s /tmp/users.json ]; then
+      made=0; updated=0
+      for row in $(jq -c '.[] | @base64' /tmp/users.json | tr -d '"'); do
+        u=$(echo "$row" | base64 -d)
+        id=$(echo "$u" | jq -r '.username')
+        [ -n "$id" ] && [ "$id" != "admin" ] && [ "$id" != "anonymous" ] || continue
+        role=$(echo "$u" | jq -r 'if (.groups | index("platform-admin")) then "nx-admin" elif ((.groups | index("platform-viewer")) and ((.groups | index("platform-developer")) | not)) then "adhar-viewer" else "adhar-developer" end')
+        email=$(echo "$u" | jq -r '.email | if . == "" then empty else . end'); [ -n "$email" ] || email="${id}@users.adhar.local"
+        first=$(echo "$u" | jq -r '.firstName | if . == "" then empty else . end'); [ -n "$first" ] || first="$id"
+        last=$(echo "$u" | jq -r '.lastName | if . == "" then empty else . end'); [ -n "$last" ] || last="-"
+        enc=$(jq -rn --arg v "$id" '$v|@uri')
+        if curl -s $AUTH "${API}/security/users?userId=${enc}&source=default" | jq -e --arg id "$id" '.[] | select(.userId==$id)' >/dev/null 2>&1; then
+          body=$(jq -nc --arg id "$id" --arg f "$first" --arg l "$last" --arg e "$email" --arg r "$role" '{userId:$id,firstName:$f,lastName:$l,emailAddress:$e,source:"default",status:"active",readOnly:false,roles:[$r],externalRoles:[]}')
+          curl -s -o /dev/null $AUTH -H 'Content-Type: application/json' -X PUT "${API}/security/users/${enc}" -d "$body" && updated=$((updated+1)) || true
+        else
+          pw=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')
+          body=$(jq -nc --arg id "$id" --arg f "$first" --arg l "$last" --arg e "$email" --arg r "$role" --arg p "$pw" '{userId:$id,firstName:$f,lastName:$l,emailAddress:$e,password:$p,status:"active",roles:[$r]}')
+          code=$(curl -s -o /tmp/u -w '%{http_code}' $AUTH -H 'Content-Type: application/json' -X POST "${API}/security/users" -d "$body" || echo 000)
+          case "$code" in 2*) made=$((made+1)) ;; *) echo "WARNING: could not create Nexus user ${id} (HTTP ${code}): $(head -c 160 /tmp/u)" ;; esac
+        fi
+      done
+      echo "nexus accounts from keycloak-directory: ${made} created, ${updated} refreshed"
+    else
+      echo "keycloak-directory not published yet; Keycloak users will be provisioned on the next run"
+    fi
     echo "nexus bootstrap complete"
 ---
 apiVersion: batch/v1

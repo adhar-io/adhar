@@ -306,3 +306,23 @@ func TestAReleaseCreatesItsPromotionInsteadOfApplyingOne(t *testing.T) {
 		}
 	}
 }
+
+// On the first reconcile the Project has not been observed yet, so the
+// environment list is empty. Anything that indexes it must sit inside the
+// `if $envs` guard: the per-application dashboard's `index $envNames 0` ran
+// outside it, returned a FATAL result, the Project was never composed, and
+// every Application XR stayed unsynced for ever while CI built images nobody
+// deployed (Azure, 2026-10-18).
+func TestNothingIndexesTheEnvironmentsBeforeTheProjectReportsThem(t *testing.T) {
+	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
+	guard := strings.Index(comp, "{{- if $envs }}")
+	if guard < 0 {
+		t.Fatal("the Application composition no longer guards its environment-dependent resources with `if $envs`")
+	}
+	for _, needle := range []string{"index $envNames", "$firstEnv"} {
+		if at := strings.Index(comp, needle); at >= 0 && at < guard {
+			t.Errorf("%q is evaluated before the `if $envs` guard; on the first pass the list is empty and the "+
+				"whole composition fails, so the Project is never composed", needle)
+		}
+	}
+}

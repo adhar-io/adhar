@@ -93,6 +93,8 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: redis-sm
+                # No status of its own: auto-ready would hold the XR unready for ever.
+                gotemplating.fn.crossplane.io/ready: "True"
               labels:
                 app: {{ $name }}
                 platform.adhar.io/database: {{ $name }}

@@ -189,3 +189,13 @@ const DefaultStorageClass = "adhar-local"
 // BlockStorageClass is the cloud block-storage class, available but not the
 // default. Workloads that need a volume to outlive its node ask for it by name.
 const BlockStorageClass = "adhar-block"
+
+// CIStorageClass is the class every CI workspace (Tekton volumeClaimTemplate)
+// asks for. The controller publishes it as a copy of BlockStorageClass where the
+// cloud has network block storage, and of the default class elsewhere (Kind,
+// Civo, bring-your-own). A node-local workspace pins every task of a run to the
+// node the clone landed on; when that node filled up, the 500m build and
+// publish tasks sat unschedulable until the 1h pipeline timeout while other
+// workers were 70% idle, and no autoscaling can help a node-pinned pod
+// (Azure, release-adhar-kit/ui, 2026-10-18). A network volume follows the pod.
+const CIStorageClass = "adhar-ci"

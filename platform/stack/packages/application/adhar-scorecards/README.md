@@ -125,3 +125,43 @@ badge colours).
 kubectl -n adhar-system create job --from=cronjob/adhar-scorecard-scorer scorecard-now
 kubectl -n adhar-system get configmap adhar-scorecards -o jsonpath='{.data.summary\.json}' | jq .
 ```
+
+## Performance and resilience, proven automatically
+
+Configuration alone cannot show that a service is production ready, so the
+package also *tests* every delivered application (each Argo CD Application
+labelled `adhar.io/application`). Nobody has to write or start anything.
+
+The `adhar-resilience-runner` CronJob runs hourly. It tests an application
+when its image changed or its evidence is more than a day old, at most three
+per run, oldest first. It runs in the first healthy environment from
+`runner_environments` (`test,dev`), and **never prod**.
+
+| Step | How | Scorecard signal |
+|------|-----|------------------|
+| Load test | k6 Job against the app's Service; p95 and error-rate thresholds from the Service's `adhar.io/slo-latency-p95-ms` / `adhar.io/slo-error-rate` | `load_test` |
+| Chaos | Litmus `pod-delete` with a continuous steady-state `httpProbe` on the Service | `chaos_pod_delete` |
+| Recovery | seconds until the workload is fully ready again | `recovery_time` |
+| Live SLO | Prometheus, 24 h, most-promoted environment with traffic | `latency_slo`, `error_budget` |
+
+The scorer adds what the running workload already shows, measured on the
+application's most-promoted environment: `replicas_ha`, `pod_disruption_budget`,
+`autoscaling`, `spread_across_nodes`, `graceful_shutdown`, `restart_stability`
+and `progressive_delivery`.
+
+The results land in ConfigMap `adhar-resilience-results`, and the runner starts
+the scorer so the console updates within a minute. An application is graded
+once, under its own name, which is how the catalog entity joins it. Platform
+packages keep their four original categories and show performance and
+resilience as n/a.
+
+To opt a service out of chaos, set `adhar.io/chaos: "false"` on its Service.
+The scorecard records the opt-out and does not award the points. The test
+point is the Service's `adhar.io/perf-path`, or its readiness probe path.
+Every tunable lives in `adhar-scorecard-config`.
+
+To run it now:
+
+```bash
+kubectl -n adhar-system create job resilience-now --from=cronjob/adhar-resilience-runner
+```

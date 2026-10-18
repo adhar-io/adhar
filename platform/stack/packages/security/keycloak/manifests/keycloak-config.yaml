@@ -19,6 +19,15 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list"]
+  # The user directory this job publishes for apps that cannot speak OIDC
+  # themselves (see publish_directory in configure.sh).
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["keycloak-directory"]
+    verbs: ["get", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -879,6 +888,36 @@ data:
       done
     }
 
+    # publish_directory writes ConfigMap/keycloak-directory: every realm user's
+    # username, email, name and groups — no credentials. Apps behind the edge
+    # SSO proxy that cannot speak OIDC (Nexus OSS) authenticate the proxy's
+    # X-Forwarded-User header, and that only works for a user the app ALREADY
+    # knows; without an account, Nexus drew its own login form after Keycloak
+    # (2026-10-18). Those apps provision accounts from this directory, so the
+    # Keycloak admin credential never leaves this job. Non-fatal.
+    publish_directory() {
+      local users first=0 page=200 out="[]" batch n
+      while :; do
+        batch=$(kc "${REALM_URL}/users?first=${first}&max=${page}&briefRepresentation=true") || return 0
+        n=$(echo "${batch}" | jq 'length')
+        [ "${n}" -gt 0 ] || break
+        for id in $(echo "${batch}" | jq -r '.[] | select(.enabled != false) | .id'); do
+          u=$(echo "${batch}" | jq -c --arg id "${id}" '.[] | select(.id==$id) | {username, email: (.email // ""), firstName: (.firstName // ""), lastName: (.lastName // "")}')
+          g=$(kc "${REALM_URL}/users/${id}/groups?briefRepresentation=true" | jq -c '[.[].name]' 2>/dev/null || echo '[]')
+          out=$(echo "${out}" | jq -c --argjson u "${u}" --argjson g "${g}" '. + [$u + {groups: $g}]')
+        done
+        [ "${n}" -lt "${page}" ] && break
+        first=$((first + page))
+      done
+      echo "${out}" > /tmp/users.json
+      kubectl -n adhar-system create configmap keycloak-directory \
+        --from-file=users.json=/tmp/users.json --dry-run=client -o yaml \
+        | kubectl label --local -f - adhar.io/keycloak-directory=true -o yaml \
+        | kubectl apply -f - >/dev/null \
+        && echo "keycloak-directory: $(echo "${out}" | jq 'length') users published" \
+        || echo "WARNING: could not publish keycloak-directory"
+    }
+
     # --- clients-only mode (CronJob) -------------------------------------
     if [ "${MODE}" = "clients" ]; then
       if ! realm_exists; then
@@ -888,6 +927,7 @@ data:
       ensure_clients_secret
       reconcile_clients
       reconcile_idps
+      publish_directory
       exit 0
     fi
 
@@ -1141,6 +1181,7 @@ data:
       fi
       sleep 5
     done
+    publish_directory
     exit 0
 
 ---

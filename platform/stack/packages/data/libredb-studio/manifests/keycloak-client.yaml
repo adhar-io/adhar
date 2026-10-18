@@ -20,6 +20,11 @@ metadata:
     app.kubernetes.io/name: libredb-studio-keycloak-client
     app.kubernetes.io/part-of: libredb-studio
   annotations: {argocd.argoproj.io/sync-wave: "-3"}
+# The second redirect URI: libredb builds its callback from the request and
+# always states the port, so behind a 443 edge it sends
+# https://<host>:443/api/auth/oidc/callback, which Keycloak rejected as
+# invalid_redirect_uri (2026-10-18). The bare host is rewritten per cluster, so
+# that entry becomes exactly the URL libredb sends.
 data:
   client.json: |
     {
@@ -37,7 +42,10 @@ data:
       "attributes": {
         "post.logout.redirect.uris": "https://libredb.adhar.localtest.me:8443/login"
       },
-      "redirectUris": ["https://libredb.adhar.localtest.me:8443/api/auth/oidc/callback"],
+      "redirectUris": [
+        "https://libredb.adhar.localtest.me:8443/api/auth/oidc/callback",
+        "https://libredb.adhar.localtest.me:443/api/auth/oidc/callback"
+      ],
       "webOrigins": ["https://libredb.adhar.localtest.me:8443"]
     }
 ---

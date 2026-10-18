@@ -940,3 +940,51 @@ func TestPlaneSetupReachesGiteaInCluster(t *testing.T) {
 		}
 	}
 }
+
+// Nexus OSS trusts the SSO proxy's X-Forwarded-User only for a user it already
+// has. Keycloak publishes its user directory and Nexus provisions an account per
+// entry, or every Keycloak user gets Nexus's own login form after signing in.
+func TestNexusProvisionsAnAccountForEveryKeycloakUser(t *testing.T) {
+	kc := readStackFile(t, "security/keycloak/manifests/keycloak-config.yaml")
+	for _, want := range []string{"publish_directory() {", "create configmap keycloak-directory", `resourceNames: ["keycloak-directory"]`} {
+		if !strings.Contains(kc, want) {
+			t.Errorf("keycloak-config lacks %q", want)
+		}
+	}
+	if strings.Count(kc, "\n    publish_directory\n")+strings.Count(kc, "\n      publish_directory\n") < 2 {
+		t.Error("publish_directory must run on both the full Job and the clients-mode CronJob")
+	}
+	nx := readStackFile(t, "application/nexus/manifests/config-job.yaml")
+	for _, want := range []string{
+		"get configmap keycloak-directory",
+		`resourceNames: [keycloak-directory]`,
+		`-X POST "${API}/security/users"`,
+		`"nx-admin" elif`,
+		"ensure_role adhar-developer",
+		`"rutauth-realm","NexusAuthenticatingRealm","NpmToken"`,
+		// oauth2-proxy's X-Forwarded-User is the Keycloak UUID; the accounts are
+		// named by preferred username.
+		`RUT_HEADER="X-Forwarded-Preferred-Username"`,
+		`"properties":{"httpHeader":"X-Forwarded-Preferred-Username"}`,
+	} {
+		if !strings.Contains(nx, want) {
+			t.Errorf("nexus config job lacks %q", want)
+		}
+	}
+}
+
+// Apps whose own login page only offers an SSO button are sent straight into
+// their Keycloak flow at the Gateway, so a signed-in person never clicks again.
+func TestSSOButtonPagesRedirectStraightIntoKeycloak(t *testing.T) {
+	for file, want := range map[string][]string{
+		"data/jupyterhub/manifests/jupyterhub-ingress.yaml.tmpl": {"value: /hub/login", "replaceFullPath: /hub/oauth_login"},
+		"data/libredb-studio/manifests/httproute.yaml.tmpl":      {"value: /login", "replaceFullPath: /api/auth/oidc/login"},
+	} {
+		body := readStackFile(t, file)
+		for _, w := range append(want, "type: RequestRedirect", "port: {{ .Port }}", "method: GET") {
+			if !strings.Contains(body, w) {
+				t.Errorf("%s lacks %q", file, w)
+			}
+		}
+	}
+}

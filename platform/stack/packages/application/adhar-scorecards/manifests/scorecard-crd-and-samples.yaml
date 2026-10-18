@@ -20,10 +20,16 @@ data:
   # security      -> image not :latest, Kyverno policy-report pass rate
   # observability -> ArgoCD Synced (GitOps-tracked), HTTPRoute exposure
   # operations    -> backup coverage for stateful services (Velero / CNPG)
+  # performance   -> automated k6 load test, live p95 latency, live error budget
+  # resilience    -> automated pod-delete chaos + recovery time, replicas, PDB,
+  #                  HPA, spread across nodes, graceful shutdown, restarts,
+  #                  progressive delivery
   weight_reliability: "35"
   weight_security: "25"
   weight_observability: "15"
   weight_operations: "25"
+  weight_performance: "20"
+  weight_resilience: "25"
 
   # ---- Letter-grade thresholds (score >= threshold) -----------------------
   grade_a: "90"
@@ -31,10 +37,38 @@ data:
   grade_c: "70"
   grade_d: "60"
 
+  # ---- Evidence (scorer) ----------------------------------------------------
+  # Load-test / chaos evidence older than this scores as stale (0).
+  evidence_max_age_days: "7"
+  # An application is graded on the first of these it is deployed to.
+  environment_order: "prod,test,dev"
+  # recovery_time passes when the workload is fully ready again within this.
+  chaos_recovery_max_seconds: "120"
+
+  # ---- Resilience runner (adhar-resilience-runner CronJob) -----------------
+  # Environments it may test, in order of preference. NEVER add prod here
+  # unless you mean to kill production pods every day.
+  runner_environments: "test,dev"
+  # Retest when the image changes or the evidence is older than this.
+  runner_max_age_hours: "24"
+  # Applications tested per hourly run (oldest evidence first).
+  runner_apps_per_run: "3"
+  # k6 load profile and the defaults a Service may override with
+  # adhar.io/slo-latency-p95-ms and adhar.io/slo-error-rate.
+  perf_vus: "10"
+  perf_duration: "60s"
+  perf_p95_ms: "500"
+  perf_error_rate: "0.01"
+  # Litmus pod-delete duration; the Service's adhar.io/slo-availability (or
+  # this default) sets the 24 h error budget.
+  chaos_duration_seconds: "30"
+  slo_availability: "99.9"
+
   # ---- Human-readable model reference (not consumed by the script) --------
   model.yaml: |
     # adhar production-readiness scorecard model
-    # score = round( sum(categoryFraction * weight) / sum(weights) * 100 )
+    # score = floor( sum(categoryFraction * weight) / sum(weights of the
+    #         categories that count) * 100 )
     categories:
       reliability:
         weight: 35
@@ -46,22 +80,50 @@ data:
         weight: 25
         signals:
           - image_not_latest    # no container on :latest or an untagged image
-          - kyverno_pass_rate   # PolicyReport pass / (pass+fail) for the namespace
+          - kyverno_pass_rate   # PolicyReport pass / (pass+fail) for the workloads
       observability:
         weight: 15
         signals:
           - argocd_synced       # ArgoCD Application sync == Synced
-          - httproute_exposed   # an HTTPRoute targets the service namespace
+          - httproute_exposed   # the application owns an HTTPRoute
       operations:
         weight: 25
         signals:
           - backup              # stateful only: Velero Schedule covers the ns
                                 # OR a CNPG Cluster with .spec.backup exists
+      performance:              # applications only
+        weight: 20
+        signals:
+          - load_test           # last automated k6 run met p95 + error-rate
+                                # thresholds, within evidence_max_age_days
+          - latency_slo         # live p95 over 24h <= the latency target
+          - error_budget        # live 5xx ratio over 24h within 1 - availability SLO
+      resilience:               # applications only
+        weight: 25
+        signals:
+          - chaos_pod_delete    # Litmus pod-delete with a continuous steady-state
+                                # httpProbe: Pass, within evidence_max_age_days
+          - recovery_time       # back to full readiness <= chaos_recovery_max_seconds
+          - replicas_ha         # >= 2 replicas (or HPA minReplicas >= 2)
+          - pod_disruption_budget
+          - autoscaling         # a HorizontalPodAutoscaler targets the workload
+          - spread_across_nodes # topologySpreadConstraints or podAntiAffinity
+          - graceful_shutdown   # preStop hook on every container
+          - restart_stability   # < 3 container restarts across running pods
+          - progressive_delivery # Argo Rollouts canary / blue-green
     grades: { A: 90, B: 80, C: 70, D: 60, F: 0 }
     notes:
-      - A signal that cannot be evaluated (CRD/resource absent, no workload
-        found) is marked applicable=false and dropped from its category's
-        denominator, so missing data is neutral rather than a penalty.
-      - The `backup` signal is only applicable to stateful services (those with
-        a StatefulSet or a CNPG Cluster in their namespace). Stateless services
-        score neutral on operations.
+      - Applications (Argo CD apps labelled adhar.io/application) are graded
+        ONCE, named after the application, on their most-promoted deployed
+        environment (environment_order); every environment is listed with it.
+        Platform packages are graded per Argo CD Application as before.
+      - A signal that cannot be evaluated (CRD/resource absent, no workload,
+        no metrics yet) is applicable=false and leaves its category's
+        denominator. With no applicable signal, reliability / security /
+        observability / operations stay neutral (100); performance and
+        resilience leave the score entirely and report null, so a platform
+        package is never credited with tests nobody ran.
+      - Evidence that was never produced is NOT "not applicable": an
+        application with no load test or chaos result yet fails those signals
+        with the reason, because production readiness has to be shown.
+      - The `backup` signal is only applicable to stateful services.

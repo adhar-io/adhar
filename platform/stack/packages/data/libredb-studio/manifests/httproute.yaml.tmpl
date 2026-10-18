@@ -24,6 +24,24 @@ spec:
   hostnames:
     - libredb.adhar.localtest.me
   rules:
+    # Single sign-on: libredb's /login page only offers an OIDC button, so a
+    # person already signed in to Keycloak was asked to sign in again. Its OIDC
+    # start URL completes silently against the Keycloak session.
+    - matches:
+        - path:
+            type: Exact
+            value: /login
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /api/auth/oidc/login
+            # Stated, or Gateway API defaults it to 443 and a local platform on
+            # 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

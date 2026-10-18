@@ -1,0 +1,629 @@
+---
+# Automated performance + chaos evidence for every custom application.
+#
+# A scorecard can only say a service is production ready if somebody has
+# PROVEN it: that it holds its latency under load, and that it keeps serving
+# while one of its pods dies. Nobody runs those tests by hand on every build,
+# so this runner does — every hour, for every application the control plane
+# delivers (Argo CD Applications labelled `adhar.io/application`):
+#
+#   1. picks the first HEALTHY environment from `runner_environments`
+#      (default test, then dev — NEVER prod: chaos belongs before production);
+#   2. performance: a k6 load test (grafana/k6, a plain Job) against the
+#      application's own Service, with thresholds from the Service's
+#      `adhar.io/slo-latency-p95-ms` / `adhar.io/slo-error-rate` annotations;
+#   3. chaos: a Litmus `pod-delete` ChaosEngine against the workload with a
+#      CONTINUOUS steady-state httpProbe on the same Service — the hypothesis is
+#      "keeps answering while a pod is killed", and the probe is what makes
+#      Litmus's verdict mean that rather than "pods were deleted";
+#   4. recovery: seconds until the workload is back at its desired ready count;
+#   5. live SLO: p95 latency and 5xx ratio over 24 h from Prometheus, read from
+#      the most-promoted environment that actually served traffic.
+#
+# An application is retested when its image changes or its evidence is older
+# than `runner_max_age_hours`; at most `runner_apps_per_run` per run, oldest
+# evidence first, so a large fleet is covered over several runs instead of one
+# run that outlives its deadline. Results land in ConfigMap
+# `adhar-resilience-results` (runtime data, deliberately not in Git) and the
+# scorer is started straight away so the console shows them within a minute.
+#
+# Opt out per service with `adhar.io/chaos: "false"` on its Service — the
+# scorecard then records the opt-out, it does not award the points.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-resilience-script
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-resilience-runner
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+data:
+  # The k6 test. Everything is parameterised by env so one script serves every
+  # application; handleSummary prints ONE marked JSON line the runner parses
+  # from the Job's log (k6 exits 99 when a threshold fails, which is a result,
+  # not an error).
+  load.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+
+    const target = __ENV.TARGET_URL;
+    const vus = parseInt(__ENV.VUS || '10', 10);
+    const p95 = parseInt(__ENV.P95_MS || '500', 10);
+    const errRate = parseFloat(__ENV.ERROR_RATE || '0.01');
+
+    export const options = {
+      scenarios: {
+        load: {
+          executor: 'ramping-vus',
+          startVUs: 1,
+          stages: [
+            { duration: '15s', target: vus },
+            { duration: __ENV.DURATION || '60s', target: vus },
+            { duration: '5s', target: 0 },
+          ],
+          gracefulRampDown: '5s',
+        },
+      },
+      thresholds: {
+        http_req_duration: [`p(95)<${p95}`],
+        http_req_failed: [`rate<${errRate}`],
+      },
+      summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
+      noConnectionReuse: false,
+      userAgent: 'adhar-resilience-runner/k6',
+    };
+
+    export default function () {
+      const res = http.get(target, { tags: { name: 'target' }, timeout: '10s' });
+      check(res, { 'status is 2xx': (r) => r.status >= 200 && r.status < 300 });
+      sleep(0.05);
+    }
+
+    export function handleSummary(data) {
+      const m = data.metrics;
+      const d = (m.http_req_duration && m.http_req_duration.values) || {};
+      const f = (m.http_req_failed && m.http_req_failed.values) || {};
+      const r = (m.http_reqs && m.http_reqs.values) || {};
+      let ok = true;
+      for (const k of Object.keys(m)) {
+        const t = m[k].thresholds || {};
+        for (const name of Object.keys(t)) if (!t[name].ok) ok = false;
+      }
+      const out = {
+        thresholdsPassed: ok,
+        p95Ms: d['p(95)'], p99Ms: d['p(99)'], avgMs: d.avg, maxMs: d.max,
+        errorRate: f.rate, requests: r.count, rps: r.rate, vus,
+      };
+      return { stdout: 'ADHAR_K6_SUMMARY ' + JSON.stringify(out) + '\n' };
+    }
+
+  run.sh: |
+    #!/usr/bin/env bash
+    # Not `set -e`: one application failing its tests (or the test failing to
+    # start) must be RECORDED and must never stop the others being tested.
+    set -uo pipefail
+
+    NS="${RUNNER_NAMESPACE:-adhar-system}"
+    RESULTS_CM="${RESULTS_CONFIGMAP:-adhar-resilience-results}"
+    CONFIG_DIR="${CONFIG_DIR:-/config}"
+    K6_IMAGE="${K6_IMAGE:-grafana/k6:1.3.0}"
+    PROM="${PROMETHEUS_URL:-http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090}"
+    CHAOS_SA="${CHAOS_SERVICE_ACCOUNT:-k8s-chaos-admin}"
+    W="$(mktemp -d)"
+    trap 'rm -rf "$W"' EXIT
+
+    readcfg() {
+      local f="$CONFIG_DIR/$1"
+      if [ -f "$f" ]; then tr -d ' \n\r' < "$f"; else printf '%s' "$2"; fi
+    }
+    ENVS="$(readcfg runner_environments test,dev)"
+    MAX_AGE_H="$(readcfg runner_max_age_hours 24)"
+    PER_RUN="$(readcfg runner_apps_per_run 3)"
+    VUS="$(readcfg perf_vus 10)"
+    DURATION="$(readcfg perf_duration 60s)"
+    P95_DEFAULT="$(readcfg perf_p95_ms 500)"
+    ERR_DEFAULT="$(readcfg perf_error_rate 0.01)"
+    CHAOS_SECONDS="$(readcfg chaos_duration_seconds 30)"
+    SLO_DEFAULT="$(readcfg slo_availability 99.9)"
+
+    log() { echo "adhar-resilience: $*"; }
+    now_epoch() { date -u +%s; }
+    now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+    # A Kubernetes name from a prefix and an application name, <= 63 chars.
+    kname() { printf '%s-%s' "$1" "$2" | tr -c 'a-z0-9-' '-' | cut -c1-63 | sed 's/-*$//'; }
+
+    # ── previous evidence ─────────────────────────────────────────────────
+    if kubectl -n "$NS" get configmap "$RESULTS_CM" -o jsonpath='{.data.results\.json}' >"$W/prev.json" 2>/dev/null \
+       && jq -e 'type == "object"' "$W/prev.json" >/dev/null 2>&1; then :; else echo '{}' >"$W/prev.json"; fi
+    cp "$W/prev.json" "$W/results.json"
+
+    # ── the applications and their environments ───────────────────────────
+    kubectl get applications.argoproj.io -A -l adhar.io/application -o json 2>/dev/null >"$W/apps.raw" || echo '{"items":[]}' >"$W/apps.raw"
+    jq '[ (.items // [])[] | {
+            app: .metadata.labels["adhar.io/application"],
+            env: (.metadata.labels["adhar.io/environment"] // .spec.destination.namespace // ""),
+            ns:  (.spec.destination.namespace // ""),
+            health: (.status.health.status // "Unknown") } ]' "$W/apps.raw" >"$W/apps.json"
+    jq -r '[.[].app] | unique | .[]' "$W/apps.json" >"$W/names.txt"
+    log "$(wc -l <"$W/names.txt" | tr -d ' ') application(s) delivered by the control plane"
+
+    # The workload behind an application in a namespace: a Rollout (what every
+    # template ships) or a Deployment. Prints a compact JSON description.
+    describe_workload() {  # describe_workload <ns> <app>
+      local ns="$1" app="$2" kind obj
+      for kind in rollouts.argoproj.io deployments.apps; do
+        if obj="$(kubectl -n "$ns" get "$kind" "$app" -o json 2>/dev/null)"; then
+          printf '%s' "$obj" | jq -c --arg kind "${kind%%.*}" '{
+              kind: (if $kind == "rollouts" then "rollout" else "deployment" end),
+              name: .metadata.name,
+              image: (.spec.template.spec.containers[0].image // ""),
+              selector: ((.spec.selector.matchLabels // {}) | to_entries | map("\(.key)=\(.value)") | join(",")),
+              replicas: (.spec.replicas // 1),
+              ready: (.status.readyReplicas // 0),
+              readinessPath: ([.spec.template.spec.containers[].readinessProbe.httpGet.path // empty] | first // null) }'
+          return 0
+        fi
+      done
+      return 1
+    }
+    describe_service() {  # describe_service <ns> <app>
+      kubectl -n "$1" get service "$2" -o json 2>/dev/null | jq -c '{
+          port: ((.spec.ports // [])[0].port // 80),
+          annotations: (.metadata.annotations // {}) }'
+    }
+
+    # ── which applications are due ────────────────────────────────────────
+    : >"$W/due.tsv"
+    while read -r app; do
+      [ -n "$app" ] || continue
+      target_env=""; target_ns=""
+      for e in ${ENVS//,/ }; do
+        row="$(jq -c --arg a "$app" --arg e "$e" 'map(select(.app == $a and (.env == $e or .ns == $e) and .health == "Healthy")) | first // empty' "$W/apps.json")"
+        if [ -n "$row" ]; then target_env="$e"; target_ns="$(printf '%s' "$row" | jq -r .ns)"; break; fi
+      done
+      if [ -z "$target_env" ]; then
+        log "$app: no healthy environment among [$ENVS]; nothing to test yet"
+        jq --arg a "$app" --arg at "$(now_iso)" --arg envs "$ENVS" \
+          '.[$a] = ((.[$a] // {}) + {pending: "no healthy environment among \($envs)", checkedAt: $at})' \
+          "$W/results.json" >"$W/r.tmp" && mv "$W/r.tmp" "$W/results.json"
+        continue
+      fi
+      wl="$(describe_workload "$target_ns" "$app")" || { log "$app: no Rollout or Deployment named $app in $target_ns"; continue; }
+      image="$(printf '%s' "$wl" | jq -r .image)"
+      prev_image="$(jq -r --arg a "$app" '.[$a].image // ""' "$W/prev.json")"
+      prev_env="$(jq -r --arg a "$app" '.[$a].environment // ""' "$W/prev.json")"
+      prev_at="$(jq -r --arg a "$app" '.[$a].testedAtEpoch // 0' "$W/prev.json")"
+      age_h=$(( ( $(now_epoch) - prev_at ) / 3600 ))
+      if [ "$image" = "$prev_image" ] && [ "$target_env" = "$prev_env" ] && [ "$age_h" -lt "$MAX_AGE_H" ]; then
+        log "$app: evidence for $image in $target_env is ${age_h}h old; not due"
+        continue
+      fi
+      printf '%s\t%s\t%s\t%s\n' "$prev_at" "$app" "$target_env" "$target_ns" >>"$W/due.tsv"
+    done <"$W/names.txt"
+
+    sort -n "$W/due.tsv" | head -n "$PER_RUN" >"$W/batch.tsv"
+    log "$(wc -l <"$W/due.tsv" | tr -d ' ') due, testing $(wc -l <"$W/batch.tsv" | tr -d ' ') this run"
+
+    # ── performance: k6 ───────────────────────────────────────────────────
+    run_perf() {  # run_perf <app> <url> <p95> <errRate>  -> prints JSON
+      local app="$1" url="$2" p95="$3" err="$4" job i st
+      job="$(kname adhar-perf "$app")"
+      kubectl -n "$NS" delete job "$job" --ignore-not-found --wait=true >/dev/null 2>&1
+      cat <<EOF | kubectl apply -f - >/dev/null || { echo '{"status":"error","detail":"could not create the k6 Job"}'; return; }
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: $job
+      namespace: $NS
+      labels: {adhar.io/component: scorecards, adhar.io/resilience-test: performance, adhar.io/application: "$app"}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels: {adhar.io/component: scorecards, adhar.io/resilience-test: performance, adhar.io/application: "$app"}
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsNonRoot: true, runAsUser: 12345, seccompProfile: {type: RuntimeDefault}}
+          containers:
+            - name: k6
+              image: $K6_IMAGE
+              args: ["run", "--quiet", "--no-color", "/scripts/load.js"]
+              env:
+                - {name: TARGET_URL, value: "$url"}
+                - {name: VUS, value: "$VUS"}
+                - {name: DURATION, value: "$DURATION"}
+                - {name: P95_MS, value: "$p95"}
+                - {name: ERROR_RATE, value: "$err"}
+                - {name: K6_NO_USAGE_REPORT, value: "true"}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+              resources:
+                requests: {cpu: 100m, memory: 64Mi}
+                limits: {cpu: "1", memory: 256Mi}
+              volumeMounts:
+                - {name: script, mountPath: /scripts, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: script
+              configMap: {name: adhar-resilience-script, items: [{key: load.js, path: load.js}]}
+            - {name: tmp, emptyDir: {}}
+    EOF
+      st=""
+      for i in $(seq 1 120); do
+        st="$(kubectl -n "$NS" get job "$job" -o jsonpath='{.status.succeeded}/{.status.failed}' 2>/dev/null)"
+        case "$st" in 1/*|*/1) break ;; esac
+        sleep 5
+      done
+      summary="$(kubectl -n "$NS" logs "job/$job" 2>/dev/null | sed -n 's/^ADHAR_K6_SUMMARY //p' | tail -n 1)"
+      if [ -z "$summary" ] || ! printf '%s' "$summary" | jq -e . >/dev/null 2>&1; then
+        reason="$(kubectl -n "$NS" get pods -l job-name="$job" -o jsonpath='{.items[0].status.containerStatuses[0].state}' 2>/dev/null | cut -c1-300)"
+        jq -nc --arg d "k6 produced no summary (job state ${st:-unknown}) ${reason}" '{status: "error", detail: $d}'
+        return
+      fi
+      printf '%s' "$summary" | jq -c --argjson p95 "$p95" --argjson err "$err" '
+        . + {status: (if .thresholdsPassed then "passed" else "failed" end),
+             thresholdP95Ms: $p95, thresholdErrorRate: $err}'
+    }
+
+    # ── chaos: Litmus pod-delete under a continuous steady-state probe ────
+    run_chaos() {  # run_chaos <app> <ns> <workload-json> <probe-url>  -> prints JSON
+      local app="$1" ns="$2" wl="$3" url="$4" engine result phase verdict pct i start rec desired ready
+      if ! kubectl get crd chaosengines.litmuschaos.io >/dev/null 2>&1 \
+         || ! kubectl -n "$NS" get chaosexperiments.litmuschaos.io pod-delete >/dev/null 2>&1; then
+        echo '{"status":"unavailable","experiment":"pod-delete","detail":"Litmus (the litmus package) is not installed, so no chaos experiment can run"}'
+        return
+      fi
+      engine="$(kname adhar-chaos "$app")"
+      result="${engine}-pod-delete"
+      kubectl -n "$NS" delete chaosengine "$engine" --ignore-not-found --wait=true >/dev/null 2>&1
+      kubectl -n "$NS" delete chaosresult "$result" --ignore-not-found >/dev/null 2>&1
+      jq -n --arg name "$engine" --arg ns "$NS" --arg appns "$ns" --arg sa "$CHAOS_SA" --arg app "$app" \
+            --arg label "$(printf '%s' "$wl" | jq -r .selector)" --arg kind "$(printf '%s' "$wl" | jq -r .kind)" \
+            --arg secs "$CHAOS_SECONDS" --arg url "$url" '{
+        apiVersion: "litmuschaos.io/v1alpha1", kind: "ChaosEngine",
+        metadata: {name: $name, namespace: $ns,
+                   labels: {"adhar.io/component": "scorecards", "adhar.io/resilience-test": "chaos",
+                            "adhar.io/application": $app, "adhar.io/chaos-target": $appns}},
+        spec: {
+          engineState: "active", annotationCheck: "false", chaosServiceAccount: $sa,
+          jobCleanUpPolicy: "delete",
+          appinfo: {appns: $appns, applabel: $label, appkind: $kind},
+          experiments: [{name: "pod-delete", spec: {
+            components: {env: [
+              {name: "TOTAL_CHAOS_DURATION", value: $secs},
+              {name: "CHAOS_INTERVAL", value: "10"},
+              {name: "FORCE", value: "false"},
+              {name: "PODS_AFFECTED_PERC", value: "50"}]},
+            probe: [{name: "steady-state", type: "httpProbe", mode: "Continuous",
+              runProperties: {probeTimeout: "5s", interval: "2s", retry: 1, stopOnFailure: false},
+              "httpProbe/inputs": {url: $url, insecureSkipVerify: true,
+                method: {get: {criteria: "==", responseCode: "200"}}}}]}}]}}' >"$W/engine.json"
+      if ! kubectl apply -f "$W/engine.json" >/dev/null 2>&1; then
+        echo '{"status":"error","experiment":"pod-delete","detail":"could not create the ChaosEngine"}'
+        return
+      fi
+      phase=""; verdict="Awaited"
+      for i in $(seq 1 $(( (CHAOS_SECONDS + 300) / 5 ))); do
+        sleep 5
+        phase="$(kubectl -n "$NS" get chaosresult "$result" -o jsonpath='{.status.experimentStatus.phase}' 2>/dev/null)"
+        verdict="$(kubectl -n "$NS" get chaosresult "$result" -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null)"
+        # Litmus 3 finishes with phases like "Completed_With_Probe_Failure",
+        # so stop on the verdict or any Completed* phase. Waiting out the full
+        # budget instead also made the recovery time below read as 0 s.
+        case "$verdict" in Pass|Fail|Stopped) break ;; esac
+        case "$phase" in Completed*|Error|Stopped) break ;; esac
+      done
+      pct="$(kubectl -n "$NS" get chaosresult "$result" -o jsonpath='{.status.experimentStatus.probeSuccessPercentage}' 2>/dev/null)"
+      # Recovery: how long until the workload is back at full readiness.
+      start="$(now_epoch)"; rec=""
+      desired="$(printf '%s' "$wl" | jq -r .replicas)"
+      for i in $(seq 1 60); do
+        ready="$(kubectl -n "$ns" get "$(printf '%s' "$wl" | jq -r '.kind | if . == "rollout" then "rollouts.argoproj.io" else "deployments.apps" end')" \
+                 "$app" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
+        if [ "${ready:-0}" -ge "$desired" ]; then rec=$(( $(now_epoch) - start )); break; fi
+        sleep 3
+      done
+      kubectl -n "$NS" patch chaosengine "$engine" --type merge -p '{"spec":{"engineState":"stop"}}' >/dev/null 2>&1
+      kubectl -n "$NS" delete chaosengine "$engine" --ignore-not-found --wait=false >/dev/null 2>&1
+      jq -nc --arg phase "${phase:-unknown}" --arg verdict "${verdict:-Awaited}" --arg pct "${pct:-}" \
+             --arg rec "$rec" --arg secs "$CHAOS_SECONDS" --arg desired "$desired" '{
+        experiment: "pod-delete", phase: $phase, verdict: $verdict,
+        probeSuccessPercentage: ($pct | tonumber? // null),
+        recoverySeconds: ($rec | tonumber? // null),
+        durationSeconds: ($secs | tonumber), replicas: ($desired | tonumber),
+        status: (if $verdict == "Pass" then "passed" elif $verdict == "Fail" then "failed" else "error" end),
+        detail: (if $verdict == "Pass" then "kept answering while pods were deleted"
+                 elif $verdict == "Fail" then "stopped answering while a pod was deleted (\($desired) replica(s))"
+                 else "experiment did not finish (phase \($phase), verdict \($verdict))" end)}'
+    }
+
+    # ── live SLO from Prometheus ──────────────────────────────────────────
+    promq() {  # promq <query> -> scalar or empty
+      curl -fsS --max-time 20 --data-urlencode "query=$1" "$PROM/api/v1/query" 2>/dev/null \
+        | jq -r '.data.result[0].value[1] // empty' 2>/dev/null
+    }
+    measure_slo() {  # measure_slo <app> -> JSON for the most-promoted env with traffic
+      local app="$1" e ns sel reqs p95 err5 slo
+      for e in prod test dev; do
+        ns="$(jq -r --arg a "$app" --arg e "$e" 'map(select(.app == $a and (.env == $e or .ns == $e))) | first | .ns // empty' "$W/apps.json")"
+        [ -n "$ns" ] || continue
+        sel="namespace=\"$ns\",pod=~\"$app-[a-z0-9]+-[a-z0-9]+\""
+        reqs="$(promq "sum(increase({__name__=~\"http_server_requests_seconds_count|http_requests_total\",$sel}[24h]))")"
+        [ -n "$reqs" ] || continue
+        awk "BEGIN{exit !($reqs >= 1)}" || continue
+        p95="$(promq "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"http_server_requests_seconds_bucket|http_request_duration_seconds_bucket\",$sel}[24h])))")"
+        err5="$(promq "(sum(increase(http_server_requests_seconds_count{$sel,status=~\"5..\"}[24h])) or vector(0)) + (sum(increase(http_requests_total{$sel,code=~\"5..\"}[24h])) or vector(0))")"
+        slo="$(kubectl -n "$ns" get service "$app" -o jsonpath='{.metadata.annotations.adhar\.io/slo-availability}' 2>/dev/null)"
+        jq -nc --arg env "$e" --arg reqs "$reqs" --arg p95 "$p95" --arg err5 "$err5" \
+               --arg slo "${slo:-$SLO_DEFAULT}" --arg at "$(now_iso)" '{
+          environment: $env, measuredAt: $at, window: "24h",
+          requests: ($reqs | tonumber),
+          p95Ms: (($p95 | tonumber? // null) | if . == null or isnan or isinfinite then null else . * 1000 end),
+          errorRatio: (if ($reqs | tonumber) > 0 then (($err5 | tonumber? // 0) / ($reqs | tonumber)) else null end),
+          targetAvailability: ($slo | tonumber? // 99.9)}'
+        return
+      done
+      echo 'null'
+    }
+
+    # ── test the batch ────────────────────────────────────────────────────
+    tested=0
+    while IFS="$(printf '\t')" read -r _ app env ns; do
+      [ -n "$app" ] || continue
+      wl="$(describe_workload "$ns" "$app")" || continue
+      svc="$(describe_service "$ns" "$app")" || svc=""
+      if [ -z "$svc" ]; then
+        log "$app: no Service named $app in $ns; recording that instead of testing"
+        jq --arg a "$app" --arg env "$env" --arg ns "$ns" --arg at "$(now_iso)" --argjson t "$(now_epoch)" \
+           --arg img "$(printf '%s' "$wl" | jq -r .image)" \
+          '.[$a] = {environment: $env, namespace: $ns, image: $img, testedAt: $at, testedAtEpoch: $t,
+                    performance: {status: "error", detail: "no Service named after the application in \($ns)"},
+                    chaos: {status: "error", experiment: "pod-delete", detail: "no Service to probe in \($ns)"}}' \
+          "$W/results.json" >"$W/r.tmp" && mv "$W/r.tmp" "$W/results.json"
+        continue
+      fi
+      ann() { printf '%s' "$svc" | jq -r --arg k "$1" '.annotations[$k] // empty'; }
+      port="$(printf '%s' "$svc" | jq -r .port)"
+      path="$(ann adhar.io/perf-path)"
+      [ -n "$path" ] || path="$(printf '%s' "$wl" | jq -r '.readinessPath // "/"')"
+      case "$path" in /*) ;; *) path="/$path" ;; esac
+      url="http://$app.$ns.svc.cluster.local:$port$path"
+      p95="$(ann adhar.io/slo-latency-p95-ms)"; p95="${p95:-$P95_DEFAULT}"
+      err="$(ann adhar.io/slo-error-rate)"; err="${err:-$ERR_DEFAULT}"
+
+      log "$app: load test against $url in $env (p95 < ${p95} ms, errors < ${err})"
+      perf="$(run_perf "$app" "$url" "$p95" "$err")"
+      log "$app: performance $(printf '%s' "$perf" | jq -c '{status, p95Ms, errorRate, rps}')"
+
+      if [ "$(ann adhar.io/chaos)" = "false" ]; then
+        chaos='{"status":"opted-out","experiment":"pod-delete","detail":"the Service carries adhar.io/chaos=false"}'
+      else
+        log "$app: pod-delete chaos for ${CHAOS_SECONDS}s with a continuous probe on $url"
+        chaos="$(run_chaos "$app" "$ns" "$wl" "$url")"
+      fi
+      log "$app: chaos $(printf '%s' "$chaos" | jq -c '{status, verdict, probeSuccessPercentage, recoverySeconds}')"
+
+      jq --arg a "$app" --arg env "$env" --arg ns "$ns" --arg url "$url" --arg at "$(now_iso)" \
+         --argjson t "$(now_epoch)" --arg img "$(printf '%s' "$wl" | jq -r .image)" \
+         --argjson perf "$perf" --argjson chaos "$chaos" \
+        '.[$a] = ((.[$a] // {}) | del(.pending)) + {environment: $env, namespace: $ns, target: $url, image: $img,
+                   testedAt: $at, testedAtEpoch: $t, performance: $perf, chaos: $chaos}' \
+        "$W/results.json" >"$W/r.tmp" && mv "$W/r.tmp" "$W/results.json"
+      tested=$((tested + 1))
+    done <"$W/batch.tsv"
+
+    # Live SLOs for EVERY application, every run: a query is cheap, and the
+    # evidence should describe the last 24 h rather than the last test.
+    while read -r app; do
+      [ -n "$app" ] || continue
+      slo="$(measure_slo "$app")"
+      jq --arg a "$app" --argjson slo "$slo" '.[$a] = ((.[$a] // {}) + {slo: $slo})' \
+        "$W/results.json" >"$W/r.tmp" && mv "$W/r.tmp" "$W/results.json"
+    done <"$W/names.txt"
+
+    # Drop evidence for applications that no longer exist.
+    jq --slurpfile names <(jq -R . "$W/names.txt" | jq -s .) \
+      'with_entries(select(.key as $k | $names[0] | index($k)))' "$W/results.json" >"$W/r.tmp" && mv "$W/r.tmp" "$W/results.json"
+
+    kubectl create configmap "$RESULTS_CM" -n "$NS" --from-file=results.json="$W/results.json" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl -n "$NS" label configmap "$RESULTS_CM" adhar.io/component=scorecards \
+      app.kubernetes.io/managed-by=adhar-resilience-runner app.kubernetes.io/part-of=adhar --overwrite >/dev/null
+    log "wrote ${NS}/${RESULTS_CM} ($tested tested this run)"
+
+    # Score straight away, so a new result reaches the console in about a
+    # minute instead of at the scorer's next half-hour tick.
+    if [ "$tested" -gt 0 ]; then
+      kubectl -n "$NS" create job "adhar-scorecard-after-tests-$(date -u +%s)" \
+        --from=cronjob/adhar-scorecard-scorer >/dev/null 2>&1 \
+        && log "started the scorer" || log "could not start the scorer; it runs on its own schedule"
+    fi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: adhar-resilience-runner
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-resilience-runner
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+spec:
+  schedule: "23 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # Three applications at ~2 min of load + up to ~6 min of chaos each.
+      activeDeadlineSeconds: 3300
+      ttlSecondsAfterFinished: 7200
+      template:
+        metadata:
+          labels:
+            adhar.io/component: scorecards
+            app.kubernetes.io/name: adhar-resilience-runner
+            app.kubernetes.io/part-of: adhar
+        spec:
+          serviceAccountName: adhar-resilience-runner
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: runner
+              image: alpine/k8s:1.31.1
+              imagePullPolicy: IfNotPresent
+              command: ["bash", "/scripts/run.sh"]
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: KUBECACHEDIR
+                  value: /tmp/.kube/cache
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: adhar-resilience-script
+                defaultMode: 0555
+            - name: config
+              configMap:
+                name: adhar-scorecard-config
+            - name: tmp
+              emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-resilience-runner
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-resilience-runner
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+---
+# Cluster-wide READ of what it tests: the delivered applications, their
+# workloads and Services (environment namespaces are created per project, so a
+# namespaced grant would miss every new one).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-resilience-runner
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "rollouts"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-resilience-runner
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-resilience-runner
+subjects:
+  - kind: ServiceAccount
+    name: adhar-resilience-runner
+    namespace: adhar-system
+---
+# Everything it WRITES stays in adhar-system: the k6 Jobs, the ChaosEngines
+# (Litmus runs the experiment as k8s-chaos-admin, not as this account), the
+# results ConfigMap, and a one-off scorer Job.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-resilience-runner
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch"]
+  - apiGroups: ["litmuschaos.io"]
+    resources: ["chaosengines"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  - apiGroups: ["litmuschaos.io"]
+    resources: ["chaosresults"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["litmuschaos.io"]
+    resources: ["chaosexperiments"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-resilience-runner
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: adhar-resilience-runner
+subjects:
+  - kind: ServiceAccount
+    name: adhar-resilience-runner
+    namespace: adhar-system

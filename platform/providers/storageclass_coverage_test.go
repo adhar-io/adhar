@@ -68,6 +68,24 @@ func TestEveryStorageClassThePackagesNameIsCreatedByEveryCloud(t *testing.T) {
 		"digitalocean": filepath.Join("digitalocean", "compute.go"),
 	}
 
+	// Classes the platform CONTROLLER publishes on every cluster (each cloud and
+	// Kind alike) need no per-cloud creation; the guard instead checks that the
+	// controller really reconciles them on every pass.
+	controllerPublished := map[string][2]string{
+		"adhar-ci": {"reconcileCIStorageClass", filepath.Join("..", "controllers", "adharplatform", "ci_storage.go")},
+	}
+	for class, where := range controllerPublished {
+		if !platformClasses[class] {
+			continue
+		}
+		delete(platformClasses, class)
+		impl, err1 := os.ReadFile(where[1])
+		loop, err2 := os.ReadFile(filepath.Join("..", "controllers", "adharplatform", "controller.go"))
+		if err1 != nil || err2 != nil || !strings.Contains(string(impl), "func (r *AdharPlatformReconciler) "+where[0]+"(") ||
+			!strings.Contains(string(loop), "r."+where[0]+"(ctx)") {
+			t.Errorf("a package names %q, which only the controller publishes, but the controller no longer reconciles it (%s)", class, where[0])
+		}
+	}
 	want := make([]string, 0, len(platformClasses))
 	for n := range platformClasses {
 		want = append(want, n)

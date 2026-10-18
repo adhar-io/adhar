@@ -125,6 +125,11 @@ spec:
                   metadata:
                     name: {{ quote $project }}
                     namespace: {{ quote $xrns }}
+            {{- /* Nothing below can render until the Project has been observed and has
+                   reported its environments: on the first pass $envs is empty, and the
+                   dashboard indexing the first environment used to fail the WHOLE pipeline, so the
+                   Project was never composed and the XR stayed unsynced for ever. */ -}}
+            {{- if $envs }}
             ---
             # One Grafana dashboard per application, in the "Applications" folder:
             # the Rollout's phase and readiness, restarts, CPU and memory of its
@@ -202,7 +207,6 @@ spec:
                            "targets": [{"refId": "A", "expr": {{ printf "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"$env\",pod=~\"%s\"}[$__rate_interval])))" $podRe | quote }}}]}
                         ]
                       }
-            {{- if $envs }}
             {{- if $promote }}
             ---
             # The Warehouse: new freight whenever the paved-road CI publishes an image.

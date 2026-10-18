@@ -47,6 +47,8 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: rotation-sa
+                # No status of its own: auto-ready would hold the XR unready for ever.
+                gotemplating.fn.crossplane.io/ready: "True"
             ---
             apiVersion: rbac.authorization.k8s.io/v1
             kind: RoleBinding
@@ -55,6 +57,8 @@ spec:
               namespace: {{ $ns }}
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: rotation-rb
+                # No status of its own: auto-ready would hold the XR unready for ever.
+                gotemplating.fn.crossplane.io/ready: "True"
             roleRef:
               apiGroup: rbac.authorization.k8s.io
               kind: ClusterRole

@@ -26,8 +26,21 @@ metadata:
     app.kubernetes.io/managed-by: argocd
 rules:
   # ArgoCD Application health/sync status.
+  # Argo Rollouts: the workload every application template ships, and the
+  # progressive-delivery signal.
   - apiGroups: ["argoproj.io"]
-    resources: ["applications", "applicationsets"]
+    resources: ["applications", "applicationsets", "rollouts"]
+    verbs: ["get", "list", "watch"]
+  # Resilience signals: autoscalers, disruption budgets, and pod restart
+  # counts in the namespaces applications are delivered into.
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["get", "list", "watch"]
   # Workload specs: probes, resource requests/limits, container images.
   - apiGroups: ["apps"]
