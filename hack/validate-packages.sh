@@ -50,6 +50,31 @@ echo "Found ${#FILES[@]} package contract(s) to validate against:"
 echo "  ${SCHEMA}"
 echo
 
+ensure_python_validator() {
+  if python3 -c 'import jsonschema, yaml' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1; then
+    echo "Installing Python validation dependencies (jsonschema, pyyaml)..." >&2
+    if python3 -m pip install --user --quiet jsonschema pyyaml; then
+      return 0
+    fi
+  fi
+
+  if command -v check-jsonschema >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "ERROR: no JSON Schema validator available." >&2
+  echo "Install one of:" >&2
+  echo "  python3 -m pip install --user jsonschema pyyaml" >&2
+  echo "  pipx install check-jsonschema" >&2
+  return 1
+}
+
+ensure_python_validator || exit 2
+
 # ---------------------------------------------------------------------------
 # Preferred path: python3 + jsonschema (handles YAML parsing + name/category
 # cross-checks in one pass and reports every failure).
