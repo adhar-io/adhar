@@ -99,8 +99,8 @@ spec:
         # former, so every scaffolded app silently skipped its own writeback and
         # the "build → deploy" half of the paved road never happened.
         # A repository with dev/test/prod overlays is promoted by Kargo: its
-        # Warehouse sees the new image in Harbor and its dev Stage sets the
-        # digest in deploy/envs/dev; test follows once dev is verified, prod
+        # Warehouse sees the new image in Harbor and the project's shared dev
+        # Stage sets the digest in deploy/envs/dev; test follows once dev is verified, prod
         # waits for a Release. app-ci pinning the same files would make two
         # writers of one overlay — and rewriting the base image tag would move
         # EVERY environment at once, which is the thing the overlays exist to

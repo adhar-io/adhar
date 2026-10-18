@@ -172,6 +172,17 @@ spec:
                       type: string
                     autoPromote:
                       type: boolean
+                    stage:
+                      type: string
+                      description: The project's shared Kargo Stage for this environment (named after it), which
+                        every application of the project is promoted through. Absent while the project has no
+                        promotable application.
+              applications:
+                type: array
+                description: Applications the project's shared promotion chain promotes (one Warehouse origin each
+                  in every environment's Stage).
+                items:
+                  type: string
               kargoProject:
                 type: string
               organisation:

@@ -1,6 +1,8 @@
 # A promotion: move one piece of freight into one environment. This is the
 # object a release IS on this platform (ADR-0026) — it composes a Kargo
-# Promotion against the Stage `<application>-<environment>`.
+# Promotion of the application's freight into the project's shared Stage
+# `<environment>` (one Stage per project environment, shared by every
+# application of the project).
 #
 # `freight` is the Kargo Freight NAME — the content hash from
 # `kargo get freight --project <project>` — not its alias. An alias looks like a

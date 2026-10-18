@@ -29,20 +29,37 @@ spec:
                    status.environments[] from it. Until the project has published
                    that list, this renders only the observation and reports Pending.
 
-                   Per environment it then emits:
-                     • an Argo CD Application `<project>-<app>-<env>` in the project's
-                       AppProject, deploying `<path>/envs/<env>` into the environment's
-                       namespace — every environment is Git-driven, so every one is
-                       auto-synced; WHICH revision an environment runs is Kargo's call;
-                     • a Kargo Stage `<app>-<env>`, chained in the project's environment
-                       order (the first takes freight straight from the Warehouse, the
-                       rest from their upstream Stage), whose promotion sets the image
-                       DIGEST in the environment's overlay, pushes, and waits for Argo CD
-                       to make the Rollout healthy before the Stage counts as done.
-                   Plus one Kargo Warehouse watching the application's image repository.
-                   This is what the imperative `app-env-register` Task used to apply by
-                   hand, made declarative; the Task now applies a Application.
+                   Per environment OF THE PROJECT it then emits an Argo CD Application
+                   `<project>-<app>-<env>` in the project's AppProject, deploying
+                   `<path>/envs/<env>` into the environment's namespace — every
+                   environment is Git-driven, so every one is auto-synced; WHICH revision
+                   an environment runs is Kargo's call. Plus one Kargo Warehouse `<app>`
+                   watching the application's image repository.
 
+                   Environments are the PROJECT's, shared by every application in it:
+                   there is no per-application environment list any more, and no
+                   per-application Kargo Stage. The promotion chain is the project's —
+                   one Stage per project environment (`dev` → `test` → `prod`), composed
+                   by the Project (compositions/project/local.yaml), requesting freight
+                   from every application's Warehouse. This composition publishes what
+                   that chain needs to promote THIS application on status.delivery
+                   (image, repository, overlay path, branch, soak, verification), and
+                   the Project reads it back. Each Argo CD Application therefore names
+                   the shared Stage `<project>:<env>` as the one Kargo may update it.
+
+                   MIGRATION (2026-10): applications composed before this change owned
+                   Stages `<app>-<env>` and AnalysisTemplates `<app>-<env>-health` in the
+                   Kargo project namespace. They are no longer rendered, so Crossplane
+                   garbage-collects the Objects and with them the Stages; the project's
+                   shared Stages replace them. Nothing carries over and nothing needs to:
+                   Freight belongs to the Warehouse (kept, same name), the deployed
+                   digest is in Git, and the new `dev` Stage auto-promotes the newest
+                   freight again — a no-op commit that re-verifies it — after which test
+                   follows on its own. Only prod needs a fresh Release, against Stage
+                   `<env>` instead of `<app>-<env>`. `spec.parameters.environments` is
+                   kept in the schema so existing XRs stay valid, but it is IGNORED; the
+                   ProjectEnvironments condition says so when it disagrees with the
+                   project.
                    Kargo expressions are `${{ … }}`; `{{` starts a Go template action,
                    so they are spelled through $ex below. */ -}}
             {{- $xr := .observed.composite.resource -}}
@@ -79,7 +96,6 @@ spec:
             {{- $vFail := default 1 (get $verifyCfg "failureLimit") -}}
             {{- $errQuery := default "" (get $verifyCfg "errorRateQuery") -}}
             {{- $errThreshold := default 0.01 (get $verifyCfg "errorRateThreshold") -}}
-            {{- $prom := "http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090" -}}
             {{- $imageCfg := default (dict) $params.image -}}
             {{- $strategy := default "NewestBuild" (get $imageCfg "selectionStrategy") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
@@ -89,10 +105,19 @@ spec:
             {{- $projEnvs := dig "environments" (list) $projStatus -}}
             {{- $registry := dig "imageRegistry" "harbor-core.adhar-system.svc.cluster.local/library" $projStatus -}}
             {{- $image := default (printf "%s/%s" $registry $name) (get $imageCfg "repository") -}}
+            {{- /* Every application runs in EVERY environment of its project: the
+                   project's chain promotes all of them together, so an application
+                   that skipped `test` would never reach `prod`. The retired per-app
+                   `environments` list is read only to report that it is ignored. */ -}}
+            {{- $envs := $projEnvs -}}
+            {{- $projEnvNames := list -}}
+            {{- range $projEnvs }}{{ $projEnvNames = append $projEnvNames .name }}{{ end -}}
             {{- $wanted := list -}}
             {{- range (default (list) $params.environments) }}{{ $wanted = append $wanted .name }}{{ end -}}
-            {{- $envs := list -}}
-            {{- range $projEnvs }}{{ if or (not $wanted) (has .name $wanted) }}{{ $envs = append $envs . }}{{ end }}{{ end -}}
+            {{- $ignored := list -}}
+            {{- range $wanted }}{{ if not (has . $projEnvNames) }}{{ $ignored = append $ignored . }}{{ end }}{{ end -}}
+            {{- $notListed := list -}}
+            {{- if $wanted }}{{ range $projEnvNames }}{{ if not (has . $wanted) }}{{ $notListed = append $notListed . }}{{ end }}{{ end }}{{ end -}}
             {{- $ex := "${{" -}}
             {{- $ready := 0 -}}
             {{- $labels := dict "adhar.io/organisation" (dig "organisation" "adhar" $projStatus) "adhar.io/team" (dig "team" "platform" $projStatus) "adhar.io/project" $project "adhar.io/application" $name -}}
@@ -135,7 +160,8 @@ spec:
             # the Rollout's phase and readiness, restarts, CPU and memory of its
             # pods, and HTTP traffic when the service publishes Micrometer
             # metrics (Spring, through the platform's kube-prometheus scrape).
-            # Switch environments with the dashboard's `env` variable. Grafana's
+            # Switch environments with the dashboard's `env` variable (its value is
+            # the project environment's namespace). Grafana's
             # sidecar picks up any ConfigMap labelled grafana_dashboard=1 in this
             # namespace, so composing the ConfigMap is all that is needed.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -164,10 +190,16 @@ spec:
                   data:
                     {{ printf "%s.json" $name }}: |
                       {{- $podRe := printf "%s-[a-z0-9]+-[a-z0-9]+" $name -}}
+                      {{- /* `$env` is the environment's NAMESPACE, labelled with its name:
+                             the project decides where an environment lives (`<project>-<env>`,
+                             or `dev`/`test`/`prod` for the platform's own `adhar` project), so
+                             a query on namespace="dev" found nothing for every other project.
+                             Grafana's custom variable spells a labelled value `text : value`. */ -}}
                       {{- $envNames := list -}}
-                      {{- range $envs }}{{ $envNames = append $envNames .name }}{{ end -}}
-                      {{- $envCSV := join "," $envNames -}}
-                      {{- $firstEnv := index $envNames 0 }}
+                      {{- $envPairs := list -}}
+                      {{- range $envs }}{{ $envNames = append $envNames .name }}{{ $envPairs = append $envPairs (printf "%s : %s" .name .namespace) }}{{ end -}}
+                      {{- $envCSV := join "," $envPairs -}}
+                      {{- $firstEnv := index $envs 0 }}
                       {
                         "uid": {{ printf "app-%s" $name | quote }},
                         "title": {{ printf "%s · application" $name | quote }},
@@ -178,8 +210,8 @@ spec:
                         "refresh": "30s",
                         "templating": {"list": [
                           {"name": "env", "label": "Environment", "type": "custom", "query": {{ quote $envCSV }},
-                           "current": {"text": {{ quote $firstEnv }}, "value": {{ quote $firstEnv }}},
-                           "options": [{{- range $i, $e := $envNames }}{{ if $i }},{{ end }}{"text": {{ quote $e }}, "value": {{ quote $e }}, "selected": {{ eq $i 0 }}}{{- end }}]}
+                           "current": {"text": {{ quote $firstEnv.name }}, "value": {{ quote $firstEnv.namespace }}},
+                           "options": [{{- range $i, $e := $envs }}{{ if $i }},{{ end }}{"text": {{ quote $e.name }}, "value": {{ quote $e.namespace }}, "selected": {{ eq $i 0 }}}{{- end }}]}
                         ]},
                         "panels": [
                           {"id": 1, "type": "stat", "title": "Rollout phase", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
@@ -249,13 +281,11 @@ spec:
                           insecureSkipTLSVerify: true
                           discoveryLimit: 10
             {{- end }}
-            {{- $prev := "" -}}
             {{- range $envs }}
             {{- $env := . -}}
             {{- $envName := $env.name -}}
             {{- $ns := $env.namespace -}}
             {{- $appName := printf "%s-%s-%s" $project $name $envName -}}
-            {{- $stage := printf "%s-%s" $name $envName -}}
             {{- $obsApp := default (dict) (get $observed (printf "app-%s" $envName)) -}}
             {{- $obsHealth := dig "resource" "status" "atProvider" "manifest" "status" "health" "status" "" $obsApp -}}
             {{- if eq $obsHealth "Healthy" }}{{- $ready = add1 $ready -}}{{- end }}
@@ -280,8 +310,9 @@ spec:
                       # Kargo refuses to update an Application that does not NAME
                       # the Stage allowed to touch it ("is not authorized"), so the
                       # promotion's last step failed after the commit was pushed
-                      # (2026-10-17). <kargo project namespace>:<stage>.
-                      kargo.akuity.io/authorized-stage: {{ quote (printf "%s:%s" $project $stage) }}
+                      # (2026-10-17). <kargo project namespace>:<stage>, and the Stage
+                      # is the PROJECT's environment Stage, shared by every application.
+                      kargo.akuity.io/authorized-stage: {{ quote (printf "%s:%s" $project $envName) }}
                     labels:
                       {{- range $k, $v := $labels }}
                       {{ $k }}: {{ $v | quote }}
@@ -312,166 +343,27 @@ spec:
                       - group: gateway.networking.k8s.io
                         kind: HTTPRoute
                         jsonPointers: ['/status']
-            {{- if $promote }}
-            {{- if $verify }}
+            {{- end }}
+            {{- end }}
+            {{- if $envs }}
             ---
-            # What "healthy in this environment" means, asked of Prometheus after
-            # every promotion: the Rollout reports Healthy, pods are Ready and none
-            # restarted during the window, plus the application's own error-rate
-            # query when it declares one. Kargo marks the freight verified only when
-            # every metric passes on every sample, and the next Stage requests only
-            # VERIFIED freight — so dev's measured health decides whether test gets
-            # the build, without anyone clicking; prod still waits for a Release.
-            apiVersion: kubernetes.m.crossplane.io/v1alpha1
-            kind: Object
-            metadata:
-              annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: analysis-{{ $envName }}
-              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
-            spec:
-              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
-              forProvider:
-                manifest:
-                  apiVersion: argoproj.io/v1alpha1
-                  kind: AnalysisTemplate
-                  metadata:
-                    name: {{ quote (printf "%s-%s-health" $name $envName) }}
-                    namespace: {{ quote $project }}
-                    labels:
-                      {{- range $k, $v := $labels }}
-                      {{ $k }}: {{ $v | quote }}
-                      {{- end }}
-                      adhar.io/environment: {{ quote $envName }}
-                  spec:
-                    metrics:
-                      - name: rollout-healthy
-                        interval: {{ $vInterval }}
-                        count: {{ $vCount }}
-                        failureLimit: {{ $vFail }}
-                        successCondition: result[0] >= 1
-                        provider:
-                          prometheus:
-                            address: {{ $prom }}
-                            # Argo Rollouts labels a finished canary "Completed" (and a stable one "Healthy");
-                            # matching only "Healthy" read 0 for every healthy rollout and failed each verification (2026-10-17).
-                            query: |
-                              sum(rollout_info{namespace="{{ $ns }}",name="{{ $name }}",phase=~"Healthy|Completed"}) or vector(0)
-                      - name: pods-ready
-                        interval: {{ $vInterval }}
-                        count: {{ $vCount }}
-                        failureLimit: {{ $vFail }}
-                        successCondition: result[0] >= 1
-                        provider:
-                          prometheus:
-                            address: {{ $prom }}
-                            query: |
-                              sum(kube_pod_status_ready{namespace="{{ $ns }}",pod=~"{{ $name }}-[a-z0-9]+-[a-z0-9]+",condition="true"}) or vector(0)
-                      - name: no-restarts
-                        interval: {{ $vInterval }}
-                        count: {{ $vCount }}
-                        failureLimit: {{ $vFail }}
-                        successCondition: result[0] < 1
-                        provider:
-                          prometheus:
-                            address: {{ $prom }}
-                            query: |
-                              sum(increase(kube_pod_container_status_restarts_total{namespace="{{ $ns }}",pod=~"{{ $name }}-[a-z0-9]+-[a-z0-9]+",container!="POD"}[5m])) or vector(0)
-                      {{- if $errQuery }}
-                      - name: error-rate
-                        interval: {{ $vInterval }}
-                        count: {{ $vCount }}
-                        failureLimit: {{ $vFail }}
-                        successCondition: result[0] < {{ $errThreshold }}
-                        provider:
-                          prometheus:
-                            address: {{ $prom }}
-                            query: {{ quote (replace "$NAMESPACE" $ns $errQuery) }}
-                      {{- end }}
-            {{- end }}
-            ---
-            # Kargo Stage for this environment. Its label is what the project's
-            # ProjectConfig promotion policy selects on (dev/test auto, prod manual).
-            apiVersion: kubernetes.m.crossplane.io/v1alpha1
-            kind: Object
-            metadata:
-              annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: stage-{{ $envName }}
-              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
-            spec:
-              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
-              forProvider:
-                manifest:
-                  apiVersion: kargo.akuity.io/v1alpha1
-                  kind: Stage
-                  metadata:
-                    name: {{ quote $stage }}
-                    namespace: {{ quote $project }}
-                    labels:
-                      {{- range $k, $v := $labels }}
-                      {{ $k }}: {{ $v | quote }}
-                      {{- end }}
-                      adhar.io/environment: {{ quote $envName }}
-                  spec:
-                    requestedFreight:
-                      - origin: {kind: Warehouse, name: {{ quote $name }}}
-                        sources:
-                          {{- if $prev }}
-                          stages: [{{ quote $prev }}]
-                          {{- if ne $soak "0s" }}
-                          requiredSoakTime: {{ $soak }}
-                          {{- end }}
-                          {{- else }}
-                          direct: true
-                          {{- end }}
-                    {{- if $verify }}
-                    verification:
-                      analysisTemplates:
-                        - name: {{ quote (printf "%s-%s-health" $name $envName) }}
-                    {{- end }}
-                    promotionTemplate:
-                      spec:
-                        steps:
-                          - uses: git-clone
-                            config:
-                              repoURL: {{ quote $repoURL }}
-                              checkout: [{branch: {{ quote $revision }}, path: ./src}]
-                          - uses: kustomize-set-image
-                            config:
-                              path: {{ quote (printf "./src/%s/envs/%s" $path $envName) }}
-                              images:
-                                # By DIGEST, not tag: the digest is what cosign signed
-                                # and it cannot be moved by another build.
-                                - image: {{ quote $image }}
-                                  digest: {{ $ex }} imageFrom({{ $image | quote }}).Digest }}
-                          - uses: git-commit
-                            config:
-                              path: ./src
-                              # "[skip ci]" — the app-ci trigger's CEL filter drops
-                              # pushes carrying it. A promotion commit that built again
-                              # would publish a new digest, which is new freight, which
-                              # is another promotion commit: a loop with no end.
-                              message: {{ printf "promote(%s): %s imageFrom(%q).Digest }} [skip ci]" $envName $ex $image | quote }}
-                          # `as` names the step's outputs: Kargo keys them by this
-                          # alias, not by `uses`, so a reference by step name read nil and every
-                          # promotion died at the Argo CD step AFTER pushing (2026-10-17).
-                          - uses: git-push
-                            as: push
-                            config:
-                              path: ./src
-                              targetBranch: {{ quote $revision }}
-                          # Wait for Argo CD to apply it and the Rollout to go Healthy;
-                          # otherwise the downstream Stage promotes off an environment
-                          # that has not finished rolling out.
-                          - uses: argocd-update
-                            config:
-                              apps:
-                                - name: {{ quote $appName }}
-                                  sources:
-                                    - repoURL: {{ quote $repoURL }}
-                                      desiredRevision: {{ $ex }} outputs.push.commit }}
-            {{- end }}
-            {{- $prev = $stage -}}
-            {{- end }}
+            # The retired per-application environment list: accepted (existing XRs
+            # carry the old schema default dev/test/prod) but never acted on. Say so
+            # whenever it disagrees with the project, instead of silently deploying
+            # somewhere the author did not ask for.
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ClaimConditions
+            conditions:
+              - type: ProjectEnvironments
+                status: "True"
+                target: Composite
+                {{- if or $ignored $notListed }}
+                reason: OverrideIgnored
+                message: {{ quote (printf "spec.parameters.environments is ignored: every application runs in all of project %q's environments (%s)%s%s" $project (join ", " $projEnvNames) (ternary (printf "; not a project environment: %s" (join ", " $ignored)) "" (gt (len $ignored) 0)) (ternary (printf "; deployed anyway: %s" (join ", " $notListed)) "" (gt (len $notListed) 0))) }}
+                {{- else }}
+                reason: Inherited
+                message: {{ quote (printf "runs in project %q's environments: %s" $project (join ", " $projEnvNames)) }}
+                {{- end }}
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
@@ -483,6 +375,39 @@ spec:
               {{- else }}
               phase: {{ if eq $ready (len $envs) }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
               message: {{ quote (printf "%d/%d environments healthy" $ready (len $envs)) }}
+              # Where this application runs: the project's environments, each with
+              # its Argo CD Application and the project's shared Kargo Stage.
+              environments:
+                {{- range $envs }}
+                - name: {{ quote .name }}
+                  namespace: {{ quote .namespace }}
+                  argoApplication: {{ quote (printf "%s-%s-%s" $project $name .name) }}
+                  stage: {{ quote .name }}
+                {{- end }}
+              # What the project's shared promotion chain needs to promote this
+              # application. The Project composition reads it back (an extra
+              # resource) and renders one requestedFreight origin plus one set of
+              # promotion steps per application into each environment's Stage.
+              delivery:
+                promote: {{ $promote }}
+                kargoProject: {{ quote $project }}
+                {{- if $promote }}
+                warehouse: {{ quote $name }}
+                image: {{ quote $image }}
+                repoURL: {{ quote $repoURL }}
+                path: {{ quote $path }}
+                targetRevision: {{ quote $revision }}
+                soakTime: {{ quote $soak }}
+                verification:
+                  enabled: {{ $verify }}
+                  interval: {{ quote $vInterval }}
+                  count: {{ $vCount }}
+                  failureLimit: {{ $vFail }}
+                  {{- if $errQuery }}
+                  errorRateQuery: {{ quote $errQuery }}
+                  {{- end }}
+                  errorRateThreshold: {{ $errThreshold }}
+                {{- end }}
               {{- end }}
     - step: ready
       functionRef:

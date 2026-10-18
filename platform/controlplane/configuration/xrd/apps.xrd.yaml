@@ -122,16 +122,13 @@ spec:
                     type: string
                   environments:
                     type: array
-                    default:
-                    - name: dev
-                      autoSync: true
-                      order: 0
-                    - name: test
-                      autoSync: false
-                      order: 1
-                    - name: prod
-                      autoSync: false
-                      order: 2
+                    description: >-
+                      DEPRECATED and IGNORED. Environments belong to the Project and are shared by
+                      every application in it: each application is deployed to, and promoted through,
+                      all of the project's environments (default dev → test → prod) by the project's
+                      shared Kargo Stages. Kept only so that existing Applications (which carry the old
+                      default) stay valid; when it disagrees with the project, the
+                      `ProjectEnvironments` condition reports that it was ignored.
                     items:
                       type: object
                       required:
@@ -139,21 +136,16 @@ spec:
                       properties:
                         name:
                           type: string
-                          description: "Environment name (dev, test, prod, \u2026)."
+                          description: "Environment name (dev, test, prod, \u2026). Ignored."
                         namespace:
                           type: string
-                          description: Target namespace (defaults to <app>-<env>).
+                          description: Ignored; namespaces always come from the project.
                         autoSync:
                           type: boolean
-                          default: false
-                          description: Deploy automatically. Typically true only for dev; higher envs are promoted
-                            into.
+                          description: Ignored; every environment is auto-synced and Kargo decides its revision.
                         order:
                           type: integer
-                          description: "Promotion order (0=first). Used to wire the Kargo dev\u2192test\u2192prod\
-                            \ stage chain."
-                    description: 'Optional subset/override of the project''s environments for this application (by
-                      `name`). Omitted: every environment of the project. Namespaces always come from the project.'
+                          description: Ignored; the project's environment order is the promotion order.
                   source:
                     type: object
                     required:
@@ -268,8 +260,8 @@ spec:
                       enabled:
                         type: boolean
                         default: true
-                        description: Create the Kargo Warehouse and Stages. Off for applications that are deployed
-                          by something other than the paved road.
+                        description: Create the Kargo Warehouse and join the project's shared Stages. Off for
+                          applications that are deployed by something other than the paved road.
                       soakTime:
                         type: string
                         default: 0s
@@ -277,9 +269,11 @@ spec:
                           be promoted (Kargo requiredSoakTime).
                       verification:
                         type: object
-                        description: The Prometheus check every Stage runs after a promotion. Freight moves to the
-                          next environment only once verified here — the Rollout Healthy, pods Ready, no restarts
-                          over the window, and the application's own error-rate query when given.
+                        description: This application's share of the Prometheus check each project Stage runs after a
+                          promotion (the environment's AnalysisTemplate `<env>-health` carries one set of metrics per
+                          application). Freight moves to the next environment only once verified — no Rollout
+                          unhealthy, no pod unready, no restarts over the window, and the application's own
+                          error-rate query when given. Set enabled to false to leave this application's metrics out.
                         properties:
                           enabled:
                             type: boolean
@@ -315,6 +309,57 @@ spec:
           status:
             type: object
             properties:
+              environments:
+                type: array
+                description: The project environments this application runs in, with its Argo CD Application and
+                  the project's shared Kargo Stage for each.
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    argoApplication:
+                      type: string
+                    stage:
+                      type: string
+              delivery:
+                type: object
+                description: What the project's shared promotion chain needs to promote this application; written
+                  by the Application composition and read by the Project composition.
+                properties:
+                  promote:
+                    type: boolean
+                  kargoProject:
+                    type: string
+                  warehouse:
+                    type: string
+                  image:
+                    type: string
+                  repoURL:
+                    type: string
+                  path:
+                    type: string
+                  targetRevision:
+                    type: string
+                  soakTime:
+                    type: string
+                  verification:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      interval:
+                        type: string
+                      count:
+                        type: integer
+                      failureLimit:
+                        type: integer
+                      errorRateQuery:
+                        type: string
+                      errorRateThreshold:
+                        type: number
               phase:
                 type: string
                 description: Overall phase of the application (Pending, Syncing, Healthy, Degraded, Failed)

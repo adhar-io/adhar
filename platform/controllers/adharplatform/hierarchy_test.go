@@ -182,12 +182,17 @@ func TestProjectPromotionPolicyMatchesThePlatformPipeline(t *testing.T) {
 	if !strings.Contains(comp, "kind: ProjectConfig") || !strings.Contains(comp, "adhar.io/environment: {{ .name | quote }}\n                        autoPromotionEnabled: {{ .autoPromote }}") {
 		t.Error("the Kargo ProjectConfig must select Stages by their adhar.io/environment label and carry the per-environment autoPromote flag")
 	}
+	// The Stages are the project's own (one per environment, shared by its
+	// applications) and must carry the label the policy selects on.
+	if !strings.Contains(comp, "kind: Stage") || !strings.Contains(comp, "adhar.io/environment: {{ quote $en }}\n                      adhar.io/stage-scope: project") {
+		t.Error("the project composition must label every shared Kargo Stage with adhar.io/environment, or its promotion policy selects nothing")
+	}
 	apps, err := os.ReadFile(filepath.Join(controlPlaneDir(t), "compositions/apps/argocd-multienv.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(apps), "kind: Stage") || !strings.Contains(string(apps), "adhar.io/environment: {{ quote $envName }}") {
-		t.Error("the application composition must label every Kargo Stage with adhar.io/environment, or the project's promotion policy selects nothing")
+	if strings.Contains(string(apps), "kind: Stage") {
+		t.Error("the application composition composes a Kargo Stage again; environments and their Stages are the project's")
 	}
 	// The platform's own pipeline says the same thing.
 	for _, doc := range readYAMLDocs(t, filepath.Join(stackPackagesDir(t), "application/kargo/manifests/promotion-pipeline.yaml")) {

@@ -30,21 +30,25 @@ func TestTheOrganisationNamespaceCanHostItsKargoProject(t *testing.T) {
 	}
 }
 
-// Freight moves on only when Prometheus says the environment is healthy.
+// Freight moves on only when Prometheus says the environment is healthy. The
+// Stages are the project's (shared by its applications), so the check is the
+// project's too: one AnalysisTemplate per environment, metrics per application.
 func TestApplicationStagesVerifyAgainstPrometheusBeforeFreightMovesOn(t *testing.T) {
-	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
+	comp := readConfigurationFile(t, "compositions", "project", "local.yaml")
 	for _, want := range []string{
 		"kind: AnalysisTemplate",
-		`sum(rollout_info{namespace="{{ $ns }}",name="{{ $name }}",phase=~"Healthy|Completed"})`,
+		`count(rollout_info{namespace=\"%s\",name=\"%s\",phase!~\"Healthy|Completed\"} == 1) or vector(0)`,
 		"kube_pod_status_ready{",
 		"kube_pod_container_status_restarts_total{",
 		"verification:\n                      analysisTemplates:",
-		`replace "$NAMESPACE" $ns $errQuery`,
-		"interval: 2m",
+		`replace "$NAMESPACE" $ens .`,
 	} {
 		if !strings.Contains(comp, want) {
-			t.Errorf("the Application composition lacks %q; a promoted build is not checked before the next environment takes it", want)
+			t.Errorf("the Project composition lacks %q; a promoted build is not checked before the next environment takes it", want)
 		}
+	}
+	if !strings.Contains(readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml"), "interval: 2m") {
+		t.Error("the Warehouse no longer polls Harbor every 2m")
 	}
 	xrd := readConfigurationFile(t, "xrd", "apps.xrd.yaml")
 	for _, want := range []string{"verification:", "errorRateQuery:", "errorRateThreshold:", "failureLimit:"} {
@@ -101,8 +105,8 @@ func TestTheApplicationCompositionAddressesThePlatformGiteaInCluster(t *testing.
 // A promotion commit must not start a build: a build publishes a new digest,
 // which is new freight, which is another promotion commit.
 func TestPromotionCommitsDoNotTriggerTheBuildPipeline(t *testing.T) {
-	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
-	if !strings.Contains(comp, `imageFrom(%q).Digest }} [skip ci]"`) {
+	comp := readConfigurationFile(t, "compositions", "project", "local.yaml")
+	if !strings.Contains(comp, `(printf "promote(%s): %s %s [skip ci]" $en $app $digest)`) {
 		t.Error("the Kargo git-commit message lacks \"[skip ci]\"; app-ci's CEL filter would build the promotion commit and the chain never settles")
 	}
 	ci := readStackFile(t, "application/adhar-supply-chain/manifests/70-app-ci.yaml")
@@ -177,12 +181,14 @@ func TestEnvironmentQuotaDefaultsAgreeEverywhere(t *testing.T) {
 // update step reads the pushed commit from the push step, so the alias and the
 // reference must be the same word — or the promotion pushes and then fails.
 func TestThePromotionReadsThePushedCommitByItsAlias(t *testing.T) {
-	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
-	if !strings.Contains(comp, "- uses: git-push\n                            as: push\n") {
-		t.Error("the git-push step has no `as: push` alias; its outputs are unnamed")
+	// The shared Stage carries one push step per application, so each has its
+	// own alias `push-<app>` and its Argo CD step reads exactly that one.
+	comp := readConfigurationFile(t, "compositions", "project", "local.yaml")
+	if !strings.Contains(comp, "- uses: git-push\n                            if: {{ quote $when }}\n                            as: {{ quote (printf \"push-%s\" $app) }}\n") {
+		t.Error("the git-push step has no `as: push-<app>` alias; its outputs are unnamed")
 	}
-	if strings.Contains(comp, "outputs['git-push']") || !strings.Contains(comp, "outputs.push.commit") {
-		t.Error("the Argo CD update step does not read outputs.push.commit; Kargo reports \"cannot fetch commit from <nil>\"")
+	if strings.Contains(comp, "outputs['git-push']") || !strings.Contains(comp, `outputs['push-%s'].commit }}" $ex $app`) {
+		t.Error("the Argo CD update step does not read outputs['push-<app>'].commit; Kargo reports \"cannot fetch commit from <nil>\"")
 	}
 }
 
@@ -206,8 +212,8 @@ func TestKargoLooksForArgoCDApplicationsInThePlatformNamespace(t *testing.T) {
 // fails "is not authorized".
 func TestEveryEnvironmentApplicationAuthorisesItsKargoStage(t *testing.T) {
 	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
-	if !strings.Contains(comp, `kargo.akuity.io/authorized-stage: {{ quote (printf "%s:%s" $project $stage) }}`) {
-		t.Error("the per-environment Argo CD Application carries no kargo.akuity.io/authorized-stage annotation naming <project>:<app>-<env>")
+	if !strings.Contains(comp, `kargo.akuity.io/authorized-stage: {{ quote (printf "%s:%s" $project $envName) }}`) {
+		t.Error("the per-environment Argo CD Application carries no kargo.akuity.io/authorized-stage annotation naming the project's shared Stage <project>:<env>")
 	}
 }
 
