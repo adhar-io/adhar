@@ -120,6 +120,11 @@ func TestPlaneInstanceSetupEnablesTheForksKeycloakLogin(t *testing.T) {
 		`cfg("KEYCLOAK_CLIENT_SECRET", client_secret, "KEYCLOAK", encrypted=True)`,
 		`cfg("IS_KEYCLOAK_ENABLED", "1", "KEYCLOAK")`,
 		`cfg("ENABLE_KEYCLOAK_SYNC", "1", "KEYCLOAK")`,
+		// Membership follows the realm: the fork lands every Keycloak user in
+		// the platform workspace with a role from the `groups` claim, so SSO
+		// never ends on "create your workspace".
+		`cfg("KEYCLOAK_AUTO_JOIN_WORKSPACE", os.environ["WORKSPACE_SLUG"], "KEYCLOAK")`,
+		`cfg("KEYCLOAK_ADMIN_GROUPS", "platform-admin", "KEYCLOAK")`,
 		// The payload the sign-in page AND the Job's own verification read is
 		// cached for two hours; cfg() bypasses the admin endpoints that
 		// invalidate it. Observed: a run that switched Gitea -> Keycloak
@@ -539,68 +544,65 @@ func TestConsoleMayWriteTenancyXRs(t *testing.T) {
 	t.Fatal("no ClusterRole console-tenant-provisioner in the console package")
 }
 
-// Plane's sign-in page can only draw a button for a method its FRONTEND knows,
-// and the Adhar fork patches the backend only.
+// Plane's sign-in page can only draw a button for a method its FRONTEND knows.
 //
-// The stock plane-frontend's auth bundle contains exactly six `is_*_enabled`
-// flags — email/password, magic link, Google, GitHub, GitLab, Gitea — and the
-// string `keycloak` appears in none of the 370 asset files it serves. So the
-// fork's `is_keycloak_enabled: true` is invisible to it.
+// Until 1.4.2-2 the platform ran the fork's BACKEND under the STOCK frontend,
+// whose auth bundle knew six `is_*_enabled` flags and no `keycloak`. On
+// 2026-10-11 that locked the instance: the native provider came up, the Gitea
+// bridge standing in for it was switched off, the password form was removed,
+// and the page said "No authentication methods available" while the Job's own
+// check — which counted a flag the page never read — printed OK.
 //
-// On 2026-10-11 three things lined up to lock the instance:
+// Every image is the fork's build now (TestPlaneUsesThePlatformsOwnImages), and
+// its web/space/admin hooks render is_keycloak_enabled, so Keycloak is THE
+// rendered method and the Gitea detour is retired. What must hold instead:
 //
-//  1. the Gitea bridge was switched OFF whenever the native provider came up,
-//  2. the password form was removed when EITHER was up, and
-//  3. the Job's own verification counted `is_keycloak_enabled` as a method.
-//
-// So the run printed `OK: Plane is set up with auth methods
-// ['is_keycloak_enabled']` while the page said "No authentication methods
-// available. Please contact your administrator to enable authentication for
-// your instance." The check and the page disagreed because the check counted a
-// flag the page never reads.
+//  1. the verification counts is_keycloak_enabled among the renderable methods
+//     (and still fails loudly when nothing renderable is on),
+//  2. the password form is removed only when the Keycloak provider is verified
+//     (client secret read AND the realm answering discovery), never on a flag
+//     that was merely written,
+//  3. there is no Gitea bridge left to draw a second button that also ends at
+//     Keycloak — two buttons for one identity provider is not single sign-on.
 //
 // Comments are stripped first, so the prose above cannot satisfy any assertion.
-func TestPlaneAlwaysOffersALoginItsFrontendCanRender(t *testing.T) {
+func TestPlaneRendersTheKeycloakLoginAndNothingElse(t *testing.T) {
 	code := withoutComments(readStackFile(t, "application/plane/manifests/instance-setup.yaml"))
 
-	// 1. The Gitea bridge — the only renderable SSO path — must not be gated on
-	//    the native provider having failed.
-	if strings.Contains(code, `cfg("IS_GITEA_ENABLED", "0", "GITEA")`) {
-		t.Error(`the setup Job disables IS_GITEA_ENABLED; the Gitea bridge is the only SSO method the ` +
-			`stock frontend can draw a button for, so switching it off leaves the sign-in page with ` +
-			`nothing to render however well the native Keycloak provider works`)
-	}
-
-	// 2. The password form may only be removed when a RENDERED method is on.
-	//    `keycloak_ready or gitea_ready` is the exact expression that locked it.
-	if strings.Contains(code, "if keycloak_ready or gitea_ready:") {
-		t.Error(`the password form is removed when the native Keycloak provider alone is up; that ` +
-			`provider is not rendered by the stock frontend, so this leaves no way in. Gate it on a ` +
-			`renderable method (gitea_ready).`)
-	}
-
-	// 3. The "no authentication method" check must be computed from the flags
-	//    the frontend renders, not from every flag the API reports.
 	if !strings.Contains(code, "rendered_methods = [") {
-		t.Fatal("the setup Job no longer distinguishes the methods the frontend renders from the ones " +
-			"the API merely reports; without that split its verification can pass on an instance whose " +
-			"sign-in page has no buttons")
+		t.Fatal("the setup Job no longer declares the methods the frontend renders; without that list its " +
+			"verification can pass on an instance whose sign-in page has no buttons")
 	}
 	rendered := code[strings.Index(code, "rendered_methods = ["):]
 	rendered = rendered[:strings.Index(rendered, "]")]
-	if strings.Contains(rendered, "is_keycloak_enabled") {
-		t.Error("is_keycloak_enabled is listed among the methods the frontend renders; the stock " +
-			"frontend has no Keycloak support at all, so counting it is what made the Job report " +
-			"success about a locked instance")
-	}
-	for _, want := range []string{"is_email_password_enabled", "is_gitea_enabled"} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("the rendered-methods list is missing %q, which the frontend bundle does read", want)
-		}
+	if !strings.Contains(rendered, "is_keycloak_enabled") {
+		t.Error("is_keycloak_enabled is missing from the rendered methods; the fork frontend draws it, and " +
+			"leaving it out means the Job fails a correctly configured Keycloak-only instance")
 	}
 	if !strings.Contains(code, "if not drawable:") {
-		t.Error("the setup Job does not fail when no RENDERABLE method is enabled; that check is the " +
-			"one that would have caught the locked sign-in page")
+		t.Error("the setup Job does not fail when no renderable method is enabled; that check is the " +
+			"one that catches a locked sign-in page")
+	}
+
+	// 2. The password form comes off only behind a VERIFIED Keycloak provider.
+	if !strings.Contains(code, "if keycloak_ready:\n") || !strings.Contains(code, `cfg("ENABLE_EMAIL_PASSWORD", "0", "AUTHENTICATION")`) {
+		t.Error("the password form is not removed when Keycloak is verified; after an edge SSO login the " +
+			"email/password box reads as a second identity and is the opposite of single sign-on")
+	}
+	if strings.Contains(code, "if keycloak_ready or gitea_ready:") {
+		t.Error("the password form is gated on the retired Gitea bridge")
+	}
+
+	// 3. No Gitea detour: no bridge code, and the rows it wrote are switched off.
+	for _, gone := range []string{"def gitea_bridge", "GITEA_PUBLIC_URL", "gitea_ready", `cfg("IS_GITEA_ENABLED", "1"`} {
+		if strings.Contains(code, gone) {
+			t.Errorf("the Gitea-federation bridge is still present (%q); the fork frontend renders Keycloak "+
+				"directly, and a second button that also ends at Keycloak is not SSO", gone)
+		}
+	}
+	if !strings.Contains(code, `cfg("IS_GITEA_ENABLED", "0", "GITEA")`) {
+		t.Error("the setup Job must switch IS_GITEA_ENABLED off: clusters that ran the bridge still hold " +
+			"its rows, and they would render a second Keycloak button")
 	}
 }
 
@@ -923,21 +925,26 @@ func TestNexusEnablesTheHeaderRealmThatCarriesKeycloak(t *testing.T) {
 	}
 }
 
-// Plane's setup reaches Gitea in-cluster: through the public URL the bridge
-// depended on the edge certificate being trusted when the hook ran, and on a
-// fresh cluster it was not, so Plane kept its email form (2026-10-17).
-func TestPlaneSetupReachesGiteaInCluster(t *testing.T) {
+// Plane's setup reaches Keycloak in-cluster. Through the public URL the Job
+// depended on the edge certificate being trusted when the hook ran; on a fresh
+// cluster it is still the self-signed bootstrap one, discovery failed and Plane
+// was left without a login (the same failure the retired Gitea bridge hit,
+// 2026-10-17). The browser-facing issuer stays public: users are sent there.
+func TestPlaneSetupReachesKeycloakInCluster(t *testing.T) {
 	b := readStackFile(t, "application/plane/manifests/instance-setup.yaml")
 	for _, want := range []string{
-		"name: GITEA_INTERNAL_URL",
-		"value: http://gitea-http.adhar-system.svc.cluster.local:3000",
-		`api = f"{internal}/api/v1/user/applications/oauth2"`,
-		`f"{internal}/login/oauth/access_token"`,
-		`cfg("GITEA_HOST", host, "GITEA")`,
+		"name: KEYCLOAK_INTERNAL_ISSUER_URL",
+		"value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar",
+		`urlopen(f"{internal or issuer}/.well-known/openid-configuration"`,
+		`cfg("KEYCLOAK_ISSUER_URL", issuer, "KEYCLOAK")`,
+		`cfg("KEYCLOAK_INTERNAL_ISSUER_URL", internal, "KEYCLOAK")`,
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("plane instance-setup lacks %q", want)
 		}
+	}
+	if strings.Contains(b, "GITEA_PUBLIC_URL") {
+		t.Error("plane instance-setup still wires the Gitea bridge; the fork's frontend renders Keycloak natively")
 	}
 }
 
