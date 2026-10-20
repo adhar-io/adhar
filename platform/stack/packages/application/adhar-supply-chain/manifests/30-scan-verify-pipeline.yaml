@@ -75,6 +75,21 @@ data:
           crypto/tls ECH DoS. Same binaries, no TLS handshake performed.
         expired_at: 2026-11-30
 ---
+# Image vulnerability scan.
+#
+# Two halves: `scan` MEASURES (one Trivy run, every severity, JSON, waived
+# findings kept under ExperimentalModifiedFindings) and `evaluate` JUDGES it
+# against the severity threshold and the licence deny-list. A Trivy error —
+# a registry or DB-download fault — fails `scan`, so task retries still cover
+# infrastructure; findings are never retried.
+#
+# Standalone (supply-chain-gate, build-buildpacks, build-dockerfile, chainguard)
+# the defaults keep the original contract exactly: HIGH,CRITICAL fail the task,
+# the buildpack exceptions are the only ignore file, nothing else is waived.
+#
+# app-ci binds the `reports` workspace and passes blocking=false plus the
+# project policy resolved by scan-policy (74-scan-governance.yaml): the task
+# then records its verdict and the report, and scan-gate decides.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -84,11 +99,27 @@ metadata:
 spec:
   params:
     - {name: image, type: string, description: "fully qualified image ref (with digest)"}
+    # The severities that FAIL; the report always carries all of them.
     - {name: severity, type: string, default: "HIGH,CRITICAL"}
     # 20m, matching source-scan and the library release: this budget has to cover
     # the 120 MiB vulnerability-DB download as well as the scan, and a DB fetch
     # measured at 4m20s on a live cluster.
     - {name: scanTimeout, type: string, default: "20m"}
+    # "false": record the verdict and pass; scan-gate judges (app-ci only).
+    - {name: blocking, type: string, default: "true"}
+    # Policy knobs, each defaulting to the original behaviour.
+    - {name: scanners, type: string, default: "vuln"}
+    - {name: ignoreUnfixed, type: string, default: "false"}
+    - {name: licenseDeny, type: string, default: ""}
+    - {name: licenseWarn, type: string, default: ""}
+  workspaces:
+    # Where scan-policy left the merged ignore file and where the report is
+    # published (<workspace>/.git/adhar-scan/). Unbound outside app-ci.
+    - {name: reports, optional: true}
+  results:
+    - {name: verdict, description: "pass or fail against the severity threshold and licence deny-list"}
+    - {name: summary, description: "Counts as compact JSON (adhar-scan-lib evaluate.jq)"}
+    - {name: digest, description: "sha256 digest of the image that was scanned"}
   steps:
     - name: scan
       image: docker.io/aquasec/trivy:0.58.1
@@ -108,14 +139,73 @@ spec:
       script: |
         #!/bin/sh
         set -e
-        echo "Scanning $(params.image) for $(params.severity) vulnerabilities…"
-        trivy image --scanners vuln --severity "$(params.severity)" \
-          --ignorefile /etc/trivy/ignore.yaml \
-          --exit-code 1 --no-progress --timeout "$(params.scanTimeout)" "$(params.image)"
-        echo "No $(params.severity) vulnerabilities — gate passed."
+        # The buildpack exceptions, unless scan-policy merged them with the
+        # approved waivers into one file for this build.
+        IGNORE=/etc/trivy/ignore.yaml
+        if [ "$(workspaces.reports.bound)" = "true" ] && [ -s "$(workspaces.reports.path)/.git/adhar-scan/trivyignore.yaml" ]; then
+          IGNORE="$(workspaces.reports.path)/.git/adhar-scan/trivyignore.yaml"
+        fi
+        UNFIXED=""
+        [ "$(params.ignoreUnfixed)" = "true" ] && UNFIXED="--ignore-unfixed"
+        echo "Scanning $(params.image) ($(params.scanners)); ignore file ${IGNORE}"
+        date -u +%Y-%m-%dT%H:%M:%SZ > /work/started
+        # No --severity and no --exit-code here: the report holds everything,
+        # and `evaluate` applies the threshold. A non-zero exit is a Trivy
+        # error, which the task's retries exist for.
+        # shellcheck disable=SC2086
+        trivy image --scanners "$(params.scanners)" --ignorefile "$IGNORE" --show-suppressed $UNFIXED \
+          --format json --output /work/image.trivy.json \
+          --no-progress --timeout "$(params.scanTimeout)" "$(params.image)"
+        date -u +%Y-%m-%dT%H:%M:%SZ > /work/finished
+        trivy --version | sed -n 's/^Version: //p' > /work/version
       volumeMounts:
         - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
         - {name: trivy-exceptions, mountPath: /etc/trivy, readOnly: true}
+        - {name: work, mountPath: /work}
+    - name: evaluate
+      image: alpine/k8s:1.31.1
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        R=/work/image.trivy.json
+        DIGEST=$(jq -r '((.Metadata.RepoDigests // [])[0] // "") | sub("^.*@"; "")' "$R")
+        printf '%s' "$DIGEST" > "$(results.digest.path)"
+        # Digest-scoped waivers (app-ci): only in waivers.json, because Trivy
+        # cannot scope an ignore entry to a digest. Applied before judging, so
+        # the verdict, the report and the OpenVEX all see them as waived.
+        WAIVERS="$(workspaces.reports.path)/.git/adhar-scan/waivers.json"
+        if [ "$(workspaces.reports.bound)" = "true" ] && [ -s "$WAIVERS" ]; then
+          if jq --slurpfile wf "$WAIVERS" --argjson now "$(date +%s)" -f /lib/adhar-scan/digest-waivers.jq "$R" > /work/dw.json; then
+            mv /work/dw.json "$R"
+          else
+            echo "WARNING: waivers.json could not be applied; digest-scoped waivers are ignored" >&2
+          fi
+        fi
+        jq -c -s --arg fail "$(params.severity)" --arg deny "$(params.licenseDeny)" --arg warn "$(params.licenseWarn)" \
+          -f /lib/adhar-scan/evaluate.jq "$R" > /work/image.summary.json
+        VERDICT=$(jq -r .verdict /work/image.summary.json)
+        printf '%s' "$VERDICT" > "$(results.verdict.path)"
+        jq -c 'del(.verdict)' /work/image.summary.json | tr -d '\n' > "$(results.summary.path)"
+        echo "summary: $(cat /work/image.summary.json)"
+        if [ "$VERDICT" = fail ]; then
+          echo "findings that fail the gate ($(params.severity)$([ -n "$(params.licenseDeny)" ] && echo "; licences denied: $(params.licenseDeny)")):"
+          jq -r -s --arg fail "$(params.severity)" --arg deny "$(params.licenseDeny)" -f /lib/adhar-scan/failing.jq "$R" | sort -u | head -200 || true
+        fi
+        if [ "$(workspaces.reports.bound)" = "true" ]; then
+          OUT="$(workspaces.reports.path)/.git/adhar-scan"; mkdir -p "$OUT"
+          cp "$R" /work/image.summary.json "$OUT/"
+          jq -n --arg s "$(cat /work/started)" --arg f "$(cat /work/finished)" --arg v "$(cat /work/version)" \
+            --arg run "$(context.taskRun.name)" --arg image "$(params.image)" \
+            '{started: $s, finished: $f, trivyVersion: $v, taskRun: $run, image: $image}' > "$OUT/image.meta.json"
+        fi
+        if [ "$VERDICT" = fail ] && [ "$(params.blocking)" = "true" ]; then
+          echo "$(params.severity) findings — gate failed." >&2
+          exit 1
+        fi
+        echo "verdict: ${VERDICT}$([ "$(params.blocking)" = "true" ] || echo " (recorded; scan-gate decides)")"
+      volumeMounts:
+        - {name: work, mountPath: /work}
+        - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
   volumes:
     - name: harbor-ca
       secret:
@@ -124,6 +214,11 @@ spec:
     - name: trivy-exceptions
       configMap:
         name: trivy-buildpack-exceptions
+    - name: scan-lib
+      configMap:
+        name: adhar-scan-lib
+    - name: work
+      emptyDir: {}
 ---
 apiVersion: tekton.dev/v1
 kind: Task

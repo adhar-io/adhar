@@ -863,6 +863,13 @@ spec:
         kind: EventListener
         jsonPointers:
         - /status
+      # Written by security/trivy's waiver-sync CronJob (platform-wide scan
+      # waivers for runtime scans), not by Git.
+      - group: ""
+        kind: ConfigMap
+        name: trivy-operator-trivy-config
+        jqPathExpressions:
+        - '.data["trivy.ignoreFile"]'
       project: default
       sources:
         - path: "{{ .manifestPath }}"

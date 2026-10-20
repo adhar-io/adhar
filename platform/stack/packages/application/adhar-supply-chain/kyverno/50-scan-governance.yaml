@@ -1,0 +1,129 @@
+# Who may relax the scan gate.
+#
+# Scan policy and waivers are ConfigMaps (74-scan-governance.yaml), and the
+# platform-developer group holds the built-in `edit` role cluster-wide — which
+# includes writing ConfigMaps and patching PipelineRuns. Without these rules a
+# developer could waive their own finding, switch their project to `warn`, or
+# approve their own paused run with kubectl, skipping the review the Console
+# records. Developers REQUEST waivers in the Console; only a reviewer's
+# (impersonated) write reaches the cluster.
+#
+# Reviewers: oidc:security-reviewer, oidc:security-admin, oidc:platform-admin,
+# oidc:platform-engineer, oidc:super-admin and anything bound to cluster-admin
+# (kubeadm admins, break-glass) — the Console's approver groups.
+#
+# Enforce with failurePolicy Ignore (ADR-0012): a Kyverno outage must not
+# wedge the apiserver, so during one these guards are absent. On the local
+# curated core Kyverno is off and RBAC alone applies — document, not hide.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: scan-governance
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    policies.kyverno.io/title: Scan Governance
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Only security reviewers and platform administrators may change scan
+      policy or waivers, or approve/reject a scan review on a PipelineRun.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  failurePolicy: Ignore
+  rules:
+    - name: only-reviewers-change-scan-policy-and-waivers
+      match:
+        any:
+          - resources:
+              kinds: [ConfigMap]
+              names: [scan-policy, scan-waivers, scan-policy-global, scan-waivers-global]
+              operations: [CREATE, UPDATE, DELETE]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - subjects:
+              - {kind: Group, name: "oidc:security-reviewer"}
+              - {kind: Group, name: "oidc:security-admin"}
+              - {kind: Group, name: "oidc:super-admin"}
+              - {kind: Group, name: "oidc:platform-admin"}
+              - {kind: Group, name: "oidc:platform-engineer"}
+              - {kind: Group, name: "system:masters"}
+              # Deleting a namespace deletes its ConfigMaps.
+              - {kind: ServiceAccount, name: namespace-controller, namespace: kube-system}
+              # Creates scan-policy-global once, with the defaults, if absent.
+              - {kind: ServiceAccount, name: scan-policy-seed, namespace: adhar-system}
+      validate:
+        message: >-
+          Scan policy and waivers are changed through a review: request the
+          waiver in the Console and a security reviewer approves it.
+        deny: {}
+    - name: only-reviewers-decide-scan-reviews
+      match:
+        any:
+          - resources:
+              kinds: [tekton.dev/v1/PipelineRun]
+              namespaces: [adhar-system]
+              operations: [CREATE, UPDATE]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - subjects:
+              - {kind: Group, name: "oidc:security-reviewer"}
+              - {kind: Group, name: "oidc:security-admin"}
+              - {kind: Group, name: "oidc:super-admin"}
+              - {kind: Group, name: "oidc:platform-admin"}
+              - {kind: Group, name: "oidc:platform-engineer"}
+              - {kind: Group, name: "system:masters"}
+      preconditions:
+        all:
+          - key: '{{ request.object.metadata.annotations."adhar.io/scan-approval" || '''' }}'
+            operator: AnyIn
+            value: [approved, rejected]
+          - key: '{{ request.object.metadata.annotations."adhar.io/scan-approval" || '''' }}'
+            operator: NotEquals
+            value: '{{ request.oldObject.metadata.annotations."adhar.io/scan-approval" || '''' }}'
+      validate:
+        message: >-
+          Only a security reviewer can approve or reject a scan review
+          (annotation adhar.io/scan-approval).
+        deny: {}
+---
+# Who decided, from the request itself rather than from whatever the client
+# claimed: the Console impersonates the reviewer, so request.userInfo is them.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: scan-review-attribution
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    policies.kyverno.io/title: Scan Review Attribution
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/description: >-
+      Stamps adhar.io/scan-approval-by and adhar.io/scan-approval-at with the
+      requester and time whenever a scan review is approved or rejected.
+spec:
+  background: false
+  failurePolicy: Ignore
+  rules:
+    - name: stamp-reviewer
+      match:
+        any:
+          - resources:
+              kinds: [tekton.dev/v1/PipelineRun]
+              namespaces: [adhar-system]
+              operations: [UPDATE]
+      preconditions:
+        all:
+          - key: '{{ request.object.metadata.annotations."adhar.io/scan-approval" || '''' }}'
+            operator: AnyIn
+            value: [approved, rejected]
+          - key: '{{ request.object.metadata.annotations."adhar.io/scan-approval" || '''' }}'
+            operator: NotEquals
+            value: '{{ request.oldObject.metadata.annotations."adhar.io/scan-approval" || '''' }}'
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              adhar.io/scan-approval-by: "{{ request.userInfo.username }}"
+              adhar.io/scan-approval-at: "{{ time_now_utc() }}"

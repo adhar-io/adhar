@@ -1,0 +1,79 @@
+# Admission REPORT on the scan the image was built with — Audit, never blocks.
+#
+# app-ci attaches the full Trivy image report to every image it scans as a
+# cosign `vuln` attestation, signed with the platform key, AFTER approved
+# waivers were applied (a waived finding sits under
+# Results[].ExperimentalModifiedFindings, not under Vulnerabilities). This rule
+# reports a workload whose image:
+#
+#   - has no such attestation (built before scan governance, or elsewhere),
+#   - was scanned more than 7 days ago (the report has gone stale), or
+#   - still carries an UNWAIVED CRITICAL vulnerability (a `warn`-mode project,
+#     or a run a reviewer approved without a waiver).
+#
+# Audit on purpose: whether an image may run is decided by the signature
+# (40-verify-images.yaml, unchanged), and the signature already means the scan
+# gate passed or a reviewer approved it. This is the drift report on top —
+# PolicyReports, which the Console and policy-reporter already surface.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-scan-attestation
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    policies.kyverno.io/title: Verify Image Scan Attestation
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Reports platform-built images whose signed Trivy vulnerability
+      attestation is missing, older than 7 days, or lists an unwaived CRITICAL
+      vulnerability. Audit only; admission is decided by the signature policy.
+spec:
+  validationFailureAction: Audit
+  background: false
+  webhookTimeoutSeconds: 30
+  failurePolicy: Ignore
+  rules:
+    - name: fresh-scan-without-unwaived-critical
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        # Same reasoning as verify-supply-chain-images: platform-namespace
+        # admission is not coupled to Harbor availability.
+        any:
+          - resources:
+              namespaces: [adhar-system]
+      verifyImages:
+        - imageReferences:
+            - "harbor-core.adhar-system.svc.cluster.local/library/*"
+            - "harbor.*/library/*"
+          # Report only: never rewrite the image, never demand the signature
+          # here (40-verify-images.yaml owns that).
+          mutateDigest: false
+          verifyDigest: false
+          required: false
+          attestations:
+            - type: https://cosign.sigstore.dev/attestation/vuln/v1
+              attestors:
+                - count: 1
+                  entries:
+                    - keys:
+                        secret:
+                          name: cosign-key
+                          namespace: adhar-system
+                        rekor:
+                          ignoreTlog: true
+                        ctlog:
+                          ignoreSCT: true
+              conditions:
+                - all:
+                    - key: "{{ time_since('', '{{ metadata.scanFinishedOn }}', '') }}"
+                      operator: LessThanOrEquals
+                      value: "168h"
+                      message: the image's vulnerability scan is older than 7 days; rebuild it to refresh the report
+                    - key: "{{ scanner.result.Results[].Vulnerabilities[?Severity == 'CRITICAL'][] | length(@) }}"
+                      operator: Equals
+                      value: 0
+                      message: the image carries CRITICAL vulnerabilities that no approved waiver covers

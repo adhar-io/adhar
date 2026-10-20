@@ -33,17 +33,34 @@ func TestTheScanGateExcusesOnlyUnreachableBuildpackCVEs(t *testing.T) {
 	}
 	raw := string(b)
 
-	// The gate itself must not be weakened.
-	for _, forbidden := range []string{"--ignore-unfixed", "--exit-code 0", "--severity CRITICAL\""} {
+	// The gate itself must not be weakened. Since scan governance the image
+	// task MEASURES (one JSON report, every severity) and its evaluate step
+	// JUDGES; standalone — every pipeline but app-ci — it must still fail on
+	// HIGH/CRITICAL with nothing but the buildpack exceptions applied.
+	for _, forbidden := range []string{"--exit-code 0", "--severity CRITICAL\""} {
 		if strings.Contains(raw, forbidden) {
 			t.Errorf("the scan gate uses %q; the exception must be a narrow allow-list, never a "+
 				"blanket downgrade of what the gate reports", forbidden)
 		}
 	}
-	if !strings.Contains(raw, "--exit-code 1") {
-		t.Error("the scan no longer fails the pipeline; a gate that only reports is a dashboard")
+	// --ignore-unfixed is a project POLICY now, off unless a reviewer turns it
+	// on — never a hardcoded flag on the scan.
+	if strings.Count(raw, "--ignore-unfixed") != 1 ||
+		!strings.Contains(raw, `[ "$(params.ignoreUnfixed)" = "true" ] && UNFIXED="--ignore-unfixed"`) ||
+		!strings.Contains(raw, `{name: ignoreUnfixed, type: string, default: "false"}`) {
+		t.Error("--ignore-unfixed must only come from the ignoreUnfixed param, which defaults to false")
 	}
-	if !strings.Contains(raw, "--ignorefile /etc/trivy/ignore.yaml") {
+	for _, want := range []string{
+		`{name: severity, type: string, default: "HIGH,CRITICAL"}`,
+		`{name: blocking, type: string, default: "true"}`,
+		`if [ "$VERDICT" = fail ] && [ "$(params.blocking)" = "true" ]; then`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("the scan no longer fails the pipeline by default (missing %q); a gate that only "+
+				"reports is a dashboard", want)
+		}
+	}
+	if !strings.Contains(raw, "IGNORE=/etc/trivy/ignore.yaml") || !strings.Contains(raw, `--ignorefile "$IGNORE"`) {
 		t.Fatal("the scan does not read the exception file, so the buildpack CVEs still fail every " +
 			"buildpack-built image and nobody can clear them")
 	}

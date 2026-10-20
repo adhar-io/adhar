@@ -12,3 +12,10 @@ operator:
   # renders as an env var value, not a `namespace:` field, and the operator then
   # crashlooped looking for its config and leader-election lease.
   namespace: adhar-system
+
+trivy:
+  # The runtime ignore file is Trivy's YAML format (ids scoped by purl/path,
+  # with expiry), not the legacy one-id-per-line .trivyignore. Its CONTENT
+  # (trivy.ignoreFile) is written by manifests/waiver-sync.yaml from the
+  # platform-wide scan waivers, never from these values.
+  ignoreFileName: ".trivyignore.yaml"

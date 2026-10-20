@@ -3137,6 +3137,7 @@ data:
   trivy.useEmbeddedRegoPolicies: "true"
   trivy.supportedConfigAuditKinds: "Workload,Service,Role,ClusterRole,NetworkPolicy,Ingress,LimitRange,ResourceQuota,PersistentVolume,PersistentVolumeClaim"
   trivy.timeout: "5m0s"
+  trivy.ignoreFileName: ".trivyignore.yaml"
   trivy.mode: "Standalone"
   trivy.resources.requests.cpu: "100m"
   trivy.resources.requests.memory: "100M"

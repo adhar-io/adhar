@@ -8,6 +8,11 @@
 # Every gate here FAILS the run (exit 1) — a gate that only reports is a
 # dashboard, not a control. Where a scanner finds nothing to scan (a repository
 # with no tests, no lockfile, no manifests) the stage passes and says so.
+#
+# The one exception is how app-ci runs source-scan (and trivy-scan): with
+# blocking=false they record a verdict and the JSON report, and scan-gate
+# (74-scan-governance.yaml) fails the run instead — under the project's scan
+# policy, approved waivers and, if the policy asks, a reviewer's decision.
 ---
 # Unit tests, language detected from the checkout. One task instead of one per
 # language so the pipeline does not need to know what it is building — the
@@ -142,14 +147,24 @@ metadata:
 spec:
   description: Trivy filesystem scan — dependency vulnerabilities and Kubernetes manifest misconfiguration.
   params:
+    # The severities that FAIL; the reports carry all of them.
     - {name: severity, type: string, default: "HIGH,CRITICAL"}
     # Bounds the vulnerability-DB download AND the scan. The trivy default is 5m
     # TOTAL, and the DB alone is 120 MiB — measured at 4m20s on a live cluster,
     # which left 40s to scan and killed a release with
     # "semaphore acquire: context deadline exceeded".
     - {name: scanTimeout, type: string, default: "20m"}
+    # "false": record the verdict and pass; scan-gate judges (app-ci). The
+    # default keeps this task a gate on its own.
+    - {name: blocking, type: string, default: "true"}
+    # Which halves run: vuln (dependencies) and/or misconfig (manifests).
+    - {name: scanners, type: string, default: "vuln,misconfig"}
+    - {name: ignoreUnfixed, type: string, default: "false"}
   workspaces:
     - {name: source}
+  results:
+    - {name: verdict, description: "pass or fail against the severity threshold"}
+    - {name: summary, description: "Counts as compact JSON (adhar-scan-lib evaluate.jq)"}
   # ONE vulnerability DB for the whole task.
   #
   # Both steps below run trivy, and Tekton steps are separate containers: with
@@ -160,6 +175,10 @@ spec:
   volumes:
     - name: trivy-cache
       emptyDir: {}
+    - name: work
+      emptyDir: {}
+    - name: scan-lib
+      configMap: {name: adhar-scan-lib}
   stepTemplate:
     env:
       # Trivy derives its cache dir from $HOME, which is `/` in this image, and
@@ -170,6 +189,14 @@ spec:
       - {name: TRIVY_CACHE_DIR, value: /mnt/trivy-cache}
     volumeMounts:
       - {name: trivy-cache, mountPath: /mnt/trivy-cache}
+      - {name: work, mountPath: /work}
+  # Both scans MEASURE (JSON, every severity, no --exit-code: a non-zero exit is
+  # a Trivy error, which the task's retries are for); `evaluate` JUDGES.
+  #
+  # Ignore file: the project's approved waivers when a reviewer has granted any
+  # (scan-policy writes .git/adhar-scan/source-trivyignore.yaml only then);
+  # otherwise none is named and Trivy keeps reading the checkout's own
+  # .trivyignore, exactly as before.
   steps:
     - name: deps
       image: docker.io/aquasec/trivy:0.58.1
@@ -177,26 +204,66 @@ spec:
       script: |
         #!/bin/sh
         set -e
+        case ",$(params.scanners)," in *,vuln,*) ;; *) echo "dependency scan disabled by policy"; exit 0 ;; esac
+        IGNORE=""
+        [ -s .git/adhar-scan/source-trivyignore.yaml ] && IGNORE="--ignorefile .git/adhar-scan/source-trivyignore.yaml"
+        UNFIXED=""
+        [ "$(params.ignoreUnfixed)" = "true" ] && UNFIXED="--ignore-unfixed"
         # Build output and generated trees are skipped: they are not source
         # anybody can fix a CVE in, and walking them races whatever is still
         # writing them. `**/` matters — a bare `dist` matches only ./dist, not
         # <package>/dist, which is how a monorepo slips through.
         SKIP='node_modules,**/node_modules,dist,**/dist,target,**/target,.git,**/.git,generated,**/generated'
-        trivy fs --scanners vuln --severity "$(params.severity)" --exit-code 1 \
-          --skip-dirs "$SKIP" --timeout "$(params.scanTimeout)" --no-progress --format table .
-        echo "no $(params.severity) dependency vulnerabilities"
+        # shellcheck disable=SC2086
+        trivy fs --scanners vuln --show-suppressed $IGNORE $UNFIXED --format json --output /work/deps.json \
+          --skip-dirs "$SKIP" --timeout "$(params.scanTimeout)" --no-progress .
+        echo "dependency scan complete"
     - name: manifests
       image: docker.io/aquasec/trivy:0.58.1
       workingDir: $(workspaces.source.path)
       script: |
         #!/bin/sh
         set -e
+        case ",$(params.scanners)," in *,misconfig,*) ;; *) echo "manifest scan disabled by policy"; exit 0 ;; esac
         found=""
         for d in deploy manifests k8s kubernetes; do [ -d "$d" ] && found="$found $d"; done
         [ -n "$found" ] || { echo "no Kubernetes manifests in the repository; nothing to check"; exit 0; }
-        trivy config -q --severity "$(params.severity)" --exit-code 1 \
+        IGNORE=""
+        [ -s .git/adhar-scan/source-trivyignore.yaml ] && IGNORE="--ignorefile .git/adhar-scan/source-trivyignore.yaml"
+        # shellcheck disable=SC2086
+        trivy config -q $IGNORE --format json --output /work/config.json \
           --timeout "$(params.scanTimeout)" $found
-        echo "manifests pass $(params.severity) misconfiguration checks"
+        echo "manifest scan complete"
+    - name: evaluate
+      image: alpine/k8s:1.31.1
+      workingDir: $(workspaces.source.path)
+      volumeMounts:
+        - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        have=()
+        for r in /work/deps.json /work/config.json; do [ -s "$r" ] && have+=("$r"); done
+        if [ ${#have[@]} -eq 0 ]; then echo '{}' > /work/none.json; have=(/work/none.json); fi
+        jq -c -s --arg fail "$(params.severity)" --arg deny "" --arg warn "" \
+          -f /lib/adhar-scan/evaluate.jq "${have[@]}" > /work/source.summary.json
+        VERDICT=$(jq -r .verdict /work/source.summary.json)
+        printf '%s' "$VERDICT" > "$(results.verdict.path)"
+        jq -c 'del(.verdict)' /work/source.summary.json | tr -d '\n' > "$(results.summary.path)"
+        echo "summary: $(cat /work/source.summary.json)"
+        if [ "$VERDICT" = fail ]; then
+          echo "findings that fail the gate ($(params.severity)):"
+          jq -r -s --arg fail "$(params.severity)" --arg deny "" -f /lib/adhar-scan/failing.jq "${have[@]}" | sort -u | head -200 || true
+        fi
+        OUT=.git/adhar-scan; mkdir -p "$OUT"
+        cp /work/source.summary.json "$OUT/"
+        [ -s /work/deps.json ] && cp /work/deps.json "$OUT/source-deps.trivy.json"
+        [ -s /work/config.json ] && cp /work/config.json "$OUT/source-config.trivy.json"
+        if [ "$VERDICT" = fail ] && [ "$(params.blocking)" = "true" ]; then
+          echo "$(params.severity) findings in the source — gate failed." >&2
+          exit 1
+        fi
+        echo "verdict: ${VERDICT}$([ "$(params.blocking)" = "true" ] || echo " (recorded; scan-gate decides)")"
 ---
 # The SBOM of the image that was actually built, as CycloneDX, written into the
 # workspace for cosign-attest-sbom to attach to the image (safe there: the build

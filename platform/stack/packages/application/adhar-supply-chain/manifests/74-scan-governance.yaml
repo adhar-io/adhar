@@ -1,0 +1,890 @@
+# Scan governance for app-ci: policy, waivers, manual review and reports.
+#
+# The scanners (trivy-scan, source-scan) MEASURE; one task, scan-gate, JUDGES.
+# Everything a reviewer can change lives in ConfigMaps the Console writes:
+#
+#   scan-policy           (project namespace)  ─┐ project overrides global,
+#   scan-policy-global    (adhar-system)        ─┘ global overrides the defaults
+#   scan-waivers          (project namespace)  ─┐ merged with the buildpack
+#   scan-waivers-global   (adhar-system)        ─┘ exceptions into ONE ignore file
+#
+# Neither is shipped by this package: they are the Console's (Argo CD would
+# revert a reviewer's edit), and when none exists every value below falls back
+# to exactly what app-ci did before this file — enforce, HIGH,CRITICAL, fixed
+# and unfixed alike, vulnerabilities in the image and the dependencies plus
+# Kubernetes misconfigurations, no licence policy, no manual review.
+#
+# scan-policy data keys (all optional, strings):
+#   failOnSeverity          CRITICAL,HIGH            severities that fail the gate
+#   ignoreUnfixed           "false"                  drop findings with no fix
+#   scanners                vuln,misconfig           + secret, license
+#   licenseDeny             ""                       SPDX ids that fail the gate
+#   licenseWarn             ""                       SPDX ids reported, never fail
+#   mode                    enforce                  enforce | warn (warn never blocks)
+#   manualApproval          "false"                  a failed gate waits for a reviewer
+#   approvalTimeoutMinutes  "720"                    1..1380; then the run fails (expired)
+#   maxWaiverDays           (Console only; CI ignores it)
+# An unparseable value falls back to the default, never to something looser.
+# The image is always scanned for vulnerabilities: `scanners` adds to that.
+#
+# scan-waivers data keys:
+#   trivyignore.yaml            Trivy's YAML ignore format, ONLY approved and
+#                               unexpired waivers (the Console renders it), of
+#                               project and platform scope — safe for every
+#                               application of the project.
+#   trivyignore.app.<app>.yaml  The same PLUS that application's waivers. When
+#                               present it is used INSTEAD of trivyignore.yaml
+#                               for <app> (the repository / app-ci repo-name).
+#   waivers.json                The full records (audit, OpenVEX status). The
+#                               only home of DIGEST-scoped waivers — Trivy
+#                               cannot scope an ignore entry to a digest — which
+#                               the image scan applies itself (digest-waivers.jq)
+#                               when target.digest is the digest it scanned.
+# Each key is merged with the same key's content in scan-waivers-global.
+#
+# Manual review (mode=enforce, manualApproval=true, gate failed): scan-gate sets
+#   annotation adhar.io/scan-approval=pending  (and the same LABEL, so the
+#   Console can list `-l adhar.io/scan-approval=pending`) on the PipelineRun in
+#   adhar-system and polls it. A reviewer sets the ANNOTATION to `approved` or
+#   `rejected` (plus adhar.io/scan-approval-by / -at / -comment; Kyverno
+#   overwrites -by and -at from the request itself). Approved continues to sign
+#   for THIS run only; a waiver for re-runs is the Console's separate write.
+#
+# Gate state for the Console: annotation adhar.io/scan-gate =
+#   awaiting-approval | passed | warned | failed
+# (the detailed decision — pass, warn, approved, rejected, expired, blocked —
+# is the scan-gate `decision` result and gate.decision in the summary).
+#
+# Reports: every run publishes
+#   - PipelineRun results: scan-summary (compact JSON, summary.jq), scan-gate
+#     (the state above), scan-findings (JSON array of the failing findings,
+#     findings.jq, capped to fit a Tekton result), IMAGE_DIGEST, scan-decision;
+#   - annotation adhar.io/scan-summary (the same JSON) on the PipelineRun,
+#     refreshed by scan-gate and again by the scan-report finally;
+#   - a cosign `vuln` attestation of the full Trivy image report (waived
+#     findings under Results[].ExperimentalModifiedFindings) and an `openvex`
+#     attestation of the waivers that suppressed something in THIS image —
+#     attached BEFORE review, so a reviewer reads the findings off the image.
+#
+# Working files live in <checkout>/.git/adhar-scan/: inside the shared
+# workspace (no second PVC per run) but outside the tree that is built, tested,
+# leak-scanned (gitleaks skips .git) and dependency-scanned (trivy skips .git).
+---
+# Shared jq programs, mounted by every task below and by trivy-scan/source-scan.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-scan-lib
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+data:
+  evaluate.jq: |
+    # Input: Trivy JSON reports, slurped (jq -s). Args: $fail $deny $warn (comma lists).
+    def csv: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0));
+    def within($set): . as $x | any($set[]; . == $x);
+    ($fail | csv | map(ascii_upcase)) as $F
+    | ($deny | csv | map(ascii_downcase)) as $D
+    | ($warn | csv | map(ascii_downcase)) as $W
+    | [.[] | .Results[]?] as $R
+    | [$R[] | .Vulnerabilities[]?] as $v
+    | [$R[] | .Misconfigurations[]? | select((.Status // "FAIL") == "FAIL")] as $m
+    | [$R[] | .Secrets[]?] as $s
+    | [$R[] | .Licenses[]?] as $l
+    | [$R[] | .ExperimentalModifiedFindings[]?] as $x
+    | def bysev($a): reduce $a[] as $f ({critical: 0, high: 0, medium: 0, low: 0, unknown: 0};
+          .[(($f.Severity // "UNKNOWN") | ascii_downcase) as $k | if has($k) then $k else "unknown" end] += 1);
+    {
+      vulnerabilities: bysev($v),
+      misconfigurations: ($m | length),
+      secrets: ($s | length),
+      licenses: {
+        total: ($l | length),
+        denied: ([$l[] | select((.Name // "" | ascii_downcase) | within($D))] | length),
+        warned: ([$l[] | select((.Name // "" | ascii_downcase) | within($W))] | length)
+      },
+      waived: ($x | length),
+      failing: {
+        vulnerabilities: ([$v[] | select((.Severity // "UNKNOWN") | within($F))] | length),
+        misconfigurations: ([$m[] | select((.Severity // "UNKNOWN") | within($F))] | length),
+        secrets: ([$s[] | select((.Severity // "UNKNOWN") | within($F))] | length),
+        licenses: ([$l[] | select((.Name // "" | ascii_downcase) | within($D))] | length)
+      }
+    }
+    | .verdict = (if ([.failing[]] | add) > 0 then "fail" else "pass" end)
+  failing.jq: |
+    # The findings that fail the gate, one line each, for the step log.
+    def csv: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0));
+    def within($set): . as $x | any($set[]; . == $x);
+    ($fail | csv | map(ascii_upcase)) as $F
+    | ($deny | csv | map(ascii_downcase)) as $D
+    | .[] | .Results[]? | .Target as $t
+    | ( (.Vulnerabilities[]? | select((.Severity // "UNKNOWN") | within($F))
+          | "\(.Severity)\tvuln\t\(.VulnerabilityID)\t\(.PkgName) \(.InstalledVersion) -> \(.FixedVersion // "no fix")\t\($t)"),
+        (.Misconfigurations[]? | select((.Status // "FAIL") == "FAIL") | select((.Severity // "UNKNOWN") | within($F))
+          | "\(.Severity)\tmisconfig\t\(.AVDID // .ID)\t\(.Title)\t\($t)"),
+        (.Secrets[]? | select((.Severity // "UNKNOWN") | within($F))
+          | "\(.Severity)\tsecret\t\(.RuleID)\t\(.Title)\t\($t)"),
+        (.Licenses[]? | select((.Name // "" | ascii_downcase) | within($D))
+          | "DENIED\tlicense\t\(.Name)\t\(.PkgName // .FilePath // "")\t\($t)") )
+  vuln-predicate.jq: |
+    # cosign's `vuln` predicate (https://cosign.sigstore.dev/attestation/vuln/v1)
+    # around a Trivy JSON report. Args: $started $finished $version $run.
+    # Descriptions and reference lists are dropped: they are the bulk of a report,
+    # the advisory link (PrimaryURL) stays, and every admission check downloads this.
+    def slim: del(.Description, .References);
+    {
+      invocation: {
+        parameters: {pipelineRun: $run},
+        uri: "tekton://adhar-system/pipelineruns/\($run)",
+        event_id: $run,
+        "builder.id": "adhar-app-ci"
+      },
+      scanner: {
+        uri: "pkg:github/aquasecurity/trivy@\($version)",
+        version: $version,
+        db: {uri: "pkg:oci/trivy-db", version: ""},
+        result: (.Results |= ((. // []) | map(
+          (.Vulnerabilities |= (if . then map(slim) else . end))
+          | (.ExperimentalModifiedFindings |= (if . then map(.Finding |= slim) else . end)))))
+      },
+      metadata: {scanStartedOn: $started, scanFinishedOn: $finished}
+    }
+  openvex.jq: |
+    # OpenVEX from the waivers that actually suppressed a finding in THIS image —
+    # ignore-file entries and digest-scoped waivers (digest-waivers.jq) alike.
+    # Input: the Trivy image report. Args: $wf (--slurpfile of waivers.json, an
+    # array of records), $app, $run, $now, $product (pkg:oci purl of the scanned digest).
+    #
+    # Status/justification come from the reviewed waiver record (vexStatus /
+    # vexJustification, or vex.status / vex.justification). With none recorded the
+    # statement is not_affected with the waiver's statement as impact_statement —
+    # OpenVEX accepts that in place of a justification, and inventing a
+    # justification nobody gave would be a false claim.
+    ($wf[0] // []) as $waivers
+    | def rec($id): [$waivers[]? | select((.status // "approved") == "approved")
+                    | select((.findingId // .finding // "") == $id)]
+                  | (map(select(.target.digest? as $d | ($d // "") != "" and ($product | contains($d | sub(":"; "%3A")))))
+                     + map(select(.target.app? == $app)) + .) | first;
+    [.Results[]? | .ExperimentalModifiedFindings[]? | select(.Type == "vulnerability")]
+    | group_by(.Finding.VulnerabilityID)
+    | map(. as $g | $g[0].Finding.VulnerabilityID as $id | rec($id) as $w
+        | (($w.vexStatus // $w.vex.status) // "not_affected") as $st
+        | {
+            vulnerability: {name: $id},
+            products: [{"@id": $product,
+                         subcomponents: ([$g[].Finding.PkgIdentifier.PURL | select(. != null)] | unique | map({"@id": .}))}],
+            status: $st,
+            timestamp: $now
+          }
+          + (if $st == "not_affected" and (($w.vexJustification // $w.vex.justification) // "") != ""
+               then {justification: ($w.vexJustification // $w.vex.justification)} else {} end)
+          + (if $st == "not_affected" then {impact_statement: (($w.justification // $g[0].Statement) // "waived by the platform review")} else {} end)
+          + (if $st == "affected" then {action_statement: (($w.justification // $g[0].Statement) // "risk accepted by the platform review")} else {} end)
+          + (if $w.id then {status_notes: "adhar waiver \($w.id)\(if $w.approvedBy then ", approved by \($w.approvedBy)" else "" end)"} else {} end))
+    | {
+        "@context": "https://openvex.dev/ns/v0.2.0",
+        "@id": "https://adhar.io/vex/app-ci/\($run)",
+        author: "Adhar platform scan review",
+        role: "platform",
+        timestamp: $now,
+        version: 1,
+        statements: .
+      }
+  summary.jq: |
+    # The compact run summary the console reads from the PipelineRun annotation
+    # adhar.io/scan-summary. Args: --slurpfile policy/image/source/gate (each may
+    # be empty). Counts only; the findings themselves are in the vuln attestation.
+    ($policy[0] // {}) as $p
+    | {
+        version: 1,
+        project: $p.project, namespace: $p.namespace, app: $p.app,
+        mode: ($p.mode // "enforce"), manualApproval: ($p.manualApproval // false),
+        failOnSeverity: ($p.failOnSeverity // "HIGH,CRITICAL"),
+        waivers: ($p.waivers // 0),
+        image: ($image[0] // null),
+        source: ($source[0] // null),
+        gate: ($gate[0] // null)
+      }
+  digest-waivers.jq: |
+    # Digest-scoped waivers. Trivy cannot scope an ignore entry to an image digest,
+    # so the Console keeps those ONLY in waivers.json. A finding covered by an
+    # approved, unexpired record whose target.digest is the scanned image's digest
+    # moves from the report's findings into ExperimentalModifiedFindings — the same
+    # place Trivy puts what its ignore file suppressed — so the verdict, the summary,
+    # the vuln attestation and the OpenVEX all treat it as waived.
+    # Input: a Trivy image report. Args: --slurpfile wf waivers.json, --argjson now <epoch>.
+    def ts: if . == null or . == "" then null
+      else (tostring | sub("\\.[0-9]+"; "") | sub("[+-]00:?00$"; "Z")
+            | if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . + "T00:00:00Z" else . end
+            | try fromdateiso8601 catch 0) end;
+    (((.Metadata.RepoDigests // [])[0] // "") | sub("^.*@"; "")) as $digest
+    | [($wf[0] // [])[]? | select(type == "object")
+        | select((.status // "") == "approved")
+        | select((.target.digest // "") != "" and .target.digest == $digest)
+        | select((.expiresAt | ts) as $e | $e == null or $e > $now)] as $W
+    | def hit($kind; $id; $pkg; $purl):
+        first($W[] | select((.kind // "vuln") == $kind and (.findingId // "") == ($id // "-"))
+          | select(.target.package as $p | ($p // "") == "" or $p == $pkg or (($purl // "") | startswith($p))))
+        // null;
+      def mv($type; $w): {Type: $type, Status: "ignored",
+        Statement: ($w.justification // "digest-scoped waiver"), Source: "waivers.json \($w.id // "")"};
+      def vhit: hit("vuln"; .VulnerabilityID; .PkgName; .PkgIdentifier.PURL);
+      def shit: hit("secret"; .RuleID; null; null);
+      def lhit: hit("license"; .Name; .PkgName; null);
+      def mhit: hit("misconfig"; .AVDID; null; null) // hit("misconfig"; .ID; null; null);
+    if ($W | length) == 0 then . else
+      .Results |= ((. // []) | map(
+        ( [ (.Vulnerabilities // [])[]     | . as $f | vhit as $w | select($w != null) | mv("vulnerability"; $w) + {Finding: $f} ]
+        + [ (.Secrets // [])[]             | . as $f | shit as $w | select($w != null) | mv("secret"; $w) + {Finding: $f} ]
+        + [ (.Licenses // [])[]            | . as $f | lhit as $w | select($w != null) | mv("license"; $w) + {Finding: $f} ]
+        + [ (.Misconfigurations // [])[]   | . as $f | mhit as $w | select($w != null) | mv("misconfiguration"; $w) + {Finding: $f} ]
+        ) as $moved
+        | if ($moved | length) == 0 then . else
+            (if .Vulnerabilities then .Vulnerabilities |= map(select(vhit == null)) else . end)
+            | (if .Secrets then .Secrets |= map(select(shit == null)) else . end)
+            | (if .Licenses then .Licenses |= map(select(lhit == null)) else . end)
+            | (if .Misconfigurations then .Misconfigurations |= map(select(mhit == null)) else . end)
+            | .ExperimentalModifiedFindings = ((.ExperimentalModifiedFindings // []) + $moved)
+          end))
+    end
+  findings.jq: |
+    # The findings that fail the gate, as the Console's `scan-findings` result:
+    # [{id, kind, pkg?, version?, fixed?, severity, target, origin}], most severe
+    # first. Input: Trivy reports, slurped. Args: $fail $deny $origin.
+    def csv: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0));
+    def within($set): . as $x | any($set[]; . == $x);
+    def rank: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}[.] // 4;
+    ($fail | csv | map(ascii_upcase)) as $F
+    | ($deny | csv | map(ascii_downcase)) as $D
+    | [ .[] | .Results[]? | .Target as $t
+        | ( (.Vulnerabilities[]? | select((.Severity // "UNKNOWN") | within($F))
+              | {id: .VulnerabilityID, kind: "vuln", pkg: .PkgName, version: .InstalledVersion,
+                 fixed: (.FixedVersion // null), severity: .Severity, target: $t}),
+            (.Misconfigurations[]? | select((.Status // "FAIL") == "FAIL") | select((.Severity // "UNKNOWN") | within($F))
+              | {id: (.AVDID // .ID), kind: "misconfig", severity: .Severity, target: $t}),
+            (.Secrets[]? | select((.Severity // "UNKNOWN") | within($F))
+              | {id: .RuleID, kind: "secret", severity: .Severity, target: $t}),
+            (.Licenses[]? | select((.Name // "" | ascii_downcase) | within($D))
+              | {id: .Name, kind: "license", pkg: .PkgName, severity: (.Severity // "UNKNOWN"), target: $t}) ) ]
+    | map(. + {origin: $origin} | with_entries(select(.value != null)))
+    | unique_by([.kind, .id, .pkg, .target])
+    | sort_by((.severity | rank), .id)
+---
+# The identity of the governance tasks (scan-policy, scan-gate, scan-report),
+# set per task through taskRunSpecs in the TriggerTemplates. It is NOT
+# adhar-pipeline on purpose: the test stage runs the repository's own code as
+# adhar-pipeline, and code under review must not be able to read the review
+# policy's inputs from other projects or approve itself.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-scan-gate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-scan-gate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+rules:
+  # Which project an application belongs to, and that project's namespace.
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["applications", "projects"]
+    verbs: ["get"]
+  # The platform-wide policy and waivers.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["scan-policy-global", "scan-waivers-global", "trivy-buildpack-exceptions"]
+    verbs: ["get"]
+  # Request a review, read the decision, publish the summary.
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-scan-gate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-scan-gate}
+subjects: [{kind: ServiceAccount, name: adhar-scan-gate, namespace: adhar-system}]
+---
+# A project's policy and waivers, by NAME, in whatever namespace the project
+# lives in. Read-only; nothing else in those namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-scan-gate-project-config
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["scan-policy", "scan-waivers"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-scan-gate-project-config
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: adhar-scan-gate-project-config}
+subjects: [{kind: ServiceAccount, name: adhar-scan-gate, namespace: adhar-system}]
+---
+# What a security reviewer may do — bound to oidc:security-reviewer by
+# security/keycloak (adhar-oidc-security-reviewer). platform-admin and
+# platform-engineer already hold cluster-admin. The Console performs these
+# writes IMPERSONATING the reviewer, so the Console's own ServiceAccount gains
+# nothing here.
+#
+# RBAC cannot restrict `create` by name, so create on configmaps is
+# unrestricted for this group; update/patch/delete are limited to the four
+# governance names, and the supply-chain Kyverno pack (scan-governance) refuses
+# writes to those names from anyone who is not a reviewer or cluster-admin.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-scan-reviewer
+  labels: {adhar.io/component: rbac}
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["scan-policy", "scan-waivers", "scan-policy-global", "scan-waivers-global"]
+    verbs: ["update", "patch", "delete"]
+  # Approve or reject a paused run (annotation adhar.io/scan-approval).
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["taskruns"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+  # Runtime findings from trivy-operator, and where projects live.
+  - apiGroups: ["aquasecurity.github.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["projects", "applications"]
+    verbs: ["get", "list", "watch"]
+---
+# scan-policy-global, seeded ONCE with exactly the defaults above (= the gate
+# app-ci always had), so the Console sees a platform that enforces waivers and
+# has a document to edit. Created only when absent and never declared to
+# Argo CD, so a reviewer's later edits are not reverted by a sync.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scan-policy-seed
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scan-policy-seed
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["scan-policy-global"]
+    verbs: ["get"]
+  # `create` cannot be narrowed by name in RBAC; the Job creates one object.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scan-policy-seed
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: scan-policy-seed}
+subjects: [{kind: ServiceAccount, name: scan-policy-seed, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-scan-policy-global
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      serviceAccountName: scan-policy-seed
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: alpine/k8s:1.31.1
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              if kubectl get configmap scan-policy-global -n adhar-system >/dev/null 2>&1; then
+                echo "scan-policy-global exists; leaving it to its reviewers"; exit 0
+              fi
+              kubectl create -f - <<'YAML'
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: scan-policy-global
+                namespace: adhar-system
+                labels:
+                  adhar.io/scan-policy: "true"
+                  app.kubernetes.io/managed-by: adhar-console
+              data:
+                failOnSeverity: CRITICAL,HIGH
+                ignoreUnfixed: "false"
+                scanners: vuln,misconfig
+                licenseDeny: ""
+                licenseWarn: ""
+                mode: enforce
+                manualApproval: "false"
+                approvalTimeoutMinutes: "720"
+              YAML
+              echo "seeded scan-policy-global with the platform defaults"
+---
+# Resolve the effective policy and the merged ignore file for one build.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: scan-policy
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Resolve the project's scan policy and approved waivers into the workspace.
+  params:
+    - {name: repo-name, type: string}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: project, description: "Project the application belongs to"}
+    - {name: namespace, description: "The project's namespace (where scan-policy / scan-waivers live)"}
+    - {name: mode, description: "enforce or warn"}
+    - {name: manualApproval, description: "true when a failed gate waits for a reviewer"}
+    - {name: approvalTimeoutMinutes, description: "How long a review may take"}
+    - {name: failOnSeverity, description: "Severities that fail the gate"}
+    - {name: ignoreUnfixed, description: "true to drop findings without a fix"}
+    - {name: imageScanners, description: "trivy --scanners for the image"}
+    - {name: sourceScanners, description: "Which source scans run (vuln and/or misconfig)"}
+    - {name: licenseDeny, description: "SPDX ids that fail the gate"}
+    - {name: licenseWarn, description: "SPDX ids that are reported only"}
+    - {name: waivers, description: "Number of ignore entries in effect"}
+  volumes:
+    - name: buildpack-exceptions
+      configMap: {name: trivy-buildpack-exceptions, optional: true}
+  steps:
+    - name: resolve
+      image: alpine/k8s:1.31.1
+      volumeMounts:
+        - {name: buildpack-exceptions, mountPath: /etc/trivy-exceptions, readOnly: true}
+      script: |
+        #!/bin/bash
+        set -uo pipefail
+        APP="$(params.repo-name)"
+        OUT="$(workspaces.source.path)/.git/adhar-scan"
+        mkdir -p "$OUT"
+
+        # Every lookup is allowed to fail: a missing object means "not
+        # configured", and a forbidden one (a run started without the
+        # adhar-scan-gate identity) is reported and treated the same way. Both
+        # land on the defaults, which are the strict side of every setting.
+        get() { kubectl get "$@" 2>/tmp/err || { grep -q NotFound /tmp/err || echo "note: $(cat /tmp/err)" >&2; return 1; }; }
+
+        PROJECT=$(get applications.platform.adhar.io "$APP" -n adhar-system -o jsonpath='{.spec.parameters.project}' || true)
+        [ -n "$PROJECT" ] || PROJECT=adhar   # unregistered apps belong to the default project
+        NS=$(get projects.platform.adhar.io "$PROJECT" -n adhar-system -o jsonpath='{.status.namespace}' || true)
+        [ -n "$NS" ] || NS="$PROJECT"
+        echo "application ${APP} → project ${PROJECT} (namespace ${NS})"
+
+        cm() { get configmap "$2" -n "$1" -o json || echo '{}'; }
+        GP=$(cm adhar-system scan-policy-global); PP=$(cm "$NS" scan-policy)
+        GW=$(cm adhar-system scan-waivers-global); PW=$(cm "$NS" scan-waivers)
+
+        # project value, else global value, else the default
+        pick() {
+          local v
+          v=$(jq -r --arg k "$1" '.data[$k] // empty' <<<"$PP")
+          [ -n "$v" ] || v=$(jq -r --arg k "$1" '.data[$k] // empty' <<<"$GP")
+          printf '%s' "${v:-$2}"
+        }
+
+        MODE=$(pick mode enforce | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+        case "$MODE" in enforce|warn) ;; *) echo "mode '$MODE' unknown → enforce"; MODE=enforce ;; esac
+        MANUAL=$(pick manualApproval false | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+        case "$MANUAL" in true|false) ;; *) MANUAL=false ;; esac
+        UNFIXED=$(pick ignoreUnfixed false | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+        case "$UNFIXED" in true|false) ;; *) UNFIXED=false ;; esac
+        TIMEOUT=$(pick approvalTimeoutMinutes 720 | tr -d ' ')
+        case "$TIMEOUT" in ''|*[!0-9]*) TIMEOUT=720 ;; esac
+        [ "$TIMEOUT" -ge 1 ] && [ "$TIMEOUT" -le 1380 ] || TIMEOUT=720
+
+        SEV=""
+        for s in $(pick failOnSeverity HIGH,CRITICAL | tr '[:lower:]' '[:upper:]' | tr -d ' ' | tr ',' ' '); do
+          case "$s" in CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN) SEV="${SEV:+$SEV,}$s" ;; esac
+        done
+        [ -n "$SEV" ] || SEV=HIGH,CRITICAL
+
+        IMG=vuln; SRC=""
+        for s in $(pick scanners vuln,misconfig | tr '[:upper:]' '[:lower:]' | tr -d ' ' | tr ',' ' '); do
+          case "$s" in
+            vuln) SRC="${SRC:+$SRC,}vuln" ;;
+            misconfig) SRC="${SRC:+$SRC,}misconfig" ;;
+            secret|license) IMG="$IMG,$s" ;;
+          esac
+        done
+        DENY=$(pick licenseDeny "" | tr -d ' '); WARN=$(pick licenseWarn "" | tr -d ' ')
+
+        # One ignore file: the buildpack exceptions this package ships, the
+        # platform's waivers, the project's, and the application's. A file that
+        # does not parse is skipped and named — skipping can only make the gate
+        # STRICTER, never quietly looser.
+        rm -rf "$OUT/in"; mkdir -p "$OUT/in"
+        n=0; REVIEWED=0
+        add() {   # add <label> <reviewed 0|1> <yaml>
+          [ -n "$3" ] || return 0
+          n=$((n+1)); printf '%s\n' "$3" > "$OUT/in/$n.yaml"
+          if yq e '.' "$OUT/in/$n.yaml" >/dev/null 2>&1; then
+            echo "waivers: $1"; [ "$2" = 1 ] && REVIEWED=1
+          else
+            echo "WARNING: $1 is not valid YAML — ignored" >&2; rm -f "$OUT/in/$n.yaml"
+          fi
+          return 0
+        }
+        [ -s /etc/trivy-exceptions/ignore.yaml ] && add "buildpack exceptions" 0 "$(cat /etc/trivy-exceptions/ignore.yaml)"
+        add "scan-waivers-global/trivyignore.yaml" 1 "$(jq -r '.data["trivyignore.yaml"] // empty' <<<"$GW")"
+        # trivyignore.app.<app>.yaml is the project file PLUS the application's
+        # waivers, so when it exists it REPLACES trivyignore.yaml for this app.
+        KEY="trivyignore.app.${APP}.yaml"
+        [ -n "$(jq -r --arg k "$KEY" '.data[$k] // empty' <<<"$PW")" ] || KEY=trivyignore.yaml
+        add "scan-waivers/${NS}/${KEY}" 1 "$(jq -r --arg k "$KEY" '.data[$k] // empty' <<<"$PW")"
+        if ls "$OUT"/in/*.yaml >/dev/null 2>&1; then
+          yq eval-all '. as $i ireduce ({}; . *+ $i)
+            | with_entries(select(.key == "vulnerabilities" or .key == "misconfigurations" or .key == "secrets" or .key == "licenses"))' \
+            "$OUT"/in/*.yaml > "$OUT/trivyignore.yaml"
+        else
+          echo '{}' > "$OUT/trivyignore.yaml"
+        fi
+        ENTRIES=$(yq e '[(.vulnerabilities // [])[], (.misconfigurations // [])[], (.secrets // [])[], (.licenses // [])[]] | length' "$OUT/trivyignore.yaml" 2>/dev/null)
+        case "$ENTRIES" in ''|*[!0-9]*) ENTRIES=0 ;; esac
+        # The SOURCE scan gets the file only when a reviewer waived something:
+        # without one it keeps today's behaviour (trivy's own .trivyignore
+        # lookup in the checkout), and the buildpack exceptions are about
+        # buildpack binaries, which a source tree does not contain.
+        rm -f "$OUT/source-trivyignore.yaml"
+        [ "$REVIEWED" = 1 ] && cp "$OUT/trivyignore.yaml" "$OUT/source-trivyignore.yaml"
+
+        # Audit records, platform then project, for OpenVEX and the Console.
+        { jq -r '.data["waivers.json"] // "[]"' <<<"$GW"; jq -r '.data["waivers.json"] // "[]"' <<<"$PW"; } \
+          | jq -s 'map(if type == "array" then . else [] end) | add // []' > "$OUT/waivers.json" 2>/dev/null \
+          || { echo "WARNING: waivers.json does not parse — no VEX status will be read from it" >&2; echo '[]' > "$OUT/waivers.json"; }
+
+        jq -n --arg project "$PROJECT" --arg namespace "$NS" --arg app "$APP" --arg mode "$MODE" \
+          --argjson manual "$MANUAL" --argjson unfixed "$UNFIXED" --arg sev "$SEV" --arg img "$IMG" \
+          --arg src "$SRC" --arg deny "$DENY" --arg warn "$WARN" --argjson timeout "$TIMEOUT" \
+          --argjson waivers "$ENTRIES" \
+          '{project: $project, namespace: $namespace, app: $app, mode: $mode, manualApproval: $manual,
+            ignoreUnfixed: $unfixed, failOnSeverity: $sev, imageScanners: $img, sourceScanners: $src,
+            licenseDeny: $deny, licenseWarn: $warn, approvalTimeoutMinutes: $timeout, waivers: $waivers}' \
+          | tee "$OUT/policy.json"
+
+        printf '%s' "$PROJECT" > "$(results.project.path)"
+        printf '%s' "$NS"      > "$(results.namespace.path)"
+        printf '%s' "$MODE"    > "$(results.mode.path)"
+        printf '%s' "$MANUAL"  > "$(results.manualApproval.path)"
+        printf '%s' "$TIMEOUT" > "$(results.approvalTimeoutMinutes.path)"
+        printf '%s' "$SEV"     > "$(results.failOnSeverity.path)"
+        printf '%s' "$UNFIXED" > "$(results.ignoreUnfixed.path)"
+        printf '%s' "$IMG"     > "$(results.imageScanners.path)"
+        printf '%s' "$SRC"     > "$(results.sourceScanners.path)"
+        printf '%s' "$DENY"    > "$(results.licenseDeny.path)"
+        printf '%s' "$WARN"    > "$(results.licenseWarn.path)"
+        printf '%s' "$ENTRIES" > "$(results.waivers.path)"
+---
+# Attach what the scanners found to the image, before anyone judges it: the
+# full Trivy report as a cosign `vuln` attestation and the waivers that
+# suppressed something in this image as an `openvex` attestation. A reviewer
+# reads both off the image while the run waits; after release, any consumer
+# can see what was waived and why. Runs as adhar-pipeline (the signing key).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: scan-attest
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Attest the image scan report (cosign vuln) and the applied waivers (OpenVEX).
+  params:
+    - {name: image-ref, type: string}
+    - {name: app, type: string}
+    - {name: pipelinerun, type: string, default: ""}
+  workspaces:
+    - {name: source}
+  volumes:
+    - {name: work, emptyDir: {}}
+    - name: scan-lib
+      configMap: {name: adhar-scan-lib}
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+    - name: adhar-ca
+      configMap: {name: adhar-ca-bundle}
+  steps:
+    - name: predicates
+      image: alpine/k8s:1.31.1
+      volumeMounts:
+        - {name: work, mountPath: /work}
+        - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        OUT="$(workspaces.source.path)/.git/adhar-scan"
+        REPORT="$OUT/image.trivy.json"
+        [ -s "$REPORT" ] || { echo "no image report at $REPORT — did the scan run with the reports workspace?" >&2; exit 1; }
+        META="$OUT/image.meta.json"; [ -s "$META" ] || echo '{}' > "$META"
+        NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        RUN="$(params.pipelinerun)"; [ -n "$RUN" ] || RUN=$(jq -r '.taskRun // "unknown"' "$META")
+        jq --arg started "$(jq -r --arg d "$NOW" '.started // $d' "$META")" \
+           --arg finished "$(jq -r --arg d "$NOW" '.finished // $d' "$META")" \
+           --arg version "$(jq -r '.trivyVersion // "unknown"' "$META")" --arg run "$RUN" \
+           -f /lib/adhar-scan/vuln-predicate.jq "$REPORT" > /work/vuln.json
+        # pkg:oci purl of the digest that was scanned
+        DIGEST=$(jq -r '(.Metadata.RepoDigests // [])[0] // ""' "$REPORT" | sed 's/.*@//')
+        REPO="$(params.image-ref)"; REPO="${REPO%@*}"; REPO="${REPO%:*}"
+        PRODUCT="pkg:oci/$(params.app)${DIGEST:+@${DIGEST/:/%3A}}?repository_url=${REPO}"
+        WAIVERS="$OUT/waivers.json"; [ -s "$WAIVERS" ] || echo '[]' > "$WAIVERS"
+        jq --slurpfile wf "$WAIVERS" --arg app "$(params.app)" --arg run "$RUN" --arg now "$NOW" \
+           --arg product "$PRODUCT" -f /lib/adhar-scan/openvex.jq "$REPORT" > /work/vex.json
+        echo "vuln predicate: $(wc -c < /work/vuln.json) bytes; OpenVEX: $(jq '.statements | length' /work/vex.json) statement(s) for ${PRODUCT}"
+        chmod 0644 /work/*.json
+    - name: attest-vuln
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      env:
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: COSIGN_YES, value: "true"}
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/adhar-ca"}
+      volumeMounts:
+        - {name: work, mountPath: /work}
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: adhar-ca, mountPath: /etc/adhar-ca}
+      args: [attest, --key=k8s://adhar-system/cosign-key, --tlog-upload=false, --type=vuln, --predicate=/work/vuln.json, $(params.image-ref)]
+    - name: attest-openvex
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      env:
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: COSIGN_YES, value: "true"}
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/adhar-ca"}
+      volumeMounts:
+        - {name: work, mountPath: /work}
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: adhar-ca, mountPath: /etc/adhar-ca}
+      args: [attest, --key=k8s://adhar-system/cosign-key, --tlog-upload=false, --type=openvex, --predicate=/work/vex.json, $(params.image-ref)]
+---
+# The one place the scan results are JUDGED.
+#
+#   every scanner passed           → pass
+#   mode=warn                      → warn      (never blocks)
+#   enforce, manualApproval=false  → blocked   (fails the run — today's behaviour)
+#   enforce, manualApproval=true   → waits for annotation adhar.io/scan-approval
+#                                     approved → approved (continues to sign)
+#                                     rejected → rejected (fails)
+#                                     timeout  → expired  (fails)
+#
+# The `decision` result keeps that detail; annotation adhar.io/scan-gate and
+# the `state` result carry what the Console renders:
+#   pass, approved → passed · warn → warned · pending → awaiting-approval ·
+#   blocked, rejected, expired → failed
+#
+# Never retried: a retry would re-open a review that already has an answer.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: scan-gate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Decide the scan gate, pausing for a reviewer when the policy asks for one.
+  params:
+    - {name: pipelinerun, type: string}
+    - {name: mode, type: string, default: enforce}
+    - {name: manualApproval, type: string, default: "false"}
+    - {name: approvalTimeoutMinutes, type: string, default: "720"}
+    - {name: imageVerdict, type: string}
+    - {name: sourceVerdict, type: string}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: decision, description: "pass, warn, approved, rejected, expired or blocked"}
+    - {name: state, description: "passed, warned, awaiting-approval or failed (annotation adhar.io/scan-gate)"}
+    - {name: summary, description: "Compact scan summary JSON (summary.jq), as annotation adhar.io/scan-summary"}
+    - {name: findings, description: "JSON array of the findings that fail the gate (findings.jq), most severe first, capped to fit a result"}
+  volumes:
+    - name: scan-lib
+      configMap: {name: adhar-scan-lib}
+  steps:
+    # Its own step, BEFORE the decision: results travel in a step's termination
+    # message (4 KiB each), and the gate step may exit 1.
+    - name: findings
+      image: alpine/k8s:1.31.1
+      volumeMounts:
+        - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
+      script: |
+        #!/bin/bash
+        set -uo pipefail
+        OUT="$(workspaces.source.path)/.git/adhar-scan"; mkdir -p "$OUT"
+        FAIL=$(jq -r '.failOnSeverity // "HIGH,CRITICAL"' "$OUT/policy.json" 2>/dev/null || echo HIGH,CRITICAL)
+        DENY=$(jq -r '.licenseDeny // ""' "$OUT/policy.json" 2>/dev/null || true)
+        one() {   # one <origin> <report>...
+          local origin=$1; shift
+          local have=()
+          for r in "$@"; do [ -s "$r" ] && have+=("$r"); done
+          [ ${#have[@]} -gt 0 ] || { echo '[]'; return; }
+          jq -c -s --arg fail "$FAIL" --arg deny "$DENY" --arg origin "$origin" -f /lib/adhar-scan/findings.jq "${have[@]}"
+        }
+        { one image "$OUT/image.trivy.json"; one source "$OUT/source-deps.trivy.json" "$OUT/source-config.trivy.json"; } \
+          | jq -c -s 'add // [] | sort_by(({"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3}[.severity] // 4), .id)' > "$OUT/findings.json" \
+          || echo '[]' > "$OUT/findings.json"
+        echo "$(jq length "$OUT/findings.json") finding(s) fail the gate"
+        # Largest prefix that fits a result; the full list is in the reports.
+        n=$(jq length "$OUT/findings.json")
+        while :; do
+          jq -c --argjson n "$n" '.[:$n]' "$OUT/findings.json" > /tmp/f
+          [ "$(wc -c < /tmp/f)" -le 3000 ] || [ "$n" -eq 0 ] && break
+          n=$((n * 3 / 4))
+        done
+        tr -d '\n' < /tmp/f > "$(results.findings.path)"
+    - name: gate
+      image: alpine/k8s:1.31.1
+      volumeMounts:
+        - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
+      script: |
+        #!/bin/bash
+        set -uo pipefail
+        PR="$(params.pipelinerun)"
+        OUT="$(workspaces.source.path)/.git/adhar-scan"; mkdir -p "$OUT"
+        MODE="$(params.mode)"; MANUAL="$(params.manualApproval)"; MINUTES="$(params.approvalTimeoutMinutes)"
+        case "$MINUTES" in ''|*[!0-9]*) MINUTES=720 ;; esac
+
+        annotate() { kubectl annotate --overwrite pipelinerun "$PR" -n adhar-system "$@" >/dev/null; }
+        approval() { kubectl get pipelinerun "$PR" -n adhar-system -o "jsonpath={.metadata.annotations.adhar\.io/scan-approval$1}" 2>/dev/null; }
+        sf() { [ -s "$1" ] && echo "$1" || echo /dev/null; }
+        state() { case "$1" in pass|approved) echo passed ;; warn) echo warned ;; pending) echo awaiting-approval ;; *) echo failed ;; esac; }
+        publish() {   # publish <decision> [approval] [by] [comment]
+          jq -n --arg d "$1" --arg a "${2:-}" --arg by "${3:-}" --arg c "${4:-}" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{decision: $d, decidedAt: $at} + (if $a != "" then {approval: $a} else {} end)
+             + (if $by != "" then {by: $by} else {} end) + (if $c != "" then {comment: $c} else {} end)' > "$OUT/gate.json"
+          printf '%s' "$1" > "$(results.decision.path)"
+          printf '%s' "$(state "$1")" > "$(results.state.path)"
+          SUMMARY=$(jq -c -n --slurpfile policy "$(sf "$OUT/policy.json")" --slurpfile image "$(sf "$OUT/image.summary.json")" \
+            --slurpfile source "$(sf "$OUT/source.summary.json")" --slurpfile gate "$(sf "$OUT/gate.json")" -f /lib/adhar-scan/summary.jq)
+          printf '%s' "$SUMMARY" > "$(results.summary.path)"
+          annotate "adhar.io/scan-gate=$(state "$1")" "adhar.io/scan-summary=$SUMMARY" \
+            || echo "warning: could not annotate PipelineRun/$PR (is the task running as adhar-scan-gate?)" >&2
+        }
+
+        failed=""
+        [ "$(params.imageVerdict)" = pass ]  || failed="image ($(params.imageVerdict))"
+        [ "$(params.sourceVerdict)" = pass ] || failed="${failed:+$failed, }source ($(params.sourceVerdict))"
+
+        if [ -z "$failed" ]; then
+          echo "scan gate: every scanner passed"; publish pass; exit 0
+        fi
+        if [ "$MODE" = warn ]; then
+          echo "scan gate: WARN — findings in ${failed}; policy mode is warn, so the run continues"
+          publish warn; exit 0
+        fi
+        if [ "$MANUAL" != true ]; then
+          echo "scan gate: BLOCKED — findings in ${failed} (mode=enforce, no manual review). See the scan and source-scan logs." >&2
+          publish blocked; exit 1
+        fi
+
+        # Manual review. `pending` is written unconditionally, so a value set
+        # on the PipelineRun before this point (e.g. at creation) counts for
+        # nothing — only a decision made after the request does.
+        NOW=$(date +%s); DEADLINE=$((NOW + MINUTES * 60))
+        if ! annotate adhar.io/scan-approval=pending \
+             "adhar.io/scan-approval-requested-at=$(date -u -d "@$NOW" +%Y-%m-%dT%H:%M:%SZ)" \
+             "adhar.io/scan-approval-deadline=$(date -u -d "@$DEADLINE" +%Y-%m-%dT%H:%M:%SZ)"; then
+          echo "scan gate: BLOCKED — cannot request a review on PipelineRun/$PR (missing adhar-scan-gate identity?)" >&2
+          publish blocked; exit 1
+        fi
+        kubectl label --overwrite pipelinerun "$PR" -n adhar-system adhar.io/scan-approval=pending >/dev/null || true
+        publish pending pending
+        echo "scan gate: findings in ${failed}; waiting up to ${MINUTES}m for a reviewer."
+        echo "  approve: kubectl annotate --overwrite pipelinerun $PR -n adhar-system adhar.io/scan-approval=approved"
+        echo "  reject:  kubectl annotate --overwrite pipelinerun $PR -n adhar-system adhar.io/scan-approval=rejected"
+        while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+          v=$(approval "")
+          case "$v" in
+            approved|rejected)
+              by=$(approval "-by"); comment=$(approval "-comment")
+              kubectl label --overwrite pipelinerun "$PR" -n adhar-system "adhar.io/scan-approval=$v" >/dev/null || true
+              publish "$v" "$v" "$by" "$comment"
+              echo "scan gate: ${v}${by:+ by $by}${comment:+ — $comment}"
+              [ "$v" = approved ] && exit 0 || exit 1 ;;
+          esac
+          sleep 15
+        done
+        annotate adhar.io/scan-approval=expired || true
+        kubectl label --overwrite pipelinerun "$PR" -n adhar-system adhar.io/scan-approval=expired >/dev/null || true
+        publish expired expired
+        echo "scan gate: no decision within ${MINUTES}m — failing the run" >&2
+        exit 1
+---
+# finally: publish the summary whatever happened, and close a review that
+# can no longer be answered (run cancelled or timed out while pending).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: scan-report
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Publish the scan summary annotation on the PipelineRun.
+  params:
+    - {name: pipelinerun, type: string}
+  workspaces:
+    - {name: source}
+  volumes:
+    - name: scan-lib
+      configMap: {name: adhar-scan-lib}
+  steps:
+    - name: report
+      image: alpine/k8s:1.31.1
+      volumeMounts:
+        - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
+      script: |
+        #!/bin/bash
+        set -uo pipefail
+        PR="$(params.pipelinerun)"
+        OUT="$(workspaces.source.path)/.git/adhar-scan"
+        sf() { [ -s "$1" ] && echo "$1" || echo /dev/null; }
+        if [ "$(kubectl get pipelinerun "$PR" -n adhar-system -o 'jsonpath={.metadata.annotations.adhar\.io/scan-approval}' 2>/dev/null)" = pending ]; then
+          kubectl annotate --overwrite pipelinerun "$PR" -n adhar-system adhar.io/scan-approval=expired >/dev/null || true
+          kubectl label --overwrite pipelinerun "$PR" -n adhar-system adhar.io/scan-approval=expired >/dev/null || true
+          kubectl annotate --overwrite pipelinerun "$PR" -n adhar-system adhar.io/scan-gate=failed >/dev/null || true
+          [ -d "$OUT" ] && jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{decision: "expired", approval: "expired", decidedAt: $at}' > "$OUT/gate.json"
+        fi
+        SUMMARY=$(jq -c -n --slurpfile policy "$(sf "$OUT/policy.json")" --slurpfile image "$(sf "$OUT/image.summary.json")" \
+          --slurpfile source "$(sf "$OUT/source.summary.json")" --slurpfile gate "$(sf "$OUT/gate.json")" -f /lib/adhar-scan/summary.jq)
+        echo "$SUMMARY"
+        kubectl annotate --overwrite pipelinerun "$PR" -n adhar-system "adhar.io/scan-summary=$SUMMARY" >/dev/null \
+          || echo "warning: could not annotate PipelineRun/$PR" >&2

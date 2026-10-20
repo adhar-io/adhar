@@ -157,6 +157,44 @@ subjects:
     kind: Group
     name: oidc:platform-viewer
 ---
+# Security reviewers: approve/reject scan waivers and paused scan reviews.
+# The Console's approver groups are security-reviewer, security-admin,
+# platform-engineer, platform-admin and super-admin; the last three hold
+# cluster-admin already (super-admin is bound here in case a realm uses it
+# without platform-admin).
+#
+# Bound to `adhar-scan-reviewer` (application/adhar-supply-chain,
+# 74-scan-governance.yaml): read the findings, write the scan-policy /
+# scan-waivers ConfigMaps, patch the adhar.io/scan-approval annotation on a
+# PipelineRun. Nothing else — a reviewer is not an operator. The Console makes
+# these writes impersonating the reviewer, and the supply-chain Kyverno pack
+# (scan-governance) refuses the same writes from everyone below cluster-admin
+# who is not in this group, so platform-developer's cluster-wide `edit` does
+# not let a developer waive their own findings.
+#
+# The security-reviewer and security-admin Keycloak groups are created by the
+# realm job (keycloak-config.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-security-reviewer
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-scan-reviewer
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:security-reviewer
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:security-admin
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:super-admin
+---
 # Platform custom resources for the built-in role tiers.
 #
 # Kubernetes' built-in `view` / `edit` / `admin` ClusterRoles cover the core API

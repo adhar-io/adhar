@@ -6,11 +6,18 @@
 #   clone → build (buildpacks, auto-detects Java/Go/Node/Python) → Harbor
 #             ├─ test (unit tests, toolchain auto-detected)      ┐
 #             ├─ secrets (gitleaks on the source)                │ independent,
-#             ├─ source-scan (trivy: dependency CVEs + deploy/)  │ in parallel
-#             ├─ scan (trivy on the built image)                 │
+#             ├─ scan-policy → source-scan (deps CVEs + deploy/) │ in parallel
+#             │             → scan (trivy on the built image)    │
+#             │               → scan-attest (vuln + OpenVEX)     │
+#             │               → scan-gate (policy; may wait for  │
+#             │                            a reviewer)           │
 #             └─ sbom (syft, CycloneDX)                          ┘
-#           → sign (only when all five passed) → attest SBOM → verify
-#           → GitOps writeback; finally: summary
+#           → sign (only when every gate passed) → attest SBOM → verify
+#           → GitOps writeback; finally: summary, scan-report
+#
+# The scanners measure and scan-gate judges, under the project's scan policy
+# and approved waivers (74-scan-governance.yaml). With no policy configured the
+# gate fails exactly where the scanners used to: HIGH/CRITICAL, enforce.
 #
 # Sequential where there is a real dependency (nothing to judge before the
 # image exists; nothing to sign before every judge agrees; nothing to attest
@@ -156,6 +163,13 @@ spec:
     - {name: writeback, type: string, default: "true"}
   workspaces:
     - {name: shared}
+  # Read by the Console. Absent when the task that produces them did not run.
+  results:
+    - {name: scan-gate, description: "passed, warned, awaiting-approval or failed", value: "$(tasks.scan-gate.results.state)"}
+    - {name: scan-decision, description: "pass, warn, approved, rejected, expired or blocked", value: "$(tasks.scan-gate.results.decision)"}
+    - {name: scan-summary, description: "compact scan summary JSON (also annotation adhar.io/scan-summary)", value: "$(tasks.scan-gate.results.summary)"}
+    - {name: scan-findings, description: "JSON array of the findings that fail the gate", value: "$(tasks.scan-gate.results.findings)"}
+    - {name: IMAGE_DIGEST, description: "digest of the image that was scanned (and, if the gate passed, signed)", value: "$(tasks.scan.results.digest)"}
   tasks:
     - name: clone
       retries: 2
@@ -211,16 +225,65 @@ spec:
       runAfter: [build]
       taskRef: {name: gitleaks-scan}
       workspaces: [{name: source, workspace: shared}]
-    - name: source-scan
+    # The project's scan policy and approved waivers, resolved once. After
+    # build, not beside it: it writes into the checkout's .git, and nothing
+    # the buildpack reads should change under it.
+    - name: scan-policy
       retries: 2
       runAfter: [build]
+      taskRef: {name: scan-policy}
+      params: [{name: repo-name, value: "$(params.repo-name)"}]
+      workspaces: [{name: source, workspace: shared}]
+    # The two scanners MEASURE (blocking=false); scan-gate below judges.
+    - name: source-scan
+      retries: 2
+      runAfter: [scan-policy]
       taskRef: {name: source-scan}
+      params:
+        - {name: blocking, value: "false"}
+        - {name: severity, value: "$(tasks.scan-policy.results.failOnSeverity)"}
+        - {name: scanners, value: "$(tasks.scan-policy.results.sourceScanners)"}
+        - {name: ignoreUnfixed, value: "$(tasks.scan-policy.results.ignoreUnfixed)"}
       workspaces: [{name: source, workspace: shared}]
     - name: scan
       retries: 2
-      runAfter: [build]
+      runAfter: [scan-policy]
       taskRef: {name: trivy-scan}
-      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}]
+      params:
+        - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}
+        - {name: blocking, value: "false"}
+        - {name: severity, value: "$(tasks.scan-policy.results.failOnSeverity)"}
+        - {name: scanners, value: "$(tasks.scan-policy.results.imageScanners)"}
+        - {name: ignoreUnfixed, value: "$(tasks.scan-policy.results.ignoreUnfixed)"}
+        - {name: licenseDeny, value: "$(tasks.scan-policy.results.licenseDeny)"}
+        - {name: licenseWarn, value: "$(tasks.scan-policy.results.licenseWarn)"}
+      workspaces: [{name: reports, workspace: shared}]
+    # The report goes onto the image BEFORE the judgement, so a reviewer
+    # reads the findings off the image while the run waits for them.
+    - name: scan-attest
+      retries: 2
+      runAfter: [scan]
+      taskRef: {name: scan-attest}
+      params:
+        - {name: image-ref, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}
+        - {name: app, value: "$(params.repo-name)"}
+        - {name: pipelinerun, value: "$(context.pipelineRun.name)"}
+      workspaces: [{name: source, workspace: shared}]
+    # The judgement. No retries: an answered review must not re-open. Its
+    # timeout bounds the wait for a reviewer (approvalTimeoutMinutes ≤ 23h);
+    # the TriggerTemplates give the run a pipeline timeout above it.
+    - name: scan-gate
+      runAfter: [scan, source-scan]
+      timeout: "23h30m"
+      taskRef: {name: scan-gate}
+      params:
+        - {name: pipelinerun, value: "$(context.pipelineRun.name)"}
+        - {name: mode, value: "$(tasks.scan-policy.results.mode)"}
+        - {name: manualApproval, value: "$(tasks.scan-policy.results.manualApproval)"}
+        - {name: approvalTimeoutMinutes, value: "$(tasks.scan-policy.results.approvalTimeoutMinutes)"}
+        - {name: imageVerdict, value: "$(tasks.scan.results.verdict)"}
+        - {name: sourceVerdict, value: "$(tasks.source-scan.results.verdict)"}
+      workspaces: [{name: source, workspace: shared}]
     - name: sbom
       retries: 2
       runAfter: [build]
@@ -235,7 +298,9 @@ spec:
     # never admits it.
     - name: sign
       retries: 2
-      runAfter: [test, secrets, source-scan, scan, sbom]
+      # scan-attest too: it pushes to the same attestation manifest the SBOM
+      # attest does, and two writers of it race.
+      runAfter: [test, secrets, scan-gate, scan-attest, sbom]
       taskRef: {name: cosign-sign}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
@@ -273,7 +338,13 @@ spec:
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
         - {name: revision, value: "$(params.revision)"}
-        - {name: stages, value: "clone=$(tasks.clone.status) test=$(tasks.test.status) secrets=$(tasks.secrets.status) source-scan=$(tasks.source-scan.status) build=$(tasks.build.status) scan=$(tasks.scan.status) sbom=$(tasks.sbom.status) sign=$(tasks.sign.status) attest=$(tasks.attest.status) verify=$(tasks.verify.status) deploy=$(tasks.deploy.status)"}
+        - {name: stages, value: "clone=$(tasks.clone.status) test=$(tasks.test.status) secrets=$(tasks.secrets.status) scan-policy=$(tasks.scan-policy.status) source-scan=$(tasks.source-scan.status) build=$(tasks.build.status) scan=$(tasks.scan.status) scan-attest=$(tasks.scan-attest.status) scan-gate=$(tasks.scan-gate.status) sbom=$(tasks.sbom.status) sign=$(tasks.sign.status) attest=$(tasks.attest.status) verify=$(tasks.verify.status) deploy=$(tasks.deploy.status)"}
+    # The compact scan summary on the PipelineRun (adhar.io/scan-summary),
+    # whatever happened; closes a review left pending by a cancelled run.
+    - name: scan-report
+      taskRef: {name: scan-report}
+      params: [{name: pipelinerun, value: "$(context.pipelineRun.name)"}]
+      workspaces: [{name: source, workspace: shared}]
 ---
 # Trigger template: turn a push event into an app-ci PipelineRun.
 apiVersion: triggers.tekton.dev/v1beta1
@@ -298,6 +369,16 @@ spec:
       spec:
         pipelineRef: {name: app-ci}
         taskRunTemplate: {serviceAccountName: adhar-pipeline}
+        # The governance tasks run as adhar-scan-gate (74-scan-governance.yaml):
+        # they read other namespaces' scan policy and request/read reviews,
+        # neither of which the identity that runs the repository's tests holds.
+        taskRunSpecs:
+          - {pipelineTaskName: scan-policy, serviceAccountName: adhar-scan-gate}
+          - {pipelineTaskName: scan-gate, serviceAccountName: adhar-scan-gate}
+          - {pipelineTaskName: scan-report, serviceAccountName: adhar-scan-gate}
+        # Above scan-gate's 23h30m so a run can wait for a reviewer; every
+        # other task keeps Tekton's per-task default.
+        timeouts: {pipeline: "24h"}
         params:
           - {name: repo-name, value: $(tt.params.repo-name)}
           # body.after — the pushed commit. Built, tagged, scanned, signed and
@@ -356,6 +437,16 @@ spec:
       spec:
         pipelineRef: {name: app-ci}
         taskRunTemplate: {serviceAccountName: adhar-pipeline}
+        # The governance tasks run as adhar-scan-gate (74-scan-governance.yaml):
+        # they read other namespaces' scan policy and request/read reviews,
+        # neither of which the identity that runs the repository's tests holds.
+        taskRunSpecs:
+          - {pipelineTaskName: scan-policy, serviceAccountName: adhar-scan-gate}
+          - {pipelineTaskName: scan-gate, serviceAccountName: adhar-scan-gate}
+          - {pipelineTaskName: scan-report, serviceAccountName: adhar-scan-gate}
+        # Above scan-gate's 23h30m so a run can wait for a reviewer; every
+        # other task keeps Tekton's per-task default.
+        timeouts: {pipeline: "24h"}
         params:
           - {name: repo-name, value: $(tt.params.repo-name)}
           - {name: revision, value: $(tt.params.revision)}

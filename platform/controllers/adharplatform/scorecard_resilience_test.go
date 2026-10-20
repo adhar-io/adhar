@@ -141,7 +141,7 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 			time.Unix(now-7200, 0).UTC().Format(time.RFC3339)),
 		"gameday": fmt.Sprintf(`{"shop":{"count":2,"experiments":["pod-network-loss"],"latest":{"experiment":"pod-network-loss","verdict":"Pass","probe":"100","at":%q}}}`,
 			time.Unix(now-3600, 0).UTC().Format(time.RFC3339)),
-		"pods":      `{"prod":[{"ns":"prod","labels":{"app":"shop","x":"y"},"restarts":0}],"dev":[{"ns":"dev","labels":{"app":"cart"},"restarts":9}]}`,
+		"pods": `{"prod":[{"ns":"prod","labels":{"app":"shop","x":"y"},"restarts":0}],"dev":[{"ns":"dev","labels":{"app":"cart"},"restarts":9}]}`,
 		"evidence": fmt.Sprintf(`{"shop":{"environment":"test","testedAtEpoch":%d,
 		  "performance":{"status":"passed","p95Ms":120,"errorRate":0,"rps":200,"vus":10,"thresholdP95Ms":500},
 		  "chaos":{"status":"passed","verdict":"Pass","probeSuccessPercentage":100,"recoverySeconds":20,"replicas":2,"detail":"kept answering"},

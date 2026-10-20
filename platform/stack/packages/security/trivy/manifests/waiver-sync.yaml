@@ -1,0 +1,110 @@
+# Runtime scans honour the platform-wide scan waivers.
+#
+# trivy-operator reads ONE ignore file for every scan (`trivy.ignoreFile` in
+# trivy-operator-trivy-config, mounted as /etc/trivy/.trivyignore.yaml — see
+# values.yaml). This CronJob keeps its content equal to what app-ci applies
+# platform-wide:
+#
+#   trivy-buildpack-exceptions/ignore.yaml   (application/adhar-supply-chain)
+#   + scan-waivers-global/trivyignore.yaml   (written by the Console)
+#
+# PROJECT-scoped waivers (scan-waivers in a project namespace) are NOT pushed to
+# the operator. Its only per-namespace knob, `trivy.ignorePolicy.<namespace>`,
+# matches keys by turning every `.` into a `*` glob and taking the first match
+# in map order: a policy for namespace `dev` also matches `team-a-dev`, so one
+# project's waivers would leak into another's reports, nondeterministically.
+# Runtime VulnerabilityReports in project namespaces therefore still list
+# project-waived findings; the Console marks them against the project's
+# waivers.json. Existing reports pick a change up on their next rescan
+# (scannerReportTTL, 24h).
+#
+# Argo CD ignores the `trivy.ignoreFile` key it does not own (appset
+# ignoreDifferences), so the two writers do not fight.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-waiver-sync
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: trivy-waiver-sync
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["scan-waivers-global", "trivy-buildpack-exceptions"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["trivy-operator-trivy-config"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trivy-waiver-sync
+  namespace: adhar-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: trivy-waiver-sync}
+subjects: [{kind: ServiceAccount, name: trivy-waiver-sync, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-waiver-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: trivy-waiver-sync
+    app.kubernetes.io/part-of: trivy
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          serviceAccountName: trivy-waiver-sync
+          restartPolicy: Never
+          containers:
+            - name: sync
+              image: docker.io/alpine/k8s:1.31.1
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              command: [bash, -c]
+              args:
+                - |
+                  set -uo pipefail
+                  W=/tmp/w; mkdir -p "$W"
+                  n=0
+                  # A source that is missing, unreadable or not valid YAML is
+                  # skipped: the result can only ignore LESS than intended.
+                  add() {
+                    local body
+                    body=$(kubectl get configmap "$1" -n adhar-system -o json 2>/dev/null | jq -r --arg k "$2" '.data[$k] // empty')
+                    [ -n "$body" ] || return 0
+                    n=$((n+1)); printf '%s\n' "$body" > "$W/$n.yaml"
+                    yq e '.' "$W/$n.yaml" >/dev/null 2>&1 && echo "including $1/$2" \
+                      || { echo "WARNING: $1/$2 is not valid YAML — skipped" >&2; rm -f "$W/$n.yaml"; }
+                  }
+                  add trivy-buildpack-exceptions ignore.yaml
+                  add scan-waivers-global trivyignore.yaml
+                  if ls "$W"/*.yaml >/dev/null 2>&1; then
+                    yq eval-all '. as $i ireduce ({}; . *+ $i)
+                      | with_entries(select(.key == "vulnerabilities" or .key == "misconfigurations" or .key == "secrets" or .key == "licenses"))' \
+                      "$W"/*.yaml > "$W/merged" || exit 1
+                  else
+                    echo '{}' > "$W/merged"
+                  fi
+                  want=$(cat "$W/merged")
+                  have=$(kubectl get configmap trivy-operator-trivy-config -n adhar-system -o json | jq -r '.data["trivy.ignoreFile"] // empty') || exit 1
+                  if [ "$want" = "$have" ]; then echo "trivy-operator ignore file up to date"; exit 0; fi
+                  jq -n --arg v "$want" '{data: {"trivy.ignoreFile": $v}}' > "$W/patch.json"
+                  kubectl patch configmap trivy-operator-trivy-config -n adhar-system --type merge --patch-file "$W/patch.json" \
+                    && echo "trivy-operator ignore file updated ($(yq e '[.[][]] | length' "$W/merged") entries)"

@@ -153,7 +153,7 @@ func TestBuildsCarryTheirOwnCreationTime(t *testing.T) {
 // supply-chain app — every change in it stops reaching the cluster. An unquoted
 // comma inside a flow mapping (`description: a, b`) did exactly that.
 func TestCiTasksDecodeWithoutUnknownFields(t *testing.T) {
-	for _, f := range []string{"60-build-pipelines.yaml", "65-build-by-type.yaml", "70-app-ci.yaml", "72-app-ci-stages.yaml"} {
+	for _, f := range []string{"30-scan-verify-pipeline.yaml", "60-build-pipelines.yaml", "65-build-by-type.yaml", "70-app-ci.yaml", "72-app-ci-stages.yaml", "74-scan-governance.yaml"} {
 		docs := strings.Split(readStackFile(t, "application/adhar-supply-chain/manifests/"+f), "\n---")
 		for _, doc := range docs {
 			var obj struct {

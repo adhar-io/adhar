@@ -76,6 +76,10 @@ data:
     {"name":"platform-engineer"}
   group-application-admin-payload.json: |
     {"name":"application-admin"}
+  group-security-reviewer-payload.json: |
+    {"name":"security-reviewer"}
+  group-security-admin-payload.json: |
+    {"name":"security-admin"}
   group-mapper-payload.json: |
     {
         "protocol": "openid-connect",
@@ -1084,6 +1088,18 @@ data:
         fi
       fi
     fi
+
+    # Groups added after a realm was first provisioned. The block above only
+    # runs when the realm is CREATED, so a group introduced later must be
+    # ensured here or existing realms never get it. Idempotent.
+    #   security-reviewer, security-admin -> adhar-scan-reviewer (k8s-rbac.yaml):
+    #                        approve scan waivers and paused scan reviews.
+    for g in security-reviewer security-admin; do
+      if [ -z "$(kc "${REALM_URL}/groups?search=${g}&exact=true" | jq -r --arg n "${g}" '.[]? | select(.name==$n) | .id')" ]; then
+        kc -X POST --data @/var/config/group-${g}-payload.json "${REALM_URL}/groups" >/dev/null 2>&1 \
+          && echo "created group ${g}" || echo "warning: could not create group ${g}"
+      fi
+    done
 
     # Default group for self-registered users.
     #

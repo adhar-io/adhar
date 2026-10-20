@@ -107,7 +107,9 @@ var (
 		"sbom": true, "sign": true, "attest": true, "verify": true,
 		"publish": true, "deploy": true, "scaffold": true, "assemble": true,
 	}
-	verdictTasks = map[string]bool{"test": true, "lint": true, "secrets": true}
+	// scan-gate renders the scan verdict and may hold a reviewer's answer;
+	// a retry would re-open a decided review.
+	verdictTasks = map[string]bool{"test": true, "lint": true, "secrets": true, "scan-gate": true}
 )
 
 // Network-bound pipeline tasks carry `retries`; verdict tasks never do.

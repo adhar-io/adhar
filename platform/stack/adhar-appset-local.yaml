@@ -862,6 +862,13 @@ spec:
           kind: EventListener
           jsonPointers:
             - /status
+        # Written by security/trivy's waiver-sync CronJob (platform-wide scan
+        # waivers for runtime scans), not by Git.
+        - group: ""
+          kind: ConfigMap
+          name: trivy-operator-trivy-config
+          jqPathExpressions:
+            - '.data["trivy.ignoreFile"]'
       sources:
         - path: "{{ .manifestPath }}"
           repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages
