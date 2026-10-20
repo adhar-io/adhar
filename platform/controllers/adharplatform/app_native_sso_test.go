@@ -925,21 +925,26 @@ func TestNexusEnablesTheHeaderRealmThatCarriesKeycloak(t *testing.T) {
 	}
 }
 
-// Plane's setup reaches Gitea in-cluster: through the public URL the bridge
-// depended on the edge certificate being trusted when the hook ran, and on a
-// fresh cluster it was not, so Plane kept its email form (2026-10-17).
-func TestPlaneSetupReachesGiteaInCluster(t *testing.T) {
+// Plane's setup reaches Keycloak in-cluster. Through the public URL the Job
+// depended on the edge certificate being trusted when the hook ran; on a fresh
+// cluster it is still the self-signed bootstrap one, discovery failed and Plane
+// was left without a login (the same failure the retired Gitea bridge hit,
+// 2026-10-17). The browser-facing issuer stays public: users are sent there.
+func TestPlaneSetupReachesKeycloakInCluster(t *testing.T) {
 	b := readStackFile(t, "application/plane/manifests/instance-setup.yaml")
 	for _, want := range []string{
-		"name: GITEA_INTERNAL_URL",
-		"value: http://gitea-http.adhar-system.svc.cluster.local:3000",
-		`api = f"{internal}/api/v1/user/applications/oauth2"`,
-		`f"{internal}/login/oauth/access_token"`,
-		`cfg("GITEA_HOST", host, "GITEA")`,
+		"name: KEYCLOAK_INTERNAL_ISSUER_URL",
+		"value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar",
+		`urlopen(f"{internal or issuer}/.well-known/openid-configuration"`,
+		`cfg("KEYCLOAK_ISSUER_URL", issuer, "KEYCLOAK")`,
+		`cfg("KEYCLOAK_INTERNAL_ISSUER_URL", internal, "KEYCLOAK")`,
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("plane instance-setup lacks %q", want)
 		}
+	}
+	if strings.Contains(b, "GITEA_PUBLIC_URL") {
+		t.Error("plane instance-setup still wires the Gitea bridge; the fork's frontend renders Keycloak natively")
 	}
 }
 
