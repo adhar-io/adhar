@@ -32,6 +32,8 @@ data:
     | ($pdbsf[0].byNs // {}) as $pdbBy
     | ($podsf[0] // {}) as $podsBy
     | ($evidencef[0] // {}) as $evidence
+    | (($perfcenterf // [{}])[0] // {}) as $perfCenter
+    | (($gamedayf // [{}])[0] // {}) as $gameDays
     | ($envorder | split(",")) as $order
     |
     # ---- helpers ----------------------------------------------------------------
@@ -202,11 +204,45 @@ data:
             then "\($chaos.status): \($chaos.detail); steady-state probe \($chaos.probeSuccessPercentage // "?")% in \($ev.environment), \(ago($at))"
                  + (if $fresh then "" else " — STALE, older than \($evdays) days" end)
             else ($chaos.detail // $chaos.status) end),
+        # The rest of the automated chaos suite: the same steady-state probe
+        # under a slow network and a saturated CPU. Absent from older
+        # evidence, so not applicable until the runner has run the suite.
+        (($ev.chaosSuite // {})["pod-network-latency"] // null) as $net |
+        (($ev.chaosSuite // {})["pod-cpu-hog"] // null) as $cpu |
+        sig("chaos_network_latency"; "resilience"; ($net != null and $net.status != "unavailable");
+            b($net != null and $net.status == "passed" and $fresh);
+            if $net == null then "not in the automated chaos suite yet"
+            elif ($net.status == "passed" or $net.status == "failed") then "\($net.status): \($net.detail); steady-state probe \($net.probeSuccessPercentage // "?")%"
+            else ($net.detail // $net.status) end),
+        sig("chaos_cpu_stress"; "resilience"; ($cpu != null and $cpu.status != "unavailable");
+            b($cpu != null and $cpu.status == "passed" and $fresh);
+            if $cpu == null then "not in the automated chaos suite yet"
+            elif ($cpu.status == "passed" or $cpu.status == "failed") then "\($cpu.status): \($cpu.detail); steady-state probe \($cpu.probeSuccessPercentage // "?")%"
+            else ($cpu.detail // $cpu.status) end),
         sig("recovery_time"; "resilience";
             ($chaos != null and ($chaos.status == "passed" or $chaos.status == "failed"));
             b(($chaos.recoverySeconds // null) != null and $chaos.recoverySeconds <= $recoverymax);
             if ($chaos.recoverySeconds // null) == null then "did not return to full readiness within 3 minutes of the experiment"
             else "back to \($chaos.replicas // "?") ready replica(s) \($chaos.recoverySeconds)s after the experiment (target ≤ \($recoverymax)s)" end)
+      ];
+
+    # ---- what the team proved themselves: Performance Center + game days ---------
+    def team_signals($app):
+      ($perfCenter[$app] // null) as $pc |
+      ($gameDays[$app] // null) as $gd |
+      def epoch($t): (($t // "") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // 0);
+      [
+        sig("perf_center_gate"; "performance"; ($pc != null);
+            b($pc != null and $pc.latest.verdict == "pass" and ($now - epoch($pc.latest.at)) <= ($evdays * 86400));
+            if $pc == null then "no Performance Center test targets this application"
+            else "latest Performance Center run of \($pc.latest.test) (\($pc.latest.trigger), \($pc.count) result(s) across \($pc.tests | length) test(s)): \(if $pc.latest.verdict == "" then "no verdict recorded" else $pc.latest.verdict end)"
+                 + (if ($pc.latest.reasons // "") != "" then " — \($pc.latest.reasons)" else "" end)
+                 + (if ($now - epoch($pc.latest.at)) > ($evdays * 86400) then " — STALE, older than \($evdays) days" else "" end) end),
+        sig("chaos_gameday"; "resilience"; ($gd != null);
+            b($gd != null and $gd.latest.verdict == "Pass" and ($now - epoch($gd.latest.at)) <= ($evdays * 86400));
+            if $gd == null then "no game day has targeted this application"
+            else "latest game day \($gd.latest.experiment): \($gd.latest.verdict) (steady-state probe \($gd.latest.probe)%); \($gd.count) fault run(s): \($gd.experiments | join(", "))"
+                 + (if ($now - epoch($gd.latest.at)) > ($evdays * 86400) then " — STALE, older than \($evdays) days" else "" end) end)
       ];
 
     # ---- assemble ------------------------------------------------------------------
@@ -230,8 +266,10 @@ data:
             stateful: $b.stateful,
             health: $b.health,
             sync: $b.sync,
-            evidence: ($ev | {environment, image, testedAt, target, performance, chaos, slo, pending} | with_entries(select(.value != null))),
-            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + evidence_signals($ev))
+            evidence: ($ev | {environment, image, testedAt, target, performance, chaos, chaosSuite, slo, pending} | with_entries(select(.value != null))),
+            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + evidence_signals($ev) + team_signals($appName)),
+        perfCenter: ($perfCenter[$appName] // null),
+        gameDays: ($gameDays[$appName] // null)
           }
         | finish )
     | . as $applications
@@ -334,6 +372,43 @@ data:
       -o jsonpath='{.data.results\.json}' >"$WORKDIR/evidence.json" 2>/dev/null || true
     jq -e 'type == "object"' "$WORKDIR/evidence.json" >/dev/null 2>&1 || echo '{}' >"$WORKDIR/evidence.json"
 
+    # Performance Center results a team ran themselves (console, schedule, CI)
+    # against an application: the console stamps adhar.io/application on every
+    # result whose test targets one. Only the verdict the Performance Center
+    # recorded is read (gate budgets + baseline regression) — the scorer never
+    # re-judges a run the Performance Center already judged.
+    kubectl get configmaps -A -l 'adhar.io/perf-result=true,adhar.io/application' -o json 2>/dev/null >"$WORKDIR/perfcenter.raw" || true
+    [ -s "$WORKDIR/perfcenter.raw" ] || echo '{"items":[]}' >"$WORKDIR/perfcenter.raw"
+    jq -c '[ (.items // [])[] | (.metadata.annotations // {}) as $a | {
+        app: .metadata.labels["adhar.io/application"],
+        test: (.metadata.labels["adhar.io/perf-test"] // ""),
+        namespace: .metadata.namespace,
+        trigger: (.metadata.labels["adhar.io/perf-trigger"] // ""),
+        verdict: ($a["adhar.io/perf-verdict"] // ""),
+        reasons: ($a["adhar.io/perf-verdict-reasons"] // ""),
+        at: ($a["adhar.io/perf-finished"] // .metadata.creationTimestamp) } ]
+      | group_by(.app) | map({key: .[0].app, value: {count: length, tests: ([.[].test] | unique), latest: (sort_by(.at) | last)}})
+      | from_entries' "$WORKDIR/perfcenter.raw" >"$WORKDIR/perfcenter.json" 2>/dev/null || echo '{}' >"$WORKDIR/perfcenter.json"
+    rm -f "$WORKDIR/perfcenter.raw"
+
+    # Game days: Litmus results of chaos run from the console (or ChaosCenter)
+    # rather than by the resilience runner, attributed to an application by the
+    # workload Litmus targeted — every template names its Rollout after the app.
+    kubectl -n "$OUT_NS" get chaosresults.litmuschaos.io -o json 2>/dev/null >"$WORKDIR/gameday.raw" || true
+    [ -s "$WORKDIR/gameday.raw" ] || echo '{"items":[]}' >"$WORKDIR/gameday.raw"
+    jq -c '[ (.items // [])[] | select((.spec.engine // "") | startswith("adhar-chaos-") | not)
+        | . as $r | (.status.history.targets // [])[] | {
+          app: .name,
+          experiment: ($r.spec.experiment // ""),
+          engine: ($r.spec.engine // ""),
+          verdict: ($r.status.experimentStatus.verdict // ""),
+          probe: ($r.status.experimentStatus.probeSuccessPercentage // ""),
+          at: ($r.metadata.creationTimestamp // "") } ]
+      | group_by(.app) | map({key: .[0].app, value: {count: length,
+          experiments: ([.[].experiment] | unique), latest: (sort_by(.at) | last)}})
+      | from_entries' "$WORKDIR/gameday.raw" >"$WORKDIR/gameday.json" 2>/dev/null || echo '{}' >"$WORKDIR/gameday.json"
+    rm -f "$WORKDIR/gameday.raw"
+
     echo "adhar-scorecard: indexing signals..."
     # `.status.resources` is ArgoCD's own inventory of what each Application
     # manages. It is the only precise attribution available: every platform
@@ -426,6 +501,8 @@ data:
       --slurpfile pdbsf "$WORKDIR/pdbs.json" \
       --slurpfile podsf "$WORKDIR/pods.json" \
       --slurpfile evidencef "$WORKDIR/evidence.json" \
+      --slurpfile perfcenterf "$WORKDIR/perfcenter.json" \
+      --slurpfile gamedayf "$WORKDIR/gameday.json" \
       --argjson wrel "$W_REL" --argjson wsec "$W_SEC" \
       --argjson wobs "$W_OBS" --argjson wops "$W_OPS" \
       --argjson wperf "$W_PERF" --argjson wres "$W_RES" \

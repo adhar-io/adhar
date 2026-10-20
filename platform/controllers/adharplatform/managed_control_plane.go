@@ -19,6 +19,7 @@ package adharplatform
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,28 +68,43 @@ func managedControlPlaneOnNodes(providerName, clusterMode string) bool {
 	return providerName == civoProviderName && clusterMode == "managed"
 }
 
+// controlPlaneReserveWait bounds how long the foundation install waits for the
+// managed control-plane node to be identified (Civo's cloud-controller gives it
+// its public address a minute or two after the cluster reports ready). Past it
+// the install proceeds unprotected rather than never, and says so.
+const controlPlaneReserveWait = 5 * time.Minute
+
 // reserveManagedControlPlaneNode taints and labels the node that hosts the
 // managed control plane. Idempotent; a cluster with no such node (or whose
 // provider hosts its control plane) is left alone.
-func (r *AdharPlatformReconciler) reserveManagedControlPlaneNode(ctx context.Context) error {
+//
+// pending reports that this cluster's control plane DOES share a node with the
+// platform and that node is not reserved yet — the caller must not install
+// anything until it is, because NoSchedule does not move what already landed:
+// on 2026-10-20 the reservation arrived two minutes after Argo CD, Gitea,
+// Crossplane and Falco had been scheduled onto the k3s server's node, and the
+// API server stopped answering four minutes later with the node still pinging.
+func (r *AdharPlatformReconciler) reserveManagedControlPlaneNode(ctx context.Context) (pending bool, err error) {
 	cm := &corev1.ConfigMap{}
 	key := client.ObjectKey{Name: globals.ClusterSpecConfigMapName, Namespace: globals.AdharSystemNamespace}
 	if err := r.Get(ctx, key, cm); err != nil {
-		return nil // no spec: nothing is known about the cloud, nothing to reserve
+		return false, nil // no spec: nothing is known about the cloud, nothing to reserve
 	}
 	if !managedControlPlaneOnNodes(cm.Data["provider"], cm.Data[globals.ClusterSpecClusterModeKey]) {
-		return nil
+		return false, nil
 	}
 	nodes := &corev1.NodeList{}
 	if err := r.List(ctx, nodes); err != nil {
-		return fmt.Errorf("listing nodes to find the managed control plane: %w", err)
+		return true, fmt.Errorf("listing nodes to find the managed control plane: %w", err)
+	}
+	for i := range nodes.Items {
+		if hasControlPlaneTaint(&nodes.Items[i]) {
+			return false, nil
+		}
 	}
 	master := managedControlPlaneNode(nodes.Items)
 	if master == nil {
-		return nil
-	}
-	if hasControlPlaneTaint(master) {
-		return nil
+		return true, nil
 	}
 	logger := log.FromContext(ctx)
 	patch := client.MergeFrom(master.DeepCopy())
@@ -102,10 +118,10 @@ func (r *AdharPlatformReconciler) reserveManagedControlPlaneNode(ctx context.Con
 	}
 	master.Annotations[controlPlaneAnnotation] = "the managed control plane (k3s server) runs here; platform pods are kept off it"
 	if err := r.Patch(ctx, master, patch); err != nil {
-		return fmt.Errorf("tainting the control-plane node %s: %w", master.Name, err)
+		return true, fmt.Errorf("tainting the control-plane node %s: %w", master.Name, err)
 	}
 	logger.Info("Reserved the node that hosts the managed control plane", "node", master.Name)
-	return nil
+	return false, nil
 }
 
 // managedControlPlaneNode picks the node Civo gave the cluster's public address:

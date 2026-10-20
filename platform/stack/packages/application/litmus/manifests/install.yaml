@@ -16,7 +16,7 @@ metadata:
     argocd.argoproj.io/sync-wave: '3'
 data:
   DB_SERVER: mongodb://litmus-db-svc.adhar-system.svc.cluster.local:27017/admin
-  VERSION: 3.30.0
+  VERSION: 3.33.0
   SKIP_SSL_VERIFY: 'false'
 
 ---
@@ -227,7 +227,7 @@ spec:
         securityContext: {}
       containers:
       - name: auth-server
-        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-auth-server:3.30.0
+        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-auth-server:3.33.0
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -327,7 +327,7 @@ spec:
           name: litmus-frontend-nginx-configuration
       containers:
       - name: litmusportal-frontend
-        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-frontend:3.30.0
+        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-frontend:3.33.0
         imagePullPolicy: Always
         resources:
           limits:
@@ -446,7 +446,7 @@ spec:
         securityContext: {}
       containers:
       - name: graphql-server
-        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-server:3.30.0
+        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-server:3.33.0
         volumeMounts:
         - mountPath: /tmp/
           name: gitops-storage
@@ -513,25 +513,25 @@ spec:
         - name: ARGO_WORKFLOW_EXECUTOR_IMAGE
           value: litmuschaos.docker.scarf.sh/litmuschaos/argoexec:v3.3.1
         - name: EVENT_TRACKER_IMAGE
-          value: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-event-tracker:3.30.0
+          value: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-event-tracker:3.33.0
         - name: LITMUS_CHAOS_EXPORTER_IMAGE
-          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-exporter:3.30.0
+          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-exporter:3.31.0
         - name: LITMUS_CHAOS_OPERATOR_IMAGE
-          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-operator:3.30.0
+          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-operator:3.31.0
         - name: LITMUS_CHAOS_RUNNER_IMAGE
-          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-runner:3.30.0
+          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-runner:3.31.0
         - name: SUBSCRIBER_IMAGE
-          value: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-subscriber:3.30.0
+          value: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-subscriber:3.33.0
         - name: CHAOS_CENTER_UI_ENDPOINT
           value: ''
         - name: CONTAINER_RUNTIME_EXECUTOR
           value: k8sapi
         - name: DEFAULT_HUB_BRANCH_NAME
-          value: v3.30.x
+          value: v3.31.x
         - name: ENABLE_GQL_INTROSPECTION
           value: 'false'
         - name: INFRA_COMPATIBLE_VERSIONS
-          value: '["3.30.0"]'
+          value: '["3.33.0"]'
         - name: INFRA_DEPLOYMENTS
           value: '["app=chaos-exporter", "name=chaos-operator", "app=event-tracker",
             "app=workflow-controller"]'
@@ -542,5 +542,5 @@ spec:
         - name: TLS_CERT_64
           value: ''
         - name: WORKFLOW_HELPER_IMAGE_VERSION
-          value: 3.30.0
+          value: 3.33.0
       enableServiceLinks: false

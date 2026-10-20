@@ -126,9 +126,24 @@ data:
     P95_DEFAULT="$(readcfg perf_p95_ms 500)"
     ERR_DEFAULT="$(readcfg perf_error_rate 0.01)"
     CHAOS_SECONDS="$(readcfg chaos_duration_seconds 30)"
+    # The automated chaos SUITE, run in order under the same steady-state probe:
+    # a pod dying, the network to it slowing down, its CPU saturating. Each is a
+    # separate scorecard signal. Any fault in the kubernetes-chaos catalogue can
+    # be listed; its own defaults apply beyond the knobs set below.
+    CHAOS_EXPERIMENTS="$(readcfg chaos_experiments pod-delete,pod-network-latency,pod-cpu-hog)"
+    NET_LATENCY_MS="$(readcfg chaos_network_latency_ms 300)"
     SLO_DEFAULT="$(readcfg slo_availability 99.9)"
 
     log() { echo "adhar-resilience: $*"; }
+
+    # The network and stress faults reach the target container through the
+    # node's container runtime, whose socket lives elsewhere on k3s (Civo's
+    # managed clusters) than on kubeadm and Kind. Wrong path = every such fault
+    # errors before it injects anything.
+    SOCKET_PATH=/run/containerd/containerd.sock
+    if kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.containerRuntimeVersion}' 2>/dev/null | grep -q k3s; then
+      SOCKET_PATH=/run/k3s/containerd/containerd.sock
+    fi
     now_epoch() { date -u +%s; }
     now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
     # A Kubernetes name from a prefix and an application name, <= 63 chars.
@@ -269,20 +284,40 @@ data:
     }
 
     # ── chaos: Litmus pod-delete under a continuous steady-state probe ────
-    run_chaos() {  # run_chaos <app> <ns> <workload-json> <probe-url>  -> prints JSON
-      local app="$1" ns="$2" wl="$3" url="$4" engine result phase verdict pct i start rec desired ready
+    # Fault-specific knobs, beyond the shared duration and blast radius.
+    fault_env() {  # fault_env <experiment> -> JSON array of {name,value}
+      case "$1" in
+        pod-delete) jq -nc '[{name:"CHAOS_INTERVAL",value:"10"},{name:"FORCE",value:"false"}]' ;;
+        pod-network-latency) jq -nc --arg ms "$NET_LATENCY_MS" --arg sock "$SOCKET_PATH" \
+          '[{name:"NETWORK_LATENCY",value:$ms},{name:"JITTER",value:"0"},{name:"SOCKET_PATH",value:$sock}]' ;;
+        pod-cpu-hog) jq -nc --arg sock "$SOCKET_PATH" \
+          '[{name:"CPU_CORES",value:"1"},{name:"CPU_LOAD",value:"100"},{name:"SOCKET_PATH",value:$sock}]' ;;
+        *) jq -nc --arg sock "$SOCKET_PATH" '[{name:"SOCKET_PATH",value:$sock}]' ;;
+      esac
+    }
+    fault_effect() {  # what the steady state survived, for the record
+      case "$1" in
+        pod-delete) echo "while pods were deleted" ;;
+        pod-network-latency) echo "with ${NET_LATENCY_MS} ms of added network latency" ;;
+        pod-cpu-hog) echo "with its CPU saturated" ;;
+        *) echo "under $1" ;;
+      esac
+    }
+
+    run_chaos() {  # run_chaos <app> <ns> <workload-json> <probe-url> [experiment] -> prints JSON
+      local app="$1" ns="$2" wl="$3" url="$4" exp="${5:-pod-delete}" engine result phase verdict pct i start rec desired ready
       if ! kubectl get crd chaosengines.litmuschaos.io >/dev/null 2>&1 \
-         || ! kubectl -n "$NS" get chaosexperiments.litmuschaos.io pod-delete >/dev/null 2>&1; then
-        echo '{"status":"unavailable","experiment":"pod-delete","detail":"Litmus (the litmus package) is not installed, so no chaos experiment can run"}'
+         || ! kubectl -n "$NS" get chaosexperiments.litmuschaos.io "$exp" >/dev/null 2>&1; then
+        jq -nc --arg e "$exp" '{status:"unavailable",experiment:$e,detail:"Litmus (the litmus package) or its \($e) fault is not installed, so this experiment cannot run"}'
         return
       fi
       engine="$(kname adhar-chaos "$app")"
-      result="${engine}-pod-delete"
+      result="${engine}-${exp}"
       kubectl -n "$NS" delete chaosengine "$engine" --ignore-not-found --wait=true >/dev/null 2>&1
       kubectl -n "$NS" delete chaosresult "$result" --ignore-not-found >/dev/null 2>&1
       jq -n --arg name "$engine" --arg ns "$NS" --arg appns "$ns" --arg sa "$CHAOS_SA" --arg app "$app" \
-            --arg label "$(printf '%s' "$wl" | jq -r .selector)" --arg kind "$(printf '%s' "$wl" | jq -r .kind)" \
-            --arg secs "$CHAOS_SECONDS" --arg url "$url" '{
+            --arg applabel "$(printf '%s' "$wl" | jq -r .selector)" --arg kind "$(printf '%s' "$wl" | jq -r .kind)" \
+            --arg secs "$CHAOS_SECONDS" --arg url "$url" --arg exp "$exp" --argjson extra "$(fault_env "$exp")" '{
         apiVersion: "litmuschaos.io/v1alpha1", kind: "ChaosEngine",
         metadata: {name: $name, namespace: $ns,
                    labels: {"adhar.io/component": "scorecards", "adhar.io/resilience-test": "chaos",
@@ -290,19 +325,17 @@ data:
         spec: {
           engineState: "active", annotationCheck: "false", chaosServiceAccount: $sa,
           jobCleanUpPolicy: "delete",
-          appinfo: {appns: $appns, applabel: $label, appkind: $kind},
-          experiments: [{name: "pod-delete", spec: {
-            components: {env: [
+          appinfo: {appns: $appns, applabel: $applabel, appkind: $kind},
+          experiments: [{name: $exp, spec: {
+            components: {env: ([
               {name: "TOTAL_CHAOS_DURATION", value: $secs},
-              {name: "CHAOS_INTERVAL", value: "10"},
-              {name: "FORCE", value: "false"},
-              {name: "PODS_AFFECTED_PERC", value: "50"}]},
+              {name: "PODS_AFFECTED_PERC", value: "50"}] + $extra)},
             probe: [{name: "steady-state", type: "httpProbe", mode: "Continuous",
               runProperties: {probeTimeout: "5s", interval: "2s", retry: 1, stopOnFailure: false},
               "httpProbe/inputs": {url: $url, insecureSkipVerify: true,
                 method: {get: {criteria: "==", responseCode: "200"}}}}]}}]}}' >"$W/engine.json"
       if ! kubectl apply -f "$W/engine.json" >/dev/null 2>&1; then
-        echo '{"status":"error","experiment":"pod-delete","detail":"could not create the ChaosEngine"}'
+        jq -nc --arg e "$exp" '{status:"error",experiment:$e,detail:"could not create the ChaosEngine"}'
         return
       fi
       phase=""; verdict="Awaited"
@@ -329,14 +362,15 @@ data:
       kubectl -n "$NS" patch chaosengine "$engine" --type merge -p '{"spec":{"engineState":"stop"}}' >/dev/null 2>&1
       kubectl -n "$NS" delete chaosengine "$engine" --ignore-not-found --wait=false >/dev/null 2>&1
       jq -nc --arg phase "${phase:-unknown}" --arg verdict "${verdict:-Awaited}" --arg pct "${pct:-}" \
-             --arg rec "$rec" --arg secs "$CHAOS_SECONDS" --arg desired "$desired" '{
-        experiment: "pod-delete", phase: $phase, verdict: $verdict,
+             --arg rec "$rec" --arg secs "$CHAOS_SECONDS" --arg desired "$desired" \
+             --arg exp "$exp" --arg effect "$(fault_effect "$exp")" '{
+        experiment: $exp, phase: $phase, verdict: $verdict,
         probeSuccessPercentage: ($pct | tonumber? // null),
         recoverySeconds: ($rec | tonumber? // null),
         durationSeconds: ($secs | tonumber), replicas: ($desired | tonumber),
         status: (if $verdict == "Pass" then "passed" elif $verdict == "Fail" then "failed" else "error" end),
-        detail: (if $verdict == "Pass" then "kept answering while pods were deleted"
-                 elif $verdict == "Fail" then "stopped answering while a pod was deleted (\($desired) replica(s))"
+        detail: (if $verdict == "Pass" then "kept answering \($effect)"
+                 elif $verdict == "Fail" then "stopped answering \($effect) (\($desired) replica(s))"
                  else "experiment did not finish (phase \($phase), verdict \($verdict))" end)}'
     }
 
@@ -398,19 +432,25 @@ data:
       perf="$(run_perf "$app" "$url" "$p95" "$err")"
       log "$app: performance $(printf '%s' "$perf" | jq -c '{status, p95Ms, errorRate, rps}')"
 
-      if [ "$(ann adhar.io/chaos)" = "false" ]; then
-        chaos='{"status":"opted-out","experiment":"pod-delete","detail":"the Service carries adhar.io/chaos=false"}'
-      else
-        log "$app: pod-delete chaos for ${CHAOS_SECONDS}s with a continuous probe on $url"
-        chaos="$(run_chaos "$app" "$ns" "$wl" "$url")"
-      fi
-      log "$app: chaos $(printf '%s' "$chaos" | jq -c '{status, verdict, probeSuccessPercentage, recoverySeconds}')"
+      suite='{}'
+      for exp in ${CHAOS_EXPERIMENTS//,/ }; do
+        if [ "$(ann adhar.io/chaos)" = "false" ]; then
+          r="$(jq -nc --arg e "$exp" '{status:"opted-out",experiment:$e,detail:"the Service carries adhar.io/chaos=false"}')"
+        else
+          log "$app: $exp chaos for ${CHAOS_SECONDS}s with a continuous probe on $url"
+          r="$(run_chaos "$app" "$ns" "$wl" "$url" "$exp")"
+        fi
+        log "$app: $exp $(printf '%s' "$r" | jq -c '{status, verdict, probeSuccessPercentage, recoverySeconds}')"
+        suite="$(printf '%s' "$suite" | jq -c --arg e "$exp" --argjson r "$r" '.[$e] = $r')"
+      done
+      # `chaos` stays the pod-delete result: the scorer and console read it.
+      chaos="$(printf '%s' "$suite" | jq -c '.["pod-delete"] // {status:"unavailable",experiment:"pod-delete",detail:"pod-delete is not in chaos_experiments"}')"
 
       jq --arg a "$app" --arg env "$env" --arg ns "$ns" --arg url "$url" --arg at "$(now_iso)" \
          --argjson t "$(now_epoch)" --arg img "$(printf '%s' "$wl" | jq -r .image)" \
-         --argjson perf "$perf" --argjson chaos "$chaos" \
+         --argjson perf "$perf" --argjson chaos "$chaos" --argjson suite "$suite" \
         '.[$a] = ((.[$a] // {}) | del(.pending)) + {environment: $env, namespace: $ns, target: $url, image: $img,
-                   testedAt: $at, testedAtEpoch: $t, performance: $perf, chaos: $chaos}' \
+                   testedAt: $at, testedAtEpoch: $t, performance: $perf, chaos: $chaos, chaosSuite: $suite}' \
         "$W/results.json" >"$W/r.tmp" && mv "$W/r.tmp" "$W/results.json"
       tested=$((tested + 1))
     done <"$W/batch.tsv"
@@ -461,7 +501,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      # Three applications at ~2 min of load + up to ~6 min of chaos each.
+      # Three applications at ~2 min of load + three ~2-minute faults each.
       activeDeadlineSeconds: 3300
       ttlSecondsAfterFinished: 7200
       template:
@@ -557,6 +597,11 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get"]
+  # The container runtime (k3s keeps its socket elsewhere) for the network and
+  # stress faults.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

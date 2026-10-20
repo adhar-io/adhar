@@ -165,3 +165,24 @@ To run it now:
 ```bash
 kubectl -n adhar-system create job resilience-now --from=cronjob/adhar-resilience-runner
 ```
+
+### Every source of evidence, in one grade
+
+The runner's chaos suite is configurable through `chaos_experiments`. The
+default is `pod-delete`, `pod-network-latency` (300 ms) and `pod-cpu-hog`, each
+under the same steady-state probe and each its own signal. The runner detects
+k3s, whose container-runtime socket lives elsewhere, so the network and stress
+faults work on Civo too.
+
+Beyond what the runner proves, the scorer also reads what teams do themselves:
+
+| Source | Join | Signal |
+|--------|------|--------|
+| Performance Center results (console, schedule, CI) | `adhar.io/application`, stamped from the test's target selector `app=<name>` | `perf_center_gate` (the gate verdict the Performance Center recorded) |
+| Game days (console / ChaosCenter) | the workload Litmus targeted | `chaos_gameday` |
+
+The console's Performance Center has a **Readiness** tab with one report per
+application. It shows the grade, the load test against its targets, the live
+SLO, every chaos fault with its probe and recovery, the team's gates and game
+days, and every check with its reason. It prints to PDF and downloads as JSON.
+Each application's scorecard links to its report.

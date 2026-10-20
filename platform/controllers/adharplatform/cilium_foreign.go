@@ -235,6 +235,22 @@ func (r *AdharPlatformReconciler) enableGatewayAPIOnForeignCilium(ctx context.Co
 func (r *AdharPlatformReconciler) restartCilium(ctx context.Context, ciliumNamespace string) error {
 	stamp := time.Now().UTC().Format(time.RFC3339)
 
+	// On Civo's managed k3s the API server runs on one of OUR nodes, behind that
+	// node's Cilium. Rolling the agent there reloads the data path the API
+	// server itself is reached through, and twice in a row (2026-10-20) the API
+	// stopped answering minutes after this restart with the node still
+	// pinging. Restart every OTHER node's agents by recreating their pods and
+	// leave the control-plane node's alone: it serves no platform workload (it
+	// is tainted), so it does not need the Gateway API configuration.
+	if spare, err := r.controlPlaneNodeToSpare(ctx); err != nil {
+		return err
+	} else if spare != "" {
+		if err := r.restartCiliumPodsExcept(ctx, ciliumNamespace, spare); err != nil {
+			return err
+		}
+		return r.restartCiliumOperator(ctx, ciliumNamespace, stamp)
+	}
+
 	for _, name := range []string{"cilium", "cilium-envoy"} {
 		ds := &appsv1.DaemonSet{}
 		key := types.NamespacedName{Name: name, Namespace: ciliumNamespace}
@@ -253,6 +269,12 @@ func (r *AdharPlatformReconciler) restartCilium(ctx context.Context, ciliumNames
 		}
 	}
 
+	return r.restartCiliumOperator(ctx, ciliumNamespace, stamp)
+}
+
+// restartCiliumOperator rolls the cluster's cilium-operator (it reconciles the
+// Gateway API objects, and reads its config at start-up).
+func (r *AdharPlatformReconciler) restartCiliumOperator(ctx context.Context, ciliumNamespace, stamp string) error {
 	operator := &appsv1.Deployment{}
 	key := types.NamespacedName{Name: "cilium-operator", Namespace: ciliumNamespace}
 	if err := r.Get(ctx, key, operator); err != nil {
@@ -316,4 +338,66 @@ func (r *AdharPlatformReconciler) removePlatformCilium(ctx context.Context) ([]s
 		removed = append(removed, "deployment/"+name)
 	}
 	return removed, nil
+}
+
+// controlPlaneNodeToSpare names the node whose Cilium agent must not be
+// restarted: the reserved control-plane node of a cluster whose managed control
+// plane shares our nodes (Civo k3s). Empty everywhere else.
+func (r *AdharPlatformReconciler) controlPlaneNodeToSpare(ctx context.Context) (string, error) {
+	cm := &corev1.ConfigMap{}
+	key := client.ObjectKey{Name: globals.ClusterSpecConfigMapName, Namespace: globals.AdharSystemNamespace}
+	if err := r.Get(ctx, key, cm); err != nil {
+		return "", nil
+	}
+	if !managedControlPlaneOnNodes(cm.Data["provider"], cm.Data[globals.ClusterSpecClusterModeKey]) {
+		return "", nil
+	}
+	nodes := &corev1.NodeList{}
+	if err := r.List(ctx, nodes); err != nil {
+		return "", fmt.Errorf("listing nodes to find the control-plane node: %w", err)
+	}
+	for i := range nodes.Items {
+		if hasControlPlaneTaint(&nodes.Items[i]) {
+			return nodes.Items[i].Name, nil
+		}
+	}
+	if master := managedControlPlaneNode(nodes.Items); master != nil {
+		return master.Name, nil
+	}
+	return "", nil
+}
+
+// restartCiliumPodsExcept recreates the cilium and cilium-envoy pods on every
+// node but one, so each picks up cilium-config at start-up. The DaemonSet
+// template is NOT touched: a template change would roll the spared node too.
+func (r *AdharPlatformReconciler) restartCiliumPodsExcept(ctx context.Context, ciliumNamespace, spareNode string) error {
+	logger := log.FromContext(ctx)
+	for _, name := range []string{"cilium", "cilium-envoy"} {
+		ds := &appsv1.DaemonSet{}
+		if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: ciliumNamespace}, ds); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if ds.Spec.Selector == nil {
+			continue
+		}
+		pods := &corev1.PodList{}
+		if err := r.List(ctx, pods, client.InNamespace(ciliumNamespace), client.MatchingLabels(ds.Spec.Selector.MatchLabels)); err != nil {
+			return fmt.Errorf("listing %s pods: %w", name, err)
+		}
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.Spec.NodeName == spareNode {
+				continue
+			}
+			if err := r.Delete(ctx, pod); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("restarting %s on %s: %w", pod.Name, pod.Spec.NodeName, err)
+			}
+		}
+		logger.Info("Restarted the cluster's Cilium on every node but the control plane's",
+			"daemonSet", ciliumNamespace+"/"+name, "spared", spareNode)
+	}
+	return nil
 }

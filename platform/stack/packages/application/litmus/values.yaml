@@ -14,8 +14,23 @@
 # The ChaosCenter is INTERNAL to the cluster and published on the platform
 # Gateway behind the Keycloak oauth2-proxy (manifests/sso.yaml +
 # manifests/httproute.yaml), so no Ingress and no LoadBalancer.
+# ── ChaosCenter 3.33.0 on the 3.30.0 chart ────────────────────────────────────
+# Litmus 3.32/3.33 are ChaosCenter-only releases and upstream has not published
+# a `litmus` chart past 3.30.0, so the chart stays the template and every image
+# it renders is moved here. Diffed against upstream's own 3.33.0 manifest
+# (mkdocs/docs/3.33.0/litmus-installation.yaml): the env each component reads is
+# identical to 3.30's except litmus-portal-admin-config's OIDC keys, renamed
+# DEX_* -> OAUTH_* in 3.32 — irrelevant here, because ChaosCenter sign-in goes
+# through the oauth2-proxy in manifests/sso.yaml, never its built-in OIDC.
+#
+# The execution-plane images (operator, runner, exporter) have NO 3.33.0 tag on
+# Docker Hub — upstream's manifest names chaos-operator:3.33.0 all the same and
+# would ImagePullBackOff every new chaos infrastructure — so they stay at
+# 3.31.0, the newest published and what litmus-core/kubernetes-chaos run.
 portal:
   frontend:
+    image:
+      tag: 3.33.0
     service:
       type: ClusterIP
     # The chart ships readinessProbe timeoutSeconds: 1, which no package on this
@@ -48,6 +63,23 @@ portal:
           cpu: 250m
           memory: 256Mi
     graphqlServer:
+      image:
+        tag: 3.33.0
+      imageEnv:
+        SUBSCRIBER_IMAGE: "litmusportal-subscriber:3.33.0"
+        EVENT_TRACKER_IMAGE: "litmusportal-event-tracker:3.33.0"
+        LITMUS_CHAOS_OPERATOR_IMAGE: "chaos-operator:3.31.0"
+        LITMUS_CHAOS_RUNNER_IMAGE: "chaos-runner:3.31.0"
+        LITMUS_CHAOS_EXPORTER_IMAGE: "chaos-exporter:3.31.0"
+      # NOT imageEnv: the chart prefixes the registry onto every imageEnv value.
+      genericEnv:
+        WORKFLOW_HELPER_IMAGE_VERSION: "3.33.0"
+        INFRA_COMPATIBLE_VERSIONS: '["3.33.0"]'
+        # The default ChaosHub. Upstream's 3.33.0 manifest names `3.33.x`, a
+        # branch litmuschaos/chaos-charts does not have (checked 2026-10-20), so
+        # the hub would load no faults; v3.31.x exists and matches the 3.31
+        # fault catalogue kubernetes-chaos installs.
+        DEFAULT_HUB_BRANCH_NAME: "v3.31.x"
       # Same 1-second readiness timeout as the frontend; see the note above.
       readinessProbe:
         timeoutSeconds: 10
@@ -59,6 +91,8 @@ portal:
           cpu: "1"
           memory: 1Gi
     authServer:
+      image:
+        tag: 3.33.0
       resources:
         requests:
           cpu: 25m
@@ -90,6 +124,9 @@ adminConfig:
   # AUTHENTICATION database, not the data database: the user below is created in
   # `admin`, and Litmus creates its own `litmus` database on first write. Getting
   # this wrong fails as an authentication error, which reads like a bad password.
+  # ChaosCenter's own version, shown in the UI and checked against
+  # INFRA_COMPATIBLE_VERSIONS (see the 3.33.0 note at the top of this file).
+  VERSION: "3.33.0"
   DB_SERVER: "mongodb://litmus-db-svc.adhar-system.svc.cluster.local:27017/admin"
   DB_PORT: "27017"
   SKIP_SSL_VERIFY: "false"

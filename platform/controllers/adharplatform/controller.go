@@ -90,10 +90,13 @@ type AdharPlatformReconciler struct {
 	// gateReadySince is when the ready gate was last seen open without
 	// interruption; zero while it is closed. See driveConvergence.
 	gateReadySince time.Time
-	Config         v1alpha1.BuildCustomizationSpec
-	TempDir        string
-	StackDir       string // Path to the platform/stack directory on the host filesystem
-	RepoMap        *utils.RepoMap
+	// reserveWaitStart is when the foundation install first waited for the
+	// managed control-plane node to be identified; see controlPlaneReserveWait.
+	reserveWaitStart time.Time
+	Config           v1alpha1.BuildCustomizationSpec
+	TempDir          string
+	StackDir         string // Path to the platform/stack directory on the host filesystem
+	RepoMap          *utils.RepoMap
 
 	// Events publishes platform lifecycle events onto the bus. Nil is a
 	// working configuration and the normal one locally: publishing is advisory
@@ -187,8 +190,24 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// node its public address, so nothing was found and the k3s server spent
 	// the whole bring-up under platform pods (2026-10-17). It is idempotent and
 	// cheap, so it runs every pass until the node is known. A no-op elsewhere.
-	if err := r.reserveManagedControlPlaneNode(ctx); err != nil {
+	pending, err := r.reserveManagedControlPlaneNode(ctx)
+	if err != nil {
 		log.FromContext(ctx).Info("Could not reserve the managed control-plane node yet", "error", err)
+	}
+	if pending {
+		// Hold EVERY install until the node is reserved: a NoSchedule taint
+		// does not move pods that already landed, so reserving late is the
+		// same as not reserving (see managed_control_plane.go).
+		if r.reserveWaitStart.IsZero() {
+			r.reserveWaitStart = time.Now()
+		}
+		if waited := time.Since(r.reserveWaitStart); waited < controlPlaneReserveWait {
+			log.FromContext(ctx).Info("◌ Waiting for the managed control-plane node to get its public address before installing anything onto the cluster",
+				"waited", waited.Round(time.Second), "limit", controlPlaneReserveWait)
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+		log.FromContext(ctx).Info("The managed control-plane node could not be identified in time; installing without reserving it — the k3s server will share its node with platform pods",
+			"waited", controlPlaneReserveWait)
 	}
 	// Managed clouds with a tight volume quota get node-local storage as the
 	// default before the first claim (Gitea's) is made; see managed_storage.go.

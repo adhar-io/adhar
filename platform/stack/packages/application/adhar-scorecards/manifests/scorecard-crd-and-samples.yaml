@@ -62,6 +62,11 @@ data:
   # Litmus pod-delete duration; the Service's adhar.io/slo-availability (or
   # this default) sets the 24 h error budget.
   chaos_duration_seconds: "30"
+  # The automated chaos suite, each under the same steady-state probe and each
+  # its own scorecard signal: chaos_pod_delete, chaos_network_latency,
+  # chaos_cpu_stress. Any kubernetes-chaos fault name may be listed.
+  chaos_experiments: "pod-delete,pod-network-latency,pod-cpu-hog"
+  chaos_network_latency_ms: "300"
   slo_availability: "99.9"
 
   # ---- Human-readable model reference (not consumed by the script) --------
@@ -103,6 +108,8 @@ data:
         signals:
           - chaos_pod_delete    # Litmus pod-delete with a continuous steady-state
                                 # httpProbe: Pass, within evidence_max_age_days
+          - chaos_network_latency # keeps serving with chaos_network_latency_ms added
+          - chaos_cpu_stress    # keeps serving with its CPU saturated
           - recovery_time       # back to full readiness <= chaos_recovery_max_seconds
           - replicas_ha         # >= 2 replicas (or HPA minReplicas >= 2)
           - pod_disruption_budget

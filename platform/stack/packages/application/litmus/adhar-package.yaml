@@ -5,7 +5,7 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: litmus
 category: application
-version: "3.30.0"
+version: "3.33.0"
 description: LitmusChaos ChaosCenter — the platform's chaos-engineering engine. Runs chaos experiments and workflows against platform and tenant workloads, with a 29-fault Kubernetes catalogue, probes and recorded results.
 maintainer:
   name: Adhar Platform Team

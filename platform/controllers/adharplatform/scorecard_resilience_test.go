@@ -137,10 +137,16 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 		"cnpg":      `{"byKey":{},"byNs":{}}`,
 		"hpas":      `{"byTarget":{"prod/Rollout/shop":{"min":2,"max":5}}}`,
 		"pdbs":      `{"byNs":{"prod":[{"app":"shop"}]}}`,
+		"perfcenter": fmt.Sprintf(`{"shop":{"count":4,"tests":["shop-load","shop-soak"],"latest":{"test":"shop-load","trigger":"schedule","verdict":"pass","reasons":"","at":%q}}}`,
+			time.Unix(now-7200, 0).UTC().Format(time.RFC3339)),
+		"gameday": fmt.Sprintf(`{"shop":{"count":2,"experiments":["pod-network-loss"],"latest":{"experiment":"pod-network-loss","verdict":"Pass","probe":"100","at":%q}}}`,
+			time.Unix(now-3600, 0).UTC().Format(time.RFC3339)),
 		"pods":      `{"prod":[{"ns":"prod","labels":{"app":"shop","x":"y"},"restarts":0}],"dev":[{"ns":"dev","labels":{"app":"cart"},"restarts":9}]}`,
 		"evidence": fmt.Sprintf(`{"shop":{"environment":"test","testedAtEpoch":%d,
 		  "performance":{"status":"passed","p95Ms":120,"errorRate":0,"rps":200,"vus":10,"thresholdP95Ms":500},
 		  "chaos":{"status":"passed","verdict":"Pass","probeSuccessPercentage":100,"recoverySeconds":20,"replicas":2,"detail":"kept answering"},
+		  "chaosSuite":{"pod-network-latency":{"status":"passed","probeSuccessPercentage":100,"detail":"kept answering with 300 ms of added network latency"},
+		                "pod-cpu-hog":{"status":"passed","probeSuccessPercentage":100,"detail":"kept answering with its CPU saturated"}},
 		  "slo":{"environment":"prod","requests":5000,"p95Ms":150,"errorRatio":0.0001,"targetAvailability":99.9}}}`, now-3600),
 	}
 	args := []string{"-n", "-f", write("score.jq", script["score.jq"])}
@@ -196,6 +202,28 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 	for _, n := range []string{"load_test", "chaos_pod_delete", "replicas_ha", "pod_disruption_budget", "graceful_shutdown", "restart_stability"} {
 		if v, ok := sig[n]; !ok || v != 0 {
 			t.Errorf("an untested single-replica application with no PDB and 9 restarts should FAIL %s (applicable, 0); got %v (applicable %t)", n, v, ok)
+		}
+	}
+	shopSig := map[string]float64{}
+	for _, sg := range shop.Signals {
+		if sg.Applicable {
+			shopSig[sg.Name] = sg.Score
+		}
+	}
+	for _, n := range []string{"perf_center_gate", "chaos_gameday"} {
+		if v, ok := shopSig[n]; !ok || v != 1 {
+			t.Errorf("a passing team-run %s scored %v (applicable %t)", n, v, ok)
+		}
+		if _, ok := sig[n]; ok {
+			t.Errorf("%s is applicable on an application no team test or game day targets", n)
+		}
+	}
+	for _, n := range []string{"chaos_network_latency", "chaos_cpu_stress"} {
+		if v, ok := shopSig[n]; !ok || v != 1 {
+			t.Errorf("the chaos suite's %s passed but scored %v (applicable %t)", n, v, ok)
+		}
+		if _, ok := sig[n]; ok {
+			t.Errorf("%s is applicable on an application the suite never ran against", n)
 		}
 	}
 	if kc.Kind != "package" || kc.Categories["performance"] != nil || kc.Categories["resilience"] != nil {

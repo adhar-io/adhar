@@ -8,10 +8,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.45.0
+    helm.sh/chart: headlamp-0.46.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.45.0"
+    app.kubernetes.io/version: "0.46.0"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: headlamp/templates/plugin-configmap.yaml
@@ -21,10 +21,10 @@ metadata:
   name: headlamp-plugin-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.45.0
+    helm.sh/chart: headlamp-0.46.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.45.0"
+    app.kubernetes.io/version: "0.46.0"
     app.kubernetes.io/managed-by: Helm
 data:
   plugin.yml: |
@@ -39,18 +39,25 @@ data:
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_keda
       - name: headlamp_strimzi
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_strimzi
-      - name: headlamp_prometheus
-        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_prometheus
-      - name: headlamp_plugin_catalog
-        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_plugin_catalog
-      - name: headlamp_app_catalog
-        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_app_catalog
       - name: headlamp_cert-manager
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_cert-manager
       - name: headlamp_knative
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_knative
       - name: headlamp_kubeflow
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kubeflow
+      # CloudNativePG's OWN plugin (official on ArtifactHub): Clusters, Poolers,
+      # Backups and ScheduledBackups for every platform database.
+      - name: cnpg-headlamp-plugin
+        source: https://artifacthub.io/packages/headlamp/cnpg-headlamp-plugin/cnpg-headlamp-plugin
+      # The control plane: Providers, XRDs, Compositions, composite resources.
+      - name: crossplane
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugin-crossplane/crossplane
+      # Every platform secret arrives through External Secrets.
+      - name: external-secrets-operator
+        source: https://artifacthub.io/packages/headlamp/external-secrets-operator-headlamp-plugin/external-secrets-operator
+      # Vulnerability and compliance reports from the platform's trivy package.
+      - name: headlamp_trivy
+        source: https://artifacthub.io/packages/headlamp/headlamp-trivy/headlamp_trivy
     installOptions:
       parallel: true
       maxConcurrent: 2
@@ -61,10 +68,10 @@ kind: ClusterRoleBinding
 metadata:
   name: headlamp-admin
   labels:
-    helm.sh/chart: headlamp-0.45.0
+    helm.sh/chart: headlamp-0.46.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.45.0"
+    app.kubernetes.io/version: "0.46.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -82,10 +89,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.45.0
+    helm.sh/chart: headlamp-0.46.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.45.0"
+    app.kubernetes.io/version: "0.46.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -109,10 +116,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.45.0
+    helm.sh/chart: headlamp-0.46.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.45.0"
+    app.kubernetes.io/version: "0.46.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -138,7 +145,7 @@ spec:
             runAsGroup: 101
             runAsNonRoot: true
             runAsUser: 100
-          image: "ghcr.io/headlamp-k8s/headlamp:v0.45.0"
+          image: "ghcr.io/headlamp-k8s/headlamp:v0.46.0"
           imagePullPolicy: IfNotPresent
           
           env:
@@ -162,6 +169,7 @@ spec:
             - -oidc-client-secret=$(HEADLAMP_OIDC_CLIENT_SECRET)
             - -oidc-ca-file=/platform-ca/tls.crt
             - -oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback
+            - -oidc-auto-login=true
           ports:
             - name: http
               containerPort: 4466

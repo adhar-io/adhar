@@ -75,6 +75,10 @@ config:
     # Headlamp's OIDC callback path; must match a redirect URI on the keycloak
     # `headlamp` client.
     - "-oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback"
+    # Go straight to Keycloak instead of drawing Headlamp's "Sign in" button
+    # (new in 0.46.0). Keycloak already holds the user's session, so opening
+    # Headlamp from the console no longer costs a click.
+    - "-oidc-auto-login=true"
 
 # Only the client SECRET is sourced from the ESO-populated `oidc` Secret. The
 # env var is intentionally NOT named OIDC_* so the chart does not also auto-emit
@@ -109,6 +113,12 @@ volumes:
 # components so their UIs light up inside Headlamp, plus the plugin-catalog so
 # operators can browse/install more from the UI.
 #
+# Prometheus metrics, the plugin catalog and the app catalog are NOT listed:
+# since 0.4x Headlamp ships them inside its image as static plugins
+# (`config.staticPlugins`), and their old ArtifactHub packages no longer exist,
+# so listing them only made every boot try (and fail) three installs.
+# Every source below was checked against the ArtifactHub API (2026-10-20).
+#
 # NOTE: this npm-installs at boot, so it needs egress to ArtifactHub/npm — for an
 # air-gapped install set `pluginsManager.enabled: false` (the bundled static
 # Prometheus plugin above still works offline).
@@ -134,18 +144,34 @@ pluginsManager:
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_keda
       - name: headlamp_strimzi
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_strimzi
-      - name: headlamp_prometheus
-        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_prometheus
-      - name: headlamp_plugin_catalog
-        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_plugin_catalog
-      - name: headlamp_app_catalog
-        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_app_catalog
       - name: headlamp_cert-manager
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_cert-manager
       - name: headlamp_knative
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_knative
       - name: headlamp_kubeflow
         source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kubeflow
+      # CloudNativePG's OWN plugin (official on ArtifactHub): Clusters, Poolers,
+      # Backups and ScheduledBackups for every platform database.
+      - name: cnpg-headlamp-plugin
+        source: https://artifacthub.io/packages/headlamp/cnpg-headlamp-plugin/cnpg-headlamp-plugin
+      # The control plane: Providers, XRDs, Compositions, composite resources.
+      - name: crossplane
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugin-crossplane/crossplane
+      # Every platform secret arrives through External Secrets.
+      - name: external-secrets-operator
+        source: https://artifacthub.io/packages/headlamp/external-secrets-operator-headlamp-plugin/external-secrets-operator
+      # Vulnerability and compliance reports from the platform's trivy package.
+      - name: headlamp_trivy
+        source: https://artifacthub.io/packages/headlamp/headlamp-trivy/headlamp_trivy
     installOptions:
       parallel: true
       maxConcurrent: 2
+
+# Probe timeouts live HERE, not as a hand-edit of manifests/install.yaml: the
+# chart defaults to 1 s (forbidden by TestNoProbeShipsAOneSecondTimeout), and an
+# edit made after `helm template` is silently reverted by the next regeneration.
+probes:
+  livenessProbe:
+    timeoutSeconds: 5
+  readinessProbe:
+    timeoutSeconds: 5

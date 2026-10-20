@@ -42,6 +42,17 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  # Performance Center results (k6-result-* ConfigMaps labelled
+  # adhar.io/perf-result) live in each team's namespace. RBAC cannot narrow a
+  # list by label, so this is read on ConfigMaps cluster-wide; the scorer lists
+  # only that label and never reads Secrets.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["list"]
+  # Game-day ChaosResults (the console runs game days in adhar-system).
+  - apiGroups: ["litmuschaos.io"]
+    resources: ["chaosresults"]
+    verbs: ["get", "list"]
   # Workload specs: probes, resource requests/limits, container images.
   - apiGroups: ["apps"]
     # DaemonSets included: several platform components (alloy, the eBPF agents)
