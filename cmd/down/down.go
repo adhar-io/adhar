@@ -445,7 +445,7 @@ func (m downModel) View() string {
   → Run %s to view the CLI version information
   → Run %s for more commands
 
-%s %s
+  %s %s
 `,
 			// NOT the panel variant: this block is printed on its own, outside any
 			// border, and its own lines are hand-indented two spaces. The heading

@@ -1218,8 +1218,6 @@ func (p *Provider) discoverClusterResources(ctx context.Context, clusterID strin
 		Region:      p.config.Region,
 		Zone:        p.config.Zone,
 	}
-	tag := instanceTag(name)
-
 	if p.instanceClient != nil {
 		it := p.instanceClient.List(ctx, &computepb.ListInstancesRequest{
 			Project: p.config.ProjectID,
@@ -1230,16 +1228,7 @@ func (p *Provider) discoverClusterResources(ctx context.Context, clusterID strin
 			if err != nil {
 				break
 			}
-			carriesTag := false
-			if inst.GetTags() != nil {
-				for _, t := range inst.GetTags().GetItems() {
-					if t == tag {
-						carriesTag = true
-						break
-					}
-				}
-			}
-			if carriesTag || strings.HasPrefix(inst.GetName(), name+"-") {
+			if instanceBelongsToCluster(name, inst.GetName(), inst.GetTags().GetItems()) {
 				tracker.Instances = append(tracker.Instances, inst.GetName())
 			}
 		}
@@ -1271,6 +1260,63 @@ func (p *Provider) discoverClusterResources(ctx context.Context, clusterID strin
 	log.Printf("Discovered %d instance(s) and %d firewall rule(s) for cluster %s",
 		len(tracker.Instances), len(tracker.FirewallRules), name)
 	return tracker, nil
+}
+
+// instanceBelongsToCluster reports whether an instance is one of this
+// cluster's nodes: it carries the cluster's network tag, or — for a node made
+// before tags were reliable — its name is one of the names this provider gives
+// nodes (<cluster>-master-N, <cluster>-worker-<group>-N). An instance tagged
+// for a DIFFERENT cluster is never claimed by name: teardown deletes what this
+// returns, and "adhar-" alone would also match a cluster named "adhar-dev".
+func instanceBelongsToCluster(cluster, instance string, tags []string) bool {
+	own := instanceTag(cluster)
+	for _, t := range tags {
+		if t == own {
+			return true
+		}
+	}
+	for _, t := range tags {
+		if _, ok := clusterNameFromTag(t); ok {
+			return false
+		}
+	}
+	return strings.HasPrefix(instance, cluster+"-master-") || strings.HasPrefix(instance, cluster+"-worker-")
+}
+
+// mergeTracker adds to dst whatever src found that dst does not list. The
+// local tracker is what `adhar up` recorded; the cloud is what exists. They
+// drift whenever something other than this CLI adds a node — the in-cluster
+// autoscaler, or a second `adhar up` against the same cluster — and teardown
+// must delete what exists, or the leftover instance holds the subnet and the
+// VPC and the whole delete fails on "resource in use" (2026-10-21).
+func mergeTracker(dst, src *ResourceTracker) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.Instances = unionStrings(dst.Instances, src.Instances)
+	dst.FirewallRules = unionStrings(dst.FirewallRules, src.FirewallRules)
+	dst.Subnets = unionStrings(dst.Subnets, src.Subnets)
+	dst.Networks = unionStrings(dst.Networks, src.Networks)
+	if dst.Zone == "" {
+		dst.Zone = src.Zone
+	}
+	if dst.Region == "" {
+		dst.Region = src.Region
+	}
+}
+
+func unionStrings(a, b []string) []string {
+	seen := make(map[string]bool, len(a))
+	for _, x := range a {
+		seen[x] = true
+	}
+	for _, x := range b {
+		if !seen[x] {
+			seen[x] = true
+			a = append(a, x)
+		}
+	}
+	return a
 }
 
 // discoverUntrackedClusters finds Adhar clusters present in the project but
@@ -2025,6 +2071,21 @@ func toStringSlice(v interface{}) []string {
 	return nil
 }
 
+// isNotFound reports whether a Compute API error is a 404. For a delete that
+// means the resource is already gone, which is the outcome being asked for: a
+// retried `adhar down` used to fail on every firewall rule the first attempt
+// had removed.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == http.StatusNotFound
+	}
+	return strings.Contains(err.Error(), "Error 404")
+}
+
 // isAlreadyExists reports whether a Compute API error is a 409 conflict.
 func isAlreadyExists(err error) bool {
 	if err == nil {
@@ -2331,14 +2392,24 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// (~/.adhar/state/gcp/clusters.json) is not the cluster, and losing it left
 	// live instances billing with no supported way to remove them. Rebuild what
 	// the cluster looks like from the cloud instead.
+	//
+	// A tracker that DOES exist is not trusted to be complete either: nodes the
+	// in-cluster autoscaler adds are never written to it, so the project is
+	// asked every time and anything it holds for this cluster is merged in.
 	tracker, exists := p.resourceTrackers[clusterID]
+	discovered, discoverErr := p.discoverClusterResources(ctx, clusterID)
 	if !exists {
 		log.Printf("No local state for cluster %s; discovering its resources from the project", clusterID)
-		discovered, err := p.discoverClusterResources(ctx, clusterID)
-		if err != nil {
-			return fmt.Errorf("cluster %s is not in local state and could not be discovered: %w", clusterID, err)
+		if discoverErr != nil {
+			return fmt.Errorf("cluster %s is not in local state and could not be discovered: %w", clusterID, discoverErr)
 		}
 		tracker = discovered
+	} else if discoverErr == nil {
+		before := len(tracker.Instances)
+		mergeTracker(tracker, discovered)
+		if added := len(tracker.Instances) - before; added > 0 {
+			log.Printf("Found %d instance(s) of cluster %s missing from local state; deleting them too", added, clusterID)
+		}
 	}
 
 	// A managed (GKE) cluster: delete the control plane and its firewall
@@ -2532,6 +2603,9 @@ func (p *Provider) deleteInstance(ctx context.Context, instanceName, zone string
 		Zone:     zone,
 		Instance: instanceName,
 	})
+	if isNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to delete instance %s: %w", instanceName, err)
 	}
@@ -2551,6 +2625,9 @@ func (p *Provider) deleteFirewallRule(ctx context.Context, ruleName string) erro
 		Project:  p.config.ProjectID,
 		Firewall: ruleName,
 	})
+	if isNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to delete firewall rule %s: %w", ruleName, err)
 	}
@@ -2571,6 +2648,9 @@ func (p *Provider) deleteExternalIP(ctx context.Context, ipName string) error {
 		Region:  p.config.Region,
 		Address: ipName,
 	})
+	if isNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to delete external IP %s: %w", ipName, err)
 	}
@@ -2591,6 +2671,9 @@ func (p *Provider) deleteSubnet(ctx context.Context, subnetName, region string) 
 		Region:     region,
 		Subnetwork: subnetName,
 	})
+	if isNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to delete subnet %s: %w", subnetName, err)
 	}
@@ -2610,6 +2693,9 @@ func (p *Provider) deleteNetwork(ctx context.Context, networkName string) error 
 		Project: p.config.ProjectID,
 		Network: networkName,
 	})
+	if isNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to delete network %s: %w", networkName, err)
 	}

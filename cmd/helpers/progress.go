@@ -944,7 +944,7 @@ func (pt *ProgressTracker) CompleteStyled() {
   → Run %s to view applications
   → Run %s for more commands
 
-%s %s
+  %s %s
 `,
 		TitleStyle.Render("Next Steps:"),
 		HighlightStyle.Render("adhar get"),
