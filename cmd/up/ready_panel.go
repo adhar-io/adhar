@@ -34,11 +34,11 @@ func renderCloudReadyPanel(host, clusterName string) string {
 		access = append(access, [2]string{name, fmt.Sprintf("https://%s.%s", lower(name), host)})
 	}
 
-	hints := [][2]string{
-		{"Credentials", "adhar get secrets"},
-		{"Status", "adhar get status"},
-		{"Context", "kubectl config use-context " + KubeContextName(clusterName)},
-		{"Teardown", "adhar down -f <config> --env <env>"},
+	steps := [][2]string{
+		{"adhar get secrets", "view service credentials"},
+		{"adhar get status", "check platform health"},
+		{"kubectl config use-context " + KubeContextName(clusterName), "point kubectl at this cluster"},
+		{"adhar down -f <config> --env <env>", "tear the environment down"},
 	}
 	// NO leading newline. The stage checklist deliberately leaves no gap before
 	// this panel (see StageTracker.Finish: "the checklist and its result read as
@@ -51,7 +51,7 @@ func renderCloudReadyPanel(host, clusterName string) string {
 	// (local.go calls helpers.RenderReadyPanel directly); this is now the same.
 	// The two things that DO want separation provide it themselves: the blocker
 	// warning ends with a blank line, and the summary box has its own border.
-	return helpers.RenderReadyPanel(access, hints)
+	return helpers.RenderReadyPanel(access, steps)
 }
 
 // lower is ASCII-only on purpose: these are fixed app names, and

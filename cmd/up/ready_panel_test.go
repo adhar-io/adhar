@@ -3,6 +3,8 @@ package up
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The hint the panel prints for retrieving credentials.
@@ -37,6 +39,26 @@ func TestCloudReadyPanelStartsFlushWithTheChecklist(t *testing.T) {
 	for _, want := range []string{"https://console.hub.adhar.io", secretsHint, "adhar down"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the panel no longer mentions %q", want)
+		}
+	}
+}
+
+// The closing commands use the same "Next Steps:" form as `adhar down` and the
+// setup summary — a heading, then "→ Run <command> to <purpose>" — on the
+// shared gutter, instead of a bare label/command table (2026-10-21).
+func TestReadyPanelEndsWithNextSteps(t *testing.T) {
+	out := ansi.Strip(renderCloudReadyPanel("hub.adhar.io", "adhar"))
+	i := strings.Index(out, "\n  Next Steps:\n")
+	if i < 0 {
+		t.Fatalf("no 'Next Steps:' heading on the gutter:\n%s", out)
+	}
+	steps := strings.Split(strings.TrimRight(out[i+len("\n  Next Steps:\n"):], "\n"), "\n")
+	if len(steps) < 3 {
+		t.Fatalf("expected the command list under the heading, got %q", steps)
+	}
+	for _, l := range steps {
+		if !strings.HasPrefix(l, "  → Run ") || !strings.Contains(l, " to ") {
+			t.Errorf("step %q is not in the '→ Run <command> to <purpose>' form", l)
 		}
 	}
 }

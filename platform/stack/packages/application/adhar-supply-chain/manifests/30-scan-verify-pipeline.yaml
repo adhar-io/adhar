@@ -17,7 +17,8 @@
 # programs that read environment variables, compute JAVA_TOOL_OPTIONS or a
 # config file, print it and exit. They never bind a socket, serve a file,
 # negotiate HTTP/2 or perform a TLS handshake, so the Go stdlib CVEs listed below
-# — all server-side net/http and crypto/tls paths — are not reachable in them.
+# — server-side net/http and crypto/tls paths, plus one crypto/x509 chain
+# verification fix that matters only to a TLS client — are not reachable in them.
 # Paketo documents this class as expected scanner noise in discussion #401.
 #
 # They are also not fixable today. Every Paketo release pins an exact patch in
@@ -73,6 +74,20 @@ data:
         purls: ["pkg:golang/stdlib"]
         statement: >-
           crypto/tls ECH DoS. Same binaries, no TLS handshake performed.
+        expired_at: 2026-11-30
+      - id: CVE-2026-111943
+        # GO-2026-6809. Unlike the three above, govulncheck -mode=binary DOES
+        # find the affected symbol (x509.Certificate.Verify) linked into the
+        # ca-certificates 3.14.1 helper, so this rests on behaviour rather than
+        # on the symbol being absent: the fix is a denylist of compromised
+        # intermediate CAs consulted when a TLS client verifies a server's
+        # chain, and these helpers open no connections at all (2026-10-21).
+        purls: ["pkg:golang/stdlib"]
+        statement: >-
+          crypto/x509 distrust of compromised intermediate certificates in
+          Certificate.Verify. It matters only to a program verifying a remote
+          TLS chain; the buildpack exec.d helpers make no network connections.
+          Fixed in Go 1.27.3, which no published Paketo buildpack is built with.
         expired_at: 2026-11-30
 ---
 # Image vulnerability scan.

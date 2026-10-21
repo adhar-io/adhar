@@ -133,12 +133,21 @@ spec:
         HOST="${NEXUS_URL#*://}"
         # Nexus npm accepts base64(user:pass) as _auth on the registry path.
         AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
+        # link-workspace-packages: a package that depends on a SIBLING by a
+        # plain range (svelte/vue/angular/solid on "@adhar-ui/utils": "^0.1.1")
+        # must get the sibling from this checkout. pnpm 10 defaults the setting
+        # to false and resolves the range from the registry instead — and the
+        # scope routes to npm-hosted, which on a fresh platform holds nothing
+        # yet, so every first release failed with ERR_PNPM_FETCH_404 on
+        # @adhar-ui/utils (2026-10-21). This file replaces the repository's own
+        # .npmrc, so the setting has to live here.
         cat > .npmrc <<EOF
         registry=$NPM_PROXY
         $(params.scope):registry=$NPM_HOSTED
         //${HOST}/repository/npm-hosted/:_auth=$AUTH
         //${HOST}/repository/npm-registry/:_auth=$AUTH
         always-auth=true
+        link-workspace-packages=true
         EOF
         # corepack, installed somewhere WRITABLE.
         #

@@ -909,13 +909,13 @@ func printSuccessMsg() {
 		{"Headlamp", sub("headlamp")},
 		{"Hubble", sub("hubble")},
 	}
-	hints := [][2]string{
-		{"Credentials", "adhar get secrets"},
-		{"Status", "adhar get status"},
-		{"Teardown", "adhar down"},
+	steps := [][2]string{
+		{"adhar get secrets", "view service credentials"},
+		{"adhar get status", "check platform health"},
+		{"adhar down", "tear the local cluster down"},
 	}
 
-	fmt.Println(helpers.RenderReadyPanel(access, hints))
+	fmt.Println(helpers.RenderReadyPanel(access, steps))
 	fmt.Println()
 }
 

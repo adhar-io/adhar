@@ -32,14 +32,14 @@ var (
 	stepDetailStyle = lipgloss.NewStyle().Foreground(taglineGray)
 )
 
-// RenderReadyPanel is the end-of-run success block: a ● header, a bordered
-// access table (service → URL), then labelled command hints. access and hints
-// are [label, value] pairs.
-func RenderReadyPanel(access, hints [][2]string) string {
+// RenderReadyPanel is the end-of-run success block: a ✓ header, a bordered
+// access table (service → URL), then a "Next Steps:" list. access is
+// [label, URL] pairs; steps is [command, purpose] pairs, rendered
+// "→ Run <command> to <purpose>".
+func RenderReadyPanel(access, steps [][2]string) string {
 	linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(brandBlue.hex())).Underline(true)
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(brandPurple.hex())).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981")).Bold(true)
-	cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(brandBlue.hex())).Bold(true)
 
 	nameW := 0
 	for _, r := range access {
@@ -64,15 +64,13 @@ func RenderReadyPanel(access, hints [][2]string) string {
 	var b strings.Builder
 	b.WriteString("  " + okStyle.Render("✓") + "  " + stepTitleStyle.Render("Platform ready") + "\n\n")
 	b.WriteString(box + "\n")
-	hintW := 0
-	for _, h := range hints {
-		if w := lipgloss.Width(h[0]); w > hintW {
-			hintW = w
+	// The commands to run next, in the same "Next Steps:" form `adhar down` and
+	// the setup summary use, so every command ends the same way.
+	if len(steps) > 0 {
+		b.WriteString("\n" + TitleStyle.Render("Next Steps:"))
+		for _, st := range steps {
+			b.WriteString(fmt.Sprintf("\n  → Run %s to %s", HighlightStyle.Render(st[0]), st[1]))
 		}
-	}
-	for _, h := range hints {
-		pad := strings.Repeat(" ", hintW-lipgloss.Width(h[0]))
-		b.WriteString(fmt.Sprintf("\n  %s%s   %s", stepDetailStyle.Render(h[0]), pad, cmdStyle.Render(h[1])))
 	}
 	return b.String()
 }
