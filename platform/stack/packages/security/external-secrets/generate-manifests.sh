@@ -10,3 +10,7 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/exter
 helm repo add external-secrets --force-update https://charts.external-secrets.io
 helm repo update external-secrets
 helm template --namespace adhar-system external-secrets external-secrets/external-secrets -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+
+# Cluster-wide `edit` (bound to platform-developer) must not be able to create
+# ClusterSecretStores; see patch-rbac.py.
+python3 "$(dirname "$0")/patch-rbac.py" "${INSTALL_YAML}"

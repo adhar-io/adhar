@@ -104,12 +104,45 @@ func (t *backstageTemplate) fetchTemplateStep() (skeleton string, values map[str
 	return "", nil, false
 }
 
+// argoCDAppActions are the scaffolder actions that create the template's Argo
+// CD Application. The shipped templates use the `adhar:` name; `cnoe:` is the
+// upstream name older templates still carry.
+var argoCDAppActions = map[string]bool{
+	"adhar:create-argocd-app": true,
+	"cnoe:create-argocd-app":  true,
+}
+
+// declaredManifestPath returns the directory the template's Argo CD step
+// deploys from, if the template declares one.
+func (t *backstageTemplate) declaredManifestPath() (string, bool) {
+	for _, s := range t.Spec.Steps {
+		if argoCDAppActions[s.Action] && s.Input.Path != "" {
+			return s.Input.Path, true
+		}
+	}
+	return "", false
+}
+
 // manifestPath returns the directory the template's Argo CD step deploys from,
 // defaulting to the platform convention.
 func (t *backstageTemplate) manifestPath() string {
-	for _, s := range t.Spec.Steps {
-		if s.Action == "cnoe:create-argocd-app" && s.Input.Path != "" {
-			return s.Input.Path
+	if p, ok := t.declaredManifestPath(); ok {
+		return p
+	}
+	return "deploy"
+}
+
+// manifestPathFor is manifestPath for a rendered skeleton: when the template
+// declares no Argo CD step, prefer a top-level `manifests/` directory if the
+// skeleton has one (every shipped skeleton does) over the `deploy` default,
+// so the Application never points at a directory that does not exist.
+func (t *backstageTemplate) manifestPathFor(files []string) string {
+	if p, ok := t.declaredManifestPath(); ok {
+		return p
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f, "manifests/") {
+			return "manifests"
 		}
 	}
 	return "deploy"
@@ -654,6 +687,7 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	ops := make([]*gitea.ChangeFileOperation, 0, len(entries))
+	rendered := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -680,6 +714,7 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 			Path:      rel,
 			Content:   base64.StdEncoding.EncodeToString(content),
 		})
+		rendered = append(rendered, rel)
 	}
 	// ONE commit for the whole skeleton. Committing file by file made a
 	// 14-file template 14 commits, and the repository's push webhook started
@@ -695,7 +730,7 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 
 	return &scaffoldedRepo{
 		CloneURL:     fmt.Sprintf("%s/%s/%s.git", strings.TrimSuffix(giteaURL, "/"), globals.GiteaPlatformOrg, repo),
-		ManifestPath: t.manifestPath(),
+		ManifestPath: t.manifestPathFor(rendered),
 		Files:        len(entries),
 	}, nil
 }

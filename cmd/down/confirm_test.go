@@ -1,6 +1,8 @@
 package down
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,6 +51,52 @@ func TestLocalTeardownDoesNotClaimCloudDataLoss(t *testing.T) {
 	}
 	if strings.Contains(out, "Volume data is destroyed") {
 		t.Errorf("a local teardown has no paid volumes to warn about:\n%s", out)
+	}
+}
+
+// With the default `isolation: namespace`, dev/test/prod are namespaces on ONE
+// cluster, so `--env dev` deletes the cluster and the other two with it. The
+// panel must say so; it used to name only "dev".
+func TestConfirmationWarnsWhenTheClusterIsShared(t *testing.T) {
+	plan := buildTeardownPlan("../../examples/aws-config.yaml", "dev", "")
+	if got := strings.Join(plan.SharedWith, ","); got != "prod,test" {
+		t.Fatalf("SharedWith = %q, want prod,test", got)
+	}
+	out := ansi.Strip(RenderTeardownConfirmation(plan))
+	if !strings.Contains(out, "shares this cluster") || !strings.Contains(out, "prod") {
+		t.Errorf("panel must warn that prod and test go with dev:\n%s", out)
+	}
+
+	// Tearing down the whole file already covers every environment: no warning.
+	if all := buildTeardownPlan("../../examples/aws-config.yaml", "", ""); len(all.SharedWith) != 0 {
+		t.Errorf("whole-file teardown should not list shared environments, got %v", all.SharedWith)
+	}
+}
+
+// An environment with a cluster of its own shares nothing.
+func TestConfirmationNoSharedWarningForClusterIsolation(t *testing.T) {
+	raw, err := os.ReadFile("../../examples/aws-config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Give prod its own cluster (the second `isolation: namespace` after `prod:`).
+	s := string(raw)
+	i := strings.Index(s, "\n  prod:\n")
+	if i < 0 {
+		t.Fatal("example config has no prod environment")
+	}
+	s = s[:i] + strings.Replace(s[i:], "isolation: namespace", "isolation: cluster", 1)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if prod := buildTeardownPlan(path, "prod", ""); len(prod.SharedWith) != 0 {
+		t.Errorf("prod has its own cluster; SharedWith should be empty, got %v", prod.SharedWith)
+	}
+	// dev still shares with test, but not with the separately-clustered prod.
+	if dev := buildTeardownPlan(path, "dev", ""); strings.Join(dev.SharedWith, ",") != "test" {
+		t.Errorf("dev SharedWith = %v, want [test]", dev.SharedWith)
 	}
 }
 

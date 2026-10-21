@@ -33349,14 +33349,13 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
 rules:
+  # adhar: cluster-scoped resources removed by patch-rbac.py (cluster-wide `edit` must not create ClusterSecretStores)
   - apiGroups:
       - "external-secrets.io"
     resources:
       - "externalsecrets"
       - "secretstores"
-      - "clustersecretstores"
       - "pushsecrets"
-      - "clusterpushsecrets"
     verbs:
       - "create"
       - "delete"
@@ -33368,7 +33367,6 @@ rules:
     resources:
     - "acraccesstokens"
     - "cloudsmithaccesstokens"
-    - "clustergenerators"
     - "ecrauthorizationtokens"
     - "fakes"
     - "gcraccesstokens"

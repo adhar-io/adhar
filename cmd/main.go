@@ -184,7 +184,7 @@ func init() {
 		get.GetCmd,                  // Get command for resource information
 		events.EventsCmd,            // Events command: read the platform CloudEvents stream on Kafka
 		apps.ApplicationCmd,         // Apps command for application management
-		push.PushCmd,                // Push command: cf push-style build+deploy from source
+		push.PushCmd,                // Push command: runs new-service (Deployment + Service; app-ci builds)
 		dev.DevCmd,                  // Dev command: the inner loop — sync the working tree to a dev namespace
 		bucket.BucketCmd,            // Bucket command: self-service S3 object storage
 		cache.CacheCmd,              // Cache command: self-service Valkey/Redis in-memory cache

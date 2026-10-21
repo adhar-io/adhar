@@ -35,6 +35,12 @@ type teardownPlan struct {
 	Clusters []string
 	Target   string
 	Deletes  string
+	// SharedWith lists the OTHER environments that live on the same cluster as
+	// the one named by --env. With the default `isolation: namespace` every such
+	// environment is a namespace on one shared cluster, so tearing down "dev"
+	// deletes the cluster — and test and prod with it. Empty when nothing else
+	// shares the cluster, or when the whole file is being torn down anyway.
+	SharedWith []string
 	// CloudResources is false for a purely local (Kind) teardown, which destroys
 	// containers rather than volumes anybody paid for. The data-loss warning is
 	// suppressed there: shouting about unrecoverable volumes over a Kind cluster
@@ -72,6 +78,20 @@ func buildTeardownPlan(configFile, envName, clusterOverride string) teardownPlan
 			plan.Environments = append(plan.Environments, name)
 		}
 		sort.Strings(plan.Environments)
+	}
+
+	// One namespace-isolated environment shares its cluster with every other
+	// namespace-isolated environment in the file: the teardown deletes the
+	// cluster, not the namespace, so say who else goes with it.
+	if envName != "" {
+		if target, ok := cfg.ResolvedEnvironments[envName]; ok && target.ResolvedIsolation != config.EnvironmentIsolationCluster {
+			for name, env := range cfg.ResolvedEnvironments {
+				if name != envName && env.ResolvedIsolation != config.EnvironmentIsolationCluster {
+					plan.SharedWith = append(plan.SharedWith, name)
+				}
+			}
+			sort.Strings(plan.SharedWith)
+		}
 	}
 
 	// Cloud unless every environment in scope is local.
@@ -168,6 +188,11 @@ func RenderTeardownConfirmation(plan teardownPlan) string {
 	b.WriteString(row("Cluster", plan.clusterLine()))
 	b.WriteString(row("Target", plan.Target))
 	b.WriteString(row("Deletes", strings.TrimSuffix(plan.Deletes, ".")))
+	if len(plan.SharedWith) > 0 {
+		b.WriteString(row("Shared", fmt.Sprintf(
+			"%s shares this cluster with %s (isolation: namespace). Tearing it down deletes the whole cluster, including %s.",
+			plan.Environments[0], strings.Join(plan.SharedWith, ", "), strings.Join(plan.SharedWith, ", "))))
+	}
 
 	if plan.CloudResources {
 		b.WriteString("\n" + helpers.SubtitleStyle.UnsetMarginLeft().Render(

@@ -17,6 +17,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,10 +33,27 @@ const (
 	// runs synchronously over SSH; apt installs dominate the runtime.
 	nodePrepTimeout = 20 * time.Minute
 
-	// defaultClusterName names the (single) cluster this provider manages when
-	// it has to be discovered rather than created in this process.
-	defaultClusterName = "on-premises-cluster"
+	// clusterNameMarker records, on the control-plane host, the name the cluster
+	// was created under. The hosts carry no tags, so without it ListClusters had
+	// to invent a name ("on-premises-cluster") that `adhar down`, `cluster scale`
+	// and `cluster upgrade` — which look the cluster up by its real name, `adhar`
+	// by default — never matched.
+	clusterNameMarker = "/etc/kubernetes/adhar-cluster-name"
 )
+
+// clusterNameRe is a DNS-1123 label: what cluster names are, and safe to place
+// in a shell command without quoting concerns.
+var clusterNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+
+// clusterNameFromMarker turns the marker file's contents into a cluster name,
+// falling back to the platform default (`adhar`, or ADHAR's configured default)
+// for clusters created before the marker existed.
+func clusterNameFromMarker(contents string) string {
+	if name := strings.TrimSpace(contents); clusterNameRe.MatchString(name) {
+		return name
+	}
+	return provider.ResolveClusterName("")
+}
 
 // Register the Custom provider on package import
 func init() {
@@ -42,32 +61,100 @@ func init() {
 		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
 			return nil, fmt.Errorf("useManagedK8s has been removed, and no clusterMode applies to the custom provider: bring-your-own hosts are always self-managed")
 		}
-		customConfig := &Config{}
+		return NewProvider(configFromMap(config))
+	})
+}
 
-		customConfig.MasterIPs = toStringSlice(config["masterIPs"])
-		customConfig.WorkerIPs = toStringSlice(config["workerIPs"])
-		customConfig.NodeIPs = toStringSlice(config["nodeIPs"])
-		if user, ok := config["sshUser"].(string); ok {
-			customConfig.SSHUser = user
+// configFromMap reads the custom provider's settings from the map the config
+// loader builds (ConfigProviderConfig.ToProviderMap).
+//
+// The documented layout puts the hosts under the provider's `config:` block:
+//
+//	providers:
+//	  onprem:
+//	    type: custom
+//	    config:
+//	      masterIPs: [192.0.2.10]
+//	      sshUser: ubuntu
+//
+// ToProviderMap nests that block under "config", and Viper lower-cases its keys
+// (`masterips`). Reading only top-level, camel-cased keys meant a correctly
+// written config was rejected with "at least one control-plane host IP is
+// required". So each setting is looked up in the nested block first, then at
+// the top level (the shape some callers and tests pass), case-insensitively.
+func configFromMap(m map[string]interface{}) *Config {
+	nested := asStringMap(m["config"])
+	get := func(key string) interface{} {
+		if v, ok := lookupFold(nested, key); ok {
+			return v
 		}
-		// Legacy key name for the SSH user.
-		if customConfig.SSHUser == "" {
-			if user, ok := config["username"].(string); ok {
-				customConfig.SSHUser = user
+		v, _ := lookupFold(m, key)
+		return v
+	}
+
+	cfg := &Config{
+		MasterIPs: toStringSlice(get("masterIPs")),
+		WorkerIPs: toStringSlice(get("workerIPs")),
+		NodeIPs:   toStringSlice(get("nodeIPs")),
+	}
+	if user, ok := get("sshUser").(string); ok {
+		cfg.SSHUser = user
+	}
+	// Legacy key name for the SSH user.
+	if cfg.SSHUser == "" {
+		if user, ok := get("username").(string); ok {
+			cfg.SSHUser = user
+		}
+	}
+	if keyPath, ok := get("sshKeyPath").(string); ok {
+		cfg.SSHKeyPath = keyPath
+	}
+	switch port := get("sshPort").(type) {
+	case int:
+		cfg.SSHPort = port
+	case int64:
+		cfg.SSHPort = int(port)
+	case float64:
+		cfg.SSHPort = int(port)
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(port)); err == nil {
+			cfg.SSHPort = n
+		}
+	}
+	return cfg
+}
+
+// lookupFold finds key in m ignoring case (Viper lower-cases nested keys).
+func lookupFold(m map[string]interface{}, key string) (interface{}, bool) {
+	if m == nil {
+		return nil, false
+	}
+	if v, ok := m[key]; ok {
+		return v, true
+	}
+	for k, v := range m {
+		if strings.EqualFold(k, key) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+// asStringMap accepts the shapes a decoded YAML map can take.
+func asStringMap(v interface{}) map[string]interface{} {
+	switch m := v.(type) {
+	case map[string]interface{}:
+		return m
+	case map[interface{}]interface{}:
+		out := make(map[string]interface{}, len(m))
+		for k, val := range m {
+			if s, ok := k.(string); ok {
+				out[s] = val
 			}
 		}
-		if keyPath, ok := config["sshKeyPath"].(string); ok {
-			customConfig.SSHKeyPath = keyPath
-		}
-		switch port := config["sshPort"].(type) {
-		case int:
-			customConfig.SSHPort = port
-		case float64:
-			customConfig.SSHPort = int(port)
-		}
-
-		return NewProvider(customConfig)
-	})
+		return out
+	}
+	return nil
 }
 
 // toStringSlice converts a config value ([]interface{} or []string) to a
@@ -298,6 +385,16 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, err
 	}
 
+	// Record the name so later commands can find this cluster by it (see
+	// clusterNameMarker). Best effort: the cluster is up either way.
+	if clusterNameRe.MatchString(spec.Name) {
+		if out, err := p.run(masterIP, fmt.Sprintf("printf '%%s' %s > %s", spec.Name, clusterNameMarker), 30*time.Second); err != nil {
+			log.Printf("Warning: could not record the cluster name on %s: %v (%s)", masterIP, err, provider.LastLines(out, 3))
+		}
+	} else {
+		log.Printf("Warning: cluster name %q is not a DNS label; not recording it on the host", spec.Name)
+	}
+
 	cluster := &types.Cluster{
 		ID:        fmt.Sprintf("custom-%s", spec.Name),
 		Name:      spec.Name,
@@ -326,7 +423,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	name := extractClusterName(clusterID)
 	log.Printf("Removing Kubernetes from the hosts of cluster %q (the machines themselves are kept)", name)
 
-	resetCmd := "kubeadm reset -f && rm -rf /etc/cni/net.d"
+	resetCmd := "kubeadm reset -f && rm -rf /etc/cni/net.d && rm -f " + clusterNameMarker
 	// Workers first, master last, so the control plane can still answer while
 	// workers leave.
 	hosts := append(append([]string{}, p.config.WorkerIPs...), p.masterIP())
@@ -411,7 +508,10 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 		return []*types.Cluster{}, nil
 	}
 
-	cluster, err := p.GetCluster(ctx, fmt.Sprintf("custom-%s", defaultClusterName))
+	// Report the cluster under the name it was created with, so lookups by name
+	// (adhar down, cluster scale/upgrade) find it.
+	marker, _ := p.run(p.masterIP(), "cat "+clusterNameMarker+" 2>/dev/null || true", 30*time.Second)
+	cluster, err := p.GetCluster(ctx, fmt.Sprintf("custom-%s", clusterNameFromMarker(marker)))
 	if err != nil {
 		return []*types.Cluster{}, nil
 	}

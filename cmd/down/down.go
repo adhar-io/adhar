@@ -108,6 +108,14 @@ Examples:
 				helpers.Println("Teardown cancelled.")
 				return
 			}
+		} else if downConfigFile != "" && downEnv != "" {
+			// --force skips the prompt, but a scripted `--env dev --force` should
+			// still leave a record that the shared cluster took others with it.
+			if shared := buildTeardownPlan(downConfigFile, downEnv, downClusterName).SharedWith; len(shared) > 0 {
+				fmt.Fprintln(os.Stderr, helpers.WarningStyle.Render(fmt.Sprintf(
+					"⚠ %s shares its cluster with %s (isolation: namespace); deleting the cluster deletes them too.",
+					downEnv, strings.Join(shared, ", "))))
+			}
 		}
 
 		// Without a terminal the Bubble Tea program cannot start at all

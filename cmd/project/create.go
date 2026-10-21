@@ -47,7 +47,7 @@ guard-railed namespace, an ArgoCD AppProject, and a Gitea repository.
 
 Examples:
   adhar project create --org acme --team payments --name acme-shop
-  adhar project create --org acme --team data --name lake --tier staging --cpu 8 --memory 16Gi`,
+  adhar project create --org acme --team data --name lake --tier prod --cpu 8 --memory 16Gi`,
 	RunE: runCreate,
 }
 
@@ -56,7 +56,7 @@ func init() {
 	createCmd.Flags().StringVar(&projTeam, "team", "", "Owning team (required)")
 	createCmd.Flags().StringVar(&projName, "name", "", "Project name — also the namespace (required)")
 	createCmd.Flags().StringVar(&projDesc, "description", "", "Project description")
-	createCmd.Flags().StringVar(&projTier, "tier", "dev", "Tier: dev, test, staging, prod")
+	createCmd.Flags().StringVar(&projTier, "tier", "dev", "Tier: dev, test or prod")
 	createCmd.Flags().StringVar(&projCPU, "cpu", "4", "CPU quota")
 	createCmd.Flags().StringVar(&projMemory, "memory", "8Gi", "Memory quota")
 	createCmd.Flags().IntVar(&projPods, "pods", 30, "Pod quota")
@@ -66,6 +66,13 @@ func init() {
 func runCreate(cmd *cobra.Command, args []string) error {
 	if projOrg == "" || projTeam == "" || projName == "" {
 		return fmt.Errorf("--org, --team and --name are required")
+	}
+	// Must match the Project XRD's tier enum (project.xrd.yaml); anything else
+	// is rejected by the API server only after the CLI has started work.
+	switch projTier {
+	case "dev", "test", "prod":
+	default:
+		return fmt.Errorf("invalid --tier %q: use dev, test or prod", projTier)
 	}
 
 	logger.Info(fmt.Sprintf("▣ Creating project %s (org: %s, team: %s, provider: %s)",

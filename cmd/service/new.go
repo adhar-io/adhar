@@ -32,21 +32,20 @@ var (
 // pipelineRunGVR is the Tekton PipelineRun resource.
 var pipelineRunGVR = schema.GroupVersionResource{Group: "tekton.dev", Version: "v1", Resource: "pipelineruns"}
 
-// newServiceCmd triggers the platform supply-chain "new-service" orchestration:
-// scaffold → build (buildpacks → Harbor, signed) → deploy (kyverno-gated). One
-// command drives the whole build+deploy leg through the platform's Tekton
-// supply chain, so a developer goes from source to a running, signed service
-// without touching kpack/Tekton/Harbor directly. The Console triggers the same
-// pipeline, so both surfaces share one orchestration.
+// newServiceCmd triggers the platform's "new-service" Tekton pipeline, which
+// creates the Deployment and Service for a service. It does not build: the image
+// is built, scanned and signed by the app-ci pipeline on pushes to the service's
+// Gitea repository. The Console triggers the same pipeline.
 var newServiceCmd = &cobra.Command{
 	Use:   "new",
-	Short: "Create a new service from source — scaffold, build (signed), and deploy via the supply chain",
-	Long: `Create a new service end to end through the Adhar supply chain.
+	Short: "Create the Deployment and Service for a service built by app-ci",
+	Long: `Create the runtime objects for a service via the platform's 'new-service' pipeline.
 
-Given a name and a Git source, this triggers the platform's 'new-service' pipeline
-which builds the source with buildpacks, pushes a SIGNED image to Harbor, and
-deploys it (the Deployment only starts once a signed image exists — kyverno-gated).
-This is the same orchestration the Adhar Console uses.
+It creates a Deployment and a Service named <name> in adhar-system running
+harbor-core.adhar-system.svc.cluster.local/library/<name>:latest. It does NOT
+build the image: the app-ci pipeline builds, scans and signs it on pushes to the
+service's repository in the platform's Gitea. --git-url and --subpath are
+recorded in the run's log only. This is the same pipeline the Adhar Console uses.
 
 Examples:
   adhar service new --name api --git-url https://github.com/paketo-buildpacks/samples --subpath go/mod
@@ -56,9 +55,9 @@ Examples:
 
 func init() {
 	newServiceCmd.Flags().StringVar(&newName, "name", "", "Service name (required)")
-	newServiceCmd.Flags().StringVar(&newGitURL, "git-url", "", "Git URL of the service source to build (required)")
-	newServiceCmd.Flags().StringVar(&newSubpath, "subpath", "", "Sub-path within the repo that holds the buildable source")
-	newServiceCmd.Flags().BoolVar(&newWait, "wait", false, "Wait for the build+deploy pipeline to complete")
+	newServiceCmd.Flags().StringVar(&newGitURL, "git-url", "", "Git URL of the service's source repository; recorded in the run log (required)")
+	newServiceCmd.Flags().StringVar(&newSubpath, "subpath", "", "Sub-path within the repository; recorded in the run log")
+	newServiceCmd.Flags().BoolVar(&newWait, "wait", false, "Wait for the new-service pipeline run to finish (not for the pod to be healthy)")
 	_ = newServiceCmd.MarkFlagRequired("name")
 	_ = newServiceCmd.MarkFlagRequired("git-url")
 }
@@ -67,9 +66,8 @@ func runNewService(cmd *cobra.Command, args []string) error {
 	return TriggerNewService(cmd.Context(), newName, newGitURL, newSubpath, newWait)
 }
 
-// TriggerNewService drives the platform supply-chain "new-service" orchestration
-// (scaffold → buildpacks build → signed image to Harbor → kyverno-gated deploy)
-// by creating a Tekton PipelineRun. Shared by `adhar service new` and the
+// TriggerNewService starts the platform's "new-service" Tekton pipeline, which
+// creates the service's Deployment and Service (it does not build the image). Shared by `adhar service new` and the
 // top-level `adhar push`, so both take the identical path.
 func TriggerNewService(ctx context.Context, name, gitURL, subpath string, wait bool) error {
 	dc, err := helpers.DynamicClient()
@@ -102,13 +100,14 @@ func TriggerNewService(ctx context.Context, name, gitURL, subpath string, wait b
 	created, err := dc.Resource(pipelineRunGVR).Namespace(globals.AdharSystemNamespace).Create(ctx, pr, metav1.CreateOptions{})
 	if err != nil {
 		fmt.Println(helpers.ErrorStyle.Render("✖ Failed to start the new-service pipeline"))
-		fmt.Println(helpers.CreateMuted("   Is the supply-chain package enabled? (Tekton + kpack + Harbor)"))
+		fmt.Println(helpers.CreateMuted("   Is the adhar-supply-chain package enabled? (Tekton + Harbor)"))
 		return fmt.Errorf("creating new-service PipelineRun: %w", err)
 	}
 
 	runName := created.GetName()
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Started build+deploy of %q (PipelineRun %s)", name, runName)))
-	fmt.Println(helpers.CreateMuted("   buildpacks → Harbor (signed) → kyverno-gated Deployment + Service"))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Started new-service for %q (PipelineRun %s)", name, runName)))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Creates Deployment + Service %q in %s running library/%s:latest.", name, globals.AdharSystemNamespace, name)))
+	fmt.Println(helpers.CreateMuted("   The image is built by app-ci on pushes to the service's Gitea repository; until then the pod cannot pull it."))
 
 	if !wait {
 		fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get pipelinerun %s -w", globals.AdharSystemNamespace, runName)))
@@ -133,7 +132,7 @@ func waitForPipelineRun(ctx context.Context, dc dynamic.Interface, runName strin
 				if cond["type"] == "Succeeded" {
 					switch cond["status"] {
 					case "True":
-						fmt.Println(helpers.SuccessStyle.Render("Build+deploy pipeline succeeded"))
+						fmt.Println(helpers.SuccessStyle.Render("new-service pipeline succeeded"))
 						return nil
 					case "False":
 						return fmt.Errorf("pipeline failed: %v", cond["message"])

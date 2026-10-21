@@ -104,7 +104,7 @@ func init() {
 	deployCmd.Flags().StringVar(&sourcePathFlag, "path", "", "Path within the repository or template to deploy")
 	deployCmd.Flags().StringVar(&destinationNSFlag, "dest-namespace", "", "Destination namespace for application workloads")
 	deployCmd.Flags().StringVar(&destinationSrv, "dest-server", "https://kubernetes.default.svc", "Destination cluster API server")
-	deployCmd.Flags().StringVar(&projectFlag, "project", "adhar", "Platform Project the application belongs to; its environments (dev/test/prod namespaces) and promotion policy come from it")
+	deployCmd.Flags().StringVar(&projectFlag, "project", "adhar", "Platform Project the application belongs to; its environments (dev/test/prod namespaces) and promotion policy come from it. Its Argo CD project must allow the target namespace: the default `adhar` admits only adhar/dev/test/prod, so for another namespace pass your team's project or `default`")
 	deployCmd.Flags().StringArrayVar(&paramFlags, "param", nil, "Template parameter as key=value (repeatable); see 'adhar application templates'")
 	deployCmd.Flags().StringVar(&envFlag, "env", "", "Environment the app is published in; part of its hostname (default "+globals.DefaultEnvironment()+")")
 }
@@ -133,6 +133,16 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	ctx := cmd.Context()
 	var appliedName, appliedNamespace string
+
+	// A --template deploy creates the Gitea repository before the Application,
+	// so check the Argo CD project admits the destination first: a refusal after
+	// scaffolding leaves a non-empty repo that blocks a re-run. (--file deploys
+	// may set their own project in the file, so they are left to Argo CD.)
+	if templateFlag != "" || repoFlag != "" {
+		if err := checkProjectAdmitsNamespace(ctx, projectFlag, destinationNSFlag, cmd.Flags().Changed("project")); err != nil {
+			return err
+		}
+	}
 
 	switch {
 	case fileFlag != "":

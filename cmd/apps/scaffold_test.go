@@ -277,6 +277,38 @@ spec:
 	}
 }
 
+func TestManifestPathReadsAdharArgoCDAction(t *testing.T) {
+	// The shipped templates name the step `adhar:create-argocd-app`; reading
+	// only the upstream `cnoe:` name sent every app to a missing `deploy` dir.
+	var tpl backstageTemplate
+	if err := yaml.Unmarshal([]byte(`
+metadata: {name: svc}
+spec:
+  steps:
+    - id: create-argocd-app
+      action: adhar:create-argocd-app
+      input: {path: "manifests"}
+`), &tpl); err != nil {
+		t.Fatal(err)
+	}
+	if got := tpl.manifestPath(); got != "manifests" {
+		t.Fatalf("manifestPath = %q, want manifests", got)
+	}
+}
+
+func TestManifestPathForFallsBackToRenderedManifestsDir(t *testing.T) {
+	// A template with no Argo CD step (e.g. ml) still deploys from the
+	// skeleton's manifests/ directory rather than a non-existent deploy/.
+	var tpl backstageTemplate
+	_ = yaml.Unmarshal([]byte("metadata: {name: svc}\nspec: {steps: []}\n"), &tpl)
+	if got := tpl.manifestPathFor([]string{"README.md", "manifests/deployment.yaml"}); got != "manifests" {
+		t.Fatalf("manifestPathFor = %q, want manifests", got)
+	}
+	if got := tpl.manifestPathFor([]string{"README.md", "deploy/kustomization.yaml"}); got != "deploy" {
+		t.Fatalf("manifestPathFor = %q, want the deploy convention", got)
+	}
+}
+
 func TestManifestPathDefaultsToDeploy(t *testing.T) {
 	var tpl backstageTemplate
 	_ = yaml.Unmarshal([]byte("metadata: {name: svc}\nspec: {steps: []}\n"), &tpl)

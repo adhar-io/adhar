@@ -26,18 +26,26 @@ is created.
 
 Examples:
   adhar environment create dev                      # dev-tier environment
-  adhar environment create staging --tier=staging
+  adhar environment create qa --tier=test           # name is free; tier is dev, test or prod
   adhar environment create prod --tier=prod`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreate,
 }
 
 func init() {
-	createCmd.Flags().StringVar(&createTier, "tier", "dev", "Environment tier: dev, test, staging, prod")
+	createCmd.Flags().StringVar(&createTier, "tier", "dev", "Environment tier: dev, test or prod")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
 	envName := args[0]
+
+	// Must match the Environment XRD's tier enum (env.xrd.yaml). Check before
+	// creating the namespace, which happens first and is not rolled back.
+	switch createTier {
+	case "dev", "test", "prod":
+	default:
+		return fmt.Errorf("invalid --tier %q: use dev, test or prod", createTier)
+	}
 
 	clientset, err := getClientset()
 	if err != nil {

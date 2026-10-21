@@ -1,9 +1,11 @@
-# Service-from-template — one command scaffolds a whole new service through the
-# supply chain. Given a name + git URL, `new-service` creates:
-#   * a kpack Image  → builds the source with buildpacks, pushes to Harbor, signs
-#   * a Deployment   → runs the image (admission-gated by 40-verify-images, so it
-#                      only starts once kpack has produced a *signed* image)
+# Service runtime objects — `new-service` (driven by `adhar push`, `adhar service
+# new`, `adhar routes new` and the Console). Given a name, it creates:
+#   * a Deployment   → runs harbor-core…/library/<name>:latest in adhar-system
 #   * a Service      → cluster-internal endpoint
+# It does NOT build the image (see the note in the task below): the app-ci
+# pipeline builds, scans and signs it on pushes to the service's Gitea repo.
+# The git-url/subpath params are only echoed into the run log. adhar-system is
+# excluded from 40-verify-images, so admission does not gate this Deployment.
 #
 # Run it:
 #   kubectl create -n adhar-system -f - <<'EOF'
@@ -136,8 +138,9 @@ spec:
           ports: [{port: 80, targetPort: 8080}]
         YAML
         echo "Service ${NAME} scaffolded."
-        echo "app-ci builds, scans, signs and attests the image on the next push to"
-        echo "${NAME}; the workload starts once a SIGNED image exists (kyverno-gated)."
+        echo "This does not build the image: app-ci builds, scans and signs it on the"
+        echo "next push to the ${NAME} repository in the platform Gitea. Until then the"
+        echo "pod cannot pull ${IMG}:latest."
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline

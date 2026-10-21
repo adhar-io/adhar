@@ -69,8 +69,8 @@ production — so "works on my machine" and "works on the platform" stop being
 different questions.
 
 Nothing here touches Git. When the change is right, open a pull request and the
-normal supply chain takes over: buildpacks, a signed image, and GitOps. Use
-'adhar push' when you want that full path on demand.
+normal supply chain takes over: app-ci builds with buildpacks, scans, signs the
+image, and GitOps deploys it.
 
 The namespace is yours and it is disposable. It is labelled as a dev namespace so
 platform policy and quotas apply, and 'adhar dev --keep=false' (the default)
