@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -88,5 +89,40 @@ func TestStepClearDefaultStorageClassToleratesAMissingClass(t *testing.T) {
 	// exist yet; the step must not fail the whole bring-up.
 	if !strings.Contains(cmd, "|| true") {
 		t.Errorf("must be tolerant of a class that is not installed: %s", cmd)
+	}
+}
+
+// The helper pod that creates a node-local volume is a one-line mkdir, but the
+// node it runs on is the busiest in the cluster during a bring-up. At the
+// provisioner's 120 s default every attempt timed out on GCP and was torn down
+// and retried, and keycloak-db's volume stayed Pending for 17+ minutes
+// (2026-10-21).
+func TestNodeLocalVolumeHelperGetsTimeOnABusyNode(t *testing.T) {
+	m := NodeLocalStorageManifest("adhar-local")
+	start := strings.Index(m, "config.json: |\n")
+	if start < 0 {
+		t.Fatal("local-path-config carries no config.json")
+	}
+	var body []string
+	for _, line := range strings.Split(m[start:], "\n")[1:] {
+		if !strings.HasPrefix(line, "    ") {
+			break
+		}
+		body = append(body, line)
+	}
+	var cfg struct {
+		CmdTimeoutSeconds int `json:"cmdTimeoutSeconds"`
+		NodePathMap       []struct {
+			Node string `json:"node"`
+		} `json:"nodePathMap"`
+	}
+	if err := json.Unmarshal([]byte(strings.Join(body, "\n")), &cfg); err != nil {
+		t.Fatalf("config.json does not parse (the provisioner would not start): %v", err)
+	}
+	if cfg.CmdTimeoutSeconds < 300 {
+		t.Errorf("cmdTimeoutSeconds = %d; a helper pod on a loaded node needs minutes, not the 120 s default", cfg.CmdTimeoutSeconds)
+	}
+	if len(cfg.NodePathMap) == 0 {
+		t.Error("config.json lost its nodePathMap")
 	}
 }

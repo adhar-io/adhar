@@ -108,7 +108,7 @@ func NewLocalProvisioner(options *LocalOptions) *LocalProvisioner {
 // platform controllers, and creates the AdharPlatform resource that drives
 // GitOps reconciliation. It blocks until the manager exits or the context is
 // cancelled.
-func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error {
+func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) (err error) {
 	// Set up the controller-runtime and klog loggers FIRST — before any code
 	// path that emits a controller-runtime log (e.g. the Kind cluster reconcile
 	// below). Otherwise controller-runtime prints a one-time
@@ -156,28 +156,34 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	// only catches what they miss.
 	defer tracker.Stop()
 
-	// Show the provisioning log again, ABOVE the checklist.
+	// Warnings and errors scroll ABOVE the checklist; INFO is held back.
 	//
-	// It used to be suppressed because writing it straight to the terminal tore
-	// the animated block apart: render() repositions by counting the lines it last
-	// drew, so any other output desynchronised that count and left an orphaned
-	// copy of the block behind — the duplicated
-	// "Provisioning Adhar platform 0s / 2m56s" pair. Routing the logger through
-	// the tracker keeps both: messages scroll up and stay, the checklist stays
-	// coherent at the bottom.
+	// Nothing may write to the terminal directly while the block is live:
+	// render() repositions by counting the lines it last drew, so any other
+	// output desynchronised that count and left an orphaned copy of the block
+	// behind — the duplicated "Provisioning Adhar platform 0s / 2m56s" pair.
+	// Routing the logger through the tracker keeps the block coherent. INFO
+	// lines are held (helpers.QuietLog): the checklist already says what is
+	// happening, and they are printed under the error only if the run fails.
 	//
 	// Only in the animated case. With --verbose the tracker already degrades to
 	// plain lines, so the logger can write directly and stay in file order.
 	if !lp.options.Verbose {
 		tw := helpers.NewTrackerWriter(tracker)
+		quiet := helpers.NewQuietLog(tw)
 		prevLogOut := logger.Output()
-		logger.SetOutput(tw)
+		logger.SetOutput(quiet)
 		prevStd := stdlog.Writer()
-		stdlog.SetOutput(tw)
+		stdlog.SetOutput(quiet.Hidden())
 		defer func() {
 			tw.Flush()
 			logger.SetOutput(prevLogOut)
 			stdlog.SetOutput(prevStd)
+			if err != nil {
+				// Stop first: printing under a live block orphans a copy of it.
+				tracker.Stop()
+				fmt.Fprint(os.Stderr, helpers.RenderHeld(quiet.Held()))
+			}
 		}()
 	}
 

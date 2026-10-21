@@ -763,7 +763,73 @@ spec:
           - core
           - init
           - --activation
-          - "*"
+          - "*.kubernetes.m.crossplane.io"
+          - --activation
+          - "*.kubernetes.crossplane.io"
+          - --activation
+          - "*.helm.m.crossplane.io"
+          - --activation
+          - "*.helm.crossplane.io"
+          - --activation
+          - "*.kubernetes.digitalocean.m.crossplane.io"
+          - --activation
+          - "*.cluster.civo.crossplane.io"
+          - --activation
+          - "networks.compute.gcp.m.upbound.io"
+          - --activation
+          - "subnetworks.compute.gcp.m.upbound.io"
+          - --activation
+          - "clusters.container.gcp.m.upbound.io"
+          - --activation
+          - "nodepools.container.gcp.m.upbound.io"
+          - --activation
+          - "databaseinstances.sql.gcp.m.upbound.io"
+          - --activation
+          - "databases.sql.gcp.m.upbound.io"
+          - --activation
+          - "users.sql.gcp.m.upbound.io"
+          - --activation
+          - "vpcs.ec2.aws.m.upbound.io"
+          - --activation
+          - "subnets.ec2.aws.m.upbound.io"
+          - --activation
+          - "internetgateways.ec2.aws.m.upbound.io"
+          - --activation
+          - "natgateways.ec2.aws.m.upbound.io"
+          - --activation
+          - "eips.ec2.aws.m.upbound.io"
+          - --activation
+          - "routes.ec2.aws.m.upbound.io"
+          - --activation
+          - "routetables.ec2.aws.m.upbound.io"
+          - --activation
+          - "routetableassociations.ec2.aws.m.upbound.io"
+          - --activation
+          - "clusters.eks.aws.m.upbound.io"
+          - --activation
+          - "nodegroups.eks.aws.m.upbound.io"
+          - --activation
+          - "roles.iam.aws.m.upbound.io"
+          - --activation
+          - "instances.rds.aws.m.upbound.io"
+          - --activation
+          - "subnetgroups.rds.aws.m.upbound.io"
+          - --activation
+          - "resourcegroups.azure.m.upbound.io"
+          - --activation
+          - "*.containerservice.azure.m.upbound.io"
+          - --activation
+          - "virtualnetworks.network.azure.m.upbound.io"
+          - --activation
+          - "subnets.network.azure.m.upbound.io"
+          - --activation
+          - "mssqlservers.sql.azure.m.upbound.io"
+          - --activation
+          - "mssqldatabases.sql.azure.m.upbound.io"
+          - --activation
+          - "mssqldatabaseextendedauditingpolicies.sql.azure.m.upbound.io"
+          - --activation
+          - "mssqlvirtualnetworkrules.sql.azure.m.upbound.io"
           resources:
             limits:
               cpu: "2"

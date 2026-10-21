@@ -70,10 +70,12 @@ func cloudStages(clusterName, providerName, region string) []helpers.StageDef {
 //
 // The two streams are not equivalent and are treated differently:
 //
-//   - The STRUCTURED logger carries things the platform chose to say — the cluster
-//     it is creating, the kubeconfig it wrote, warnings, failures. Those scroll
-//     above the checklist through a TrackerWriter, which keeps the animated block
-//     from being torn apart.
+//   - The STRUCTURED logger carries things the platform chose to say. Its WARN and
+//     ERROR lines scroll above the checklist through a TrackerWriter, which keeps
+//     the animated block from being torn apart. Its INFO lines — the cluster it is
+//     creating, the kubeconfig it wrote, "Reusing the … certificate" — are held
+//     with the provider detail below: the checklist already says what is
+//     happening, and a stream of INFO lines above it read as noise (2026-10-21).
 //   - The standard `log` package carries each provider's internal chatter, printed
 //     with its own `2026/10/01 01:58:12` stamps: "DigitalOcean VPC config:
 //     CIDR=10.3.0.0/16, existingVPC=", "Found 0 DigitalOcean clusters", and a dozen
@@ -158,13 +160,15 @@ func startCloudProgress(envName, clusterName, providerName, region string, verbo
 		return tracker, func(bool) { tracker.Stop(); restoreKlog() }
 	}
 
+	// Warnings and errors scroll above the checklist; INFO is held with the
+	// provider chatter and shown only if the run fails (helpers.QuietLog).
 	tw := helpers.NewTrackerWriter(tracker)
+	quiet := helpers.NewQuietLog(tw)
 	prevLogOut := logger.Output()
-	logger.SetOutput(tw)
+	logger.SetOutput(quiet)
 
-	detail := &strings.Builder{}
 	prevStd := stdlog.Writer()
-	stdlog.SetOutput(detail)
+	stdlog.SetOutput(quiet.Hidden())
 
 	return tracker, func(failed bool) {
 		tw.Flush()
@@ -172,17 +176,10 @@ func startCloudProgress(envName, clusterName, providerName, region string, verbo
 		stdlog.SetOutput(prevStd)
 		tracker.Stop()
 		restoreKlog()
-		if failed && detail.Len() > 0 {
-			// Indented and dimmed: this is evidence attached to the failure above,
-			// not a second stream of output competing with it.
-			dim := helpers.SubtitleStyle.UnsetMarginLeft()
-			var out strings.Builder
-			out.WriteString("\n" + dim.Render("  provider detail") + "\n")
-			for _, line := range strings.Split(strings.TrimRight(detail.String(), "\n"), "\n") {
-				out.WriteString(dim.Render("    "+line) + "\n")
-			}
-			fmt.Fprint(os.Stderr, out.String())
+		if failed {
+			fmt.Fprint(os.Stderr, helpers.RenderHeld(quiet.Held()))
 		}
+
 	}
 }
 

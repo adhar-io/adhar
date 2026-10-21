@@ -72,7 +72,63 @@ provider:
   # -- A list of Provider packages to install.
   packages: []
   # -- Define entries for the default managed resource activation policy. If defined, a default MRAP will contain these activations.
-  defaultActivations: ["*"]
+  #
+  # ONLY the managed resources a Composition in platform/controlplane composes —
+  # never "*". Every provider here is safe-start, so an activated kind is a CRD
+  # and an inactive one is not. With "*" the GCP providers alone installed ~230
+  # CRDs (compute is 95 kinds, twice: the namespaced .m group and the legacy
+  # cluster-scoped one) in one minute of a fresh `adhar up`, for four kinds the
+  # compositions use. Each new CRD makes Argo CD reload its API schemas under its
+  # cache lock, so a ClusterRole the keycloak app had applied stayed invisible to
+  # it for 6.5 minutes and the whole identity chain waited (2026-10-21) — and
+  # every CRD is permanent apiserver load (see the 616-CRD control-plane note in
+  # CLAUDE.md). The small providers (kubernetes, helm, DigitalOcean, Civo) are
+  # activated whole; the large cloud families kind by kind.
+  # TestEveryComposedManagedResourceIsActivated holds this list to the
+  # compositions: a kind that is used but not activated has no CRD, and the XR
+  # composing it fails.
+  defaultActivations:
+    - "*.kubernetes.m.crossplane.io"
+    - "*.kubernetes.crossplane.io"
+    - "*.helm.m.crossplane.io"
+    - "*.helm.crossplane.io"
+    - "*.kubernetes.digitalocean.m.crossplane.io"
+    - "*.cluster.civo.crossplane.io"
+    # GCP
+    - networks.compute.gcp.m.upbound.io
+    - subnetworks.compute.gcp.m.upbound.io
+    - clusters.container.gcp.m.upbound.io
+    - nodepools.container.gcp.m.upbound.io
+    - databaseinstances.sql.gcp.m.upbound.io
+    - databases.sql.gcp.m.upbound.io
+    - users.sql.gcp.m.upbound.io
+    # AWS
+    - vpcs.ec2.aws.m.upbound.io
+    - subnets.ec2.aws.m.upbound.io
+    - internetgateways.ec2.aws.m.upbound.io
+    - natgateways.ec2.aws.m.upbound.io
+    - eips.ec2.aws.m.upbound.io
+    - routes.ec2.aws.m.upbound.io
+    - routetables.ec2.aws.m.upbound.io
+    - routetableassociations.ec2.aws.m.upbound.io
+    - clusters.eks.aws.m.upbound.io
+    - nodegroups.eks.aws.m.upbound.io
+    - roles.iam.aws.m.upbound.io
+    - instances.rds.aws.m.upbound.io
+    - subnetgroups.rds.aws.m.upbound.io
+    # Azure
+    - resourcegroups.azure.m.upbound.io
+    # The whole (4-kind) group: azure-aks.yaml names ManagedCluster/AgentPool,
+    # which provider-azure v2 does not ship (its kinds are KubernetesCluster /
+    # KubernetesClusterNodePool), so the composition's own kinds cannot be
+    # listed here until it is corrected.
+    - "*.containerservice.azure.m.upbound.io"
+    - virtualnetworks.network.azure.m.upbound.io
+    - subnets.network.azure.m.upbound.io
+    - mssqlservers.sql.azure.m.upbound.io
+    - mssqldatabases.sql.azure.m.upbound.io
+    - mssqldatabaseextendedauditingpolicies.sql.azure.m.upbound.io
+    - mssqlvirtualnetworkrules.sql.azure.m.upbound.io
 
 configuration:
   # -- A list of Configuration packages to install.

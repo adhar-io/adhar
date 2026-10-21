@@ -239,6 +239,15 @@ func StepNodeLocalStorageClass(className string) []IntegrationStep {
 // so a MANAGED cluster, where there is no node to SSH into, can have the same
 // default applied through the API (Civo's managed k3s has a 40-volume account
 // quota that the platform's ~90 claims exceed on the first wave, 2026-10-17).
+//
+// cmdTimeoutSeconds is how long a volume's helper pod (a one-line mkdir) may
+// take before the provisioner deletes it and starts over. Its 120 s default
+// assumes an idle node; during a bring-up the node creating the pod is the
+// busiest in the cluster, and on GCP keycloak-db's helper waited ~60 s for pod
+// networking and 41 s more for containerd to create the container, so every
+// attempt timed out, was torn down and retried — the volume stayed Pending for
+// 17+ minutes and the whole identity chain behind it waited (2026-10-21).
+// Each retry also added load to the node that was already too slow.
 func NodeLocalStorageManifest(className string) string {
 	return fmt.Sprintf(`apiVersion: v1
 kind: ServiceAccount
@@ -288,6 +297,7 @@ metadata:
 data:
   config.json: |
     {
+      "cmdTimeoutSeconds": 600,
       "nodePathMap": [
         {
           "node": "DEFAULT_PATH_FOR_NON_LISTED_NODES",

@@ -2388,7 +2388,19 @@ nodeIPAM:
 # type: [null, string]
 # @schema
 # -- The api-rate-limit option can be used to overwrite individual settings of the default configuration for rate limiting calls to the Cilium Agent API
-apiRateLimit: ~
+#
+# Raised for endpoint-create (the CNI ADD of every new pod). The default is
+# 0.5/s, 4 in parallel, an ESTIMATED 2s per call and auto-adjust on — and a
+# platform bring-up lands 50+ pods on a node at once, on a node busy enough
+# that each call takes ~6s. Auto-adjust then cut the rate to 0.16/s with 2 in
+# flight (cilium_api_limiter_* on GCP, 2026-10-21): calls waited 18s on
+# average, those past 60s got 429 putEndpointIdTooManyRequests, and kubelet
+# backed each sandbox off — the local-path helper pod for keycloak-db among
+# them, so the whole identity chain waited on pod networking. An estimate
+# of 8s matches what a loaded node measures, so auto-adjust stops throttling
+# toward an unreachable 2s; the wait stays inside kubelet's 4-minute sandbox
+# timeout. Unlisted keys keep Cilium's defaults.
+apiRateLimit: '{"endpoint-create":"rate-limit:4/s,rate-burst:20,parallel-requests:16,min-parallel-requests:8,max-parallel-requests:32,estimated-processing-duration:8s,max-wait-duration:120s,auto-adjust:true"}'
 # -- Configure the eBPF-based ip-masq-agent
 ipMasqAgent:
   enabled: false

@@ -28,6 +28,11 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["create"]
+  # nudge_waiting_consumers: annotate (force-sync) the ExternalSecrets that
+  # read keycloak-clients so they sync as soon as it exists.
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -892,6 +897,30 @@ data:
       done
     }
 
+    # nudge_waiting_consumers: once keycloak-clients carries the client
+    # secrets, ask every ExternalSecret that reads it and is not Ready yet to
+    # sync NOW. ESO does not watch the Secrets it reads, and a read that fails
+    # (keycloak-clients missing while Keycloak boots) is retried on a backoff
+    # of 1s doubling to 7 MINUTES — the refreshInterval of 10s applies only
+    # after a success. So a consumer that had been failing for the ten minutes
+    # Keycloak takes to come up noticed the secret up to seven minutes late,
+    # and each one gates an oauth2-proxy rollout (2026-10-21). Changing an
+    # annotation re-enqueues an ExternalSecret immediately. Non-fatal.
+    nudge_waiting_consumers() {
+      local now es
+      now=$(date +%s)
+      kubectl -n adhar-system get externalsecrets.external-secrets.io -o json 2>/dev/null \
+        | jq -r '.items[]
+            | select([.spec.data[]?.remoteRef.key, .spec.dataFrom[]?.extract.key] | index("keycloak-clients"))
+            | select([.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length == 0)
+            | .metadata.name' \
+        | while read -r es; do
+            kubectl -n adhar-system annotate externalsecrets.external-secrets.io "${es}" \
+              force-sync="${now}" --overwrite >/dev/null 2>&1 && echo "nudged ExternalSecret/${es}"
+          done
+      return 0
+    }
+
     # publish_directory writes ConfigMap/keycloak-directory: every realm user's
     # username, email, name and groups — no credentials. Apps behind the edge
     # SSO proxy that cannot speak OIDC (Nexus OSS) authenticate the proxy's
@@ -930,6 +959,7 @@ data:
       fi
       ensure_clients_secret
       reconcile_clients
+      nudge_waiting_consumers
       reconcile_idps
       publish_directory
       exit 0
@@ -1159,6 +1189,7 @@ data:
     # packages that are already present) converges on the FIRST run.
     ensure_clients_secret
     reconcile_clients
+    nudge_waiting_consumers
     # Federation is reconciled on the full run too, not only on the CronJob:
     # a fresh realm must come up already federated, or the first person to log
     # in after a rebuild is told their corporate identity is unknown.

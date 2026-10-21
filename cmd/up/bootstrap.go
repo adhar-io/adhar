@@ -123,7 +123,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		clusterName = result.Cluster.ID
 	}
 	if kcPath, kcCtx, perr := persistClusterKubeconfig(clusterName, kubeconfigStr); perr != nil {
-		logger.Infof("Kubeconfig saved to %s, but merging into the default kubeconfig failed: %v", kcPath, perr)
+		logger.Warnf("Kubeconfig saved to %s, but merging into the default kubeconfig failed: %v", kcPath, perr)
 	} else {
 		// The success panel names the context and the standalone copy's path under
 		// "Next steps", which is where someone looks for it. In-flight it goes on the
