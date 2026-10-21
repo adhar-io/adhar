@@ -116,11 +116,31 @@ jobs:
           version: v2.8.2
           install-only: true
 
+      # The runner is 4 vCPU / 16 GB. One cold `go build` of this binary peaks
+      # at ~2.6 GB in the go command alone, and each build also runs a compile
+      # process per core, so GoReleaser's default of one build per core put
+      # four of them, and four 145 MB links, in memory at once. The kernel
+      # killed the job mid-build, which GitHub reports only as "exit code 143 /
+      # the runner has received a shutdown signal" — v0.1.41 and v0.1.44 both
+      # died that way while v0.1.42/43 squeezed through. Swap is the backstop;
+      # the parallelism caps below are the fix.
+      - name: Add swap for the release build
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 8G /mnt/release.swap
+          sudo chmod 600 /mnt/release.swap
+          sudo mkswap /mnt/release.swap >/dev/null
+          sudo swapon /mnt/release.swap
+          free -h
+
       - name: Run GoReleaser
         run: |
           set -o pipefail
-          goreleaser release --clean --timeout 60m 2>&1 | tee /tmp/goreleaser.log
+          # Two binaries at a time, two compiles each: ~2x slower to build,
+          # never killed for memory.
+          goreleaser release --clean --parallelism 2 --timeout 60m 2>&1 | tee /tmp/goreleaser.log
         env:
+          GOFLAGS: -p=2
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TOKEN: ${{ steps.generate-token.outputs.token || '' }}
           GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}

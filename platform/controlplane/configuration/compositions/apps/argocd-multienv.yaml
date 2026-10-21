@@ -280,6 +280,74 @@ spec:
                           # the cluster network.
                           insecureSkipTLSVerify: true
                           discoveryLimit: 10
+            {{- if $envs }}
+            {{- $envList := list -}}
+            {{- range $envs }}{{ $envList = append $envList .name }}{{ end }}
+            ---
+            # Seeds each environment's rendered branch `stage/<env>` from the
+            # source branch's overlay, once, so its Argo CD Application has
+            # something to sync before the first promotion writes to it. A
+            # branch that exists is never touched: promotions own it from then
+            # on. Idempotent, so the Job re-running after its TTL is harmless.
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ printf "%s-stage-branches" $name | trunc 63 | trimSuffix "-" }}
+              namespace: {{ $xrns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: stage-branches
+                # A Job reports completion, not Ready; it must not hold the XR.
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                {{- range $k, $v := $labels }}
+                {{ $k }}: {{ $v | quote }}
+                {{- end }}
+            spec:
+              backoffLimit: 6
+              ttlSecondsAfterFinished: 3600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+                  containers:
+                    - name: seed
+                      image: alpine/k8s:1.31.1
+                      env:
+                        - {name: REPO, value: {{ quote $repoURL }}}
+                        - {name: REVISION, value: {{ quote $revision }}}
+                        - {name: OVERLAYS, value: {{ quote $path }}}
+                        - {name: ENVS, value: {{ join " " $envList | quote }}}
+                        - {name: HOME, value: /tmp}
+                        - name: GITEA_USER
+                          valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}
+                        - name: GITEA_PASSWORD
+                          valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}
+                      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+                      resources:
+                        requests: {cpu: 20m, memory: 64Mi}
+                        limits: {cpu: 500m, memory: 256Mi}
+                      command: ["/bin/sh", "-c"]
+                      args:
+                        - |
+                          set -eu
+                          cd "$(mktemp -d)"
+                          AUTH="Authorization: Basic $(printf '%s:%s' "$GITEA_USER" "$GITEA_PASSWORD" | base64 | tr -d '\n')"
+                          g() { git -c http.extraHeader="$AUTH" -c user.name=adhar -c user.email=adhar@adhar.io "$@"; }
+                          g clone -q --depth 1 --branch "$REVISION" "$REPO" src
+                          for env in $ENVS; do
+                            b="stage/$env"
+                            if g ls-remote --exit-code --heads "$REPO" "$b" >/dev/null 2>&1; then
+                              echo "$b exists; promotions own it"
+                              continue
+                            fi
+                            rm -rf out && mkdir out
+                            kustomize build "src/$OVERLAYS/envs/$env" > out/manifests.yaml
+                            (cd out && git init -q -b "$b" && git add manifests.yaml \
+                              && g commit -qm "seed $b from $REVISION [skip ci]" \
+                              && g push -q "$REPO" "HEAD:refs/heads/$b")
+                            echo "seeded $b"
+                          done
+            {{- end }}
             {{- end }}
             {{- range $envs }}
             {{- $env := . -}}
@@ -323,8 +391,20 @@ spec:
                     project: {{ quote $project }}
                     source:
                       repoURL: {{ quote $repoURL }}
+                      {{- if $promote }}
+                      # The environment's RENDERED branch: plain manifests that
+                      # only this environment's promotions commit to (Kargo
+                      # renders <path>/envs/<env> from the source branch). With
+                      # every environment on the shared source branch, a test
+                      # promotion moved dev's synced revision past the commit
+                      # dev's own promotion made, and Kargo reported dev
+                      # Unhealthy after every downstream promotion.
+                      path: .
+                      targetRevision: {{ quote (printf "stage/%s" $envName) }}
+                      {{- else }}
                       path: {{ quote (printf "%s/envs/%s" $path $envName) }}
                       targetRevision: {{ quote $revision }}
+                      {{- end }}
                     destination:
                       server: https://kubernetes.default.svc
                       namespace: {{ quote $ns }}
@@ -343,6 +423,16 @@ spec:
                       - group: gateway.networking.k8s.io
                         kind: HTTPRoute
                         jsonPointers: ['/status']
+                      # A HorizontalPodAutoscaler owns the replica count once it
+                      # has scaled the Rollout. Without this Argo CD put Git's
+                      # count back after every HPA decision, a new pod booted,
+                      # the Rollout went Progressing and Kargo's verification
+                      # failed the freight (GCP, 2026-10-21). Only fields the HPA
+                      # actually wrote are ignored, so a service without one
+                      # still takes its replicas from Git.
+                      - group: argoproj.io
+                        kind: Rollout
+                        managedFieldsManagers: [kube-controller-manager]
             {{- end }}
             {{- end }}
             {{- if $envs }}

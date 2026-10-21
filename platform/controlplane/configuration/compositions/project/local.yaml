@@ -717,11 +717,20 @@ spec:
                           {{- $when := printf "%s ctx.targetFreight.origin.name == '%s' }}" $ex $app -}}
                           {{- $digest := printf "%s imageFrom(%q, warehouse(%q)).Digest }}" $ex $image $app }}
                           # ── {{ $app }} ──
+                          # The source branch (overlays) and this environment's
+                          # RENDERED branch `stage/<env>`, which only promotions
+                          # into this environment write. Argo CD syncs the
+                          # rendered branch, so a later promotion elsewhere can
+                          # never move this environment's revision past the
+                          # commit made here (that read as "dev Unhealthy" after
+                          # every test promotion while all shared `main`).
                           - uses: git-clone
                             if: {{ quote $when }}
                             config:
                               repoURL: {{ quote $repoURL }}
-                              checkout: [{branch: {{ quote $revision }}, path: ./src}]
+                              checkout:
+                                - {branch: {{ quote $revision }}, path: ./src}
+                                - {branch: {{ quote (printf "stage/%s" $en) }}, create: true, path: ./out}
                           - uses: kustomize-set-image
                             if: {{ quote $when }}
                             config:
@@ -731,10 +740,20 @@ spec:
                                 # and it cannot be moved by another build.
                                 - image: {{ quote $image }}
                                   digest: {{ quote $digest }}
+                          # Replace the branch's content with the rendered overlay.
+                          - uses: git-clear
+                            if: {{ quote $when }}
+                            config:
+                              path: ./out
+                          - uses: kustomize-build
+                            if: {{ quote $when }}
+                            config:
+                              path: {{ quote (printf "./src/%s/envs/%s" $path $en) }}
+                              outPath: ./out/manifests.yaml
                           - uses: git-commit
                             if: {{ quote $when }}
                             config:
-                              path: ./src
+                              path: ./out
                               # "[skip ci]" — the app-ci trigger's CEL filter drops
                               # pushes carrying it. A promotion commit that built again
                               # would publish a new digest, which is new freight, which
@@ -746,8 +765,8 @@ spec:
                             if: {{ quote $when }}
                             as: {{ quote (printf "push-%s" $app) }}
                             config:
-                              path: ./src
-                              targetBranch: {{ quote $revision }}
+                              path: ./out
+                              targetBranch: {{ quote (printf "stage/%s" $en) }}
                           # Wait for Argo CD to apply it and the Rollout to go Healthy;
                           # otherwise the downstream Stage promotes off an environment
                           # that has not finished rolling out.

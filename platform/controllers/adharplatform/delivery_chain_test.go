@@ -332,3 +332,45 @@ func TestNothingIndexesTheEnvironmentsBeforeTheProjectReportsThem(t *testing.T) 
 		}
 	}
 }
+
+// An HPA and Argo CD must not both own a Rollout's replica count: each HPA
+// decision was reverted by selfHeal, the replacement pod's boot window made the
+// Rollout Progressing, and Kargo failed verification for it (GCP, 2026-10-21).
+func TestArgoCDLeavesTheAutoscalersReplicaCountAlone(t *testing.T) {
+	comp := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
+	if !strings.Contains(comp, "kind: Rollout\n                        managedFieldsManagers: [kube-controller-manager]") {
+		t.Error("the per-environment Argo CD Application does not ignore Rollout fields the HPA (kube-controller-manager) owns")
+	}
+	if !strings.Contains(comp, "RespectIgnoreDifferences=true") {
+		t.Error("RespectIgnoreDifferences is off, so a sync would overwrite the HPA's replica count anyway")
+	}
+}
+
+// Every environment syncs its OWN rendered branch, written only by promotions
+// into that environment. On the shared source branch a test promotion moved
+// dev's synced revision past the commit dev's promotion made, and Kargo's
+// argocd-update health check reported dev Unhealthy after every downstream
+// promotion (GCP, 2026-10-21).
+func TestEachEnvironmentSyncsItsOwnRenderedBranch(t *testing.T) {
+	app := readConfigurationFile(t, "compositions", "apps", "argocd-multienv.yaml")
+	if !strings.Contains(app, `targetRevision: {{ quote (printf "stage/%s" $envName) }}`) {
+		t.Error("a promoted environment's Argo CD Application does not follow its rendered branch stage/<env>")
+	}
+	if !strings.Contains(app, `ls-remote --exit-code --heads "$REPO" "$b"`) || !strings.Contains(app, "kustomize build") {
+		t.Error("nothing seeds the stage/<env> branches, so a new application's environments have nothing to sync before their first promotion")
+	}
+	proj := readConfigurationFile(t, "compositions", "project", "local.yaml")
+	for _, want := range []string{
+		`{branch: {{ quote (printf "stage/%s" $en) }}, create: true, path: ./out}`,
+		"- uses: kustomize-build",
+		"outPath: ./out/manifests.yaml",
+		`targetBranch: {{ quote (printf "stage/%s" $en) }}`,
+	} {
+		if !strings.Contains(proj, want) {
+			t.Errorf("the promotion does not render into the environment's own branch: missing %q", want)
+		}
+	}
+	if strings.Contains(proj, "path: ./src\n                              targetBranch") {
+		t.Error("a promotion still pushes the shared source branch")
+	}
+}
