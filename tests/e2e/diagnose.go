@@ -122,11 +122,15 @@ func DumpPlatformState(ctx context.Context) string {
 func dumpState(ctx context.Context, kubeContext string) string {
 	kc := "kubectl --context " + kubeContext
 	sections := []struct{ title, cmd string }{
-		{"Argo CD applications", kc + ` -n adhar-system get applications.argoproj.io -o custom-columns='APP:.metadata.name,HEALTH:.status.health.status,SYNC:.status.sync.status,OP:.status.operationState.phase,MESSAGE:.status.operationState.message'`},
+		{"Argo CD applications", kc + ` -n adhar-system get applications.argoproj.io -o custom-columns=` +
+			`'APP:.metadata.name,HEALTH:.status.health.status,SYNC:.status.sync.status,` +
+			`OP:.status.operationState.phase,MESSAGE:.status.operationState.message'`},
 		{"pods not Running or Completed", kc + ` get pods -A -o wide | grep -v -E ' (Running|Completed) ' || true`},
 		{"recent warning events", kc + ` get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -n 40`},
 		{"node allocation", kc + ` describe nodes | grep -A 8 'Allocated resources' || true`},
-		{"container engine", `(docker info --format '{{.NCPU}} cpu {{.MemTotal}} bytes {{.Driver}}' || podman info --format '{{.Host.CPUs}} cpu {{.Host.MemTotal}} bytes rootless={{.Host.Security.Rootless}}') 2>/dev/null || true`},
+		{"container engine", `(docker info --format '{{.NCPU}} cpu {{.MemTotal}} bytes {{.Driver}}' || ` +
+			`podman info --format '{{.Host.CPUs}} cpu {{.Host.MemTotal}} bytes rootless={{.Host.Security.Rootless}}')` +
+			` 2>/dev/null || true`},
 	}
 	var b strings.Builder
 	for _, s := range sections {
