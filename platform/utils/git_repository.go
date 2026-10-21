@@ -18,6 +18,7 @@ import (
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
@@ -140,11 +141,20 @@ func CloneRemoteRepoToMemory(ctx context.Context, remote v1alpha1.RemoteReposito
 }
 
 func CloneRemoteRepoToDir(ctx context.Context, remote v1alpha1.RemoteRepositorySpec, depth int, insecureSkipTLS bool, dir, fallbackUrl string) (billy.Filesystem, *git.Repository, error) {
+	return CloneRemoteRepoToDirWithAuth(ctx, remote, depth, insecureSkipTLS, dir, fallbackUrl, nil)
+}
+
+// CloneRemoteRepoToDirWithAuth is CloneRemoteRepoToDir with credentials for the
+// clone itself. The in-cluster Gitea requires sign-in for every read
+// (REQUIRE_SIGNIN_VIEW), so cloning a target repository there anonymously
+// fails; auth may be nil for a public source.
+func CloneRemoteRepoToDirWithAuth(ctx context.Context, remote v1alpha1.RemoteRepositorySpec, depth int, insecureSkipTLS bool, dir, fallbackUrl string, auth transport.AuthMethod) (billy.Filesystem, *git.Repository, error) {
 	repo, err := git.PlainOpen(dir)
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryNotExists) {
 			cloneOptions := &git.CloneOptions{
 				URL:               remote.Url,
+				Auth:              auth,
 				Depth:             depth,
 				ShallowSubmodules: true,
 				Tags:              git.AllTags,

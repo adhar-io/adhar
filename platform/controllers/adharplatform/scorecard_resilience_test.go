@@ -146,8 +146,13 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 		  "performance":{"status":"passed","p95Ms":120,"errorRate":0,"rps":200,"vus":10,"thresholdP95Ms":500},
 		  "chaos":{"status":"passed","verdict":"Pass","probeSuccessPercentage":100,"recoverySeconds":20,"replicas":2,"detail":"kept answering"},
 		  "chaosSuite":{"pod-network-latency":{"status":"passed","probeSuccessPercentage":100,"detail":"kept answering with 300 ms of added network latency"},
-		                "pod-cpu-hog":{"status":"passed","probeSuccessPercentage":100,"detail":"kept answering with its CPU saturated"}},
-		  "slo":{"environment":"prod","requests":5000,"p95Ms":150,"errorRatio":0.0001,"targetAvailability":99.9}}}`, now-3600),
+		                "pod-cpu-hog":{"status":"passed","probeSuccessPercentage":100,"detail":"kept answering with its CPU saturated"},
+		                "pod-memory-hog":{"status":"passed","probeSuccessPercentage":100,"detail":"kept answering under memory pressure"}},
+		  "gates":{"test":{"verdict":"pass","reasons":[],"environment":"test","image":"h/library/shop@sha256:1","at":%[2]q}},
+		  "slo":{"environment":"prod","requests":5000,"p95Ms":150,"errorRatio":0.0001,"targetAvailability":99.9}},
+		 "cart":{"chaosSuite":{"pod-memory-hog":{"status":"failed","probeSuccessPercentage":40,"detail":"stopped answering under memory pressure"}},
+		  "gates":{"dev":{"verdict":"fail","reasons":["pod-delete failed: stopped answering while pods were deleted (1 replica(s))"],
+		  "environment":"dev","image":"h/library/cart@sha256:1","at":%[2]q}}}}`, now-3600, time.Unix(now-1800, 0).UTC().Format(time.RFC3339)),
 	}
 	args := []string{"-n", "-f", write("score.jq", script["score.jq"])}
 	for k, body := range files {
@@ -217,6 +222,19 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 		if _, ok := sig[n]; ok {
 			t.Errorf("%s is applicable on an application no team test or game day targets", n)
 		}
+	}
+	// The promotion gate and the memory-pressure fault the JVM suites run
+	// (2026-10-21): pass on shop, a held-back build on cart.
+	for _, n := range []string{"chaos_memory_pressure", "promotion_gate"} {
+		if v, ok := shopSig[n]; !ok || v != 1 {
+			t.Errorf("shop passed %s but it scored %v (applicable %t)", n, v, ok)
+		}
+	}
+	if v, ok := sig["promotion_gate"]; !ok || v != 0 {
+		t.Errorf("cart's build failed the promotion gate; promotion_gate should be applicable and 0, got %v (applicable %t)", v, ok)
+	}
+	if v, ok := sig["chaos_memory_pressure"]; !ok || v != 0 {
+		t.Errorf("cart failed its memory-pressure fault; chaos_memory_pressure should be applicable and 0, got %v (applicable %t)", v, ok)
 	}
 	for _, n := range []string{"chaos_network_latency", "chaos_cpu_stress"} {
 		if v, ok := shopSig[n]; !ok || v != 1 {

@@ -1,0 +1,24 @@
+# What Kargo's verification needs to run a JOB metric.
+#
+# Kargo verifies a Stage with Argo Rollouts AnalysisTemplates, and a `job`
+# metric is a Kubernetes Job the Kargo controller creates in the project
+# namespace and watches. The chart grants it AnalysisRuns only
+# (kargo-controller-rollouts), so a job metric failed at creation. The
+# promotion gate — the application's load test and chaos suite in the
+# environment before prod (compositions/project/local.yaml) — is a job metric,
+# so each project binds this role to the controller in its own namespace; no
+# cluster-wide Job permission is granted.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-kargo-verification-jobs
+  labels:
+    app.kubernetes.io/part-of: adhar
+    adhar.io/component: delivery
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]

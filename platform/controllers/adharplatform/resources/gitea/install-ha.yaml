@@ -132,10 +132,11 @@ stringData:
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
     START_SSH_SERVER=true
+  service: REQUIRE_SIGNIN_VIEW=true
   session: |-
-  webhook: ALLOWED_HOST_LIST=external,private,*.svc.cluster.local
     PROVIDER=redis
     PROVIDER_CONFIG=redis+cluster://:@gitea-valkey-cluster-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+  webhook: ALLOWED_HOST_LIST=external,private,*.svc.cluster.local
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1

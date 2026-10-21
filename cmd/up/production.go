@@ -22,6 +22,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -148,8 +149,36 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	if clusterName == "" {
 		clusterName = result.Cluster.ID
 	}
+	if result != nil && !dryRun {
+		trustKeycloakOnAPIServer(ctx, result, clusterName, configFile, environment)
+	}
 	printProductionSuccessMsg(environment, cfg.GlobalSettings.DefaultHost, clusterName)
 	return nil
+}
+
+// trustKeycloakOnAPIServer makes a compute-mode cluster's API server accept
+// Keycloak tokens now that Keycloak is serving, so Headlamp signs people in
+// with their own identity instead of failing every call with 401
+// (provider.EnableClusterOIDC). Never fatal: the platform works without it,
+// and the warning names the command that finishes the job later.
+func trustKeycloakOnAPIServer(ctx context.Context, result *pfactory.ProvisionResult, clusterName, configFile, environment string) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	retry := fmt.Sprintf("adhar cluster oidc %s", clusterName)
+	if configFile != "" {
+		retry += " -f " + configFile
+	}
+	kubeconfig, err := result.Provider.GetKubeconfig(ctx, result.Cluster.ID)
+	if err != nil {
+		logger.Warnf("Headlamp sign-in: could not read the kubeconfig to trust Keycloak on the API server (%v); run `%s` later", err, retry)
+		return
+	}
+	line, err := pfactory.EnableClusterOIDC(ctx, result.Provider, clusterName, []byte(kubeconfig))
+	if err != nil {
+		logger.Warnf("Headlamp sign-in: the API server does not trust Keycloak yet (%v); run `%s` once Keycloak is up", err, retry)
+		return
+	}
+	logger.Infof("API server OIDC for %s: %s", environment, line)
 }
 
 // createEnvironmentNamespaces materialises the namespace-isolated environments

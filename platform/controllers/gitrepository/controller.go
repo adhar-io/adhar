@@ -33,6 +33,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitclient "github.com/go-git/go-git/v5/plumbing/transport/client"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -270,6 +271,17 @@ func addAllAndCommit(path string, gitRepo *git.Repository) (plumbing.Hash, bool,
 	return h, true, nil
 }
 
+// targetAuth is the credential for reading the TARGET repository (the
+// in-cluster Gitea, which requires sign-in for every read), or nil when there
+// is none to send.
+func targetAuth(creds gitProviderCredentials) transport.AuthMethod {
+	auth, err := getBasicAuth(creds)
+	if err != nil || (auth.Username == "" && auth.Password == "") {
+		return nil
+	}
+	return &auth
+}
+
 func pushToRemote(ctx context.Context, remoteRepo *git.Repository, creds gitProviderCredentials) error {
 	auth, err := getBasicAuth(creds)
 	if err != nil {
@@ -297,7 +309,7 @@ func reconcileLocalRepoContent(ctx context.Context, repo *v1alpha1.GitRepository
 		Ref:             "",
 	}
 	logger.V(1).Info("cloning repo", "repoUrl", tgtRepoSpec.Url, "fallbackUrl", getFallbackRepositoryURL(repo, tgtRepo), "cloneDir", tgtCloneDir)
-	_, tgtRepository, err := utils.CloneRemoteRepoToDir(ctx, tgtRepoSpec, 1, true, tgtCloneDir, getFallbackRepositoryURL(repo, tgtRepo))
+	_, tgtRepository, err := utils.CloneRemoteRepoToDirWithAuth(ctx, tgtRepoSpec, 1, true, tgtCloneDir, getFallbackRepositoryURL(repo, tgtRepo), targetAuth(creds))
 	if err != nil {
 		return fmt.Errorf("cloning repo %s: %w", tgtRepoSpec.Url, err)
 	}
@@ -369,7 +381,7 @@ func reconcileRemoteRepoContent(ctx context.Context, repo *v1alpha1.GitRepositor
 	defer lst.MU.Unlock()
 
 	logger.V(1).Info("cloning repo", "repoUrl", tgtRepoSpec.Url, "fallbackUrl", getFallbackRepositoryURL(repo, tgtRepo), "cloneDir", tgtCloneDir)
-	tgtRepoWT, tgtRepository, err := utils.CloneRemoteRepoToDir(ctx, tgtRepoSpec, 1, true, tgtCloneDir, getFallbackRepositoryURL(repo, tgtRepo))
+	tgtRepoWT, tgtRepository, err := utils.CloneRemoteRepoToDirWithAuth(ctx, tgtRepoSpec, 1, true, tgtCloneDir, getFallbackRepositoryURL(repo, tgtRepo), targetAuth(creds))
 	if err != nil {
 		return fmt.Errorf("cloning repo %s: %w", srcRepo.Url, err)
 	}

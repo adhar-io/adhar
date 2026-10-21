@@ -66,6 +66,13 @@ spec:
                 # Same repositories the runtime reads; see agent-runtime.yaml.
                 - name: GITEA_API_URL
                   value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+                # Gitea requires sign-in for every read; see agent-runtime.yaml.
+                - name: GITEA_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: adhar-ai-bot
+                      key: GITEA_BOT_TOKEN
+                      optional: true
                 - name: LLM_GATEWAY_URL
                   value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
                 - name: RAG_DB_HOST

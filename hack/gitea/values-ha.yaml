@@ -446,6 +446,15 @@ gitea:
     # See values.yaml: in-cluster webhook targets (the Tekton EventListeners).
     webhook:
       ALLOWED_HOST_LIST: external,private,*.svc.cluster.local
+    # Nothing in Gitea is visible without signing in: no anonymous browsing,
+    # API reads, raw files or git clone (2026-10-21 — anonymous visitors could
+    # list and read every repository). Every platform reader authenticates:
+    # Argo CD through the repo-creds templates (platform/stack/argocd-auth.yaml),
+    # Kargo, CI (git-clone sends gitea-ci-creds), the console, the AI runtime
+    # (adhar-ai-bot) and the controller. Health checks use /api/healthz, the one
+    # API route this does not cover.
+    service:
+      REQUIRE_SIGNIN_VIEW: true
     server:
       # Served behind the Cilium Gateway under /gitea — ROOT_URL must carry the
       # sub-path so Gitea emits assets/redirects/clone URLs under /gitea/. See

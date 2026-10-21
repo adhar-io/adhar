@@ -397,6 +397,65 @@ spec:
                       - secretKey: password
                         remoteRef: { key: gitea-ci-creds, property: password }
             ---
+            # The promotion gate's identity (see the `<app>-resilience` metric in
+            # the test environment's AnalysisTemplate). Kargo's controller creates
+            # the gate Job here, so it is allowed Jobs in THIS namespace only;
+            # the Job runs as this ServiceAccount, which may start the resilience
+            # runner in adhar-system and read its result, nothing more.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: resilience-gate-sa
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata:
+                    name: adhar-resilience-gate
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: resilience-gate-kargo-jobs
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: adhar-kargo-verification-jobs
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+                  roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: adhar-kargo-verification-jobs}
+                  subjects:
+                    - {kind: ServiceAccount, name: kargo-controller, namespace: adhar-system}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: resilience-gate-runner
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ printf "adhar-resilience-gate-%s" $name | trunc 63 | trimSuffix "-" }}
+                    namespace: adhar-system
+                    labels: { adhar.io/project: {{ $name | quote }} }
+                  roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-resilience-gate}
+                  subjects:
+                    - {kind: ServiceAccount, name: adhar-resilience-gate, namespace: {{ $name }}}
+            ---
             # The identity a Release uses to submit a Promotion. A Promotion must be
             # CREATED (a POST): Kargo's webhook renames every Promotion to
             # <stage>.<ulid>.<freight>, and an apply by name over that rename leaves
@@ -581,6 +640,7 @@ spec:
             {{- range $resolved }}
             {{- $en := .name -}}
             {{- $ens := .namespace -}}
+            {{- $tier := .tier -}}
             {{- if $verifyApps }}
             ---
             # What "healthy in this environment" means, asked of Prometheus after
@@ -617,9 +677,18 @@ spec:
                       {{- $vi := default "60s" (get $v "interval") -}}
                       {{- $vc := int (default 5 (get $v "count")) -}}
                       {{- $vf := int (default 1 (get $v "failureLimit")) -}}
+                      {{- /* Verification starts the moment the promotion is synced,
+                             while the new pod may still be pulling its image and
+                             booting — a JVM on a busy node took ~4 minutes, so
+                             its first two samples failed and `failureLimit: 1`
+                             failed the Stage although nothing was wrong
+                             (2026-10-21). A Rollout that is really stuck is still
+                             unhealthy after this delay and still fails. */ -}}
+                      {{- $vd := default "2m" (get $v "initialDelay") -}}
                       {{- $pods := printf "%s-[a-z0-9]+-[a-z0-9]+" $app }}
                       # Argo Rollouts labels a finished canary "Completed" and a stable one "Healthy".
                       - name: {{ quote (printf "%s-rollout-healthy" $app) }}
+                        initialDelay: {{ $vd }}
                         interval: {{ $vi }}
                         count: {{ $vc }}
                         failureLimit: {{ $vf }}
@@ -629,6 +698,7 @@ spec:
                             address: {{ $prom }}
                             query: {{ quote (printf "count(rollout_info{namespace=\"%s\",name=\"%s\",phase!~\"Healthy|Completed\"} == 1) or vector(0)" $ens $app) }}
                       - name: {{ quote (printf "%s-pods-ready" $app) }}
+                        initialDelay: {{ $vd }}
                         interval: {{ $vi }}
                         count: {{ $vc }}
                         failureLimit: {{ $vf }}
@@ -638,6 +708,7 @@ spec:
                             address: {{ $prom }}
                             query: {{ quote (printf "sum(kube_pod_status_ready{namespace=\"%s\",pod=~\"%s\",condition=\"false\"}) or vector(0)" $ens $pods) }}
                       - name: {{ quote (printf "%s-no-restarts" $app) }}
+                        initialDelay: {{ $vd }}
                         interval: {{ $vi }}
                         count: {{ $vc }}
                         failureLimit: {{ $vf }}
@@ -648,6 +719,7 @@ spec:
                             query: {{ quote (printf "sum(increase(kube_pod_container_status_restarts_total{namespace=\"%s\",pod=~\"%s\",container!=\"POD\"}[5m])) or vector(0)" $ens $pods) }}
                       {{- with (get $v "errorRateQuery") }}
                       - name: {{ quote (printf "%s-error-rate" $app) }}
+                        initialDelay: {{ $vd }}
                         interval: {{ $vi }}
                         count: {{ $vc }}
                         failureLimit: {{ $vf }}
@@ -656,6 +728,73 @@ spec:
                           prometheus:
                             address: {{ $prom }}
                             query: {{ quote (replace "$NAMESPACE" $ens .) }}
+                      {{- end }}
+                      {{- if eq $tier "test" }}
+                      # THE PROMOTION GATE. In the environment before prod, a build
+                      # is verified only once the application's own load test and
+                      # chaos suite pass against it here: this Job starts the
+                      # platform's resilience runner in gate mode for this app and
+                      # namespace (adhar-scorecards, resilience-runner.yaml) and
+                      # exits with its verdict. Prod requests only freight verified
+                      # here, so a build that slows down under load or stops
+                      # answering when a pod dies never reaches it. An image that
+                      # already passed here is not retested; without the
+                      # scorecards package the gate passes and says so.
+                      - name: {{ quote (printf "%s-resilience" $app) }}
+                        provider:
+                          job:
+                            metadata:
+                              labels: {adhar.io/resilience-gate: {{ quote $app }}, adhar.io/environment: {{ quote $en }}}
+                            spec:
+                              backoffLimit: 0
+                              activeDeadlineSeconds: 4200
+                              ttlSecondsAfterFinished: 3600
+                              template:
+                                spec:
+                                  serviceAccountName: adhar-resilience-gate
+                                  restartPolicy: Never
+                                  securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+                                  containers:
+                                    - name: gate
+                                      image: alpine/k8s:1.31.1
+                                      env:
+                                        - {name: APP, value: {{ quote $app }}}
+                                        - {name: GATE_NAMESPACE, value: {{ quote $ens }}}
+                                        - {name: GATE_ENVIRONMENT, value: {{ quote $en }}}
+                                        - {name: HOME, value: /tmp}
+                                      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+                                      resources:
+                                        requests: {cpu: 10m, memory: 32Mi}
+                                        limits: {cpu: 200m, memory: 128Mi}
+                                      command: ["bash", "-c"]
+                                      args:
+                                        - |
+                                          set -uo pipefail
+                                          if ! kubectl -n adhar-system get cronjob adhar-resilience-runner >/dev/null 2>&1; then
+                                            echo "no resilience runner (adhar-scorecards is not installed); the gate passes"
+                                            exit 0
+                                          fi
+                                          J="adhar-gate-$(printf '%s-%s' "$APP" "$GATE_ENVIRONMENT" | tr -c 'a-z0-9-' '-' | cut -c1-40 | sed 's/-*$//')-$(date +%s | tail -c 6)"
+                                          kubectl -n adhar-system get cronjob adhar-resilience-runner -o json \
+                                            | jq --arg j "$J" --arg app "$APP" --arg ns "$GATE_NAMESPACE" --arg env "$GATE_ENVIRONMENT" '{
+                                                apiVersion: "batch/v1", kind: "Job",
+                                                metadata: {name: $j, namespace: "adhar-system",
+                                                           labels: {"adhar.io/component": "scorecards", "adhar.io/resilience-gate": $app}},
+                                                spec: (.spec.jobTemplate.spec
+                                                  | .template.spec.containers[0].env += [
+                                                      {name: "VERIFY_APP", value: $app},
+                                                      {name: "VERIFY_NAMESPACE", value: $ns},
+                                                      {name: "VERIFY_ENVIRONMENT", value: $env}])}' \
+                                            | kubectl create -f - || { echo "could not start the resilience runner"; exit 1; }
+                                          echo "gate: $APP in $GATE_NAMESPACE (runner job $J)"
+                                          ok=""
+                                          for i in $(seq 1 400); do
+                                            st="$(kubectl -n adhar-system get job "$J" -o jsonpath='{.status.succeeded}/{.status.failed}' 2>/dev/null)"
+                                            case "$st" in 1/*) ok=1; break ;; */1) ok=0; break ;; esac
+                                            sleep 10
+                                          done
+                                          kubectl -n adhar-system logs "job/$J" --tail=80 2>/dev/null || true
+                                          [ "$ok" = 1 ]
                       {{- end }}
                       {{- end }}
             {{- end }}

@@ -448,6 +448,15 @@ gitea:
     # ever built by CI (2026-09-15 DO bring-up).
     webhook:
       ALLOWED_HOST_LIST: external,private,*.svc.cluster.local
+    # Nothing in Gitea is visible without signing in: no anonymous browsing,
+    # API reads, raw files or git clone (2026-10-21 — anonymous visitors could
+    # list and read every repository). Every platform reader authenticates:
+    # Argo CD through the repo-creds templates (platform/stack/argocd-auth.yaml),
+    # Kargo, CI (git-clone sends gitea-ci-creds), the console, the AI runtime
+    # (adhar-ai-bot) and the controller. Health checks use /api/healthz, the one
+    # API route this does not cover.
+    service:
+      REQUIRE_SIGNIN_VIEW: true
     server:
       # Gitea is served behind the Cilium Gateway under the /gitea sub-path at the
       # platform host. ROOT_URL must carry that sub-path so Gitea emits all assets,

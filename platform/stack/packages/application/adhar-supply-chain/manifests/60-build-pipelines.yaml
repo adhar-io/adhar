@@ -58,12 +58,33 @@ spec:
   steps:
     - name: clone
       image: alpine/git:2.45.2
+      # Gitea requires sign-in for every read (REQUIRE_SIGNIN_VIEW), so the
+      # in-cluster repos are cloned with the CI credential. It is sent ONLY to
+      # the in-cluster Gitea hosts — never to GitHub or any other URL a
+      # pipeline is pointed at.
+      env:
+        - name: GIT_USER
+          valueFrom: {secretKeyRef: {name: gitea-ci-creds, key: username, optional: true}}
+        - name: GIT_PASS
+          valueFrom: {secretKeyRef: {name: gitea-ci-creds, key: password, optional: true}}
       script: |
         #!/bin/sh
         set -e
         DIR="$(workspaces.output.path)"
         rm -rf "${DIR:?}/"* 2>/dev/null || true
-        git clone --depth 1 -b "$(params.revision)" "$(params.url)" "$DIR"
+        URL="$(params.url)"
+        AUTH=""
+        case "$URL" in
+          http://gitea-http.adhar-system.svc.cluster.local:3000/*|http://gitea-http:3000/*|http://gitea-argocd.adhar-system.svc.cluster.local:3000/*)
+            if [ -n "${GIT_USER:-}" ]; then
+              AUTH="Authorization: Basic $(printf '%s:%s' "$GIT_USER" "$GIT_PASS" | base64 | tr -d '\n')"
+            fi ;;
+        esac
+        if [ -n "$AUTH" ]; then
+          git -c http.extraHeader="$AUTH" clone --depth 1 -b "$(params.revision)" "$URL" "$DIR"
+        else
+          git clone --depth 1 -b "$(params.revision)" "$URL" "$DIR"
+        fi
         git -C "$DIR" rev-parse HEAD | tr -d '\n' > "$(results.commit.path)"
         echo "cloned $(params.url)@$(params.revision)"
 ---

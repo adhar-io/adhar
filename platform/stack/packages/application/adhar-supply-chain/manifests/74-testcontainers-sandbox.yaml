@@ -1,0 +1,127 @@
+# Where CI's integration tests run their Testcontainers.
+#
+# The JVM templates ship Karate API tests against the real application and its
+# real dependencies (Postgres, Kafka, …) started by Testcontainers. Testcontainers
+# needs a Docker API, and a CI pod has none — so the `test-auto` Task runs a
+# KUBEDOCK sidecar (https://github.com/joyrex2001/kubedock), a Docker-API shim
+# that runs each requested container as a pod HERE and exposes its ports on the
+# CI pod's localhost through a reverse proxy. No privileged pod, no
+# Docker-in-Docker (the alternative was a privileged dind sidecar per run).
+#
+# This namespace is deliberately boxed in, because what runs here is whatever a
+# repository's tests ask for:
+#   - the CI ServiceAccount may manage pods/services/configmaps HERE ONLY
+#     (kubedock's documented minimal RBAC) — nothing in adhar-system;
+#   - every container gets default requests/limits, and the namespace a quota,
+#     so a runaway suite cannot starve the cluster;
+#   - test containers accept traffic only from the CI pods in adhar-system and
+#     cannot reach anything but DNS — a test database has no business calling
+#     the platform.
+# The cluster's image policies apply as everywhere outside adhar-system: public
+# registries only (docker.io, quay.io, …) and an explicit tag, never :latest.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-ci-sandbox
+  labels:
+    adhar.io/component: supply-chain
+    adhar.io/plane: ci
+    app.kubernetes.io/part-of: adhar
+  annotations: {argocd.argoproj.io/sync-wave: "3"}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: testcontainers-defaults
+  namespace: adhar-ci-sandbox
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  limits:
+    - type: Container
+      default: {cpu: "1", memory: 1Gi}
+      defaultRequest: {cpu: 100m, memory: 256Mi}
+      max: {cpu: "2", memory: 4Gi}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: testcontainers
+  namespace: adhar-ci-sandbox
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  hard:
+    pods: "30"
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+---
+# Ingress only from CI pods (the kubedock reverse proxy runs in the TaskRun pod
+# in adhar-system); egress only to DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: testcontainers-isolation
+  namespace: adhar-ci-sandbox
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: adhar-system}
+        # Test containers talking to each other (an app container and its
+        # database, when a suite starts both).
+        - podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector: {}
+---
+# kubedock's documented minimal role, granted to the pipeline ServiceAccount in
+# this namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubedock
+  namespace: adhar-ci-sandbox
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["list", "get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubedock-adhar-pipeline
+  namespace: adhar-ci-sandbox
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubedock
+subjects:
+  - kind: ServiceAccount
+    name: adhar-pipeline
+    namespace: adhar-system

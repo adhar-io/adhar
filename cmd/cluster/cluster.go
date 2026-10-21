@@ -38,4 +38,5 @@ func init() {
 	ClusterCmd.AddCommand(investigateCmd)
 	ClusterCmd.AddCommand(upgradeCmd)
 	ClusterCmd.AddCommand(scaleCmd)
+	ClusterCmd.AddCommand(oidcCmd)
 }

@@ -3,6 +3,21 @@
 # Enable or disable kubelet insecure TLS, requirefd for kind/minikube
 args:
   - --kubelet-insecure-tls
+  # A loaded node's kubelet can take longer than the 10 s default to serve
+  # /metrics/resource. metrics-server then drops EVERY pod on that node, and
+  # each HPA there reports "no metrics returned from resource metrics API" —
+  # on GCP a worker answered in 5-12 s and my-service's HPA in dev went
+  # Degraded (2026-10-21). metrics-server requires resolution x 0.9 >= this.
+  - --kubelet-request-timeout=25s
+
+# The chart's defaults, with a 30 s resolution so the timeout above fits
+# (metric-resolution x 0.9 must be >= kubelet-request-timeout). HPAs still
+# react well inside their 15 s sync on a 30 s sample.
+defaultArgs:
+  - --cert-dir=/tmp
+  - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+  - --kubelet-use-node-status-port
+  - --metric-resolution=30s
 
 # Additional Metrics Server configuration
 replicas: 1

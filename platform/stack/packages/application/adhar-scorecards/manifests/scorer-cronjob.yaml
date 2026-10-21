@@ -219,6 +219,22 @@ data:
             if $cpu == null then "not in the automated chaos suite yet"
             elif ($cpu.status == "passed" or $cpu.status == "failed") then "\($cpu.status): \($cpu.detail); steady-state probe \($cpu.probeSuccessPercentage // "?")%"
             else ($cpu.detail // $cpu.status) end),
+        # Memory pressure: what the JVM templates' suites run by default.
+        (($ev.chaosSuite // {})["pod-memory-hog"] // null) as $mem |
+        sig("chaos_memory_pressure"; "resilience"; ($mem != null and $mem.status != "unavailable");
+            b($mem != null and $mem.status == "passed" and $fresh);
+            if $mem == null then "not in this application's chaos suite"
+            elif ($mem.status == "passed" or $mem.status == "failed") then "\($mem.status): \($mem.detail); steady-state probe \($mem.probeSuccessPercentage // "?")%"
+            else ($mem.detail // $mem.status) end),
+        # The promotion gate: the suite run against each build in the
+        # environment before prod (compositions/project/local.yaml). A build
+        # that failed it was held out of prod; the latest verdict is the signal.
+        (($ev.gates // {}) | to_entries | map(.value + {ns: .key}) | sort_by(.at // "") | last // null) as $gate |
+        sig("promotion_gate"; "resilience"; ($gate != null and $gate.verdict != "skipped");
+            b($gate != null and $gate.verdict == "pass");
+            if $gate == null then "no build has been through the promotion gate yet"
+            elif $gate.verdict == "pass" then "pass: \($gate.image) survived its load test and chaos suite in \($gate.environment // $gate.ns), \(ago((($gate.at // "") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // 0)))"
+            else "\($gate.verdict): \($gate.image) was held out of prod — \(($gate.reasons // []) | join("; "))" end),
         sig("recovery_time"; "resilience";
             ($chaos != null and ($chaos.status == "passed" or $chaos.status == "failed"));
             b(($chaos.recoverySeconds // null) != null and $chaos.recoverySeconds <= $recoverymax);

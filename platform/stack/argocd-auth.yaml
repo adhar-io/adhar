@@ -79,3 +79,41 @@ stringData:
   username: gitea_admin
   password: r8sA8CPHD9!bt6d
   insecure: "true"
+---
+# Credential TEMPLATES (repo-creds): matched by URL PREFIX, so every repository
+# on the in-cluster Gitea is covered — the platform stack (`packages`, which
+# every ApplicationSet reads through gitea-http), application repositories in
+# any organisation (the Application compositions rewrite their repoURL to
+# gitea-http), and preview environments. The two `repository` Secrets above
+# match one exact URL each, and until 2026-10-21 everything else was cloned
+# ANONYMOUSLY. Gitea now requires sign-in for every read (REQUIRE_SIGNIN_VIEW,
+# hack/gitea/values.yaml), so an anonymous clone fails and these are what keep
+# Argo CD working. The controller replaces the bootstrap password below with
+# the credential currently in force (applyArgoCDRepoAuth).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: creds-gitea-http
+  namespace: adhar-system
+  labels:
+    argocd.argoproj.io/secret-type: repo-creds
+stringData:
+  type: git
+  url: http://gitea-http.adhar-system.svc.cluster.local:3000/
+  username: gitea_admin
+  password: r8sA8CPHD9!bt6d
+  insecure: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: creds-gitea-argocd
+  namespace: adhar-system
+  labels:
+    argocd.argoproj.io/secret-type: repo-creds
+stringData:
+  type: git
+  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/
+  username: gitea_admin
+  password: r8sA8CPHD9!bt6d
+  insecure: "true"

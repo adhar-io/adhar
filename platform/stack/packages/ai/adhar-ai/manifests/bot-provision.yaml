@@ -78,7 +78,8 @@ spec:
 
               echo "waiting for the Gitea API"
               for i in $(seq 1 60); do
-                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${GITEA}/api/v1/version" || echo 000)
+                # healthz: /api/v1/* requires sign-in (REQUIRE_SIGNIN_VIEW).
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${GITEA}/api/healthz" || echo 000)
                 [ "${code}" = "200" ] && break
                 sleep 5
               done

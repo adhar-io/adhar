@@ -749,11 +749,15 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		return fmt.Errorf("getting Gitea pod name for API check: %w", err)
 	}
 
+	// /api/healthz, not /api/v1/version: Gitea requires sign-in for every
+	// /api/v1 route (REQUIRE_SIGNIN_VIEW), so an anonymous version probe gets
+	// 401 forever and this wait would fail every bootstrap. healthz is exempt
+	// and also checks the database and cache the next steps depend on.
 	for i := 0; i < 80; i++ {
 		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--",
-			"curl", "-sf", "http://localhost:3000/api/v1/version")
+			"curl", "-sf", "http://localhost:3000/api/healthz")
 		if output, err := cmd.CombinedOutput(); err == nil {
-			logger.Info("Gitea API is responding", "version", strings.TrimSpace(string(output)))
+			logger.Info("Gitea API is responding", "health", strings.TrimSpace(string(output)))
 			break
 		}
 

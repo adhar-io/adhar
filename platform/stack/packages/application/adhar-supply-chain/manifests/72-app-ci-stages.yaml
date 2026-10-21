@@ -25,7 +25,7 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "4"}
 spec:
-  description: Run the repository's unit tests with the toolchain the repository declares.
+  description: Run the repository's unit and integration tests with the toolchain the repository declares.
   params:
     - {name: subdirectory, type: string, default: ""}
     # From detect-toolchain. Step images are built from these, so a project is
@@ -39,6 +39,30 @@ spec:
     - {name: source}
   results:
     - {name: runner, description: "Which test runner ran (maven, gradle, npm, go, pytest, none)"}
+  # Testcontainers needs a Docker API; kubedock provides one that runs each
+  # container as a pod in adhar-ci-sandbox (74-testcontainers-sandbox.yaml) and
+  # reverse-proxies its ports onto this pod's localhost. Bound to 127.0.0.1 so
+  # only the steps of THIS pod can use it — on the default `:2475` any pod in
+  # the cluster could start containers through it. --disable-dind: no
+  # container gets a Docker socket. --timeout 10m: an image pull on a busy node
+  # outlasts kubedock's 1-minute default — the first live run on GCP timed out
+  # at 5m while postgres:16-alpine was still being pulled (2026-10-22). No --prune-start: concurrent runs
+  # share the namespace and must not delete each other's containers; leftovers
+  # are reaped after --reapmax.
+  sidecars:
+    - name: kubedock
+      image: docker.io/joyrex2001/kubedock:0.23.0
+      args:
+        - server
+        - --listen-addr=127.0.0.1:2475
+        - --namespace=adhar-ci-sandbox
+        - --reverse-proxy
+        - --disable-dind
+        - --timeout=10m
+        - --reapmax=45m
+      computeResources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {cpu: 500m, memory: 256Mi}
   steps:
     # Tests run on a private COPY of the checkout: `npm ci` / `mvn test` write
     # node_modules and target/ next to the source, and the shared workspace is
@@ -63,6 +87,12 @@ spec:
     - name: maven
       image: docker.io/library/maven:$(params.mavenVersion)-eclipse-temurin-$(params.jdkVersion)
       workingDir: /workspace/testsrc
+      env:
+        - {name: DOCKER_HOST, value: "tcp://127.0.0.1:2475"}
+        # Ryuk (Testcontainers' reaper) needs a Docker socket it can mount;
+        # kubedock reaps instead.
+        - {name: TESTCONTAINERS_RYUK_DISABLED, value: "true"}
+        - {name: TESTCONTAINERS_CHECKS_DISABLE, value: "true"}
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
@@ -70,8 +100,12 @@ spec:
         S=""; [ -f settings.xml ] && S="-s settings.xml"
         # The wrapper, when the project ships one, is the project's exact Maven.
         MVN=mvn; [ -x ./mvnw ] && MVN=./mvnw
-        $MVN -B -q $S -Dmaven.repo.local=/workspace/.m2 test
-        echo "maven tests passed"
+        # `verify`, not `test`: integration tests (*IT, maven-failsafe) run in
+        # the integration-test phase — the JVM templates' Karate API suite
+        # against the real app and its Testcontainers dependencies. Their
+        # containers come from the kubedock sidecar.
+        $MVN -B -q $S -Dmaven.repo.local=/workspace/.m2 verify
+        echo "maven unit and integration tests passed"
     - name: gradle
       image: docker.io/library/eclipse-temurin:$(params.jdkVersion)-jdk
       workingDir: /workspace/testsrc
@@ -423,3 +457,61 @@ spec:
 
         printf '%s' "$go"    > "$(results.go.path)"
         printf '%s' "$python" > "$(results.python.path)"
+---
+# End-to-end tests in a real browser, on every build.
+#
+# The frontend templates ship a Playwright suite in `e2e/` whose config builds
+# and serves the app's PRODUCTION build itself (webServer), so this stage needs
+# no deployed environment: it proves the artifact this build produced renders,
+# navigates and logs no errors — before it is signed. A repository without
+# `e2e/playwright.config.*` skips it.
+#
+# The image's browsers are tied to its Playwright version; the templates pin
+# @playwright/test to the same version (1.64.1). A project that moves its
+# @playwright/test pin must move this image with it, or the browsers are not
+# found.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: e2e-playwright
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Run the repository's Playwright end-to-end suite against its own production build.
+  params:
+    - {name: subdirectory, type: string, default: ""}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: ran, description: "true when an e2e suite exists and ran"}
+  steps:
+    - name: e2e
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      env:
+        - {name: CI, value: "true"}
+        - {name: HOME, value: /workspace/e2e-home}
+      computeResources:
+        requests: {cpu: 500m, memory: 1Gi}
+        limits: {cpu: "2", memory: 3Gi}
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # A private copy, like the unit tests: node_modules, the build output
+        # and the reports must not land in the shared workspace.
+        mkdir -p /workspace/e2esrc "$HOME"
+        cp -a "$(workspaces.source.path)/$(params.subdirectory)/." /workspace/e2esrc/
+        cd /workspace/e2esrc
+        CFG="$(ls e2e/playwright.config.* 2>/dev/null | head -n 1 || true)"
+        if [ -z "$CFG" ]; then
+          echo "no e2e/playwright.config.*; nothing to run"
+          printf false > "$(results.ran.path)"
+          exit 0
+        fi
+        if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+        printf true > "$(results.ran.path)"
+        if npm run 2>/dev/null | grep -q '^  test:e2e$'; then
+          npm run test:e2e
+        else
+          npx playwright test -c "$CFG"
+        fi
+        echo "e2e tests passed"
