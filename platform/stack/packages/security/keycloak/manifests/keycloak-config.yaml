@@ -917,8 +917,25 @@ data:
         | while read -r es; do
             kubectl -n adhar-system annotate externalsecrets.external-secrets.io "${es}" \
               force-sync="${now}" --overwrite >/dev/null 2>&1 && echo "nudged ExternalSecret/${es}"
-          done
+          done || true
+      # `|| true`: the job runs under set -e -o pipefail, and a transient
+      # kubectl failure in this advisory step must not fail the realm job.
       return 0
+    }
+
+    # reconcile_clients_and_nudge: registering every client takes minutes
+    # (3.5 min for ~30 on GCP, 2026-10-21) and each client's keys land in
+    # keycloak-clients as it is registered, so a consumer waiting on an early
+    # client should not wait for the last one. A background loop nudges every
+    # 20 s while the pass runs; the final nudge catches the rest.
+    reconcile_clients_and_nudge() {
+      local nudger
+      ( while sleep 20; do nudge_waiting_consumers; done ) &
+      nudger=$!
+      reconcile_clients
+      kill "${nudger}" 2>/dev/null || true
+      wait "${nudger}" 2>/dev/null || true
+      nudge_waiting_consumers
     }
 
     # publish_directory writes ConfigMap/keycloak-directory: every realm user's
@@ -958,8 +975,7 @@ data:
         exit 0
       fi
       ensure_clients_secret
-      reconcile_clients
-      nudge_waiting_consumers
+      reconcile_clients_and_nudge
       reconcile_idps
       publish_directory
       exit 0
@@ -1188,8 +1204,7 @@ data:
     # existing realm, so every client (including ones shipped by other
     # packages that are already present) converges on the FIRST run.
     ensure_clients_secret
-    reconcile_clients
-    nudge_waiting_consumers
+    reconcile_clients_and_nudge
     # Federation is reconciled on the full run too, not only on the CronJob:
     # a fresh realm must come up already federated, or the first person to log
     # in after a rebuild is told their corporate identity is unknown.
