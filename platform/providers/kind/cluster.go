@@ -243,10 +243,14 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 	}
 	setupLog.Info("Creating kind cluster", "cluster", c.name)
 
-	if err = c.provider.Create(
+	// Podman: create the node with no process limit (pidslimit.go).
+	restoreEngineEnv := createWithoutPidsLimit(utils.DetectContainerEngine().Binary)
+	err = c.provider.Create(
 		c.name,
 		cluster.CreateWithRawConfig(rawConfig),
-	); err != nil {
+	)
+	restoreEngineEnv()
+	if err != nil {
 		t := &kindexec.RunError{}
 		if errors.As(err, &t) {
 			return fmt.Errorf("%w: %s", err, t.Output)

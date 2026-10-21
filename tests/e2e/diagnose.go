@@ -128,6 +128,13 @@ func dumpState(ctx context.Context, kubeContext string) string {
 		{"pods not Running or Completed", kc + ` get pods -A -o wide | grep -v -E ' (Running|Completed) ' || true`},
 		{"recent warning events", kc + ` get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -n 40`},
 		{"node allocation", kc + ` describe nodes | grep -A 8 'Allocated resources' || true`},
+		// The engine kind used (the runner has Docker even on the Podman job,
+		// so a bare `docker info` above describes the wrong engine).
+		{"node process limits", `e=${KIND_EXPERIMENTAL_PROVIDER:-docker}; ` +
+			`for n in $($e ps --filter label=io.x-k8s.kind.cluster --format '{{.Names}}'); do ` +
+			`echo "$e $n limit=$($e inspect -f '{{.HostConfig.PidsLimit}}' $n)" ` +
+			`"pids.max=$($e exec $n cat /sys/fs/cgroup/pids.max)" ` +
+			`"pids.current=$($e exec $n cat /sys/fs/cgroup/pids.current)"; done 2>&1 || true`},
 		{"container engine", `(docker info --format '{{.NCPU}} cpu {{.MemTotal}} bytes {{.Driver}}' || ` +
 			`podman info --format '{{.Host.CPUs}} cpu {{.Host.MemTotal}} bytes rootless={{.Host.Security.Rootless}}')` +
 			` 2>/dev/null || true`},
