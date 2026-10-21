@@ -35,7 +35,7 @@ jobs:
     # budgets below are tightened for a CI runner, and this timeout leaves room
     # for checkout, the Go toolchain and the teardown after the test returns.
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 70
     # Docker is the gate. The same bring-up on rootless Podman on this runner
     # reaches ~12 of 15 apps in the time Docker finishes all of them (docker
     # 14.5 min green, podman 54 min red on the same commit, 2026-10-17); the
@@ -49,10 +49,14 @@ jobs:
       # regression.
       # up = ~5m bootstrap + apps budget + the verdict's 10m grace; the runner
       # has 4 vCPUs and the identity chain alone takes ~15m on it.
-      ADHAR_E2E_TIMEOUT: 85m
-      ADHAR_E2E_UP_TIMEOUT: 55m
-      ADHAR_E2E_APPS_TIMEOUT: 35m
-      ADHAR_E2E_HEALTH_TIMEOUT: 20m
+      # A healthy run converges the apps in ~10 minutes (Docker passes in
+      # 17-23 min end to end). The old 35m apps / 55m up budget only made a
+      # stuck run take 50+ minutes to say so; a run that has not converged in
+      # 20 minutes is stuck, and the cluster state dump on failure says why.
+      ADHAR_E2E_TIMEOUT: 60m
+      ADHAR_E2E_UP_TIMEOUT: 35m
+      ADHAR_E2E_APPS_TIMEOUT: 20m
+      ADHAR_E2E_HEALTH_TIMEOUT: 15m
     steps:
       - uses: actions/checkout@v4
         with:

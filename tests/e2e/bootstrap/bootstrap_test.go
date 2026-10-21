@@ -139,6 +139,13 @@ func Test_FullBootstrapSequence(t *testing.T) {
 	if !skipUp {
 		t.Logf("running adhar up --recreate (full bootstrap, budget %s, apps budget %s)", upTimeout, appsTimeout)
 		b, err := e2e.RunAdhar(ctx, upTimeout, "up", "--recreate", "--apps-timeout", appsTimeout.String())
+		if err != nil {
+			// Before anything tears the cluster down: say WHICH apps were stuck
+			// and why, not just how many.
+			diagCtx, diagCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			t.Logf("cluster state when adhar up gave up:%s", e2e.DumpPlatformState(diagCtx))
+			diagCancel()
+		}
 		require.NoError(t, err, "adhar up failed: %s", string(b))
 
 		if !keep {

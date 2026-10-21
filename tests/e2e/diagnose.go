@@ -3,8 +3,10 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -106,4 +108,43 @@ func truncate(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+// DumpPlatformState captures what the cluster looked like when `adhar up`
+// gave up, for the CI log. A failed bring-up used to report only "n/15 apps
+// Synced + Healthy" and then tear the cluster down, so the Podman job failed
+// on every run for days with nothing to say WHICH apps were stuck or why.
+// Each command is best effort: a diagnostic must never be the thing that fails.
+func DumpPlatformState(ctx context.Context) string {
+	return dumpState(ctx, KubeContext)
+}
+
+func dumpState(ctx context.Context, kubeContext string) string {
+	kc := "kubectl --context " + kubeContext
+	sections := []struct{ title, cmd string }{
+		{"Argo CD applications", kc + ` -n adhar-system get applications.argoproj.io -o custom-columns='APP:.metadata.name,HEALTH:.status.health.status,SYNC:.status.sync.status,OP:.status.operationState.phase,MESSAGE:.status.operationState.message'`},
+		{"pods not Running or Completed", kc + ` get pods -A -o wide | grep -v -E ' (Running|Completed) ' || true`},
+		{"recent warning events", kc + ` get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -n 40`},
+		{"node allocation", kc + ` describe nodes | grep -A 8 'Allocated resources' || true`},
+		{"container engine", `(docker info --format '{{.NCPU}} cpu {{.MemTotal}} bytes {{.Driver}}' || podman info --format '{{.Host.CPUs}} cpu {{.Host.MemTotal}} bytes rootless={{.Host.Security.Rootless}}') 2>/dev/null || true`},
+	}
+	var b strings.Builder
+	for _, s := range sections {
+		cmdCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		// Through a shell: the sections use pipes and quoting, which
+		// RunCommand (whitespace-split, no shell) cannot express.
+		out, err := exec.CommandContext(cmdCtx, "sh", "-c", s.cmd).CombinedOutput()
+		cancel()
+		// Tables keep their lines (truncate() folds whitespace for one-line
+		// reasons); only the length is capped.
+		text := string(out)
+		if len(text) > 12000 {
+			text = text[:12000] + "\n…(truncated)\n"
+		}
+		fmt.Fprintf(&b, "\n===== %s =====\n%s", s.title, text)
+		if err != nil {
+			fmt.Fprintf(&b, "(command failed: %v)\n", err)
+		}
+	}
+	return b.String()
 }
