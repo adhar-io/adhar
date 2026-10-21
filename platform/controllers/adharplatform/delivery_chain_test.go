@@ -374,3 +374,13 @@ func TestEachEnvironmentSyncsItsOwnRenderedBranch(t *testing.T) {
 		t.Error("a promotion still pushes the shared source branch")
 	}
 }
+
+// The Performance Center suite repository holds k6 tests, not an application.
+// app-ci built it on every push and failed (no buildpack, no deploy/), and
+// scaffolds now add a test to it for every new service (GCP, 2026-10-21).
+func TestAppCiIgnoresThePerformanceSuiteRepository(t *testing.T) {
+	ci := readStackFile(t, "application/adhar-supply-chain/manifests/70-app-ci.yaml")
+	if strings.Count(ci, "'performance-tests']") < 2 {
+		t.Error("app-ci's push and preview triggers do not exclude the performance-tests suite repository")
+	}
+}

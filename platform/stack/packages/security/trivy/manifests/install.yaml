@@ -3020,6 +3020,8 @@ metadata:
     app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
+  TRIVY_USERNAME: ""
+  TRIVY_PASSWORD: ""
 ---
 # Source: trivy-operator/templates/configmaps/operator.yaml
 apiVersion: v1
@@ -3044,6 +3046,7 @@ data:
   configAuditReports.scanner: "Trivy"
   compliance.failEntriesLimit: "10"
   report.recordFailedChecksOnly: "true"
+  trivy.serverURL: "http://trivy-service.adhar-system:4954"
   node.collector.imageRef: "ghcr.io/aquasecurity/node-collector:0.3.1"
   policies.bundle.oci.ref: "mirror.gcr.io/aquasec/trivy-checks:1"
   policies.bundle.insecure: "false"
@@ -3066,7 +3069,7 @@ data:
   OPERATOR_LOG_DEV_MODE: "false"
   OPERATOR_SCAN_JOB_TTL: ""
   OPERATOR_SCAN_JOB_TIMEOUT: "5m"
-  OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT: "10"
+  OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT: "3"
   OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT: "1"
   OPERATOR_SCAN_JOB_RETRY_AFTER: "30s"
   OPERATOR_BATCH_DELETE_LIMIT: "10"
@@ -3100,7 +3103,7 @@ data:
   OPERATOR_SEND_DELETED_REPORTS: "false"
   OPERATOR_PRIVATE_REGISTRY_SCAN_SECRETS_NAMES: "{}"
   OPERATOR_ACCESS_GLOBAL_SECRETS_SERVICE_ACCOUNTS: "true"
-  OPERATOR_BUILT_IN_TRIVY_SERVER: "false"
+  OPERATOR_BUILT_IN_TRIVY_SERVER: "true"
   TRIVY_SERVER_HEALTH_CHECK_CACHE_EXPIRATION: "10h"
   OPERATOR_MERGE_RBAC_FINDING_WITH_CONFIG_AUDIT: "false"
   OPERATOR_CLUSTER_COMPLIANCE_ENABLED: "true"
@@ -3138,11 +3141,19 @@ data:
   trivy.supportedConfigAuditKinds: "Workload,Service,Role,ClusterRole,NetworkPolicy,Ingress,LimitRange,ResourceQuota,PersistentVolume,PersistentVolumeClaim"
   trivy.timeout: "5m0s"
   trivy.ignoreFileName: ".trivyignore.yaml"
-  trivy.mode: "Standalone"
-  trivy.resources.requests.cpu: "100m"
-  trivy.resources.requests.memory: "100M"
+  trivy.serverURL: "http://trivy-service.adhar-system:4954"
+  trivy.mode: "ClientServer"
+  trivy.resources.requests.cpu: "50m"
+  trivy.resources.requests.memory: "128M"
   trivy.resources.limits.cpu: "500m"
-  trivy.resources.limits.memory: "500M"
+  trivy.resources.limits.memory: "512M"
+  TRIVY_LISTEN: "0.0.0.0:4954"
+  TRIVY_CACHE_DIR: "/home/scanner/.cache/trivy"
+  TRIVY_DEBUG: "false"
+  TRIVY_SKIP_DB_UPDATE: "false"
+  TRIVY_DB_REPOSITORY: "mirror.gcr.io/aquasec/trivy-db"
+  TRIVY_JAVA_DB_REPOSITORY: "mirror.gcr.io/aquasec/trivy-java-db"
+  TRIVY_INSECURE: "false"
 ---
 # Source: trivy-operator/templates/rbac/clusterrole.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -3523,6 +3534,27 @@ spec:
     app.kubernetes.io/instance: trivy-operator
   type: ClusterIP
 ---
+# Source: trivy-operator/templates/trivy-server/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-service
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/instance: trivy-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/instance: trivy-server
+  ports:
+    - name: trivy-http
+      protocol: TCP
+      port: 4954
+      targetPort: 4954
+  sessionAffinity: ClientIP
+---
 # Source: trivy-operator/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -3546,7 +3578,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 53fd10f9a04aa1387137ad8e53ab5541094ea94e7c14074484de250460e9513b
+        checksum/config: 7a772fcc681c3a7a92c681b76e77897573e0735f767679b47740ba4279401040
       labels:
         app.kubernetes.io/name: trivy-operator
         app.kubernetes.io/instance: trivy-operator
@@ -3606,6 +3638,102 @@ spec:
       volumes:
         - emptyDir: {}
           name: cache-policies
+---
+# Source: trivy-operator/templates/trivy-server/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trivy-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/instance: trivy-server
+spec:
+  podManagementPolicy: "Parallel"
+  serviceName: trivy-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-server
+      app.kubernetes.io/instance: trivy-server
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        resources:
+          requests:
+            storage: 5Gi
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: 
+  template:
+    metadata:
+      annotations:
+        checksum/config: 7fcc66ace3f98462349856795765021e7bf7a0106f28439a9f6dc74257404370
+      labels:
+        app.kubernetes.io/name: trivy-server
+        app.kubernetes.io/instance: trivy-server
+    spec:
+      serviceAccountName: trivy-operator
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: trivy-server
+          image: "mirror.gcr.io/aquasec/trivy:0.74.0"
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+          args:
+            - server
+          envFrom:
+            - configMapRef:
+                name: trivy-operator-trivy-config
+            - secretRef:
+                name: trivy-operator-trivy-config
+          ports:
+            - name: trivy-http
+              containerPort: 4954
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /healthz
+              port: trivy-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /healthz
+              port: trivy-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-data
+              readOnly: false
+            - mountPath: /home/scanner/.cache
+              name: data
+              readOnly: false
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+      volumes:
+        - name: tmp-data
+          emptyDir: {}
 ---
 # Source: trivy-operator/templates/specs/k8s-cis-1.23.yaml
 apiVersion: aquasecurity.github.io/v1alpha1

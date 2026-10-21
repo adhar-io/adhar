@@ -433,7 +433,12 @@ data:
       log "$app: performance $(printf '%s' "$perf" | jq -c '{status, p95Ms, errorRate, rps}')"
 
       suite='{}'
-      for exp in ${CHAOS_EXPERIMENTS//,/ }; do
+      # The service's own scenario list (the templates set it from the
+      # "Chaos scenarios" field), else the platform default. Only fault names
+      # pass: the value ends up in a ChaosEngine.
+      exps="$(ann adhar.io/chaos-experiments | tr -d ' ')"
+      case "$exps" in ''|*[!a-z0-9,-]*) exps="$CHAOS_EXPERIMENTS" ;; esac
+      for exp in ${exps//,/ }; do
         if [ "$(ann adhar.io/chaos)" = "false" ]; then
           r="$(jq -nc --arg e "$exp" '{status:"opted-out",experiment:$e,detail:"the Service carries adhar.io/chaos=false"}')"
         else

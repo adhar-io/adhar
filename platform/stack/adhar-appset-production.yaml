@@ -36,8 +36,12 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/falco/manifests"
+          # Runtime vulnerability, misconfiguration and SBOM reports for every
+          # running workload: the console's runtime findings and license
+          # inventory read them. Off since 2026-08-30 for no recorded reason;
+          # scan load is bounded in its values (3 jobs, one shared Trivy server).
           - name: "trivy"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/trivy/manifests"

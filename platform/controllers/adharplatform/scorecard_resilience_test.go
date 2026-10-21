@@ -72,7 +72,7 @@ func TestTheResilienceRunnerNeverTargetsProductionByDefault(t *testing.T) {
 	if !strings.Contains(run, `ENVS="$(readcfg runner_environments test,dev)"`) {
 		t.Error("run.sh no longer takes its target environments from runner_environments (default test,dev)")
 	}
-	for _, want := range []string{"chaosengines.litmuschaos.io", `type: "httpProbe", mode: "Continuous"`, "ADHAR_K6_SUMMARY", `case "$phase" in Completed*`} {
+	for _, want := range []string{"chaosengines.litmuschaos.io", `type: "httpProbe", mode: "Continuous"`, "ADHAR_K6_SUMMARY", `case "$phase" in Completed*`, `exps="$(ann adhar.io/chaos-experiments`} {
 		if !strings.Contains(run, want) {
 			t.Errorf("run.sh lacks %q", want)
 		}

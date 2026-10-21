@@ -19,7 +19,8 @@ import (
 func TestPlaneSignInEndpointsBypassTheSSOProxySession(t *testing.T) {
 	body := readStackFile(t, "application/plane/manifests/sso.yaml")
 	for _, want := range []string{
-		`- --skip-auth-route=GET=^/api/instances/?$`,
+		// The whole API since 2026-10-21 (a superset of the instance fetch).
+		`- --skip-auth-route=^/api/`,
 		`- --skip-auth-route=^/auth/`,
 	} {
 		if !strings.Contains(body, want) {
@@ -30,7 +31,7 @@ func TestPlaneSignInEndpointsBypassTheSSOProxySession(t *testing.T) {
 	// Generated manifest: the regeneration command must carry the same flags
 	// or the next hack/gen-sso.sh run silently drops them.
 	header := body[:strings.Index(body, "\napiVersion:")]
-	if !strings.Contains(header, "--skip-auth-route=GET=^/api/instances/?$") || !strings.Contains(header, "--skip-auth-route=^/auth/") {
+	if !strings.Contains(header, "--skip-auth-route=^/api/") || !strings.Contains(header, "--skip-auth-route=^/auth/") {
 		t.Error("the recorded gen-sso.sh command does not carry the skip-auth routes; regenerating would revert the fix")
 	}
 }

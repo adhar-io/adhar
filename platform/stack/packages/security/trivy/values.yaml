@@ -2,10 +2,20 @@
 # Continuously scans workloads (vulnerabilities, misconfig, secrets) and writes
 # results to CRDs. No web UI / ingress.
 
-trivyOperator:
-  scanJobsConcurrentLimit: 5
-
 operator:
+  # The chart reads the limit HERE. It used to sit under a `trivyOperator:` key
+  # the chart has never had, so the operator ran its default of 10 concurrent
+  # scan jobs — ten Trivy processes, each pulling the ~100 MB vulnerability DB,
+  # against the ~90 images a platform runs on a cluster still settling.
+  scanJobsConcurrentLimit: 3
+  # One Trivy server (a StatefulSet with a cached DB) answers every scan job,
+  # instead of each job downloading and unpacking the DB itself. The chart
+  # switches scanning to ClientServer mode when this is on.
+  builtInTrivyServer: true
+  # SbomReports are what the console's license inventory reads (and what
+  # ClusterVulnerabilityReports are built from). The chart's default, stated
+  # so nobody turns it off thinking it is optional.
+  sbomGenerationEnabled: true
   scannerReportTTL: "24h"
   # Pinned explicitly rather than relying on the release namespace: a stale
   # "trivy-system" value survived the adhar-system consolidation here because it
@@ -19,3 +29,12 @@ trivy:
   # (trivy.ignoreFile) is written by manifests/waiver-sync.yaml from the
   # platform-wide scan waivers, never from these values.
   ignoreFileName: ".trivyignore.yaml"
+  # Each scan job is a Trivy CLIENT now (the server holds the DB), so it needs
+  # little; the server gets the memory to hold the unpacked DB.
+  resources:
+    requests: {cpu: 50m, memory: 128M}
+    limits: {cpu: 500m, memory: 512M}
+  server:
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}

@@ -35,6 +35,39 @@ spec:
   hostnames:
     - plane.adhar.localtest.me
   rules:
+    # Single sign-on, without Plane's own sign-in page. Plane draws a page with
+    # one button ("Continue with Keycloak") to anyone without a Plane session,
+    # so a person already signed in to Keycloak was asked to sign in again.
+    # Its Keycloak start URL completes silently against that session instead.
+    # A request that CARRIES Plane's session cookie is served as before — the
+    # header match ranks above the path-only redirect below.
+    - matches:
+        - path:
+            type: Exact
+            value: /
+          method: GET
+          headers:
+            - type: RegularExpression
+              name: Cookie
+              value: "(^|.*;\\s*)session-id=[^;]+.*"
+      backendRefs:
+        - name: plane-oauth2-proxy
+          port: 4180
+    - matches:
+        - path:
+            type: Exact
+            value: /
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /auth/keycloak/
+            # Stated, or Gateway API defaults it to 443 and a local platform on
+            # 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

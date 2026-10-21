@@ -986,6 +986,9 @@ func TestSSOButtonPagesRedirectStraightIntoKeycloak(t *testing.T) {
 	for file, want := range map[string][]string{
 		"data/jupyterhub/manifests/jupyterhub-ingress.yaml.tmpl": {"value: /hub/login", "replaceFullPath: /hub/oauth_login"},
 		"data/libredb-studio/manifests/httproute.yaml.tmpl":      {"value: /login", "replaceFullPath: /api/auth/oidc/login"},
+		// Plane draws its own one-button sign-in to anyone without a Plane
+		// session; a request that carries one must still reach Plane.
+		"application/plane/manifests/httproute.yaml.tmpl": {"value: /", "replaceFullPath: /auth/keycloak/", "session-id=[^;]+"},
 	} {
 		body := readStackFile(t, file)
 		for _, w := range append(want, "type: RequestRedirect", "port: {{ .Port }}", "method: GET") {
@@ -993,5 +996,21 @@ func TestSSOButtonPagesRedirectStraightIntoKeycloak(t *testing.T) {
 				t.Errorf("%s lacks %q", file, w)
 			}
 		}
+	}
+}
+
+// Plane authenticates its API with its own session. Behind the edge proxy an
+// XHR with no proxy cookie got a 302 to Keycloak that a browser cannot follow
+// cross-origin, and Plane's pages stopped loading (GCP, 2026-10-21).
+func TestPlanesApiIsNotBehindTheEdgeProxy(t *testing.T) {
+	sso := readStackFile(t, "application/plane/manifests/sso.yaml")
+	for _, want := range []string{"--skip-auth-route=^/api/", "--skip-auth-route=^/auth/", "--skip-auth-route=^/live/", "--skip-auth-route=^/uploads/"} {
+		if !strings.Contains(sso, want) {
+			t.Errorf("Plane's oauth2-proxy lacks %s", want)
+		}
+	}
+	// The hand-made client Plane's own sign-in uses must survive any regeneration.
+	if !strings.Contains(sso, `"clientId": "plane-app"`) {
+		t.Error("the plane-app Keycloak client is gone from sso.yaml; Plane's in-app Keycloak login has no client")
 	}
 }
