@@ -222,6 +222,8 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 			// The caches are stopped by `adhar down`; an existing cluster still
 			// wants them back for its next pulls.
 			c.ensureRegistryCache(ctx)
+			// A cluster made by an older adhar still has Podman's limit.
+			c.liftNodePidsLimit(ctx)
 			return nil
 		}
 	}
@@ -252,6 +254,11 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 		return err
 	}
 	setupLog.Info("Done creating cluster", "cluster", c.name)
+
+	// Before anything is scheduled: Podman's default 2048-process limit on the
+	// node container stops pods from starting once the platform is up
+	// (pidslimit.go). A no-op on Docker.
+	c.liftNodePidsLimit(ctx)
 
 	// The node pulls every public image through local pull-through caches on
 	// the kind network (registrycache.go); start them now, before the first
