@@ -96,8 +96,15 @@ func TestLocalProductionAppSetParity(t *testing.T) {
 	for _, e := range prod {
 		prodEnabled[e.Name] = e.Enabled == "true"
 	}
+	// The only exceptions: packages that exist BECAUSE the local cluster is a
+	// single small node, and would be wrong anywhere else.
+	localOnly := map[string]bool{
+		// Caps CPU requests at 50m so the platform schedules on one 4-vCPU
+		// Kind node; on a cloud cluster requests drive the autoscaler.
+		"adhar-local-budget": true,
+	}
 	for _, e := range local {
-		if e.Enabled == "true" && !prodEnabled[e.Name] {
+		if e.Enabled == "true" && !prodEnabled[e.Name] && !localOnly[e.Name] {
 			t.Errorf("package %q enabled locally but disabled in production — local must stay a subset", e.Name)
 		}
 	}

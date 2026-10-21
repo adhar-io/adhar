@@ -449,6 +449,13 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/adhar-supply-chain/manifests"
+  # Local profile only: caps CPU requests so the platform schedules on one
+  # 4-vCPU Kind node. Mirrors adhar-appset-*.yaml.
+  - name: "adhar-local-budget"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "security"
+    manifestPath: "security/kyverno/local-budget"
   - name: "adhar-supply-chain-kyverno"
     enabled: "true"
     namespace: "adhar-system"

@@ -1,0 +1,66 @@
+# LOCAL PROFILE ONLY (adhar-appset-local.yaml enables it; production does not).
+#
+# On a single Kind node CPU REQUESTS only decide whether a pod can be
+# scheduled — nothing autoscales on them. The platform's packages carry the
+# requests a cloud cluster needs (Prometheus 520m, Argo CD's controller 500m, a
+# CI build pod 500m, …), and on a 4-vCPU laptop or GitHub runner they reserved
+# 98% of the node while it sat mostly idle: the console, Prometheus, RustFS and
+# Keycloak waited in "FailedScheduling: Insufficient cpu", and whether
+# `adhar up` converged depended on which pods won the race. The E2E jobs failed
+# that way on Docker and Podman alike (2026-10-21).
+#
+# This caps every container's CPU REQUEST at 50m as pods are admitted. LIMITS
+# are untouched, so a busy pod still gets the CPU it needs; it simply no
+# longer reserves CPU it is not using. Pods that already ran before Kyverno
+# (Cilium, Argo CD, Gitea, the control plane) keep theirs.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-local-cpu-request-cap
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    policies.kyverno.io/title: Cap CPU requests on a single-node local cluster
+    policies.kyverno.io/category: Adhar Local
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Lowers every container's CPU request to 50m at admission on the local
+      (Kind) profile, so the platform schedules on a 4-vCPU machine. Limits
+      are unchanged.
+  labels:
+    app.kubernetes.io/part-of: adhar-platform
+    app.kubernetes.io/name: adhar-local-budget
+spec:
+  background: false
+  # A missed mutation is a pod that keeps its original request — never a pod
+  # that cannot be created.
+  failurePolicy: Ignore
+  rules:
+    - name: cap-container-cpu-requests
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE]
+      exclude:
+        any:
+          - resources:
+              namespaces: [kube-system, local-path-storage]
+      mutate:
+        foreach:
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.resources.requests.cpu || '' }}"
+                  operator: NotEquals
+                  value: ""
+                - key: "{{ element.resources.requests.cpu }}"
+                  operator: GreaterThan
+                  value: 50m
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      requests:
+                        cpu: 50m

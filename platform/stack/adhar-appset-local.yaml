@@ -557,6 +557,14 @@ spec:
             manifestPath: "application/adhar-supply-chain/manifests"
           # Kyverno ClusterPolicies of supply-chain, split out so supply-chain itself
           # can run without the kyverno package (off in the local curated core).
+          # Local profile only: caps CPU REQUESTS at 50m so the platform
+          # schedules on a single 4-vCPU Kind node (requests reserved 98% of
+          # it and E2E failed on scheduling races). Limits are untouched.
+          - name: "adhar-local-budget"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/kyverno/local-budget"
           - name: "adhar-supply-chain-kyverno"
             enabled: "true"
             namespace: "adhar-system"
