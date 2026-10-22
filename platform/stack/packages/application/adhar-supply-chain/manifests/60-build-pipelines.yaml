@@ -124,6 +124,9 @@ spec:
     - {name: nodeVersion, type: string, default: ""}
     - {name: goVersion, type: string, default: ""}
     - {name: pythonVersion, type: string, default: ""}
+    # Whether the repository ships a Playwright suite, likewise passed through
+    # so the e2e stage is gated on the build, not on detect-toolchain.
+    - {name: e2e, type: string, default: "false"}
   # The toolchain, passed THROUGH. detect-toolchain decides the versions and the
   # build is the one stage that must take them from it directly; every later
   # stage (test) reads them from the build instead, so the pipeline graph stays
@@ -136,6 +139,7 @@ spec:
     - {name: node, description: the Node major the build used}
     - {name: go, description: the Go version the build used}
     - {name: python, description: the Python version the build used}
+    - {name: e2e, description: "true when the repository ships a Playwright suite, from detect-toolchain"}
   workspaces:
     - {name: source}
   steps:
@@ -148,6 +152,7 @@ spec:
         printf '%s' "$(params.nodeVersion)"   > "$(results.node.path)"
         printf '%s' "$(params.goVersion)"     > "$(results.go.path)"
         printf '%s' "$(params.pythonVersion)" > "$(results.python.path)"
+        printf '%s' "$(params.e2e)"           > "$(results.e2e.path)"
     # The CNB lifecycle runs as the builder image's `cnb` user, but the workspace
     # PVC arrives owned by whoever cloned into it, so the first thing npm/maven
     # does — creating node_modules or target/ — failed with

@@ -201,6 +201,7 @@ spec:
         - {name: nodeVersion, value: "$(tasks.toolchain.results.node)"}
         - {name: goVersion, value: "$(tasks.toolchain.results.go)"}
         - {name: pythonVersion, value: "$(tasks.toolchain.results.python)"}
+        - {name: e2e, value: "$(tasks.toolchain.results.e2e)"}
       workspaces: [{name: source, workspace: shared}]
 
     # ── one fan-out: five independent gates, in parallel ────────────────────
@@ -222,9 +223,12 @@ spec:
         - {name: pythonVersion, value: "$(tasks.build.results.python)"}
       workspaces: [{name: source, workspace: shared}]
     # End-to-end in a real browser against the app's own production build
-    # (frontend templates' e2e/ suite); skipped when the repo has none.
+    # (frontend templates' e2e/ suite). Skipped — no pod at all — when the
+    # repository has none; a task skipped by `when` does not hold back `sign`.
     - name: e2e
       runAfter: [build]
+      when:
+        - {input: "$(tasks.build.results.e2e)", operator: in, values: ["true"]}
       taskRef: {name: e2e-playwright}
       workspaces: [{name: source, workspace: shared}]
     - name: secrets

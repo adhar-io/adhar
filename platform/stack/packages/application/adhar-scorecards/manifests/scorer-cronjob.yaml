@@ -262,8 +262,13 @@ data:
       ];
 
     # ---- assemble ------------------------------------------------------------------
+    # Applications only — the same set the Service Catalog lists. Platform
+    # packages are not graded: they are the platform's own concern, not a
+    # team's, and grading all ~78 of them buried the handful of applications a
+    # team actually owns on the Scorecards page (2026-10-22). score.sh already
+    # drops them at collection; the select below keeps the program honest if
+    # it is fed an unfiltered list.
     ($apps.items // []) as $items
-    | [ $items[] | select(.app == null) | base | {kind: "package"} + . | del(.wl, .cs, .hasC) | finish ] as $packages
     | [ $items[] | select(.app != null) ] | group_by(.app)
     | map(
         . as $group
@@ -289,7 +294,7 @@ data:
           }
         | finish )
     | . as $applications
-    | ($applications + $packages) as $services
+    | $applications as $services
     | {
         generatedAt: $ts,
         weights: {reliability:$wrel, security:$wsec, observability:$wobs, operations:$wops,
@@ -362,25 +367,39 @@ data:
 
     echo "adhar-scorecard: collecting signals..."
     fetch applications.argoproj.io apps
-    # DaemonSets count: several platform components (alloy, the eBPF agents)
-    # ship only as DaemonSets and were ungradable while this listed just
-    # Deployments and StatefulSets.
-    kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null >"$WORKDIR/core-workloads.raw" || true
-    [ -s "$WORKDIR/core-workloads.raw" ] || echo '{"items":[]}' >"$WORKDIR/core-workloads.raw"
+    # Only delivered applications (Argo CD Applications labelled
+    # adhar.io/application) are graded, so only they are kept — and every
+    # other signal is collected from the namespaces they deploy into rather
+    # than from the whole cluster, which is almost entirely platform packages.
+    jq '{items: [ (.items // [])[] | select(.metadata.labels["adhar.io/application"] != null) ]}' \
+      "$WORKDIR/apps.raw" >"$WORKDIR/apps.filtered" && mv "$WORKDIR/apps.filtered" "$WORKDIR/apps.raw"
+    APP_NS="$(jq -r '[ .items[] | .spec.destination.namespace // empty ] | unique | .[]' "$WORKDIR/apps.raw")"
+    echo "adhar-scorecard: $(jq '.items | length' "$WORKDIR/apps.raw") application environment(s) in: $(printf "%s " $APP_NS)"
+    # fetch_ns <resource> <name>: like fetch, over the application namespaces.
+    fetch_ns() {
+      : >"$WORKDIR/$2.ndjson"
+      for ns in $APP_NS; do
+        kubectl -n "$ns" get "$1" -o json 2>/dev/null | jq -c '(.items // [])[]' >>"$WORKDIR/$2.ndjson" || true
+      done
+      jq -s '{items: .}' "$WORKDIR/$2.ndjson" >"$WORKDIR/$2.raw" 2>/dev/null || echo '{"items":[]}' >"$WORKDIR/$2.raw"
+      rm -f "$WORKDIR/$2.ndjson"
+    }
+    # DaemonSets count: an application may ship one.
+    fetch_ns deployments,statefulsets,daemonsets core-workloads
     # Argo Rollouts are what every application template ships. They are fetched
     # on their own: one unknown type in a combined `kubectl get` makes it return
     # NOTHING for the others, so a cluster without the Rollouts CRD would have
     # lost every Deployment too.
-    fetch rollouts.argoproj.io rollouts
+    fetch_ns rollouts.argoproj.io rollouts
     jq -s '{items: ((.[0].items // []) + (.[1].items // []))}' \
       "$WORKDIR/core-workloads.raw" "$WORKDIR/rollouts.raw" >"$WORKDIR/workloads.raw"
     rm -f "$WORKDIR/core-workloads.raw" "$WORKDIR/rollouts.raw"
-    fetch policyreports.wgpolicyk8s.io reports
-    fetch httproutes.gateway.networking.k8s.io routes
+    fetch_ns policyreports.wgpolicyk8s.io reports
+    fetch_ns httproutes.gateway.networking.k8s.io routes
     fetch schedules.velero.io schedules
-    fetch clusters.postgresql.cnpg.io cnpg
-    fetch horizontalpodautoscalers.autoscaling hpas
-    fetch poddisruptionbudgets.policy pdbs
+    fetch_ns clusters.postgresql.cnpg.io cnpg
+    fetch_ns horizontalpodautoscalers.autoscaling hpas
+    fetch_ns poddisruptionbudgets.policy pdbs
 
     # Evidence from the resilience runner (load test, chaos, live SLO). It is
     # runtime data the runner writes; absent until its first run.
@@ -450,7 +469,7 @@ data:
     # restart counts are a resilience signal, and listing every platform pod
     # just to throw them away would cost more than the rest of the run.
     : >"$WORKDIR/pods.ndjson"
-    for ns in $(jq -r '[.items[] | select(.app != null) | .ns] | unique | .[]' "$WORKDIR/apps.json"); do
+    for ns in $APP_NS; do
       kubectl -n "$ns" get pods -o json 2>/dev/null | jq -c '(.items // [])[] | {
           ns: .metadata.namespace, labels: (.metadata.labels // {}),
           restarts: ([ (.status.containerStatuses // [])[].restartCount ] | add // 0) }' >>"$WORKDIR/pods.ndjson" || true

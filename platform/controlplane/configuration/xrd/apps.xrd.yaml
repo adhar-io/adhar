@@ -284,8 +284,16 @@ spec:
                             description: Time between samples.
                           count:
                             type: integer
-                            default: 5
-                            description: Samples that must pass (count × interval is the soak).
+                            default: 8
+                            description: Samples that must pass (count × interval is the soak). The run must outlast
+                              settleSeconds, or a release that never finishes is never seen to fail.
+                          settleSeconds:
+                            type: integer
+                            default: 480
+                            description: How long a release may legitimately be in flight. The Rollout check fails
+                              only when Degraded or still not Healthy after this long, and the pod check only on a pod
+                              still not ready once older than this — a canary walking its steps and a JVM booting are
+                              not failures. Raise it for an application that boots slowly.
                           failureLimit:
                             type: integer
                             default: 1
@@ -353,6 +361,8 @@ spec:
                       interval:
                         type: string
                       count:
+                        type: integer
+                      settleSeconds:
                         type: integer
                       failureLimit:
                         type: integer

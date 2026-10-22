@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -191,7 +192,7 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 			t.Errorf("%s is scored per environment; an application must be ONE record named after it, or the catalog entity never joins it", n)
 		}
 	}
-	shop, cart, kc := res.Services[by["shop"]], res.Services[by["cart"]], res.Services[by["keycloak"]]
+	shop, cart := res.Services[by["shop"]], res.Services[by["cart"]]
 	if shop.Kind != "application" || shop.Environment != "prod" {
 		t.Errorf("shop graded as %s on %q; want an application graded on prod, its most-promoted environment", shop.Kind, shop.Environment)
 	}
@@ -244,10 +245,47 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 			t.Errorf("%s is applicable on an application the suite never ran against", n)
 		}
 	}
-	if kc.Kind != "package" || kc.Categories["performance"] != nil || kc.Categories["resilience"] != nil {
-		t.Error("a platform package must report performance/resilience as null (nothing was tested), never a free score")
+	// Scorecards cover the applications teams deliver — the Service Catalog's
+	// list — never the platform's own packages (2026-10-22: 78 packages buried
+	// 3 applications). keycloak is in the fixture as a package and must not be
+	// graded, counted or averaged.
+	if _, ok := by["keycloak"]; ok {
+		t.Error("the platform package keycloak was graded; scorecards are for applications only")
 	}
-	if kc.Score != 100 {
-		t.Errorf("a platform package's score moved to %d: the new categories must not change how packages are graded", kc.Score)
+	for _, s := range res.Services {
+		if s.Kind != "application" {
+			t.Errorf("%s was graded as %q; only applications are scored", s.Name, s.Kind)
+		}
+	}
+	if len(res.Services) != 2 {
+		t.Errorf("want exactly the 2 applications (shop, cart), got %d services", len(res.Services))
+	}
+}
+
+// The scorer must not even collect platform packages' resources: everything
+// but the Argo CD Applications and Velero schedules is read from the
+// namespaces applications deploy into.
+func TestTheScorerOnlyScansApplicationNamespaces(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "stack", "packages", "application",
+		"adhar-scorecards", "manifests", "scorer-cronjob.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, `select(.metadata.labels["adhar.io/application"] != null)`) {
+		t.Error("score.sh no longer keeps only Applications labelled adhar.io/application")
+	}
+	allowed := map[string]bool{"applications.argoproj.io": true, "schedules.velero.io": true}
+	for _, m := range regexp.MustCompile(`(?m)^\s+fetch (\S+) \S+$`).FindAllStringSubmatch(src, -1) {
+		if !allowed[m[1]] {
+			t.Errorf("%s is fetched cluster-wide; collect it with fetch_ns over the application namespaces", m[1])
+		}
+	}
+	// fetch() itself, and the Performance Center results — labelled per
+	// application — are the only other cluster-wide reads.
+	for _, line := range regexp.MustCompile(`kubectl get [^|\n]* -A[^\n]*`).FindAllString(src, -1) {
+		if !strings.Contains(line, `"$1"`) && !strings.Contains(line, "adhar.io/perf-result=true,adhar.io/application") {
+			t.Errorf("cluster-wide read outside fetch(): %s", line)
+		}
 	}
 }

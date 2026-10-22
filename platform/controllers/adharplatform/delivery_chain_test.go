@@ -37,7 +37,7 @@ func TestApplicationStagesVerifyAgainstPrometheusBeforeFreightMovesOn(t *testing
 	comp := readConfigurationFile(t, "compositions", "project", "local.yaml")
 	for _, want := range []string{
 		"kind: AnalysisTemplate",
-		`count(rollout_info{namespace=\"%s\",name=\"%s\",phase!~\"Healthy|Completed\"} == 1) or vector(0)`,
+		`rollout_info{namespace=\"%s\",name=\"%s\",phase=\"Degraded\"}`,
 		"kube_pod_status_ready{",
 		"kube_pod_container_status_restarts_total{",
 		"verification:\n                      analysisTemplates:",

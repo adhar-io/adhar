@@ -92,7 +92,8 @@ spec:
             {{- $verifyCfg := default (dict) (get $promo "verification") -}}
             {{- $verify := ternary (get $verifyCfg "enabled") true (hasKey $verifyCfg "enabled") -}}
             {{- $vInterval := default "60s" (get $verifyCfg "interval") -}}
-            {{- $vCount := default 5 (get $verifyCfg "count") -}}
+            {{- $vCount := default 8 (get $verifyCfg "count") -}}
+            {{- $vSettle := default 480 (get $verifyCfg "settleSeconds") -}}
             {{- $vFail := default 1 (get $verifyCfg "failureLimit") -}}
             {{- $errQuery := default "" (get $verifyCfg "errorRateQuery") -}}
             {{- $errThreshold := default 0.01 (get $verifyCfg "errorRateThreshold") -}}
@@ -492,6 +493,7 @@ spec:
                   enabled: {{ $verify }}
                   interval: {{ quote $vInterval }}
                   count: {{ $vCount }}
+                  settleSeconds: {{ $vSettle }}
                   failureLimit: {{ $vFail }}
                   {{- if $errQuery }}
                   errorRateQuery: {{ quote $errQuery }}

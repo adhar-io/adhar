@@ -273,7 +273,7 @@ status:
     path: deploy
     targetRevision: main
     soakTime: 0s
-    verification: {enabled: true, interval: 60s, count: 5, failureLimit: 1, errorRateThreshold: 0.01}
+    verification: {enabled: true, interval: 60s, count: 8, settleSeconds: 480, failureLimit: 1, errorRateThreshold: 0.01}
 %[4]s`, name, namespace, project, extra))
 }
 

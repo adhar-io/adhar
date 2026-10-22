@@ -404,6 +404,7 @@ spec:
     - {name: node, description: "Node major from .nvmrc, .node-version, .tool-versions or package.json engines.node, else defaultNode"}
     - {name: go, description: "Go minor from go.mod, else defaultGo"}
     - {name: python, description: "Python minor from .python-version, runtime.txt or pyproject requires-python, else defaultPython"}
+    - {name: e2e, description: "true when the repository ships a Playwright suite (e2e/playwright.config.*); gates the e2e stage"}
   steps:
     - name: detect
       image: docker.io/library/bash:5.2
@@ -457,6 +458,18 @@ spec:
 
         printf '%s' "$go"    > "$(results.go.path)"
         printf '%s' "$python" > "$(results.python.path)"
+
+        # Decided HERE, not inside the e2e stage: a stage that only discovers
+        # it has nothing to do still asks the scheduler for its pod — on the
+        # node the workspace volume pins every task to. On 2026-10-22 that node
+        # was out of memory, so my-service (a JVM service with no Playwright
+        # suite) waited indefinitely for a browser pod it did not need, signing
+        # never ran, and Kyverno refused the unsigned image in every
+        # environment.
+        e2e=false
+        compgen -G "e2e/playwright.config.*" >/dev/null && e2e=true
+        echo "e2e=$e2e"
+        printf '%s' "$e2e" > "$(results.e2e.path)"
 ---
 # End-to-end tests in a real browser, on every build.
 #
@@ -490,8 +503,11 @@ spec:
       env:
         - {name: CI, value: "true"}
         - {name: HOME, value: /workspace/e2e-home}
+      # Requests sized to schedule on a busy node: every task of a run is
+      # pinned to the node holding its workspace, so a large request can wait
+      # there indefinitely. The limit leaves room for the build + Chromium.
       computeResources:
-        requests: {cpu: 500m, memory: 1Gi}
+        requests: {cpu: 250m, memory: 512Mi}
         limits: {cpu: "2", memory: 3Gi}
       script: |
         #!/usr/bin/env bash

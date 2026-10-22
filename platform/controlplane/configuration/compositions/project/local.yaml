@@ -675,7 +675,10 @@ spec:
                       {{- $app := . -}}
                       {{- $v := dig "verification" (dict) (get $apps $app) -}}
                       {{- $vi := default "60s" (get $v "interval") -}}
-                      {{- $vc := int (default 5 (get $v "count")) -}}
+                      {{- /* 8 samples, a minute apart, after the 2m delay: the run spans the
+                             settle window below, so a release still unhealthy at
+                             its end fails on the last two samples (failureLimit 1). */ -}}
+                      {{- $vc := int (default 8 (get $v "count")) -}}
                       {{- $vf := int (default 1 (get $v "failureLimit")) -}}
                       {{- /* Verification starts the moment the promotion is synced,
                              while the new pod may still be pulling its image and
@@ -685,6 +688,19 @@ spec:
                              (2026-10-21). A Rollout that is really stuck is still
                              unhealthy after this delay and still fails. */ -}}
                       {{- $vd := default "2m" (get $v "initialDelay") -}}
+                      {{- /* How long a release may legitimately be in flight. A
+                             canary is SUPPOSED to be not-Healthy while it walks
+                             its steps, and a booting pod is SUPPOSED to be not
+                             ready: a JVM canary (two ~100 s boots and two 30 s
+                             pauses) was still Paused at every sample after the
+                             2m delay above, and failed verification in test with
+                             nothing wrong (my-service, DigitalOcean 2026-10-22;
+                             that canary took over 6 minutes on a busy node).
+                             So these checks fail on what a BROKEN release looks
+                             like — Degraded, or still not Healthy after the whole
+                             window; a pod still not ready once it is older than
+                             it — never on a release that is merely in progress. */ -}}
+                      {{- $vs := int (default 480 (get $v "settleSeconds")) -}}
                       {{- $pods := printf "%s-[a-z0-9]+-[a-z0-9]+" $app }}
                       # Argo Rollouts labels a finished canary "Completed" and a stable one "Healthy".
                       - name: {{ quote (printf "%s-rollout-healthy" $app) }}
@@ -696,7 +712,7 @@ spec:
                         provider:
                           prometheus:
                             address: {{ $prom }}
-                            query: {{ quote (printf "count(rollout_info{namespace=\"%s\",name=\"%s\",phase!~\"Healthy|Completed\"} == 1) or vector(0)" $ens $app) }}
+                            query: {{ quote (printf "(count(rollout_info{namespace=\"%s\",name=\"%s\",phase=\"Degraded\"} == 1) or vector(0)) + min_over_time(((count(rollout_info{namespace=\"%s\",name=\"%s\",phase!~\"Healthy|Completed\"} == 1)) or vector(0))[%ds:30s])" $ens $app $ens $app $vs) }}
                       - name: {{ quote (printf "%s-pods-ready" $app) }}
                         initialDelay: {{ $vd }}
                         interval: {{ $vi }}
@@ -706,7 +722,7 @@ spec:
                         provider:
                           prometheus:
                             address: {{ $prom }}
-                            query: {{ quote (printf "sum(kube_pod_status_ready{namespace=\"%s\",pod=~\"%s\",condition=\"false\"}) or vector(0)" $ens $pods) }}
+                            query: {{ quote (printf "count((kube_pod_status_ready{namespace=\"%s\",pod=~\"%s\",condition=\"false\"} == 1) and on(namespace, pod) ((time() - kube_pod_created{namespace=\"%s\",pod=~\"%s\"}) > %d)) or vector(0)" $ens $pods $ens $pods $vs) }}
                       - name: {{ quote (printf "%s-no-restarts" $app) }}
                         initialDelay: {{ $vd }}
                         interval: {{ $vi }}
