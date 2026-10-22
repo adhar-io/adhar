@@ -60,15 +60,15 @@ func TestTheAPIServerScriptVerifiesBeforeAndRollsBackAfter(t *testing.T) {
 		t.Fatal(err)
 	}
 	order := []string{
-		`[ -f "$M" ] || { echo "ADHAR_OIDC: skipped`,          // only on a kubeadm control plane
-		`grep -q -- '--oidc-issuer-url' "$M"`,                // never fights the legacy flags
+		`[ -f "$M" ] || { echo "ADHAR_OIDC: skipped`, // only on a kubeadm control plane
+		`grep -q -- '--oidc-issuer-url' "$M"`,        // never fights the legacy flags
 		`curl -fsS --max-time 15 -o /dev/null "https://keycloak.cloud.adhar.io/realms/adhar/.well-known/openid-configuration"`, // issuer answers, trusted cert
 		`mv /etc/kubernetes/authn/adhar.yaml.tmp /etc/kubernetes/authn/adhar.yaml`,
-		`grep -q -- '--authentication-config=' "$M"`,         // already wired: file refresh only
-		`cp "$M" "$B"`,                                        // backup BEFORE editing
-		`mv "$T" "$M"`,                                        // atomic replace
+		`grep -q -- '--authentication-config=' "$M"`, // already wired: file refresh only
+		`cp "$M" "$B"`, // backup BEFORE editing
+		`mv "$T" "$M"`, // atomic replace
 		`curl -fsk --max-time 5 https://127.0.0.1:6443/livez`, // health after restart
-		`cp "$B" "$M"`,                                        // rollback
+		`cp "$B" "$M"`, // rollback
 	}
 	at := 0
 	for _, want := range order {

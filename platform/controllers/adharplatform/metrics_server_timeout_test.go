@@ -20,7 +20,7 @@ func TestMetricsServerToleratesASlowKubelet(t *testing.T) {
 	}
 	src := string(b)
 	get := func(flag string) time.Duration {
-		m := regexp.MustCompile(`- --` + flag + `=(\S+)`).FindAllStringSubmatch(src, -1)
+		m := regexp.MustCompile(`- --`+flag+`=(\S+)`).FindAllStringSubmatch(src, -1)
 		if len(m) != 1 {
 			t.Fatalf("--%s appears %d times; want exactly once", flag, len(m))
 		}

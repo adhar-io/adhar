@@ -28,7 +28,8 @@ metadata:
 data:
   gitea-service: "gitea-argocd.adhar-system.svc.cluster.local:3000"
   gitea-admin-user: "gitea_admin"
-  gitea-admin-password: "r8sA8CPHD9!bt6d"
+  # No password here: a ConfigMap is not a secret, and the controller
+  # substitutes the CURRENT (rotated) admin password into this whole file.
   environments-repo: "environments"
   packages-repo: "packages"
 ---

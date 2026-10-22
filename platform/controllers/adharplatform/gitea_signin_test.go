@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"adhar-io/adhar/globals"
 )
 
 // Anonymous visitors could list and read every repository on the platform's
@@ -96,5 +98,66 @@ func TestGiteaRequiresSignInAndEveryReaderAuthenticates(t *testing.T) {
 	}
 	if strings.Contains(read("controller.go"), `"curl", "-sf", "http://localhost:3000/api/v1/version"`) {
 		t.Error("the controller's Gitea readiness wait probes /api/v1/version anonymously; bootstrap would fail")
+	}
+}
+
+// Argo CD reads Gitea as gitea_admin, with the password the CLI bootstrap wrote
+// into argocd-auth.yaml's Secrets. The day-0 credential rotation then changes
+// that password minutes later, and the in-cluster manager never re-applies
+// those Secrets (it has no stack directory). Once Gitea required sign-in, every
+// Application went Unknown with "authentication required" and a fresh
+// DigitalOcean `adhar up` failed waiting for the console (2026-10-22). So the
+// rotation must update EVERY Secret here that carries the password — and no
+// ConfigMap may carry it, because the controller substitutes the rotated one.
+func TestCredentialRotationKeepsArgoCDsGiteaCredentialsCurrent(t *testing.T) {
+	auth, err := os.ReadFile(filepath.Join("..", "..", "stack", "argocd-auth.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := os.ReadFile(filepath.Join("..", "..", "stack", "packages", "security",
+		"adhar-credential-rotation", "manifests", "rotate-job.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop := regexp.MustCompile(`(?m)^\s*for s in ([^;]+); do\n(?:.*\n){0,2}?.*kpatch "\$s" "\{\\"stringData\\": \{\\"password\\": \\"\$\{GITEA_NEW\}\\"`).
+		FindStringSubmatch(string(job))
+	if loop == nil {
+		t.Fatal("rotate-job.yaml no longer patches Argo CD's Gitea credentials with GITEA_NEW")
+	}
+	patched := map[string]bool{}
+	for _, n := range strings.Fields(loop[1]) {
+		patched[n] = true
+	}
+
+	carrying := 0
+	for _, doc := range strings.Split(string(auth), "\n---\n") {
+		var o struct {
+			Kind       string                `yaml:"kind"`
+			Metadata   struct{ Name string } `yaml:"metadata"`
+			Data       map[string]string     `yaml:"data"`
+			StringData map[string]string     `yaml:"stringData"`
+		}
+		if yaml.Unmarshal([]byte(doc), &o) != nil {
+			continue
+		}
+		switch o.Kind {
+		case "ConfigMap":
+			for k, v := range o.Data {
+				if strings.Contains(strings.ToLower(k), "password") || strings.Contains(v, globals.GiteaAdminPassword) {
+					t.Errorf("ConfigMap %s carries a Gitea password in %q", o.Metadata.Name, k)
+				}
+			}
+		case "Secret":
+			if o.StringData["password"] == "" {
+				continue
+			}
+			carrying++
+			if !patched[o.Metadata.Name] {
+				t.Errorf("Secret %s carries the Gitea admin password but the rotation job does not update it", o.Metadata.Name)
+			}
+		}
+	}
+	if carrying < 4 {
+		t.Fatalf("expected at least 4 Argo CD Gitea credentials in argocd-auth.yaml, found %d", carrying)
 	}
 }

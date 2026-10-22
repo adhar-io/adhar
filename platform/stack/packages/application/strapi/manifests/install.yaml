@@ -540,7 +540,12 @@ spec:
               HAVE="$(cat /srv/.admin-built 2>/dev/null || echo none)"
               if [ "$WANT" != "$HAVE" ]; then
                 echo "==> building admin panel (have=$HAVE want=$WANT)"
-                npm run build
+                # An explicit heap: Node sizes its default from the container
+                # limit (~1 GiB of 2), and the admin build outgrew it — "heap
+                # out of memory" at ~1000 MB, 29 restarts, the strapi sync
+                # stuck past its progress deadline on a fresh DigitalOcean
+                # cluster (2026-10-22). The serving process keeps the default.
+                NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=2048" npm run build
                 echo "$WANT" > /srv/.admin-built
               else
                 echo "==> admin panel already built for $HAVE"
@@ -678,7 +683,8 @@ spec:
             # Strapi (Node) holds ~400-600 MiB serving; the build on first boot
             # peaks higher, which the limit covers.
             requests: {cpu: 250m, memory: 512Mi}
-            limits: {cpu: "2", memory: 2Gi}
+            # 3Gi: the admin build alone takes a 2 GiB heap (see step 3).
+            limits: {cpu: "2", memory: 3Gi}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

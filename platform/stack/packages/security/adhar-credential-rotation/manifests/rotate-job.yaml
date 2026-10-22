@@ -7,7 +7,8 @@
 #
 #   - Gitea admin password is changed via the admin API and the
 #     gitea-credential Secret is updated in place (the CLI and controller keep
-#     working from that Secret)
+#     working from that Secret), together with Argo CD's Gitea repository
+#     credentials, which carry the same password
 #   - ArgoCD admin password is bcrypt-hashed into argocd-secret;
 #     argocd-initial-admin-secret is updated so `adhar get secrets -p argocd`
 #     stays truthful
@@ -168,6 +169,23 @@ spec:
                 -d "{\"login_name\": \"${GITEA_USER}\", \"source_id\": 0, \"password\": \"${GITEA_NEW}\", \"must_change_password\": false}" >/dev/null
               kpatch gitea-credential "{\"stringData\": {\"password\": \"${GITEA_NEW}\"}}"
               echo "gitea admin password rotated"
+
+              # Argo CD reads every Gitea repository with this same account
+              # (platform/stack/argocd-auth.yaml). Only the CLI bootstrap
+              # writes those Secrets — the in-cluster manager has no stack
+              # directory — and it wrote them minutes BEFORE this Job runs, so
+              # they must follow the new password here or Argo CD keeps the old
+              # one. While Gitea allowed anonymous reads that went unnoticed;
+              # once it required sign-in (REQUIRE_SIGNIN_VIEW) every
+              # Application went to Unknown with "authentication required"
+              # and a fresh cloud `adhar up` failed waiting for the console
+              # (DigitalOcean, 2026-10-22).
+              for s in repo-packages repo-environments creds-gitea-http creds-gitea-argocd; do
+                if [ "$(kget "$s")" = "200" ]; then
+                  kpatch "$s" "{\"stringData\": {\"password\": \"${GITEA_NEW}\"}}"
+                  echo "argocd gitea credential $s updated"
+                fi
+              done
 
               # ------------------------------------------------------------
               # 4. Rotate ArgoCD admin: bcrypt into argocd-secret; keep the
