@@ -29,112 +29,137 @@ import (
 // Register the Civo provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("civo", func(config map[string]interface{}) (provider.Provider, error) {
-
-		civoConfig := &Config{}
-
-		// Parse authentication
-		// Default: kubeadm on Civo instances. `clusterMode: managed` opts into
-		// Civo's managed Kubernetes (k3s); everything above the cluster behaves
-		// the same either way.
-		mode, err := provider.ParseClusterMode(config)
+		civoConfig, err := parseProviderConfig(config)
 		if err != nil {
 			return nil, err
 		}
-		civoConfig.ClusterMode = mode
-		if token, ok := config["token"].(string); ok {
-			civoConfig.Token = token
-		}
-		if useEnv, ok := config["useEnvironment"].(bool); ok {
-			civoConfig.UseEnvironment = useEnv
-		}
-		if region, ok := config["region"].(string); ok {
-			civoConfig.Region = region
-		}
-		// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
-		// --purge-orphaned-volumes`; see deleteComputeCluster.
-		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
-			civoConfig.PurgeOrphanedVolumes = true
-		}
-
-		// Parse configuration section
-		if configSection, ok := config["config"].(map[string]interface{}); ok {
-
-			// Basic configuration
-			if size, ok := configSection["size"].(string); ok {
-				civoConfig.Size = size
-
-			}
-			if diskImage, ok := configSection["disk_image"].(string); ok {
-				civoConfig.DiskImage = diskImage
-
-			}
-			if defaultNodeCount, ok := configSection["default_node_count"].(float64); ok {
-				civoConfig.DefaultNodeCount = int(defaultNodeCount)
-
-			}
-
-			// Network configuration
-			if networkID, ok := configSection["network_id"].(string); ok {
-				civoConfig.NetworkID = networkID
-			}
-			if networkLabel, ok := configSection["network_label"].(string); ok {
-				civoConfig.NetworkLabel = networkLabel
-			}
-			if reuseNetwork, ok := configSection["reuse_existing_network"].(bool); ok {
-				civoConfig.ReuseExistingNetwork = reuseNetwork
-			}
-
-			// SSH configuration
-			if sshKeys, ok := configSection["ssh_key_ids"].([]interface{}); ok {
-				for _, key := range sshKeys {
-					if keyStr, ok := key.(string); ok {
-						civoConfig.SSHKeyIDs = append(civoConfig.SSHKeyIDs, keyStr)
-					}
-				}
-			}
-
-			// Parse tags
-			if tags, ok := configSection["tags"].([]interface{}); ok {
-				for _, tag := range tags {
-					if tagStr, ok := tag.(string); ok {
-						civoConfig.Tags = append(civoConfig.Tags, tagStr)
-					}
-				}
-			}
-
-			// Parse firewall rules
-			if firewallRules, ok := configSection["firewall_rules"].([]interface{}); ok {
-				for _, rule := range firewallRules {
-					if ruleMap, ok := rule.(map[string]interface{}); ok {
-						fwRule := FirewallRuleConfig{}
-
-						if direction, ok := ruleMap["direction"].(string); ok {
-							fwRule.Direction = direction
-						}
-						if protocol, ok := ruleMap["protocol"].(string); ok {
-							fwRule.Protocol = protocol
-						}
-						if startPort, ok := ruleMap["start_port"].(string); ok {
-							fwRule.StartPort = startPort
-						}
-						if endPort, ok := ruleMap["end_port"].(string); ok {
-							fwRule.EndPort = endPort
-						}
-						if cidr, ok := ruleMap["cidr"].(string); ok {
-							fwRule.Cidr = cidr
-						}
-						if label, ok := ruleMap["label"].(string); ok {
-							fwRule.Label = label
-						}
-
-						civoConfig.FirewallRules = append(civoConfig.FirewallRules, fwRule)
-					}
-				}
-			}
-		}
-
 		return NewProvider(civoConfig)
 	})
+}
+
+// parseProviderConfig turns the generic provider map into a Civo Config, apart
+// from the registration closure so the mapping can be tested without a token.
+func parseProviderConfig(config map[string]interface{}) (*Config, error) {
+	civoConfig := &Config{}
+
+	// Parse authentication
+	// Default: kubeadm on Civo instances. `clusterMode: managed` opts into
+	// Civo's managed Kubernetes (k3s); everything above the cluster behaves
+	// the same either way.
+	mode, err := provider.ParseClusterMode(config)
+	if err != nil {
+		return nil, err
+	}
+	civoConfig.ClusterMode = mode
+	if token, ok := config["token"].(string); ok {
+		civoConfig.Token = token
+	}
+	if useEnv, ok := config["useEnvironment"].(bool); ok {
+		civoConfig.UseEnvironment = useEnv
+	}
+	if region, ok := config["region"].(string); ok {
+		civoConfig.Region = region
+	}
+	// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
+	// --purge-orphaned-volumes`; see deleteComputeCluster.
+	if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+		civoConfig.PurgeOrphanedVolumes = true
+	}
+
+	// Control-plane / worker split: top level first (environment
+	// clusterConfig values and the in-cluster autoscaler's recorded worker
+	// size land there), then the `config:` section. `size` below remains the
+	// legacy single size.
+	civoConfig.ControlPlaneSize = provider.ConfigString(config, provider.KeyControlPlaneMachineType)
+	civoConfig.WorkerSize = provider.ConfigString(config, provider.KeyWorkerMachineType)
+
+	// Parse configuration section
+	if configSection, ok := config["config"].(map[string]interface{}); ok {
+
+		// Basic configuration
+		if size, ok := configSection["size"].(string); ok {
+			civoConfig.Size = size
+
+		}
+		if diskImage, ok := configSection["disk_image"].(string); ok {
+			civoConfig.DiskImage = diskImage
+
+		}
+		// Read as any scalar: YAML decodes `default_node_count: 3` as an int,
+		// and the float64-only assertion silently dropped every value a
+		// config file has ever given it (only a JSON round trip produced a
+		// float).
+		if n := provider.ConfigInt(map[string]interface{}{"config": configSection}, "default_node_count"); n > 0 {
+			civoConfig.DefaultNodeCount = n
+		}
+		// The compute-mode instance image (a Civo disk-image name). Defaults
+		// to Ubuntu 22.04 (`ubuntu-jammy`), the image compute mode has always
+		// used. NOT disk_image: that key has never been read by either mode,
+		// and starting to honour it would move every compute config that
+		// carries it to a different OS on its next create.
+		civoConfig.ComputeImage = provider.ConfigString(map[string]interface{}{"config": configSection}, "image", "computeImage")
+
+		// Network configuration
+		if networkID, ok := configSection["network_id"].(string); ok {
+			civoConfig.NetworkID = networkID
+		}
+		if networkLabel, ok := configSection["network_label"].(string); ok {
+			civoConfig.NetworkLabel = networkLabel
+		}
+		if reuseNetwork, ok := configSection["reuse_existing_network"].(bool); ok {
+			civoConfig.ReuseExistingNetwork = reuseNetwork
+		}
+
+		// SSH configuration
+		if sshKeys, ok := configSection["ssh_key_ids"].([]interface{}); ok {
+			for _, key := range sshKeys {
+				if keyStr, ok := key.(string); ok {
+					civoConfig.SSHKeyIDs = append(civoConfig.SSHKeyIDs, keyStr)
+				}
+			}
+		}
+
+		// Parse tags
+		if tags, ok := configSection["tags"].([]interface{}); ok {
+			for _, tag := range tags {
+				if tagStr, ok := tag.(string); ok {
+					civoConfig.Tags = append(civoConfig.Tags, tagStr)
+				}
+			}
+		}
+
+		// Parse firewall rules
+		if firewallRules, ok := configSection["firewall_rules"].([]interface{}); ok {
+			for _, rule := range firewallRules {
+				if ruleMap, ok := rule.(map[string]interface{}); ok {
+					fwRule := FirewallRuleConfig{}
+
+					if direction, ok := ruleMap["direction"].(string); ok {
+						fwRule.Direction = direction
+					}
+					if protocol, ok := ruleMap["protocol"].(string); ok {
+						fwRule.Protocol = protocol
+					}
+					if startPort, ok := ruleMap["start_port"].(string); ok {
+						fwRule.StartPort = startPort
+					}
+					if endPort, ok := ruleMap["end_port"].(string); ok {
+						fwRule.EndPort = endPort
+					}
+					if cidr, ok := ruleMap["cidr"].(string); ok {
+						fwRule.Cidr = cidr
+					}
+					if label, ok := ruleMap["label"].(string); ok {
+						fwRule.Label = label
+					}
+
+					civoConfig.FirewallRules = append(civoConfig.FirewallRules, fwRule)
+				}
+			}
+		}
+	}
+
+	return civoConfig, nil
 }
 
 type Provider struct {
@@ -169,8 +194,15 @@ type Config struct {
 	//   "k3s" — Civo's managed Kubernetes service.
 	ClusterMode string `json:"clusterMode,omitempty"`
 
-	Region               string               `json:"region"`
+	Region string `json:"region"`
+	// Size is the legacy single size (`size`): it sizes every node nothing more
+	// specific sizes. ControlPlaneSize / WorkerSize separate the roles; the
+	// defaults are provider.MachineDefaultsFor("civo") — note compute mode takes
+	// INSTANCE sizes (g3.*) while managed pools take KUBE sizes (g4s.kube.*).
 	Size                 string               `json:"size"`
+	ControlPlaneSize     string               `json:"controlPlaneSize,omitempty"`
+	WorkerSize           string               `json:"workerSize,omitempty"`
+	ComputeImage         string               `json:"computeImage,omitempty"`
 	DiskImage            string               `json:"diskImage"`
 	DefaultNodeCount     int                  `json:"defaultNodeCount"`
 	NetworkID            string               `json:"networkId,omitempty"`
@@ -250,11 +282,10 @@ func NewProvider(config *Config) (*Provider, error) {
 	}
 
 	if config.Region == "" {
-		config.Region = "LON1"
+		config.Region = provider.MachineDefaultsFor("civo").Region
 	}
-	if config.Size == "" {
-		config.Size = "g4s.kube.medium"
-	}
+	// No Size default here any more: it was g4s.kube.medium (2 vCPU) for the
+	// control plane and every worker in both modes. Sizes resolve per role.
 	if config.DiskImage == "" {
 		config.DiskImage = "ubuntu-24.04"
 	}
@@ -436,13 +467,25 @@ func (p *Provider) resolveCivoVersion(requested string) (string, error) {
 // metrics-server, and two of either is worse than none.
 const civoRemovedDefaultApps = "-traefik2-nodeport,-metrics-server"
 
+// controlPlaneSize is the compute-mode control plane's instance size.
+func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
+	fromSpec := ""
+	if spec != nil {
+		fromSpec = spec.ControlPlane.InstanceType
+	}
+	return provider.ControlPlaneSize("civo", fromSpec, c.ControlPlaneSize, c.Size)
+}
+
+// workerSize is a worker's size: the node group's own, else what the group's
+// existing members run (scale paths), else the configured/default size.
+func (c *Config) workerSize(groupSize, membersSize string, managed bool) string {
+	return provider.WorkerSize("civo", managed, groupSize, membersSize, c.WorkerSize, c.Size)
+}
+
 func (p *Provider) buildCivoPools(spec *types.ClusterSpec) []civogo.KubernetesClusterPoolConfig {
 	var pools []civogo.KubernetesClusterPoolConfig
 	for _, ng := range spec.NodeGroups {
-		size := ng.InstanceType
-		if size == "" {
-			size = p.config.Size
-		}
+		size := p.config.workerSize(ng.InstanceType, "", true)
 		count := ng.Replicas
 		if count <= 0 {
 			count = 1
@@ -458,7 +501,7 @@ func (p *Provider) buildCivoPools(spec *types.ClusterSpec) []civogo.KubernetesCl
 		pools = append(pools, civogo.KubernetesClusterPoolConfig{
 			Region: p.config.Region,
 			Count:  p.config.DefaultNodeCount,
-			Size:   p.config.Size,
+			Size:   p.config.workerSize("", "", true),
 		})
 	}
 	return pools
@@ -1234,8 +1277,9 @@ func (p *Provider) validateInstanceSize(ctx context.Context, size string) (strin
 			return size, nil
 		}
 	}
-	log.Printf("Invalid size '%s'. Defaulting to '%s'", size, p.config.Size)
-	return p.config.Size, nil
+	fallback := p.config.workerSize("", "", provider.ClusterModeIsManaged(p.config.ClusterMode))
+	log.Printf("Invalid size '%s'. Defaulting to '%s'", size, fallback)
+	return fallback, nil
 }
 
 func (p *Provider) saveClustersToCache() {
@@ -1287,10 +1331,7 @@ func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, spec *typ
 		return nil, err
 	}
 
-	size := spec.InstanceType
-	if size == "" {
-		size = p.config.Size
-	}
+	size := p.config.workerSize(spec.InstanceType, "", true)
 	count := spec.Replicas
 	if count <= 0 {
 		count = 1

@@ -78,6 +78,41 @@ var credentialProviderKeys = map[string]bool{
 	"kubeconfigPath":        true,
 }
 
+// nodeShapeKeys are the clusterConfig keys (normalised) that describe a node's
+// disk and image, recorded for the in-cluster autoscaler.
+var nodeShapeKeys = map[string]bool{
+	"disksizegb": true, "disksize": true, "rootvolumesize": true,
+	"disktype": true, "volumetype": true, "rootvolumetype": true,
+	"ami": true, "amiid": true, "imageid": true, "imagenamefilter": true, "imageowner": true, "imagearchitecture": true,
+}
+
+// normalizeKey folds a config key ignoring case and separators.
+func normalizeKey(k string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(k) {
+		switch r {
+		case '_', '-', '.', ' ':
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// recordedWorkerSize is the primary group's worker size as the provider
+// resolves it, or the literal lookup when the environment cannot be resolved.
+func recordedWorkerSize(envConfig *config.ResolvedEnvironmentConfig) string {
+	if envConfig != nil {
+		if sizes, err := pfactory.ResolveEffectiveSizes(envConfig); err == nil && sizes.Worker != "" {
+			return sizes.Worker
+		}
+	}
+	return firstNonEmpty(
+		clusterConfigValue(envConfig, "nodeSize", "nodeInstanceType", "instanceType", "machineType"),
+		providerConfigValue(envConfig, "droplet_size", "vm_size", "machine_type", "instance_type"),
+	)
+}
+
 // clusterConfigValue returns the first matching key from the environment's
 // resolved clusterConfig (config.yaml accepts several spellings per concept).
 func clusterConfigValue(envConfig *config.ResolvedEnvironmentConfig, keys ...string) string {
@@ -156,10 +191,12 @@ func ensureClusterSpecConfigMap(
 		globals.ClusterSpecClusterModeKey: clusterMode,
 		"clusterName":                     clusterName,
 		"nodeGroup":                       nodeGroup,
-		"size": firstNonEmpty(
-			clusterConfigValue(envConfig, "nodeSize", "nodeInstanceType", "instanceType", "machineType"),
-			providerConfigValue(envConfig, "droplet_size", "vm_size", "machine_type", "instance_type"),
-		),
+		// The worker size the cluster was BUILT with, resolved exactly as the
+		// provider resolved it (pfactory.ResolveEffectiveSizes). It used to be
+		// a literal lookup of a few spellings, which missed Azure's lower-cased
+		// `vmsize` and anything left to a default, so an autoscaled worker in an
+		// empty group could come up at a size nobody chose.
+		"size": recordedWorkerSize(envConfig),
 		// Same precedence the provisioner used: the environment's pin (which
 		// an explicit `adhar up --kube-version` has already rewritten), else
 		// the platform default. It must never be empty — the autoscaler preps
@@ -190,6 +227,16 @@ func ensureClusterSpecConfigMap(
 				continue
 			}
 			sanitized[k] = v
+		}
+		// The environment's disk settings, which the CLI's provider map carries
+		// at the top level (buildProviderConfig) and the in-cluster one did not:
+		// an autoscaled AWS worker got the built-in disk instead of the
+		// configured one. Only the keys that shape a NODE — not the cluster name
+		// or counts, which the controller has its own fields for.
+		for _, kv := range envConfig.ResolvedClusterConfig {
+			if nodeShapeKeys[normalizeKey(kv.Key)] && strings.TrimSpace(kv.Value) != "" {
+				sanitized[kv.Key] = strings.TrimSpace(kv.Value)
+			}
 		}
 		encoded, err := json.Marshal(sanitized)
 		if err != nil {

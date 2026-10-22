@@ -6,9 +6,9 @@ Monaco editor, schema-aware completion, ER diagrams and visual EXPLAIN.
 MIT, self-hosted, nothing behind an enterprise wall.
 
 - Upstream: <https://libredb.org> · <https://github.com/libredb/libredb-studio>
-- Chart: `oci://ghcr.io/libredb/charts/libredb-studio` **0.1.63** (OCI only —
+- Chart: `oci://ghcr.io/libredb/charts/libredb-studio` **0.1.101** (OCI only —
   there is no https Helm repo to `helm repo add`)
-- Image: `ghcr.io/libredb/libredb-studio:0.15.0`
+- Image: `ghcr.io/libredb/libredb-studio:1.0.0`
 - URL: `https://libredb.<host>` (local: <https://libredb.adhar.localtest.me:8443>)
 
 Regenerate `manifests/install.yaml` with `./generate-manifests.sh`. The other

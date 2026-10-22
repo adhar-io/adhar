@@ -504,7 +504,7 @@ func plannedNodeCount(spec *types.ClusterSpec) int {
 // plannedInstanceType is the type the bulk of the cluster will use. A mixed-type
 // spec is measured by its first node group rather than by an average no instance
 // actually has.
-func plannedInstanceType(spec *types.ClusterSpec, _ *Config) string {
+func plannedInstanceType(spec *types.ClusterSpec, cfg *Config) string {
 	for _, ng := range spec.NodeGroups {
 		if ng.InstanceType != "" {
 			return ng.InstanceType
@@ -513,7 +513,8 @@ func plannedInstanceType(spec *types.ClusterSpec, _ *Config) string {
 	if spec.ControlPlane.InstanceType != "" {
 		return spec.ControlPlane.InstanceType
 	}
-	// The same default the compute path applies when a spec names no type
-	// (provider_compute.go).
-	return "t3.medium"
+	// The size the compute path will actually create a worker with. This was a
+	// literal t3.medium while the compute path built r6i.xlarge, so the quota
+	// check measured a cluster half the size of the one it approved.
+	return cfg.workerType("", "", false)
 }

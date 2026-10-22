@@ -232,7 +232,9 @@ spec:
           protocol: TCP
         resources:
           limits: {}
-          requests: {}
+          requests:
+            cpu: 20m
+            memory: 448Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -435,7 +437,9 @@ spec:
             type: RuntimeDefault
         resources:
           limits: {}
-          requests: {}
+          requests:
+            cpu: 50m
+            memory: 768Mi
       securityContext:
         fsGroup: 1000
 ---
@@ -756,7 +760,9 @@ spec:
           protocol: TCP
         resources:
           limits: {}
-          requests: {}
+          requests:
+            cpu: 50m
+            memory: 1Gi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -1203,7 +1209,9 @@ spec:
         - containerPort: 9030
         resources:
           limits: {}
-          requests: {}
+          requests:
+            cpu: 50m
+            memory: 640Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -1449,7 +1457,9 @@ spec:
           protocol: TCP
         resources:
           limits: {}
-          requests: {}
+          requests:
+            cpu: 50m
+            memory: 640Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -1870,7 +1880,9 @@ spec:
           containerPort: 8085
         resources:
           limits: {}
-          requests: {}
+          requests:
+            cpu: 50m
+            memory: 576Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

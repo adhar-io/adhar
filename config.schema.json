@@ -101,7 +101,7 @@
   "definitions": {
     "keyValue": {
       "type": "object",
-      "description": "Key/value entry",
+      "description": "Key/value entry. Sizing keys (matched ignoring case and separators): controlPlaneMachineType - the control-plane size (compute mode); machineType | nodeSize | workerMachineType - the primary worker group's size; nodeCount - starting workers (whole number >= 0; 0 or absent = the provider default, 2 on every cloud); diskSizeGb - OS disk GiB (> 0; AWS and GCP - Azure reads providers.azure.config.diskSizeGb only); diskType - OS disk type; kubeVersion - Kubernetes version; podCidr - pod network CIDR.",
       "properties": {
         "key": {
           "type": "string",
@@ -246,6 +246,13 @@
         },
         "autoscaling": {
           "$ref": "#/definitions/autoscalingConfig"
+        },
+        "nodeGroups": {
+          "type": "array",
+          "description": "Additional node groups (GPU, high-memory, ...). An environment's list replaces its template's.",
+          "items": {
+            "$ref": "#/definitions/nodeGroup"
+          }
         }
       },
       "additionalProperties": false
@@ -290,6 +297,21 @@
           ],
           "default": "namespace",
           "description": "What the environment physically is: a namespace on the shared platform cluster (default), or a dedicated cluster with its own platform install."
+        },
+        "nodeGroups": {
+          "type": "array",
+          "description": "Additional node groups (GPU, high-memory, ...). An environment's list replaces its template's.",
+          "items": {
+            "$ref": "#/definitions/nodeGroup"
+          }
+        },
+        "provider": {
+          "type": "string",
+          "description": "Name of the providers.<name> block this environment uses (default: the primary provider)"
+        },
+        "region": {
+          "type": "string",
+          "description": "Region override for this environment (default: the provider's region). Checked against the provider's region-name format."
         }
       },
       "additionalProperties": false
@@ -306,18 +328,18 @@
         "minWorkers": {
           "type": "integer",
           "minimum": 0,
-          "description": "Never scale below this many workers",
+          "description": "Never scale below this many workers; must not exceed maxWorkers",
           "default": 1
         },
         "maxWorkers": {
           "type": "integer",
           "minimum": 0,
-          "description": "Never scale above this many workers (the spend ceiling)",
+          "description": "Never scale above this many workers (the spend ceiling); must be > 0 when enabled",
           "default": 5
         },
         "nodeGroup": {
           "type": "string",
-          "description": "Provider node group to scale",
+          "description": "Node group to scale: `workers` (default) or the name of an entry in nodeGroups",
           "default": "workers"
         },
         "scaleDownUtilizationThreshold": {
@@ -347,7 +369,8 @@
           "minLength": 1
         },
         "region": {
-          "type": "string"
+          "type": "string",
+          "description": "Region the cluster is built in. Format checked per provider: aws ap-southeast-1, gcp asia-southeast1 (a region, not a zone), azure centralindia, digitalocean blr1, civo LON1. Not required in clusterMode: provided."
         },
         "primary": {
           "type": "boolean"
@@ -384,7 +407,8 @@
               "type": "string"
             },
             "size": {
-              "type": "string"
+              "type": "string",
+              "description": "Civo legacy single size: sizes every node that controlPlaneMachineType/workerMachineType and the environment do not."
             },
             "disk_image": {
               "type": "string"
@@ -427,12 +451,111 @@
                 },
                 "additionalProperties": true
               }
+            },
+            "controlPlaneMachineType": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Control-plane machine type (compute mode). Overridden by an environment's clusterConfig controlPlaneMachineType. Default: aws m6i.xlarge, azure Standard_D4s_v5, gcp e2-standard-4, digitalocean s-8vcpu-16gb, civo g3.large - each >= 4 vCPU / 16 GiB, because a 2-vCPU control plane collapses under the platform's ~600 CRDs."
+            },
+            "workerMachineType": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Default worker machine type for every node group that names none (and for scale-ups of an empty group). Overridden by clusterConfig machineType/nodeSize and nodeGroups[].machineType. Default: aws r6i.xlarge, azure Standard_E4bds_v5, gcp e2-standard-4, digitalocean s-8vcpu-16gb, civo g3.xlarge (compute) / g4s.kube.large (managed)."
             }
           }
+        },
+        "vpcConfig": {
+          "type": "object",
+          "description": "AWS network: cidr (default 10.0.0.0/16), subnetCidrs [public - every node, private - internal load balancers] (default 10.0.1.0/24, 10.0.2.0/24), availabilityZones [public, private] (default: the region's first two; every node lands in the first).",
+          "properties": {
+            "cidr": {
+              "type": "string"
+            },
+            "subnetCidrs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "availabilityZones": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [
         "type"
+      ],
+      "additionalProperties": false
+    },
+    "taint": {
+      "type": "object",
+      "description": "A Kubernetes node taint",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string"
+        },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "NoSchedule",
+            "PreferNoSchedule",
+            "NoExecute"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "effect"
+      ],
+      "additionalProperties": false
+    },
+    "nodeGroup": {
+      "type": "object",
+      "description": "An ADDITIONAL node group beside the primary `workers` group (which clusterConfig machineType/nodeCount and the autoscaling block describe) - e.g. a GPU or high-memory pool. Created by every provider in both compute and managed mode; OS disk, image and network are the provider's. Labels and taints are applied by managed node pools; in compute mode they are recorded but kubeadm joins do not apply them yet.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 20,
+          "not": {
+            "const": "workers"
+          },
+          "description": "DNS-1123 label, at most 20 characters; becomes part of every VM name. `workers` is the primary group and cannot be redefined here."
+        },
+        "machineType": {
+          "type": "string",
+          "description": "Machine type (AWS instance type, Azure VM size, GCP machine type, DigitalOcean droplet slug, Civo size). Empty = the provider's worker size (providers.<name>.config.workerMachineType, else the built-in default)."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Nodes the group starts with"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "taints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taint"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "count"
       ],
       "additionalProperties": false
     }

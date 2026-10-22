@@ -49,7 +49,7 @@ spec:
         memory: 1Gi
       requests:
         cpu: 100m
-        memory: 512Mi
+        memory: 384Mi
     securityContext: {}
     service:
       loadBalancerSourceRanges: []
@@ -193,14 +193,12 @@ spec:
   - actions:
     - delete: {}
     name: delete
-    transitions: []
   ismTemplate:
     indexPatterns:
     - logs-*
     - events-*
     - traces-*
     - adhar-*
-    priority: 0
   opensearchCluster:
     name: opensearch
 ---

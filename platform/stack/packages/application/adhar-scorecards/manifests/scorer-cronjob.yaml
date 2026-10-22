@@ -34,6 +34,9 @@ data:
     | ($evidencef[0] // {}) as $evidence
     | (($perfcenterf // [{}])[0] // {}) as $perfCenter
     | (($gamedayf // [{}])[0] // {}) as $gameDays
+    | (($vulnsf // [{}])[0] // {}) as $vulnsBy
+    | (($metricsf // [{}])[0] // {}) as $metricsBy
+    | ($trusted | split(",") | map(select(. != ""))) as $trustedRegs
     | ($envorder | split(",")) as $order
     |
     # ---- helpers ----------------------------------------------------------------
@@ -57,6 +60,24 @@ data:
     def ago($epoch): (($now - $epoch) / 3600 | floor) as $h
       | if $h < 1 then "under an hour ago" elif $h < 48 then "\($h)h ago" else "\($h / 24 | floor)d ago" end;
     def envrank($e): ($order | index($e)) // 99;
+    # Kubernetes quantities: CPU in cores ("250m", "1", "123456n"), memory in bytes ("512Mi", "1G").
+    def cpuq($q): if $q == null then null else ($q | tostring) as $v
+      | if   ($v | endswith("n")) then ($v[:-1] | tonumber) / 1e9
+        elif ($v | endswith("u")) then ($v[:-1] | tonumber) / 1e6
+        elif ($v | endswith("m")) then ($v[:-1] | tonumber) / 1000
+        else ($v | tonumber? // null) end end;
+    def memq($q): if $q == null then null else (($q | tostring) | capture("^(?<n>[0-9.eE+-]+)(?<u>[A-Za-z]*)$")?) as $c
+      | if $c == null then null else ($c.n | tonumber) * ({"": 1, k: 1e3, K: 1e3, M: 1e6, G: 1e9, T: 1e12,
+          Ki: 1024, Mi: 1048576, Gi: 1073741824, Ti: 1099511627776}[$c.u] // 1) end end;
+    def mib($b): ($b / 1048576 | floor | tostring) + "Mi";
+    def mcpu($c): ($c * 1000 | floor | tostring) + "m";
+    # An image is pinned when it cannot move: a digest, a 40-hex commit tag (what
+    # app-ci publishes) or a version tag — never :latest or untagged.
+    def pinned($img): ($img | type == "string") and (($img | test("@sha256:[0-9a-f]{64}$"))
+      or ($img | test(":[0-9a-f]{40}$")) or ($img | test(":v?[0-9]+\\.[0-9]+(\\.[0-9]+)?([-+][0-9A-Za-z.-]+)?$")));
+    # The registry host: the first path segment when it looks like a host, else Docker Hub.
+    def reghost($img): ($img | split("@")[0] | split("/")) as $p
+      | if ($p | length) > 1 and (($p[0] | test("[.:]")) or $p[0] == "localhost") then $p[0] else "docker.io" end;
 
     # Category fraction = mean of applicable signals. With NO applicable signal,
     # the four original categories stay neutral (1.0, as they always have, so a
@@ -68,12 +89,12 @@ data:
       . as $rec
       | ($rec.signals) as $signals
       | { reliability: $wrel, security: $wsec, observability: $wobs, operations: $wops,
-          performance: $wperf, resilience: $wres } as $w
+          performance: $wperf, resilience: $wres, supply_chain: $wsup, efficiency: $weff } as $w
       | ( $w | keys_unsorted | map( . as $cat
             | [ $signals[] | select(.category == $cat and .applicable) ] as $s
             | { key: $cat,
                 value: (if ($s | length) > 0 then (([ $s[].score ] | add) / ($s | length))
-                        elif ($cat == "performance" or $cat == "resilience") then null
+                        elif ($cat == "performance" or $cat == "resilience" or $cat == "supply_chain" or $cat == "efficiency") then null
                         else 1 end) } )
           | from_entries ) as $cf
       | ([ $cf | to_entries[] | select(.value != null) | $w[.key] ] | add // 0) as $wtot
@@ -170,6 +191,63 @@ data:
             "\($restarts // 0) container restart(s) across the running pods in \($env)"),
         sig("progressive_delivery"; "resilience"; $has; b($has and any($ws[]; .progressive));
             if any($ws[]; .progressive) then "Argo Rollouts canary/blue-green" else "plain rolling update; no canary or blue-green" end)
+      ];
+
+    # ---- supply chain and efficiency --------------------------------------------
+    # Both are null for the category (not a free 100%) when nothing could be
+    # measured: no containers, no Trivy report for the running images, or no
+    # metrics-server answer.
+    def supply_efficiency($env):
+      . as $r |
+      ([ $r.cs[] | .image ] | unique) as $imgs |
+      # Trivy reports for the images RUNNING now — older ReplicaSets keep reports
+      # for images no longer deployed, and those must not count.
+      ([ $r.wl[] | . as $w | ($vulnsBy[$w.ns] // [])[]
+         | select(.name == $w.name or (.name | startswith($w.name + "-")))
+         | select(. as $v | any($imgs[]; contains($v.repo) and (($v.digest != "" and contains($v.digest)) or ($v.tag != "" and contains(":" + $v.tag))))) ]
+       | unique_by(.repo + "@" + .digest + ":" + .tag)) as $vr |
+      ([ $vr[].critical ] | add // 0) as $crit |
+      ([ $vr[].high ] | add // 0) as $high |
+      ([ $imgs[] | select(pinned(.) | not) ]) as $loose |
+      ([ $imgs[] | select(reghost(.) as $h | any($trustedRegs[]; . as $t | $h | contains($t)) | not) ]) as $foreign |
+      # Pods of these workloads, with their requests and (when metrics-server
+      # answers) their live usage.
+      ([ $r.wl[] | . as $w | ($podsBy[$w.ns] // [])[] | select(selects($w.podLabels; .labels))
+         | . + {use: ($metricsBy["\(.ns)/\(.name)"] // null)} ] | unique_by(.ns + "/" + .name)) as $pods |
+      ([ $pods[] | select(.use != null) ]) as $measured |
+      ([ $measured[] | .req[] | cpuq(.cpu) // empty ] | add // 0) as $reqCpu |
+      ([ $measured[] | .use[] | cpuq(.cpu) // empty ] | add // 0) as $useCpu |
+      ([ $measured[] | .req[] | memq(.mem) // empty ] | add // 0) as $reqMem |
+      ([ $measured[] | .use[] | memq(.mem) // empty ] | add // 0) as $useMem |
+      (($measured | length) > 0) as $hasM |
+      (if $reqCpu > 0 then $useCpu / $reqCpu * 100 else null end) as $cpuPct |
+      (if $reqMem > 0 then $useMem / $reqMem * 100 else null end) as $memPct |
+      [
+        sig("image_pinned"; "supply_chain"; $r.hasC; b(($loose | length) == 0);
+            if ($loose | length) == 0 then "every image is pinned by digest or an immutable tag"
+            else "not pinned: \($loose | join(", ")) — the same tag can be pushed again" end),
+        sig("image_trusted_registry"; "supply_chain"; ($r.hasC and ($trustedRegs | length) > 0); b(($foreign | length) == 0);
+            if ($foreign | length) == 0 then "every image comes from \($trustedRegs | join(" or "))"
+            else "from outside the platform registry: \($foreign | join(", "))" end),
+        sig("no_critical_vulns"; "supply_chain"; (($vr | length) > 0); b($crit == 0);
+            if ($vr | length) == 0 then "no Trivy report for the running images yet"
+            else "\($crit) critical, \($high) high across \($vr | length) scanned image(s)" end),
+        sig("cpu_right_sized"; "efficiency"; ($hasM and $cpuPct != null);
+            b($cpuPct != null and $cpuPct >= $cpumin and $cpuPct <= $cpumax);
+            if ($hasM | not) then "no live usage: metrics-server did not answer for \($env)"
+            elif $cpuPct == null then "no CPU request set in \($env)"
+            else "uses \($cpuPct | floor)% of its \(mcpu($reqCpu)) CPU request in \($env)"
+              + (if $cpuPct < $cpumin then " — most of it is reserved and idle"
+                 elif $cpuPct > $cpumax then " — over its request; raise it so the scheduler reserves what it needs"
+                 else "" end) end),
+        sig("memory_right_sized"; "efficiency"; ($hasM and $memPct != null);
+            b($memPct != null and $memPct >= $memmin and $memPct <= $memmax);
+            if ($hasM | not) then "no live usage: metrics-server did not answer for \($env)"
+            elif $memPct == null then "no memory request set in \($env)"
+            else "uses \($memPct | floor)% of its \(mib($reqMem)) memory request in \($env)"
+              + (if $memPct < $memmin then " — most of it is reserved and idle"
+                 elif $memPct > $memmax then " — over its request; the pod is first to be evicted under pressure"
+                 else "" end) end)
       ];
 
     # ---- what the resilience runner proved ---------------------------------------
@@ -289,7 +367,7 @@ data:
             health: $b.health,
             sync: $b.sync,
             evidence: ($ev | {environment, image, testedAt, target, performance, chaos, chaosSuite, slo, pending} | with_entries(select(.value != null))),
-            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + evidence_signals($ev) + team_signals($appName)),
+            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + ($b | supply_efficiency($rep.env // $rep.ns)) + evidence_signals($ev) + team_signals($appName)),
         perfCenter: ($perfCenter[$appName] // null),
         gameDays: ($gameDays[$appName] // null)
           }
@@ -299,7 +377,7 @@ data:
     | {
         generatedAt: $ts,
         weights: {reliability:$wrel, security:$wsec, observability:$wobs, operations:$wops,
-                  performance:$wperf, resilience:$wres},
+                  performance:$wperf, resilience:$wres, supply_chain:$wsup, efficiency:$weff},
         gradeThresholds: {A:$ga, B:$gb, C:$gc, D:$gd},
         serviceCount: ($services | length),
         applicationCount: ($applications | length),
@@ -332,6 +410,13 @@ data:
     W_OPS=$(readcfg weight_operations 25)
     W_PERF=$(readcfg weight_performance 20)
     W_RES=$(readcfg weight_resilience 25)
+    W_SUP=$(readcfg weight_supply_chain 20)
+    W_EFF=$(readcfg weight_efficiency 10)
+    TRUSTED_REGISTRIES=$(readcfg trusted_registries harbor)
+    CPU_MIN=$(readcfg rightsize_cpu_min_pct 10)
+    CPU_MAX=$(readcfg rightsize_cpu_max_pct 100)
+    MEM_MIN=$(readcfg rightsize_mem_min_pct 20)
+    MEM_MAX=$(readcfg rightsize_mem_max_pct 100)
     # Evidence from the resilience runner older than this no longer counts.
     EVIDENCE_DAYS=$(readcfg evidence_max_age_days 7)
     P95_DEFAULT=$(readcfg perf_p95_ms 500)
@@ -401,6 +486,8 @@ data:
     fetch_ns clusters.postgresql.cnpg.io cnpg
     fetch_ns horizontalpodautoscalers.autoscaling hpas
     fetch_ns poddisruptionbudgets.policy pdbs
+    # Trivy Operator's per-workload vulnerability reports (absent without it).
+    fetch_ns vulnerabilityreports.aquasecurity.github.io vulns
 
     # Evidence from the resilience runner (load test, chaos, live SLO). It is
     # runtime data the runner writes; absent until its first run.
@@ -482,11 +569,23 @@ data:
     : >"$WORKDIR/pods.ndjson"
     for ns in $APP_NS; do
       kubectl -n "$ns" get pods -o json 2>/dev/null | jq -c '(.items // [])[] | {
-          ns: .metadata.namespace, labels: (.metadata.labels // {}),
+          ns: .metadata.namespace, name: .metadata.name, labels: (.metadata.labels // {}),
+          req: [ (.spec.containers // [])[] | {cpu: .resources.requests.cpu, mem: .resources.requests.memory} ],
           restarts: ([ (.status.containerStatuses // [])[].restartCount ] | add // 0) }' >>"$WORKDIR/pods.ndjson" || true
     done
     jq -s 'group_by(.ns) | map({key: .[0].ns, value: .}) | from_entries' "$WORKDIR/pods.ndjson" >"$WORKDIR/pods.json" \
       || echo '{}' >"$WORKDIR/pods.json"
+
+    # Live pod usage from metrics-server, keyed "<ns>/<pod>". A cluster without
+    # metrics-server leaves this empty and the efficiency category reports null.
+    : >"$WORKDIR/metrics.ndjson"
+    for ns in $APP_NS; do
+      kubectl get --raw "/apis/metrics.k8s.io/v1beta1/namespaces/${ns}/pods" 2>/dev/null | jq -c '(.items // [])[] | {
+          key: "\(.metadata.namespace)/\(.metadata.name)",
+          value: [ (.containers // [])[] | {cpu: .usage.cpu, mem: .usage.memory} ] }' >>"$WORKDIR/metrics.ndjson" || true
+    done
+    jq -s 'from_entries' "$WORKDIR/metrics.ndjson" >"$WORKDIR/metrics.json" 2>/dev/null || echo '{}' >"$WORKDIR/metrics.json"
+    rm -f "$WORKDIR/metrics.ndjson"
 
     project workloads '[ (.items // [])[] | {
         kind: .kind,
@@ -520,6 +619,15 @@ data:
           ($r.metadata.namespace // "_cluster") as $ns
           | .[$ns] = { pass: ((.[$ns].pass // 0) + ($r.summary.pass // 0)),
                        fail: ((.[$ns].fail // 0) + ($r.summary.fail // 0)) } ) ) }'
+    project vulns 'reduce (.items // [])[] as $v ({};
+        ($v.metadata.namespace) as $ns
+        | .[$ns] = ((.[$ns] // []) + [ {
+            name: ($v.metadata.labels["trivy-operator.resource.name"] // ""),
+            repo: ($v.report.artifact.repository // ""),
+            tag: ($v.report.artifact.tag // ""),
+            digest: ($v.report.artifact.digest // ""),
+            critical: ($v.report.summary.criticalCount // 0),
+            high: ($v.report.summary.highCount // 0) } ]))'
     project routes '{ nsSet: ( reduce (.items // [])[] as $r ({}; .[$r.metadata.namespace] = true) ) }'
     project cnpg '{
         byKey: ( reduce (.items // [])[] as $c ({};
@@ -549,9 +657,13 @@ data:
       --slurpfile evidencef "$WORKDIR/evidence.json" \
       --slurpfile perfcenterf "$WORKDIR/perfcenter.json" \
       --slurpfile gamedayf "$WORKDIR/gameday.json" \
+      --slurpfile vulnsf "$WORKDIR/vulns.json" \
+      --slurpfile metricsf "$WORKDIR/metrics.json" \
       --argjson wrel "$W_REL" --argjson wsec "$W_SEC" \
       --argjson wobs "$W_OBS" --argjson wops "$W_OPS" \
       --argjson wperf "$W_PERF" --argjson wres "$W_RES" \
+      --argjson wsup "$W_SUP" --argjson weff "$W_EFF" --arg trusted "$TRUSTED_REGISTRIES" \
+      --argjson cpumin "$CPU_MIN" --argjson cpumax "$CPU_MAX" --argjson memmin "$MEM_MIN" --argjson memmax "$MEM_MAX" \
       --argjson ga "$G_A" --argjson gb "$G_B" --argjson gc "$G_C" --argjson gd "$G_D" \
       --argjson evdays "$EVIDENCE_DAYS" --argjson p95default "$P95_DEFAULT" \
       --argjson recoverymax "$RECOVERY_MAX" --arg envorder "$ENV_ORDER" \

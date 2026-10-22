@@ -163,7 +163,7 @@ Examples:
 		capture := captureTeardownLogs(m.sub)
 
 		// Run the UI
-		_, runErr := p.Run()
+		final, runErr := p.Run()
 		capture.Restore()
 
 		if runErr != nil {
@@ -183,7 +183,35 @@ Examples:
 				fmt.Fprintf(os.Stderr, "\nProvider log:\n%s", out)
 			}
 		}
+		if code := teardownExitCode(final); code != 0 {
+			os.Exit(code)
+		}
 	},
+}
+
+// teardownExitCode is the process exit status for the interactive teardown.
+//
+// The UI drew "Failed to tear down the environment" and then the command
+// exited 0, because the program's own error was the only thing checked and a
+// failed teardown is a normal model state, not a program error. Anything that
+// keys off the exit status — a wrapper script, `adhar down && adhar up`, CI
+// running under a pseudo-terminal — read a teardown that left billing machines
+// behind as a success. The plain (non-terminal) path already exits 1; this
+// gives the interactive one the same answer. Interrupting with Ctrl+C leaves
+// the teardown unfinished too, so it is not a success either (130, the shell's
+// convention for SIGINT).
+func teardownExitCode(final tea.Model) int {
+	m, ok := final.(downModel)
+	if !ok {
+		return 0
+	}
+	switch {
+	case m.err != nil:
+		return 1
+	case m.quitting:
+		return 130
+	}
+	return 0
 }
 
 var (

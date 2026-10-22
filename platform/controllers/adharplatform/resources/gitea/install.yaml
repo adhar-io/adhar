@@ -204,6 +204,7 @@ stringData:
     DOMAIN={{ .Host }}
     ENABLE_PPROF=false
     HTTP_PORT=3000
+    LANDING_PAGE=login
     PROTOCOL=http
     ROOT_URL=https://gitea.{{ .Host }}{{ .PortSuffix }}/
     SSH_DOMAIN={{ .Host }}
@@ -908,7 +909,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 1ac131942801038ca161afe4ee96f52bfcb2e5ab8c0f3e02c3964fc3529457b0
+        checksum/config: ec62cc66d9b2b84ba7047fc59f939e89e5a42c2cb152ca792ba15dc2fdc3f4f8
         # Velero file-backup, opt in. The platform's schedules are opt-OUT-free
         # (core/velero/manifests/schedules.yaml explains why: the opt-out default
         # copied the object store into itself and filled the disk), so a volume

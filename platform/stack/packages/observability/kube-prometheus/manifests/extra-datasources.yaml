@@ -64,15 +64,19 @@ data:
             filterByTraceID: true
             filterBySpanID: false
           # Trace span → RED metrics in Prometheus.
+          # Span metrics and service graphs are remote-written by Tempo's
+          # metrics-generator to MIMIR (tempo/values.yaml), not to Prometheus:
+          # pointing these at prometheus gave an empty Service Graph and empty
+          # "Related metrics" on every span.
           tracesToMetrics:
-            datasourceUid: prometheus
+            datasourceUid: mimir
             spanStartTimeShift: '-5m'
             spanEndTimeShift: '5m'
             tags:
               - key: 'service.name'
                 value: 'service'
           serviceMap:
-            datasourceUid: prometheus
+            datasourceUid: mimir
           nodeGraph:
             enabled: true
           lokiSearch:

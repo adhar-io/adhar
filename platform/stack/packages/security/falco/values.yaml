@@ -16,6 +16,19 @@
 #                                ──▶ Falcosidekick-UI (the Console's event feed)
 #                                ──▶ Prometheus    (falcosecurity_falcosidekick_falco_events_total)
 
+# The agent runs on EVERY node (9 copies on the DigitalOcean cluster). The
+# chart's 512Mi request is sized for busy multi-source deployments; measured
+# here it holds 76-143 MiB and peaked at 176 MiB over three hours (2026-10-22),
+# so each copy reserved ~370 MiB nothing used — ~3.3 GiB across the cluster on
+# workers sitting at 99% of memory requests. 256Mi keeps >40% headroom over the
+# peak; the 1Gi limit is unchanged so a rule-heavy burst is still absorbed.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
 driver:
   enabled: true
   # The modern eBPF probe needs no kernel module and no driver build on the

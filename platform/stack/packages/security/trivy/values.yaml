@@ -23,6 +23,25 @@ operator:
   # crashlooped looking for its config and leader-election lease.
   namespace: adhar-system
 
+# The node-collector Job (CIS / NSA node checks) runs once per node, the
+# control plane included — and the control plane is tainted NoSchedule. With
+# no toleration the master's collector sat Pending until the operator timed it
+# out and created another, forever (2026-10-22), so the master — the node whose
+# kubelet/apiserver file permissions matter most — was never assessed.
+nodeCollector:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+# The operator itself. The chart ships no resources, so it took the namespace's
+# 64Mi default request while its informer caches (every workload, every report
+# CRD) held 1.1 GiB at steady state and peaked at 1.7 GiB over three hours
+# (2026-10-22) — the second-largest unaccounted process on nodes the kubelet was
+# evicting pods from. No limit: a capped informer cache OOM-loops.
+resources:
+  requests: {cpu: 50m, memory: 1280Mi}
+
 trivy:
   # The runtime ignore file is Trivy's YAML format (ids scoped by purl/path,
   # with expiry), not the legacy one-id-per-line .trivyignore. Its CONTENT
@@ -35,6 +54,8 @@ trivy:
     requests: {cpu: 50m, memory: 128M}
     limits: {cpu: 500m, memory: 512M}
   server:
+    # Measured 50 MiB idle, 204 MiB peak over three hours with scans running
+    # (2026-10-22); the 1Gi limit still covers a DB update.
     resources:
-      requests: {cpu: 100m, memory: 512Mi}
+      requests: {cpu: 100m, memory: 256Mi}
       limits: {cpu: "1", memory: 1Gi}

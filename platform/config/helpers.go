@@ -27,6 +27,9 @@ func (c *ConfigProviderConfig) ToProviderMap() map[string]interface{} {
 	if c.KubeContext != "" {
 		result["kubeContext"] = c.KubeContext
 	}
+	if len(c.VPCConfig) > 0 {
+		result["vpcConfig"] = c.VPCConfig
+	}
 
 	// AWS authentication
 	if c.AccessKeyID != "" {

@@ -80,6 +80,9 @@ spec:
     spec:
       backoffLimit: 2
       ttlSecondsAfterFinished: 3600
+      # Under Forbid a hung run blocks every later one; bound it below the
+      # hourly schedule.
+      activeDeadlineSeconds: 1800
       template:
         spec:
           serviceAccountName: tekton-pipelinerun-pruner

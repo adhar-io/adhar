@@ -98718,6 +98718,10 @@ spec:
   listenLocal: false
   enableOTLPReceiver: false
   enableAdminAPI: false
+  enableFeatures:
+  - exemplar-storage
+  exemplars:
+    maxSize: 100000
   retention: 10d
   tsdb:
     outOfOrderTimeWindow: 0s

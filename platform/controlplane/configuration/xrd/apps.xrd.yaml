@@ -114,6 +114,40 @@ spec:
                         properties:
                           tokensPerHour: {type: integer, default: 100000}
                           requestsPerMinute: {type: integer, default: 60}
+                  localisation:
+                    type: object
+                    description: >-
+                      Where the application's UI text comes from. With `provider: tolgee` the platform
+                      creates a Tolgee project named after the application with these languages, a
+                      CI key published as Secret `<application>-tolgee-ci` in adhar-system (the
+                      paved-road CI pushes new keys and pulls translations before each build), and a
+                      read-only key published as Secret `<application>-tolgee` in every environment
+                      namespace of the application, which the running app reads as TOLGEE_API_URL,
+                      TOLGEE_PROJECT_ID and TOLGEE_API_KEY. Keys are created once and kept.
+                    required:
+                      - provider
+                    properties:
+                      provider:
+                        type: string
+                        description: The localisation service. Only `tolgee` is provided by the platform.
+                        enum: [tolgee]
+                      baseLanguage:
+                        type: string
+                        description: The source language keys are written in (a BCP 47 tag, e.g. `en`).
+                        default: en
+                        pattern: '^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$'
+                      languages:
+                        type: array
+                        description: >-
+                          Languages the project carries (BCP 47 tags). The base language is added when
+                          it is missing. Languages are only ever added; removing one here does not
+                          delete its translations.
+                        default: [en]
+                        minItems: 1
+                        maxItems: 100
+                        items:
+                          type: string
+                          pattern: '^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$'
                   project:
                     type: string
                     description: The Project this application belongs to. Its environments, AppProject

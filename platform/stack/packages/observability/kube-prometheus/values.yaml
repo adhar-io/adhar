@@ -4153,7 +4153,8 @@ prometheus:
 
     ## Exemplars related settings that are runtime reloadable.
     ## It requires to enable the exemplar storage feature to be effective.
-    exemplars: {}
+    exemplars:
+      maxSize: 100000
       ## Maximum number of exemplars stored in memory for all series.
       ## If not set, Prometheus uses its default value.
       ## A value of zero or less than zero disables the storage.
@@ -4161,7 +4162,12 @@ prometheus:
 
     # EnableFeatures API enables access to Prometheus disabled features.
     # ref: https://prometheus.io/docs/prometheus/latest/feature_flags/
-    enableFeatures: []
+    # exemplar-storage: application histograms (adhar-kit / Micrometer) carry a
+    # trace_id exemplar per bucket; without this flag Prometheus drops them at
+    # scrape and Grafana's "View trace" link on a latency spike never appears
+    # (the datasource's exemplarTraceIdDestinations below is already wired).
+    enableFeatures:
+      - exemplar-storage
     # - exemplar-storage
 
     ##
@@ -4672,6 +4678,9 @@ prometheus:
 
     ## Priority class assigned to the Pods
     ##
+    # Deliberately NO priority class. Most stateful pods here sit on node-local
+    # volumes at priority 0; a Prometheus that can preempt evicted the shared Kafka
+    # broker off the only node its volume lives on, stranding it (2026-10-23).
     priorityClassName: ""
 
     ## Thanos configuration allows configuring various aspects of a Prometheus server in a Thanos environment.

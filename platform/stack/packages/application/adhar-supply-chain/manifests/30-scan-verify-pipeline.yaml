@@ -138,6 +138,10 @@ spec:
   steps:
     - name: scan
       image: docker.io/aquasec/trivy:0.58.1
+      # Measured ~250 MiB / ~0.6 CPU per image scan (2026-10-22); the 64Mi
+      # namespace default left it eviction-first on a full node.
+      computeResources:
+        requests: {cpu: 250m, memory: 256Mi}
       env:
         # Harbor serves HTTPS with its own internal CA. TRIVY_NON_SSL=true used
         # to be set here, which forced plaintext against a TLS-only registry and

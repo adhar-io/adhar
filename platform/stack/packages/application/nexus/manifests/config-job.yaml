@@ -355,9 +355,15 @@ spec:
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 300
   jobTemplate:
     spec:
       backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      # bootstrap.sh waits up to 10 min for Nexus; under Forbid a run that
+      # hangs past that (a request with no client timeout) would block the
+      # repair this CronJob exists to make, indefinitely.
+      activeDeadlineSeconds: 900
       template:
         spec:
           serviceAccountName: nexus-config

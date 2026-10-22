@@ -33,7 +33,19 @@ metadata:
     app.kubernetes.io/component: config
 data:
   config.alloy: |-
+    // Loki needs at least one label per stream, and the dashboards select by
+    // app and environment: an empty value is filled from the payload's own
+    // field (app_name, app_environment, kind), so every browser event lands
+    // as {source="faro", app_name, app_environment, kind}. Without them every
+    // stream was label-less, which Loki either refuses or files under
+    // service_name="unknown_service": unselectable per app either way.
     faro.receiver "default" {
+      extra_log_labels = {
+        source          = "faro",
+        app_name        = "",
+        app_environment = "",
+        kind            = "",
+      }
       server {
         listen_address = "0.0.0.0"
         listen_port    = 12347

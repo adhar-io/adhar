@@ -89,6 +89,15 @@ providers:
 # path: the foundation ships as embedded manifests, so the chart coordinates
 # here are recorded, printed by --dry-run, and otherwise inert. Do not spend
 # time tuning them.
+# ─── Sizing keys (optional; see examples/config.yaml "Machine sizing") ───────
+# Under providers.digitalocean.config (values shown are the built-in defaults):
+#
+#   controlPlaneMachineType: s-8vcpu-16gb
+#   workerMachineType: s-8vcpu-16gb             # node groups that name no size
+#
+# droplet_size above is the legacy single size: it sizes every droplet those two
+# keys and the environment's nodeSize do not.
+
 environmentTemplates:
   nonprod-defaults:
     clusterConfig:
@@ -128,6 +137,10 @@ environmentTemplates:
 # production-type one among them, because it has to carry production's load.
 # `clusterConfig` and `autoscaling` on a namespace environment describe that
 # shared cluster; on a `cluster` environment they describe its own.
+# Additional node groups beside `workers` go in an environment's `nodeGroups:` —
+#   nodeGroups:
+#     - {name: highmem, machineType: m-4vcpu-32gb, count: 1}
+# (validated: DNS-1123 name <= 20 chars, count >= 1; see examples/config.yaml).
 environments:
   dev:
     isolation: namespace

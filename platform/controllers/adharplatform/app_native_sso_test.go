@@ -989,6 +989,9 @@ func TestSSOButtonPagesRedirectStraightIntoKeycloak(t *testing.T) {
 		// Plane draws its own one-button sign-in to anyone without a Plane
 		// session; a request that carries one must still reach Plane.
 		"application/plane/manifests/httproute.yaml.tmpl": {"value: /", "replaceFullPath: /auth/keycloak/", "session-id=[^;]+"},
+		// Coder's login page offers a password form beside the Keycloak button;
+		// only a request without a Coder session is sent into Keycloak.
+		"application/coder/manifests/httproute.yaml.tmpl": {"value: /", "replaceFullPath: /api/v2/users/oidc/callback", "coder_session_token=[^;]+"},
 	} {
 		body := readStackFile(t, file)
 		for _, w := range append(want, "type: RequestRedirect", "port: {{ .Port }}", "method: GET") {
@@ -1012,5 +1015,25 @@ func TestPlanesApiIsNotBehindTheEdgeProxy(t *testing.T) {
 	// The hand-made client Plane's own sign-in uses must survive any regeneration.
 	if !strings.Contains(sso, `"clientId": "plane-app"`) {
 		t.Error("the plane-app Keycloak client is gone from sso.yaml; Plane's in-app Keycloak login has no client")
+	}
+}
+
+// Nothing opened from the console may ask for the Keycloak password again.
+//
+//   - LibreDB Studio sends prompt=login unless OIDC_PROMPT says otherwise, and
+//     Keycloak then shows its password form even over a live session.
+//   - The console must not request offline_access: an offline token kept the
+//     console signed in after the browser SSO session had ended, so every tool
+//     it opened asked for the password (2026-10-22).
+//
+// Comments are stripped first, so the prose above cannot satisfy any assertion.
+func TestNothingOpenedFromTheConsoleForcesAKeycloakLogin(t *testing.T) {
+	libredb := withoutComments(readStackFile(t, "data/libredb-studio/manifests/install.yaml"))
+	if !strings.Contains(libredb, `OIDC_PROMPT: "omit"`) {
+		t.Error(`LibreDB Studio lacks OIDC_PROMPT "omit"; its default prompt=login asks a signed-in user for the password`)
+	}
+	console := withoutComments(readStackFile(t, "core/adhar-console/manifests/install.yaml"))
+	if strings.Contains(console, "offline_access") {
+		t.Error("the console requests offline_access; its session then outlives the Keycloak SSO session the tools rely on")
 	}
 }

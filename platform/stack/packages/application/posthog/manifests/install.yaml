@@ -5592,12 +5592,17 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
-        # Measured at ~730 MiB; with no request it was invisible to the
-        # scheduler and landed on the fullest node in the cluster.
+        - name: WEB_CONCURRENCY
+          value: "2"
+        - name: CELERY_MAX_MEMORY_PER_CHILD
+          value: "524288"
+        # Celery forks one child per CPU unless WEB_CONCURRENCY is set: eight
+        # on an 8-vCPU node reached ~2 GiB and was OOMKilled 8x (2026-10-22).
+        # Two children + a 1Gi request; see values.yaml `worker:`.
         resources:
           requests:
             cpu: 100m
-            memory: 768Mi
+            memory: 1Gi
           limits:
             memory: 2Gi
       initContainers:
@@ -6177,6 +6182,11 @@ spec:
           - name: udf-config
             mountPath: /etc/clickhouse-server/user_defined_function.xml
             subPath: user_defined_function.xml
+          # values.yaml clickhouse.resources: measured ~1 GiB / 0.7 CPU (2026-10-22)
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
         initContainers:
         - name: install-udfs
           image: posthog/posthog@sha256:60bdb8cdc8ab5e19dead28af4f57d83348999a8f976366ff4edc575e524dcd5c

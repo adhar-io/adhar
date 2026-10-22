@@ -187,10 +187,10 @@ func TestPlannedInstanceSizesMatchWhatCreateWillBuild(t *testing.T) {
 
 	// No node groups: the create path falls back to two workers plus the control
 	// plane, all at the configured size.
-	if got := plannedInstanceSizes(&types.ClusterSpec{}, sizeMedium, 0); len(got) != 3 {
+	if got := plannedInstanceSizes(&types.ClusterSpec{}, sizeMedium, sizeMedium, 0); len(got) != 3 {
 		t.Errorf("default shape = %v, want 3 instances", got)
 	}
-	if got := plannedInstanceSizes(&types.ClusterSpec{}, sizeMedium, 4); len(got) != 5 {
+	if got := plannedInstanceSizes(&types.ClusterSpec{}, sizeMedium, sizeMedium, 4); len(got) != 5 {
 		t.Errorf("defaultNodeCount=4 = %v, want 5 instances", got)
 	}
 
@@ -202,7 +202,7 @@ func TestPlannedInstanceSizesMatchWhatCreateWillBuild(t *testing.T) {
 			{Name: groupWorkers, Replicas: 2, InstanceType: sizeXLarge},
 		},
 	}
-	got := plannedInstanceSizes(spec, "g3.small", 0)
+	got := plannedInstanceSizes(spec, "g3.small", "g3.small", 0)
 	want := []string{sizeMedium, sizeXLarge, sizeXLarge}
 	if len(got) != len(want) {
 		t.Fatalf("plan = %v, want %v", got, want)
@@ -218,7 +218,7 @@ func TestPlannedInstanceSizesMatchWhatCreateWillBuild(t *testing.T) {
 		{Name: groupWorkers, Replicas: 1, InstanceType: sizeLarge},
 		{Name: "gpu", Replicas: 1},
 	}}
-	got = plannedInstanceSizes(spec, "g3.small", 0)
+	got = plannedInstanceSizes(spec, "g3.small", "g3.small", 0)
 	if len(got) != 3 || got[1] != sizeLarge || got[2] != "g3.small" {
 		t.Errorf("plan = %v, want [g3.small g3.large g3.small] (control plane falls back too)", got)
 	}
@@ -228,7 +228,7 @@ func TestPlannedInstanceSizesMatchWhatCreateWillBuild(t *testing.T) {
 		ControlPlane: types.ControlPlaneSpec{InstanceType: sizeLarge, Replicas: 3},
 		NodeGroups:   []types.NodeGroupSpec{{Name: groupWorkers, Replicas: 1, InstanceType: sizeXLarge}},
 	}
-	if got := plannedInstanceSizes(spec, "g3.small", 0); len(got) != 4 {
+	if got := plannedInstanceSizes(spec, "g3.small", "g3.small", 0); len(got) != 4 {
 		t.Errorf("HA plan = %v, want 4 instances (3 control plane + 1 worker)", got)
 	}
 }

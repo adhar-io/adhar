@@ -1,0 +1,340 @@
+# Console permissions as Kubernetes RBAC.
+#
+# The Adhar Console authorizes every action with a SelfSubjectAccessReview made
+# AS the signed-in user (their OIDC token, or the console ServiceAccount
+# impersonating them). Kubernetes objects need nothing here — the built-in and
+# CRD roles already answer "may I delete this Deployment". Console-level actions
+# that are NOT Kubernetes objects (switching a platform package on, changing
+# billing, approving a scan waiver, …) are VIRTUAL resources in the API group
+# `console.adhar.io`. No CRD backs them: the RBAC authorizer matches rules by
+# string, so the rules below are honoured by an SSAR for exactly that
+# verb/resource whether or not the API exists. The console hides every action
+# the user may not take and its BFF refuses the same request — both ask the
+# same question, so they cannot disagree.
+#
+# Catalogue (source of truth: adhar-console packages/auth/src/console-permissions.ts;
+# operator guide: adhar-console docs/rbac.md):
+#
+#   packages                update                  enable/disable platform packages
+#   billing                 get | update            see | change billing
+#   workspace-members       create | update | delete invite | change role | remove
+#   workspace-roles         create | update | delete custom workspace roles
+#   workspace-teams         create | update | delete teams and team membership
+#   workspace-projects      create | update | delete workspace projects
+#   workspace-tokens        create | delete         organisation API tokens
+#   workspace-approvals     approve                 decide approval requests
+#   organizations           create | update | delete
+#   audit                   get                     workspace audit trail
+#   scorecards              update                  re-run + apply scorecard fixes
+#   resilience-runs         create                  start a resilience suite (namespaced)
+#   scan-waivers            create | approve | self-approve
+#   scan-policies           update
+#   notifications-broadcast create                  notify every member
+#   ai-knowledge            create | update         add notes | rate grounding
+#   applications            create | delete         scaffold | delete (incl. repo)
+#
+# Who holds what (groups carry the `oidc:` prefix, as in
+# stack/packages/security/keycloak/manifests/k8s-rbac.yaml):
+#
+#   platform-admin, platform-engineer  everything — they are bound to
+#                                      cluster-admin, whose `*` rules cover
+#                                      console.adhar.io too.
+#   super-admin                        everything (adhar-console-admin below).
+#   every signed-in user               adhar-console-member: what any member
+#                                      could do before these checks existed.
+#   ws-role-owner / ws-role-admin      workspace administration (the console
+#                                      mirrors organisation roles into these
+#                                      Keycloak groups).
+#   ws-role-billing                    billing.
+#   application-admin                  resilience runs, application delete.
+#   ws-team-<team> (admin of its own   resilience runs IN that namespace, via
+#     namespace, Project composition)  aggregation into `admin`.
+#   security-reviewer / security-admin waiver review; security-admin also
+#                                      scan policy.
+#
+# To tighten, delete or edit a binding — e.g. remove `organizations: create`
+# from adhar-console-member to stop self-service organisation creation. To
+# grant, bind one of these ClusterRoles (or your own) to a group.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-admin
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-admin
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-admin
+subjects:
+  # platform-admin and platform-engineer already hold cluster-admin.
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:super-admin
+---
+# Every signed-in person. These are exactly the console actions that were open
+# to any member before they became RBAC checks, so turning the checks on
+# changed nothing for anyone; each line can now be removed to tighten.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-member
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: [billing, audit]
+    verbs: [get]
+  # Re-run scorecards and apply fixes; WHICH entities a member may fix is
+  # still decided by ownership (the owning team's developers).
+  - apiGroups: [console.adhar.io]
+    resources: [scorecards]
+    verbs: [update]
+  # Request a waiver; the console additionally requires membership of the
+  # project (list pods in its namespace). Reviewing is NOT here.
+  - apiGroups: [console.adhar.io]
+    resources: [scan-waivers]
+    verbs: [create]
+  - apiGroups: [console.adhar.io]
+    resources: [ai-knowledge]
+    verbs: [create, update]
+  # Golden-path scaffolding and self-service organisation onboarding.
+  - apiGroups: [console.adhar.io]
+    resources: [applications, organizations]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-member
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-member
+subjects:
+  # Added by the apiserver to every authenticated user, impersonated ones
+  # included. ServiceAccounts match too, harmlessly: nothing but the console
+  # reads console.adhar.io.
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:authenticated
+---
+# Organisation owners and admins (Workspace settings). The console mirrors a
+# member's organisation role into the Keycloak group ws-role-<role>.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-workspace-admin
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources:
+      - workspace-members
+      - workspace-roles
+      - workspace-teams
+      - workspace-projects
+    verbs: [create, update, delete]
+  - apiGroups: [console.adhar.io]
+    resources: [workspace-tokens]
+    verbs: [create, delete]
+  - apiGroups: [console.adhar.io]
+    resources: [workspace-approvals]
+    verbs: [approve]
+  - apiGroups: [console.adhar.io]
+    resources: [organizations]
+    verbs: [update]
+  - apiGroups: [console.adhar.io]
+    resources: [billing]
+    verbs: [get, update]
+  - apiGroups: [console.adhar.io]
+    resources: [notifications-broadcast]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-workspace-admin
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-workspace-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:ws-role-owner
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:ws-role-admin
+---
+# Deleting the organisation stays an owner's decision.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-workspace-owner
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: [organizations]
+    verbs: [delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-workspace-owner
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-workspace-owner
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:ws-role-owner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-billing
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: [billing]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-billing
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-billing
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:ws-role-billing
+---
+# Application admins: run resilience suites anywhere, delete applications
+# (whose source repository the console removes with Gitea admin credentials).
+# Console actions only — this grants NO Kubernetes authority; see the empty
+# adhar-oidc-application-admin binding in keycloak/manifests/k8s-rbac.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-application-admin
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: [resilience-runs]
+    verbs: [create]
+  - apiGroups: [console.adhar.io]
+    resources: [applications]
+    verbs: [delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-application-admin
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-application-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:application-admin
+---
+# Folded into the built-in `admin` role, which the Project composition binds
+# to oidc:ws-team-<team> in the team's own namespace: a team may start
+# resilience suites against its own apps (the console asks in the app's
+# namespace) and nowhere else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-namespace-admin
+  labels:
+    adhar.io/component: rbac
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: [resilience-runs]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-security-reviewer
+  labels:
+    adhar.io/component: rbac
+rules:
+  # Approve / reject / revoke waivers, decide paused scan gates, re-sync.
+  - apiGroups: [console.adhar.io]
+    resources: [scan-waivers]
+    verbs: [approve]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-security-reviewer
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-security-reviewer
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:security-reviewer
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:security-admin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-security-admin
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [console.adhar.io]
+    resources: [scan-policies]
+    verbs: [update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-security-admin
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-security-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:security-admin

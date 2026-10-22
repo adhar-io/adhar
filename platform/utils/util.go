@@ -142,15 +142,31 @@ func IsYamlFile(input string) bool {
 	return extension == ".yaml" || extension == ".yml"
 }
 
+// sharedInsecureTransport is the one connection pool behind GetHttpClient.
+//
+// GetHttpClient used to build a NEW Transport on every call, and callers make
+// one per operation — the GitRepository controller builds a Gitea client every
+// reconcile (every 30 s per repository), the platform reconciler one per
+// password check. A Transport keeps its idle keep-alive connections (two
+// goroutines and a socket each) until IdleConnTimeout, and that was unset, so
+// every discarded Transport leaked its connections for the life of the
+// in-cluster manager. One shared Transport reuses connections and closes idle
+// ones.
+var sharedInsecureTransport = &http.Transport{
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- in-cluster self-signed endpoints
+	DialContext: (&net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 30 * time.Second, // from http.DefaultTransport
+	}).DialContext,
+	MaxIdleConns:          50,
+	MaxIdleConnsPerHost:   10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
+
 func GetHttpClient() *http.Client {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		DialContext: (&net.Dialer{
-			Timeout:   5 * time.Second,
-			KeepAlive: 30 * time.Second, // from http.DefaultTransport
-		}).DialContext,
-	}
-	return &http.Client{Transport: tr, Timeout: 30 * time.Second}
+	return &http.Client{Transport: sharedInsecureTransport, Timeout: 30 * time.Second}
 }
 
 // DetectKindNodeProvider follows the kind CLI convention where:

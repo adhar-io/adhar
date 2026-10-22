@@ -22,7 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-var timeout = time.After(10 * time.Minute)
+// installReadyTimeout bounds how long Install waits for its workloads. It
+// used to be a package-level time.After, created once at process start: it
+// fired ten minutes after the binary started (not after Install did), could
+// be received only once, and every later Install then waited forever.
+const installReadyTimeout = 10 * time.Minute
 
 type EmbeddedInstallation struct {
 	name         string
@@ -89,7 +93,11 @@ func (e *EmbeddedInstallation) Install(ctx context.Context, resource *v1alpha1.A
 	}
 
 	// wait for expected resources to become available
-	errCh := make(chan error)
+	waitCtx, cancel := context.WithTimeout(ctx, installReadyTimeout)
+	defer cancel()
+	// Buffered for every waiter: one error ends the wait, and the waiters that
+	// fail after it must not block forever on a send nobody receives.
+	errCh := make(chan error, len(installObjs))
 	var wg sync.WaitGroup
 
 	for _, obj := range installObjs {
@@ -110,7 +118,7 @@ func (e *EmbeddedInstallation) Install(ctx context.Context, resource *v1alpha1.A
 
 				for {
 					if gotObj, ok := gvkObj.(client.Object); ok {
-						if err := cli.Get(ctx, types.NamespacedName{Namespace: e.namespace, Name: obj.GetName()}, gotObj); err != nil {
+						if err := cli.Get(waitCtx, types.NamespacedName{Namespace: e.namespace, Name: obj.GetName()}, gotObj); err != nil {
 							errCh <- err
 							return
 						}
@@ -130,29 +138,40 @@ func (e *EmbeddedInstallation) Install(ctx context.Context, resource *v1alpha1.A
 					}
 
 					logger.Info(fmt.Sprintf("Waiting for %s %s to become ready", gvk.Kind, obj.GetName()))
-					time.Sleep(30 * time.Second)
+					// The waiters stop with the wait: they used to sleep-poll
+					// forever after Install had already returned.
+					select {
+					case <-waitCtx.Done():
+						return
+					case <-time.After(30 * time.Second):
+					}
 				}
 			}(obj, gvk)
 		}
 	}
 
+	allDone := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(errCh)
+		close(allDone)
 	}()
 
 	select {
-	case <-timeout:
+	case <-waitCtx.Done():
 		err := errors.New("Installation timeout exceeded")
 		logger.Error(err, fmt.Sprintf("Didn't reconcile %s within 10-minute timeout - components may still be starting up", e.name))
 		return ctrl.Result{}, err
-	case err, errOccurred := <-errCh:
-		if !errOccurred {
-			logger.V(1).Info(fmt.Sprintf("%s is ready!", e.name))
-		} else {
+	case err := <-errCh:
+		logger.Error(err, fmt.Sprintf("failed to reconcile the %s resources", e.name))
+		return ctrl.Result{}, err
+	case <-allDone:
+		select {
+		case err := <-errCh:
 			logger.Error(err, fmt.Sprintf("failed to reconcile the %s resources", e.name))
 			return ctrl.Result{}, err
+		default:
 		}
+		logger.V(1).Info(fmt.Sprintf("%s is ready!", e.name))
 	}
 
 	return ctrl.Result{}, nil

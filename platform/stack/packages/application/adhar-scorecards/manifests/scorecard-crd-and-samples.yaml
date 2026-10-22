@@ -24,12 +24,30 @@ data:
   # resilience    -> automated pod-delete chaos + recovery time, replicas, PDB,
   #                  HPA, spread across nodes, graceful shutdown, restarts,
   #                  progressive delivery
+  # supply_chain  -> images pinned (digest / commit or version tag), pulled from
+  #                  a trusted registry, no critical CVEs in Trivy's report
+  # efficiency    -> CPU and memory requests match real usage (metrics-server)
   weight_reliability: "35"
   weight_security: "25"
   weight_observability: "15"
   weight_operations: "25"
   weight_performance: "20"
   weight_resilience: "25"
+  weight_supply_chain: "20"
+  weight_efficiency: "10"
+
+  # ---- Supply chain -------------------------------------------------------
+  # Comma-separated registry hosts (substring match) an image must come from.
+  trusted_registries: "harbor"
+
+  # ---- Efficiency ---------------------------------------------------------
+  # A request is right-sized when live usage is within this % band of it:
+  # below the floor it is reserved and idle, above the ceiling (memory) the
+  # pod is first in line for eviction / (CPU) it competes for spare cycles.
+  rightsize_cpu_min_pct: "10"
+  rightsize_cpu_max_pct: "100"
+  rightsize_mem_min_pct: "20"
+  rightsize_mem_max_pct: "100"
 
   # ---- Letter-grade thresholds (score >= threshold) -----------------------
   grade_a: "90"
@@ -118,6 +136,18 @@ data:
           - graceful_shutdown   # preStop hook on every container
           - restart_stability   # < 3 container restarts across running pods
           - progressive_delivery # Argo Rollouts canary / blue-green
+      supply_chain:             # where there are containers (null otherwise)
+        weight: 20
+        signals:
+          - image_pinned        # every image by digest, a 40-hex commit tag or a
+                                # version tag (never :latest or untagged)
+          - image_trusted_registry # every image from trusted_registries
+          - no_critical_vulns   # Trivy reports for the RUNNING images: 0 critical
+      efficiency:               # where metrics-server answers (null otherwise)
+        weight: 10
+        signals:
+          - cpu_right_sized     # live CPU within rightsize_cpu_*_pct of requests
+          - memory_right_sized  # live memory within rightsize_mem_*_pct of requests
     grades: { A: 90, B: 80, C: 70, D: 60, F: 0 }
     notes:
       - Applications (Argo CD apps labelled adhar.io/application) are graded

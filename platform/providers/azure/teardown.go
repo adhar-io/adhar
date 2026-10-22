@@ -749,6 +749,9 @@ func (p *Provider) checkQuota(ctx context.Context, need int, vmSize, shape strin
 // vmSizeCores returns the vCPU count of a VM size in a location, or 0 when the
 // size is unknown there.
 func (p *Provider) vmSizeCores(ctx context.Context, location, vmSize string) int {
+	if p.vmSizesClient == nil {
+		return 0
+	}
 	pager := p.vmSizesClient.NewListPager(location, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)

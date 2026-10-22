@@ -1,0 +1,62 @@
+# Adhar marketplace contract for the tolgee package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: tolgee
+category: application
+version: "0.1.0"
+appVersion: 3.236.1
+description: >-
+  Tolgee localisation platform — the single source of every frontend
+  application's UI text. Postgres through a `Database`, files in RustFS,
+  Keycloak sign-in, and per-application projects + API keys provisioned by the
+  control plane for any Application that declares `localisation.provider: tolgee`.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://tolgee.io
+adharCompatibility:
+  minVersion: "0.1.0"
+  notes: >-
+    Runs the official `tolgee/tolgee` image (Spring Boot, JVM). Per-application
+    provisioning (project, languages, CI and read-only API keys, the
+    `<app>-tolgee-ci` and `<app>-tolgee` Secrets) is composed by the
+    Application compositions and therefore reaches a cluster with a controller
+    release; the package itself is a stack push. Off in the local development
+    core: it is a JVM, and applications fall back to the translations bundled
+    at build time when Tolgee is absent.
+dependencies:
+  - name: cnpg
+    category: data
+  - name: rustfs
+    category: data
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: ""          # no official chart; hand-written manifests
+  signed: true               # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true        # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+# alpha: built and render-tested, not yet live-verified on a cluster.
+stability: alpha
+resources:
+  cpu: "250m"
+  memory: "1Gi"
+  storage: "5Gi"
+  footprint: medium
+  localSafe: false   # a JVM; the local development core is CPU-bound already
+keywords:
+  - localisation
+  - i18n
+  - translations
+verification:
+  status: unverified

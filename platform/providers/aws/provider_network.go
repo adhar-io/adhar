@@ -17,7 +17,7 @@ import (
 // createVPCForCluster creates a VPC for the cluster using existing method
 func (p *Provider) createVPCForCluster(ctx context.Context, spec *types.ClusterSpec) (string, error) {
 	vpcSpec := &types.VPCSpec{
-		CIDR: "10.0.0.0/16",
+		CIDR: p.config.vpcCIDR(),
 		Tags: spec.Tags,
 	}
 
@@ -42,19 +42,29 @@ func (p *Provider) createSubnets(ctx context.Context, vpcID, clusterName string)
 		return "", "", fmt.Errorf("no availability zones found in region %s", p.config.Region)
 	}
 
-	// Use the first two availability zones
+	// Use the first two availability zones, unless configuration names them
+	// (`availabilityZones`): a zone's capacity or an instance type's
+	// availability differs per zone, and the default pair is simply the
+	// region's first two.
 	firstAZ := *azResult.AvailabilityZones[0].ZoneName
 	secondAZ := firstAZ // Default to same AZ if only one available
 	if len(azResult.AvailabilityZones) > 1 {
 		secondAZ = *azResult.AvailabilityZones[1].ZoneName
 	}
+	if zones := p.config.AvailabilityZones; len(zones) > 0 {
+		firstAZ, secondAZ = zones[0], zones[0]
+		if len(zones) > 1 {
+			secondAZ = zones[1]
+		}
+	}
+	publicCIDR, privateCIDR := p.config.subnetCIDRs()
 
 	log.Printf("Using availability zones: %s (public), %s (private)", firstAZ, secondAZ)
 
 	// Create public subnet for master nodes
 	publicSubnetResult, err := p.ec2Client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:            aws.String(vpcID),
-		CidrBlock:        aws.String("10.0.1.0/24"),
+		CidrBlock:        aws.String(publicCIDR),
 		AvailabilityZone: aws.String(firstAZ),
 		TagSpecifications: []ec2types.TagSpecification{
 			{
@@ -75,7 +85,7 @@ func (p *Provider) createSubnets(ctx context.Context, vpcID, clusterName string)
 	// Create private subnet for worker nodes
 	privateSubnetResult, err := p.ec2Client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:            aws.String(vpcID),
-		CidrBlock:        aws.String("10.0.2.0/24"),
+		CidrBlock:        aws.String(privateCIDR),
 		AvailabilityZone: aws.String(secondAZ),
 		TagSpecifications: []ec2types.TagSpecification{
 			{

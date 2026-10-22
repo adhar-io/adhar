@@ -56,9 +56,15 @@ type Config struct {
 	ClusterMode string `json:"clusterMode,omitempty"`
 
 	// Configuration
-	Region      string `json:"region"`      // Default region for resources
-	DropletSize string `json:"dropletSize"` // Default droplet size
-	Image       string `json:"image"`       // Default OS image
+	Region string `json:"region"` // Default region for resources
+	// DropletSize is the legacy single size (`droplet_size`): it sizes every
+	// droplet nothing more specific sizes. ControlPlaneSize / WorkerSize
+	// (`controlPlaneMachineType` / `workerMachineType`) separate the roles; the
+	// defaults are provider.MachineDefaultsFor("digitalocean").
+	DropletSize      string `json:"dropletSize"`
+	ControlPlaneSize string `json:"controlPlaneSize,omitempty"`
+	WorkerSize       string `json:"workerSize,omitempty"`
+	Image            string `json:"image"` // Default OS image
 	// PurgeOrphanedVolumes extends cluster deletion to unattached pvc-* volumes
 	// in the region that no other cluster tag claims (pre-tagging leftovers).
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
@@ -155,6 +161,9 @@ func (c *Config) isManaged() bool {
 }
 
 // NewProvider creates a new DigitalOcean provider instance.
+// doAPIRequestTimeout bounds one DigitalOcean API request.
+const doAPIRequestTimeout = 60 * time.Second
+
 func NewProvider(config *Config) (*Provider, error) {
 	log.Printf("Initializing DigitalOcean provider (%s)", config.modeLabel())
 
@@ -191,11 +200,10 @@ func NewProvider(config *Config) (*Provider, error) {
 
 	// Set default configuration values
 	if config.Region == "" {
-		config.Region = "nyc1" // Default to New York region
+		config.Region = provider.MachineDefaultsFor("digitalocean").Region
 	}
-	if config.DropletSize == "" {
-		config.DropletSize = "s-2vcpu-2gb" // Default droplet size
-	}
+	// No DropletSize default here any more: it was s-2vcpu-2gb for the control
+	// plane AND every worker. Sizes resolve per role (controlPlaneSize/workerSize).
 	if config.Image == "" {
 		config.Image = "ubuntu-22-04-x64" // Default to Ubuntu 22.04
 	}
@@ -204,8 +212,8 @@ func NewProvider(config *Config) (*Provider, error) {
 	}
 
 	// Log configuration details
-	log.Printf("DigitalOcean configuration: region=%s, dropletSize=%s, image=%s",
-		config.Region, config.DropletSize, config.Image)
+	log.Printf("DigitalOcean configuration: region=%s, dropletSize=%s, controlPlaneSize=%s, workerSize=%s, image=%s",
+		config.Region, config.DropletSize, config.ControlPlaneSize, config.WorkerSize, config.Image)
 	log.Printf("DigitalOcean VPC config: CIDR=%s, existingVPC=%s",
 		config.VPCCIDR, config.VPCUUID)
 	if len(config.Tags) > 0 {
@@ -225,6 +233,12 @@ func NewProvider(config *Config) (*Provider, error) {
 
 	// Create OAuth2 client
 	oauthClient := oauth2.NewClient(context.Background(), tokenSource)
+	// oauth2.NewClient returns a client with NO timeout. Every DigitalOcean API
+	// call then depends on its caller's context for a deadline, and the node
+	// autoscaler's reconcile context has none: one half-open connection to the
+	// API stopped autoscaling until the manager restarted. Waits are polling
+	// loops of short calls, so a per-request bound costs nothing.
+	oauthClient.Timeout = doAPIRequestTimeout
 
 	// Create DigitalOcean client
 	client := godo.NewClient(oauthClient)
@@ -242,6 +256,17 @@ func NewProvider(config *Config) (*Provider, error) {
 
 // NewDigitalOceanProvider creates a new DigitalOcean provider from configuration map
 func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provider, error) {
+	doConfig, err := parseProviderConfig(configMap)
+	if err != nil {
+		return nil, err
+	}
+	return NewProvider(doConfig)
+}
+
+// parseProviderConfig turns the generic provider map into a DigitalOcean
+// Config, apart from the constructor so the mapping can be tested without a
+// token.
+func parseProviderConfig(configMap map[string]interface{}) (*Config, error) {
 	doConfig := &Config{}
 
 	// Parse authentication configuration
@@ -275,6 +300,11 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 	if region, ok := configMap["region"].(string); ok {
 		doConfig.Region = region
 	}
+	// Control-plane / worker split: top level first (environment clusterConfig
+	// values and the in-cluster autoscaler's recorded worker size land there),
+	// then the provider block's `config:` section.
+	doConfig.ControlPlaneSize = provider.ConfigString(configMap, provider.KeyControlPlaneMachineType)
+	doConfig.WorkerSize = provider.ConfigString(configMap, provider.KeyWorkerMachineType)
 
 	// Parse configuration section
 	if configSection, ok := configMap["config"].(map[string]interface{}); ok {
@@ -286,6 +316,7 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 		if dropletSize, ok := configSection["droplet_size"].(string); ok {
 			doConfig.DropletSize = dropletSize
 		}
+
 		if image, ok := configSection["image"].(string); ok {
 			doConfig.Image = image
 		}
@@ -389,7 +420,7 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 		}
 	}
 
-	return NewProvider(doConfig)
+	return doConfig, nil
 }
 
 // Name returns the provider name
@@ -548,10 +579,7 @@ func (p *Provider) resolveDOKSVersion(ctx context.Context, requested string) (st
 func (p *Provider) buildDOKSNodePools(spec *types.ClusterSpec) []*godo.KubernetesNodePoolCreateRequest {
 	var pools []*godo.KubernetesNodePoolCreateRequest
 	for _, ng := range spec.NodeGroups {
-		size := ng.InstanceType
-		if size == "" {
-			size = p.config.DropletSize
-		}
+		size := p.config.workerSize(ng.InstanceType, "", true)
 		count := ng.Replicas
 		if count <= 0 {
 			count = 1
@@ -569,8 +597,8 @@ func (p *Provider) buildDOKSNodePools(spec *types.ClusterSpec) []*godo.Kubernete
 	if len(pools) == 0 {
 		pools = append(pools, &godo.KubernetesNodePoolCreateRequest{
 			Name:  "default-pool",
-			Size:  p.config.DropletSize,
-			Count: 3,
+			Size:  p.config.workerSize("", "", true),
+			Count: provider.DefaultWorkerCount("digitalocean", true),
 		})
 	}
 	return pools
@@ -659,10 +687,23 @@ func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	if spec.ControlPlane.Replicas <= 0 {
 		spec.ControlPlane.Replicas = 1 // Default to 1 master node
 	}
-	if spec.ControlPlane.InstanceType == "" {
-		spec.ControlPlane.InstanceType = p.config.DropletSize // Use default droplet size
-	}
+	spec.ControlPlane.InstanceType = p.config.controlPlaneSize(spec)
 	return nil
+}
+
+// controlPlaneSize is the control plane's droplet size for a spec.
+func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
+	fromSpec := ""
+	if spec != nil {
+		fromSpec = spec.ControlPlane.InstanceType
+	}
+	return provider.ControlPlaneSize("digitalocean", fromSpec, c.ControlPlaneSize, c.DropletSize)
+}
+
+// workerSize is a worker's droplet size: the node group's own, else what the
+// group's existing members run (scale paths), else the configured/default size.
+func (c *Config) workerSize(groupSize, membersSize string, managed bool) string {
+	return provider.WorkerSize("digitalocean", managed, groupSize, membersSize, c.WorkerSize, c.DropletSize)
 }
 
 // tokenFromEnv reads the API token from the environment, accepting both the
@@ -885,10 +926,7 @@ func (p *Provider) findNodePoolByName(ctx context.Context, clusterID, name strin
 func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
 	log.Printf("Adding node pool %s to DOKS cluster %s", nodeGroup.Name, clusterID)
 
-	size := nodeGroup.InstanceType
-	if size == "" {
-		size = p.config.DropletSize
-	}
+	size := p.config.workerSize(nodeGroup.InstanceType, "", true)
 	count := nodeGroup.Replicas
 	if count <= 0 {
 		count = 1

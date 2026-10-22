@@ -74,6 +74,14 @@ const tickInterval = 60 * time.Second
 // a droplet takes to join.
 const minEvaluationInterval = 15 * time.Second
 
+// scaleActionTimeout bounds one cloud-side scale action. The reconcile context
+// carries no deadline and this controller runs one reconcile at a time, so a
+// single cloud API call or SSH step that never answers (a half-open TCP
+// connection to the provider API) would otherwise stop ALL autoscaling until
+// the manager restarts. Generous on purpose: creating, preparing and joining a
+// burst of workers takes minutes, and a cut-off join is worse than a slow one.
+const scaleActionTimeout = 45 * time.Minute
+
 // scaler performs the cloud-side half of a decision. It exists so the policy
 // and bookkeeping can be tested without a cloud account.
 type scaler interface {
@@ -263,7 +271,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		actionErr = r.Scaler.ScaleUp(ctx, snapshot.cluster, spec.NodeGroup, decision.Workers+decision.ScaleUpBy)
+		actx, cancel := context.WithTimeout(ctx, scaleActionTimeout)
+		actionErr = r.Scaler.ScaleUp(actx, snapshot.cluster, spec.NodeGroup, decision.Workers+decision.ScaleUpBy)
+		cancel()
 	case ActionScaleDown:
 		r.event(platform, corev1.EventTypeNormal, "ScalingDown", decision.Reason)
 		if err := r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
@@ -271,7 +281,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		actionErr = r.Scaler.ScaleDown(ctx, snapshot.cluster, decision.Node)
+		actx, cancel := context.WithTimeout(ctx, scaleActionTimeout)
+		actionErr = r.Scaler.ScaleDown(actx, snapshot.cluster, decision.Node)
+		cancel()
 	}
 
 	reason := decision.Reason

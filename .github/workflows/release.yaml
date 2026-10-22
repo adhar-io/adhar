@@ -138,7 +138,26 @@ jobs:
           set -o pipefail
           # Two binaries at a time, two compiles each: ~2x slower to build,
           # never killed for memory.
-          goreleaser release --clean --parallelism 2 --timeout 60m 2>&1 | tee /tmp/goreleaser.log
+          #
+          # Retried, but ONLY for registry push failures. v0.1.52 died after
+          # 14 minutes on `failed to push ghcr.io/adhar-io/adhar:0.1.52-amd64
+          # ... unknown blob` (2026-10-22): a transient GHCR error when two
+          # per-arch images sharing layers are pushed back to back, which
+          # GoReleaser 2.8 does not count as retryable ("after 1 tries").
+          # A rerun is safe there: docker images are pushed BEFORE the GitHub
+          # release is created, so nothing else was published yet, and
+          # --clean rebuilds from scratch. Any other failure fails at once.
+          for attempt in 1 2 3; do
+            if goreleaser release --clean --parallelism 2 --timeout 60m 2>&1 | tee /tmp/goreleaser.log; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ] && grep -qE 'docker images: failed to publish artifacts|unknown blob|blob upload unknown|failed to push ghcr\.io' /tmp/goreleaser.log; then
+              echo "::warning::registry push failed on attempt $attempt; retrying in 60s"
+              sleep 60
+              continue
+            fi
+            exit 1
+          done
         env:
           GOFLAGS: -p=2
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

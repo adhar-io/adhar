@@ -23,10 +23,16 @@ import (
 // installs Cilium exactly as it does on every other provider.
 
 const (
-	clusterModeAKS     = "aks"
-	aksDefaultVMSize   = "Standard_D4s_v5"
-	aksDefaultReplicas = 2
-	aksSystemPoolName  = "system"
+	clusterModeAKS    = "aks"
+	aksSystemPoolName = "system"
+)
+
+// AKS pools take the same worker size and count as compute mode, from the one
+// defaults table. aksDefaultVMSize used to be Standard_D4s_v5 but was never
+// reached: the provider-wide VMSize was always defaulted first.
+var (
+	aksDefaultVMSize   = provider.MachineDefaultsFor("azure").ManagedWorker()
+	aksDefaultReplicas = provider.DefaultWorkerCount("azure", true)
 )
 
 var aksPoolNameRe = regexp.MustCompile(`[^a-z0-9]`)
@@ -81,13 +87,7 @@ func (p *Provider) agentPoolProfile(ng *types.NodeGroupSpec, system bool) *armco
 	if replicas <= 0 {
 		replicas = aksDefaultReplicas
 	}
-	vmSize := ng.InstanceType
-	if vmSize == "" {
-		vmSize = p.config.VMSize
-	}
-	if vmSize == "" {
-		vmSize = aksDefaultVMSize
-	}
+	vmSize := p.config.workerSize(ng.InstanceType, "", true)
 	mode := armcontainerservice.AgentPoolModeUser
 	if system {
 		mode = armcontainerservice.AgentPoolModeSystem

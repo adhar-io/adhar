@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,161 +122,182 @@ const gcpSSHUser = "adhar"
 // Register the GCP provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("gcp", func(config map[string]interface{}) (provider.Provider, error) {
-		gcpConfig := &Config{}
-
-		// Flatten the nested `config:` block into the map the rest of this
-		// function reads. Only project_id and zone had a fallback into that
-		// section, so every OTHER key under `providers.gcp.config` in config.yaml
-		// was silently ignored and the built-in default was used instead: a
-		// cluster asking for 100 GB pd-balanced disks and a 10.20.0.0/16 subnet
-		// got 20 GB pd-standard on 10.0.0.0/24, and the VPC was named
-		// "default-vpc" rather than the configured name. Root-level keys still
-		// win, because they are the more specific place to say something.
-		config = flattenProviderConfig(config)
-
-		// Default: kubeadm on Compute Engine. `clusterMode: managed` opts into
-		// GKE; everything above the cluster behaves the same either way.
-		mode, err := provider.ParseClusterMode(config)
+		gcpConfig, err := parseProviderConfig(config)
 		if err != nil {
 			return nil, err
 		}
-		gcpConfig.ClusterMode = mode
-
-		// Parse GCP-specific configuration with multiple auth methods
-		// Check both root level and config section for backward compatibility
-
-		// Project ID
-		if projectID, ok := config["projectId"].(string); ok {
-			gcpConfig.ProjectID = projectID
-		} else if projectID, ok := config["project_id"].(string); ok {
-			gcpConfig.ProjectID = projectID
-		} else if configSection, ok := config["config"].(map[string]interface{}); ok {
-			if projectID, ok := configSection["project_id"].(string); ok {
-				gcpConfig.ProjectID = projectID
-			}
-		}
-
-		// Region
-		if region, ok := config["region"].(string); ok {
-			gcpConfig.Region = region
-		}
-
-		// Zone
-		if zone, ok := config["zone"].(string); ok {
-			gcpConfig.Zone = zone
-		} else if configSection, ok := config["config"].(map[string]interface{}); ok {
-			if zone, ok := configSection["zone"].(string); ok {
-				gcpConfig.Zone = zone
-			}
-		}
-
-		// Authentication Method 1: Service Account Key File (check root level first)
-		if keyPath, ok := config["credentials_file"].(string); ok && keyPath != "" {
-			gcpConfig.ServiceAccountKeyPath = keyPath
-		} else if keyPath, ok := config["serviceAccountKeyFile"].(string); ok && keyPath != "" {
-			gcpConfig.ServiceAccountKeyPath = keyPath
-		} else if keyPath, ok := config["serviceAccountKeyPath"].(string); ok && keyPath != "" {
-			gcpConfig.ServiceAccountKeyPath = keyPath
-		} else if keyPath, ok := config["credentialsFile"].(string); ok && keyPath != "" {
-			gcpConfig.ServiceAccountKeyPath = keyPath
-		}
-
-		// Authentication Method 2: Service Account Key JSON
-		if keyJson, ok := config["serviceAccountKey"].(string); ok && keyJson != "" {
-			gcpConfig.ServiceAccountKey = keyJson
-		}
-
-		// Authentication Method 3: Application Default Credentials
-		if useADC, ok := config["useApplicationDefault"].(bool); ok {
-			gcpConfig.UseApplicationDefault = useADC
-		}
-
-		// Authentication Method 4: Environment Variables
-		if useEnv, ok := config["useEnvironment"].(bool); ok {
-			gcpConfig.UseEnvironment = useEnv
-		}
-
-		// Authentication Method 5: Compute Metadata (for GCE instances)
-		if useMetadata, ok := config["useComputeMetadata"].(bool); ok {
-			gcpConfig.UseComputeMetadata = useMetadata
-		}
-
-		// Authentication Method 6: Access Token
-		if accessToken, ok := config["accessToken"].(string); ok && accessToken != "" {
-			gcpConfig.AccessToken = accessToken
-		}
-
-		// Authentication Method 5: Impersonate Service Account
-		if impersonate, ok := config["impersonateServiceAccount"].(string); ok {
-			gcpConfig.ImpersonateServiceAccount = impersonate
-		}
-
-		// Authentication Method 6: Workload Identity
-		if useWI, ok := config["useWorkloadIdentity"].(bool); ok {
-			gcpConfig.UseWorkloadIdentity = useWI
-		}
-
-		// Machine configuration
-		if machineType, ok := config["machineType"].(string); ok {
-			gcpConfig.MachineType = machineType
-		} else if machineType, ok := config["machine_type"].(string); ok {
-			gcpConfig.MachineType = machineType
-		}
-		if diskSize, ok := toInt32(config["diskSize"]); ok {
-			gcpConfig.DiskSize = diskSize
-		} else if diskSize, ok := toInt32(config["disk_size_gb"]); ok {
-			gcpConfig.DiskSize = diskSize
-		}
-		if diskType, ok := config["diskType"].(string); ok {
-			gcpConfig.DiskType = diskType
-		} else if diskType, ok := config["disk_type"].(string); ok {
-			gcpConfig.DiskType = diskType
-		}
-		if imageFamily, ok := config["imageFamily"].(string); ok {
-			gcpConfig.ImageFamily = imageFamily
-		} else if imageFamily, ok := config["image_family"].(string); ok {
-			gcpConfig.ImageFamily = imageFamily
-		}
-		if imageProject, ok := config["imageProject"].(string); ok {
-			gcpConfig.ImageProject = imageProject
-		} else if imageProject, ok := config["image_project"].(string); ok {
-			gcpConfig.ImageProject = imageProject
-		}
-
-		// Network configuration
-		if vpcName, ok := config["vpcName"].(string); ok {
-			gcpConfig.VPCName = vpcName
-		} else if vpcName, ok := config["vpc_name"].(string); ok {
-			gcpConfig.VPCName = vpcName
-		}
-		if subnetName, ok := config["subnetName"].(string); ok {
-			gcpConfig.SubnetName = subnetName
-		} else if subnetName, ok := config["subnet_name"].(string); ok {
-			gcpConfig.SubnetName = subnetName
-		}
-		if subnetCIDR, ok := config["subnetCIDR"].(string); ok {
-			gcpConfig.SubnetCIDR = subnetCIDR
-		} else if subnetCIDR, ok := config["subnet_cidr"].(string); ok {
-			gcpConfig.SubnetCIDR = subnetCIDR
-		}
-		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
-			gcpConfig.PurgeOrphanedVolumes = true
-		}
-		for _, key := range []string{"nodeServiceAccount", "node_service_account"} {
-			if sa, ok := config[key].(string); ok && sa != "" {
-				gcpConfig.NodeServiceAccount = sa
-				break
-			}
-		}
-		for _, key := range []string{"adminSourceRanges", "admin_source_ranges"} {
-			if ranges, ok := config[key]; ok {
-				gcpConfig.AdminSourceRanges = toStringSlice(ranges)
-				break
-			}
-		}
-
 		return NewProvider(gcpConfig)
 	})
+}
+
+// parseProviderConfig turns the generic provider map into a GCP Config. Kept
+// apart from the registration closure (as AWS and Azure already are) so the
+// mapping can be tested without credentials or API clients.
+func parseProviderConfig(config map[string]interface{}) (*Config, error) {
+	gcpConfig := &Config{}
+
+	// Flatten the nested `config:` block into the map the rest of this
+	// function reads. Only project_id and zone had a fallback into that
+	// section, so every OTHER key under `providers.gcp.config` in config.yaml
+	// was silently ignored and the built-in default was used instead: a
+	// cluster asking for 100 GB pd-balanced disks and a 10.20.0.0/16 subnet
+	// got 20 GB pd-standard on 10.0.0.0/24, and the VPC was named
+	// "default-vpc" rather than the configured name. Root-level keys still
+	// win, because they are the more specific place to say something.
+	config = flattenProviderConfig(config)
+
+	// Default: kubeadm on Compute Engine. `clusterMode: managed` opts into
+	// GKE; everything above the cluster behaves the same either way.
+	mode, err := provider.ParseClusterMode(config)
+	if err != nil {
+		return nil, err
+	}
+	gcpConfig.ClusterMode = mode
+
+	// Parse GCP-specific configuration with multiple auth methods
+	// Check both root level and config section for backward compatibility
+
+	// Project ID
+	if projectID, ok := config["projectId"].(string); ok {
+		gcpConfig.ProjectID = projectID
+	} else if projectID, ok := config["project_id"].(string); ok {
+		gcpConfig.ProjectID = projectID
+	} else if configSection, ok := config["config"].(map[string]interface{}); ok {
+		if projectID, ok := configSection["project_id"].(string); ok {
+			gcpConfig.ProjectID = projectID
+		}
+	}
+
+	// Region
+	if region, ok := config["region"].(string); ok {
+		gcpConfig.Region = region
+	}
+
+	// Zone
+	if zone, ok := config["zone"].(string); ok {
+		gcpConfig.Zone = zone
+	} else if configSection, ok := config["config"].(map[string]interface{}); ok {
+		if zone, ok := configSection["zone"].(string); ok {
+			gcpConfig.Zone = zone
+		}
+	}
+
+	// Authentication Method 1: Service Account Key File (check root level first)
+	if keyPath, ok := config["credentials_file"].(string); ok && keyPath != "" {
+		gcpConfig.ServiceAccountKeyPath = keyPath
+	} else if keyPath, ok := config["serviceAccountKeyFile"].(string); ok && keyPath != "" {
+		gcpConfig.ServiceAccountKeyPath = keyPath
+	} else if keyPath, ok := config["serviceAccountKeyPath"].(string); ok && keyPath != "" {
+		gcpConfig.ServiceAccountKeyPath = keyPath
+	} else if keyPath, ok := config["credentialsFile"].(string); ok && keyPath != "" {
+		gcpConfig.ServiceAccountKeyPath = keyPath
+	}
+
+	// Authentication Method 2: Service Account Key JSON
+	if keyJson, ok := config["serviceAccountKey"].(string); ok && keyJson != "" {
+		gcpConfig.ServiceAccountKey = keyJson
+	}
+
+	// Authentication Method 3: Application Default Credentials
+	if useADC, ok := config["useApplicationDefault"].(bool); ok {
+		gcpConfig.UseApplicationDefault = useADC
+	}
+
+	// Authentication Method 4: Environment Variables
+	if useEnv, ok := config["useEnvironment"].(bool); ok {
+		gcpConfig.UseEnvironment = useEnv
+	}
+
+	// Authentication Method 5: Compute Metadata (for GCE instances)
+	if useMetadata, ok := config["useComputeMetadata"].(bool); ok {
+		gcpConfig.UseComputeMetadata = useMetadata
+	}
+
+	// Authentication Method 6: Access Token
+	if accessToken, ok := config["accessToken"].(string); ok && accessToken != "" {
+		gcpConfig.AccessToken = accessToken
+	}
+
+	// Authentication Method 5: Impersonate Service Account
+	if impersonate, ok := config["impersonateServiceAccount"].(string); ok {
+		gcpConfig.ImpersonateServiceAccount = impersonate
+	}
+
+	// Authentication Method 6: Workload Identity
+	if useWI, ok := config["useWorkloadIdentity"].(bool); ok {
+		gcpConfig.UseWorkloadIdentity = useWI
+	}
+
+	// Control-plane / worker split (provider level). machineType below is the
+	// legacy single size and keeps sizing whatever these do not.
+	gcpConfig.ControlPlaneMachineType = provider.ConfigString(config, provider.KeyControlPlaneMachineType)
+	gcpConfig.WorkerMachineType = provider.ConfigString(config, provider.KeyWorkerMachineType)
+
+	// Machine configuration
+	if machineType, ok := config["machineType"].(string); ok {
+		gcpConfig.MachineType = machineType
+	} else if machineType, ok := config["machine_type"].(string); ok {
+		gcpConfig.MachineType = machineType
+	}
+	if diskSize, ok := toInt32(config["diskSize"]); ok {
+		gcpConfig.DiskSize = diskSize
+	} else if diskSize, ok := toInt32(config["disk_size_gb"]); ok {
+		gcpConfig.DiskSize = diskSize
+	} else if n := provider.ConfigInt(config, "diskSizeGb", "diskSize"); n > 0 {
+		// The spelling every other provider and the environment clusterConfig
+		// use; GCP read only diskSize/disk_size_gb, so an environment's
+		// `diskSizeGb` was silently ignored here.
+		gcpConfig.DiskSize = int32(n)
+	}
+	if diskType, ok := config["diskType"].(string); ok {
+		gcpConfig.DiskType = diskType
+	} else if diskType, ok := config["disk_type"].(string); ok {
+		gcpConfig.DiskType = diskType
+	}
+	if imageFamily, ok := config["imageFamily"].(string); ok {
+		gcpConfig.ImageFamily = imageFamily
+	} else if imageFamily, ok := config["image_family"].(string); ok {
+		gcpConfig.ImageFamily = imageFamily
+	}
+	if imageProject, ok := config["imageProject"].(string); ok {
+		gcpConfig.ImageProject = imageProject
+	} else if imageProject, ok := config["image_project"].(string); ok {
+		gcpConfig.ImageProject = imageProject
+	}
+
+	// Network configuration
+	if vpcName, ok := config["vpcName"].(string); ok {
+		gcpConfig.VPCName = vpcName
+	} else if vpcName, ok := config["vpc_name"].(string); ok {
+		gcpConfig.VPCName = vpcName
+	}
+	if subnetName, ok := config["subnetName"].(string); ok {
+		gcpConfig.SubnetName = subnetName
+	} else if subnetName, ok := config["subnet_name"].(string); ok {
+		gcpConfig.SubnetName = subnetName
+	}
+	if subnetCIDR, ok := config["subnetCIDR"].(string); ok {
+		gcpConfig.SubnetCIDR = subnetCIDR
+	} else if subnetCIDR, ok := config["subnet_cidr"].(string); ok {
+		gcpConfig.SubnetCIDR = subnetCIDR
+	}
+	if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+		gcpConfig.PurgeOrphanedVolumes = true
+	}
+	for _, key := range []string{"nodeServiceAccount", "node_service_account"} {
+		if sa, ok := config[key].(string); ok && sa != "" {
+			gcpConfig.NodeServiceAccount = sa
+			break
+		}
+	}
+	for _, key := range []string{"adminSourceRanges", "admin_source_ranges"} {
+		if ranges, ok := config[key]; ok {
+			gcpConfig.AdminSourceRanges = toStringSlice(ranges)
+			break
+		}
+	}
+
+	return gcpConfig, nil
 }
 
 // Provider implements the GCP provider for manual Kubernetes clusters using Google Cloud Go SDK
@@ -372,11 +394,18 @@ type Config struct {
 	// Option 8: Compute Metadata (for GCE instances)
 	UseComputeMetadata bool `json:"useComputeMetadata,omitempty"`
 
-	MachineType  string `json:"machineType"`
-	DiskSize     int32  `json:"diskSize"`
-	DiskType     string `json:"diskType"`
-	ImageFamily  string `json:"imageFamily"`
-	ImageProject string `json:"imageProject"`
+	// MachineType is the legacy single size (`machine_type` in the provider
+	// block — or an environment's clusterConfig `machineType`, which lands at the
+	// top level of the merged map and wins). It sizes every node nothing more
+	// specific sizes. ControlPlaneMachineType / WorkerMachineType separate the
+	// roles; defaults are provider.MachineDefaultsFor("gcp").
+	MachineType             string `json:"machineType"`
+	ControlPlaneMachineType string `json:"controlPlaneMachineType,omitempty"`
+	WorkerMachineType       string `json:"workerMachineType,omitempty"`
+	DiskSize                int32  `json:"diskSize"`
+	DiskType                string `json:"diskType"`
+	ImageFamily             string `json:"imageFamily"`
+	ImageProject            string `json:"imageProject"`
 }
 
 // NewProvider creates a new GCP provider instance
@@ -392,14 +421,16 @@ func NewProvider(config *Config) (*Provider, error) {
 	if config.Zone == "" {
 		config.Zone = config.Region + "-a"
 	}
-	if config.MachineType == "" {
-		config.MachineType = "e2-standard-2"
-	}
+	// No MachineType default here any more (it was e2-standard-2 for every
+	// node, which also made GKE's own e2-standard-4 unreachable): sizes resolve
+	// per role through controlPlaneSize/workerSize.
 	if config.DiskSize == 0 {
-		config.DiskSize = 20 // 20 GB
+		// Was 20 GB, which cannot hold the ~35 GiB image cache, let alone the
+		// node-local PersistentVolumes (see provider.MachineDefaults.DiskSizeGB).
+		config.DiskSize = provider.MachineDefaultsFor("gcp").DiskSizeGB
 	}
 	if config.DiskType == "" {
-		config.DiskType = "pd-standard"
+		config.DiskType = provider.MachineDefaultsFor("gcp").DiskType
 	}
 	if config.ImageFamily == "" {
 		config.ImageFamily = "ubuntu-2204-lts"
@@ -908,10 +939,52 @@ func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	if spec.ControlPlane.Replicas <= 0 {
 		spec.ControlPlane.Replicas = 1 // Default to 1 master node
 	}
-	if spec.ControlPlane.InstanceType == "" {
-		spec.ControlPlane.InstanceType = p.config.MachineType // Use default machine type
-	}
+	spec.ControlPlane.InstanceType = p.config.controlPlaneSize(spec)
 	return nil
+}
+
+// controlPlaneSize is the control plane's machine type for a spec.
+func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
+	fromSpec := ""
+	if spec != nil {
+		fromSpec = spec.ControlPlane.InstanceType
+	}
+	return provider.ControlPlaneSize("gcp", fromSpec, c.ControlPlaneMachineType, c.MachineType)
+}
+
+// workerSize is a worker's machine type: the node group's own, else what the
+// group's existing members run (scale paths), else the configured/default size.
+func (c *Config) workerSize(groupType, membersType string, managed bool) string {
+	return provider.WorkerSize("gcp", managed, groupType, membersType, c.WorkerMachineType, c.MachineType)
+}
+
+// plannedCPUs is the vCPU total of a spec with each node at its own size; ok is
+// false when any size's vCPU count cannot be read from its name.
+func (c *Config) plannedCPUs(spec *types.ClusterSpec) (total int64, detail string, ok bool) {
+	cp := spec.ControlPlane.Replicas
+	if cp <= 0 {
+		cp = 1
+	}
+	cpType := c.controlPlaneSize(spec)
+	n, ok := machineTypeCPUs(cpType)
+	if !ok {
+		return 0, "", false
+	}
+	total = int64(cp) * n
+	parts := []string{fmt.Sprintf("%d x %s", cp, cpType)}
+	for _, g := range spec.NodeGroups {
+		if g.Replicas <= 0 {
+			continue
+		}
+		t := c.workerSize(g.InstanceType, "", false)
+		per, ok := machineTypeCPUs(t)
+		if !ok {
+			return 0, "", false
+		}
+		total += int64(g.Replicas) * per
+		parts = append(parts, fmt.Sprintf("%d x %s", g.Replicas, t))
+	}
+	return total, strings.Join(parts, " + "), true
 }
 
 // createClusterInfrastructure creates the GCP infrastructure for a manual Kubernetes cluster
@@ -1478,8 +1551,11 @@ func (p *Provider) checkRegionalQuota(ctx context.Context, spec *types.ClusterSp
 		}
 	}
 
-	if cpusPerNode, ok := machineTypeCPUs(p.config.MachineType); ok {
-		cpusNeeded := float64(nodes * cpusPerNode)
+	// Each node at its OWN size: this multiplied every node by the provider-wide
+	// machine type, so a cluster with a small control plane and large workers
+	// (or the reverse) was measured as something nobody was building.
+	if cpus, shape, ok := p.config.plannedCPUs(spec); ok {
+		cpusNeeded := float64(cpus)
 		// CPUS is the regional quota. CPUS_ALL_REGIONS is a separate PROJECT-WIDE
 		// cap that defaults to 12 on a new project, and it is the one that
 		// actually stops a first deployment: the regional limit was 100 while the
@@ -1499,8 +1575,8 @@ func (p *Provider) checkRegionalQuota(ctx context.Context, spec *types.ClusterSp
 				scope = "across all regions (a project-wide cap, 12 by default on a new project)"
 			}
 			problems = append(problems, fmt.Sprintf(
-				"%s: need %.0f vCPU (%d nodes x %d), %.0f available of %.0f limit %s — use a smaller machine_type, fewer nodes, or request a quota increase",
-				metric, cpusNeeded, nodes, cpusPerNode, available, limit, scope))
+				"%s: need %.0f vCPU (%s), %.0f available of %.0f limit %s — use a smaller machine type, fewer nodes, or request a quota increase",
+				metric, cpusNeeded, shape, available, limit, scope))
 		}
 	}
 
@@ -1509,6 +1585,60 @@ func (p *Provider) checkRegionalQuota(ctx context.Context, spec *types.ClusterSp
 			p.config.Region, strings.Join(problems, "\n  - "))
 	}
 	return nil
+}
+
+// listClusterWorkers lists a cluster's worker instances in a zone.
+func (p *Provider) listClusterWorkers(ctx context.Context, clusterName, zone string) []NodeInfo {
+	if p.instanceClient == nil {
+		return nil
+	}
+	it := p.instanceClient.List(ctx, &computepb.ListInstancesRequest{Project: p.config.ProjectID, Zone: zone})
+	var insts []*computepb.Instance
+	for {
+		inst, err := it.Next()
+		if err != nil {
+			break
+		}
+		insts = append(insts, inst)
+	}
+	return workerNodesFromInstances(clusterName, zone, insts)
+}
+
+// workerNodesFromInstances keeps the cluster's workers from a zone listing,
+// sorted by name, each with the machine type it actually runs.
+func workerNodesFromInstances(clusterName, zone string, insts []*computepb.Instance) []NodeInfo {
+	var out []NodeInfo
+	for _, inst := range insts {
+		name := inst.GetName()
+		if !strings.HasPrefix(name, clusterName+"-worker-") || !instanceBelongsToCluster(clusterName, name, inst.GetTags().GetItems()) {
+			continue
+		}
+		n := NodeInfo{InstanceName: name, Zone: zone, Role: "worker", CreatedAt: gcpCreationTime(inst.GetCreationTimestamp())}
+		// MachineType is a URL: …/zones/<zone>/machineTypes/<type>.
+		if mt := inst.GetMachineType(); mt != "" {
+			n.MachineType = mt[strings.LastIndex(mt, "/")+1:]
+		}
+		if nics := inst.GetNetworkInterfaces(); len(nics) > 0 {
+			n.PrivateIP = nics[0].GetNetworkIP()
+			if acs := nics[0].GetAccessConfigs(); len(acs) > 0 {
+				n.PublicIP = acs[0].GetNatIP()
+			}
+		}
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].InstanceName < out[j].InstanceName })
+	return out
+}
+
+// workersMachineType is the machine type the workers with a name prefix run
+// ("" prefix: any worker), or "" when none reports one.
+func workersMachineType(nodes []NodeInfo, prefix string) string {
+	for _, n := range nodes {
+		if strings.HasPrefix(n.InstanceName, prefix) && n.MachineType != "" {
+			return n.MachineType
+		}
+	}
+	return ""
 }
 
 // machineTypeCPUs reads the vCPU count out of a standard machine type name such
@@ -2132,10 +2262,11 @@ func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetNam
 	subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", p.config.ProjectID, p.config.Region, subnetName)
 
 	for _, nodeGroup := range spec.NodeGroups {
+		machineType := p.config.workerSize(nodeGroup.InstanceType, "", false)
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			nodeName := fmt.Sprintf("%s-worker-%s-%d", clusterName, nodeGroup.Name, i)
 
-			nodeInfo, err := p.createComputeInstance(ctx, clusterName, nodeName, subnetURL, nodeGroup.InstanceType, false, sshPubKey, startupScript)
+			nodeInfo, err := p.createComputeInstance(ctx, clusterName, nodeName, subnetURL, machineType, false, sshPubKey, startupScript)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create worker node %s: %w", nodeName, err)
 			}
@@ -2152,9 +2283,13 @@ func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetNam
 func (p *Provider) createComputeInstance(ctx context.Context, clusterName, instanceName, subnetURL, machineType string, isMaster bool, sshPubKey, startupScript string) (*NodeInfo, error) {
 	log.Printf("Creating compute instance: %s", instanceName)
 
-	// Use default machine type if not specified
+	// Every caller names a type now; this is a guard, not a policy.
 	if machineType == "" {
-		machineType = p.config.MachineType
+		if isMaster {
+			machineType = p.config.controlPlaneSize(nil)
+		} else {
+			machineType = p.config.workerSize("", "", false)
+		}
 	}
 
 	machineTypeURL := fmt.Sprintf("projects/%s/zones/%s/machineTypes/%s", p.config.ProjectID, p.config.Zone, machineType)
@@ -2165,11 +2300,11 @@ func (p *Provider) createComputeInstance(ctx context.Context, clusterName, insta
 	// which is slow enough to matter for etcd and the container image cache.
 	diskSizeGb := int64(p.config.DiskSize)
 	if diskSizeGb <= 0 {
-		diskSizeGb = 50
+		diskSizeGb = int64(provider.MachineDefaultsFor("gcp").DiskSizeGB)
 	}
 	diskTypeName := p.config.DiskType
 	if diskTypeName == "" {
-		diskTypeName = "pd-standard"
+		diskTypeName = provider.MachineDefaultsFor("gcp").DiskType
 	}
 	diskType := fmt.Sprintf("projects/%s/zones/%s/diskTypes/%s", p.config.ProjectID, p.config.Zone, diskTypeName)
 	autoDelete := true
@@ -2753,13 +2888,14 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 		}
 		currentWorkers := len(cluster.WorkerNodes)
 
-		machineType := p.config.MachineType
+		groupType := ""
 		for _, nodeGroup := range spec.NodeGroups {
 			if nodeGroup.InstanceType != "" {
-				machineType = nodeGroup.InstanceType
+				groupType = nodeGroup.InstanceType
 				break
 			}
 		}
+		machineType := p.config.workerSize(groupType, workersMachineType(cluster.WorkerNodes, ""), false)
 
 		switch {
 		case desiredWorkers > currentWorkers:
@@ -3213,6 +3349,14 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 		}
 		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(version))
 		subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", p.config.ProjectID, p.config.Region, infra.SubnetName)
+		// A new worker takes the size its group already runs, so a scaled group
+		// stays homogeneous. This passed "" (ScaleNodeGroup's argument), which
+		// createComputeInstance turned into the provider-wide machine type — the
+		// provider block's machine_type, NOT the environment's worker size, on
+		// both `adhar cluster scale` and the in-cluster autoscaler (neither sees
+		// clusterConfig). A cluster built with e2-standard-8 workers grew
+		// e2-standard-4 ones.
+		machineType = p.config.workerSize(machineType, workersMachineType(infra.WorkerNodes, prefix), false)
 		for _, name := range plan.Add {
 			nodeInfo, err := p.createComputeInstance(ctx, clusterName, name, subnetURL, machineType, false, sshPubKey, startupScript)
 			if err != nil {
@@ -3294,19 +3438,16 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 		return nil, fmt.Errorf("cluster %s: %w", clusterID, err)
 	}
 	prefix := p.workerPrefix(clusterName, nodeGroupName)
-	replicas, machineType := 0, p.config.MachineType
+	replicas := 0
 	for _, w := range infra.WorkerNodes {
 		if strings.HasPrefix(w.InstanceName, prefix) {
 			replicas++
-			if w.MachineType != "" {
-				machineType = w.MachineType
-			}
 		}
 	}
 	return &types.NodeGroup{
 		Name:         nodeGroupName,
 		Replicas:     replicas,
-		InstanceType: machineType,
+		InstanceType: p.config.workerSize("", workersMachineType(infra.WorkerNodes, prefix), false),
 		Status:       "ready",
 		UpdatedAt:    time.Now(),
 	}, nil
@@ -3320,7 +3461,7 @@ func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*typ
 		{
 			Name:         "default-pool",
 			Replicas:     3,
-			InstanceType: "e2-medium",
+			InstanceType: p.config.workerSize("", "", false),
 			Status:       "ready",
 			CreatedAt:    time.Now().Add(-1 * time.Hour),
 			UpdatedAt:    time.Now(),
@@ -4199,13 +4340,14 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 		}
 		infra.MasterNodes = append(infra.MasterNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "master", CreatedAt: created})
 	}
-	for i := 1; i <= 100; i++ {
-		name := fmt.Sprintf("%s-worker-%d", clusterName, i)
-		priv, pub, created, err := p.instanceDetails(ctx, name, zone)
-		if err != nil {
-			break
-		}
-		infra.WorkerNodes = append(infra.WorkerNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "worker", CreatedAt: created})
+	// Workers by LISTING the zone, not by probing names. The probe asked for
+	// <cluster>-worker-1, -2, … while every worker this provider creates is
+	// <cluster>-worker-<group>-<n>, so a rediscovered cluster had no workers at
+	// all; and each one was stamped with the provider-wide machine type rather
+	// than the type it runs, so a scale-up copied the wrong size.
+	for _, w := range p.listClusterWorkers(ctx, clusterName, zone) {
+		name, priv, pub, created := w.InstanceName, w.PrivateIP, w.PublicIP, w.CreatedAt
+		infra.WorkerNodes = append(infra.WorkerNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: w.MachineType, Role: "worker", CreatedAt: created})
 	}
 	if len(infra.MasterNodes) == 0 {
 		return nil, fmt.Errorf("no control-plane instance %s-master-1 found in zone %s", clusterName, zone)

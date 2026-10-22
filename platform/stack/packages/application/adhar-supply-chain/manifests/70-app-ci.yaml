@@ -187,10 +187,28 @@ spec:
       taskRef: {name: detect-toolchain}
       workspaces: [{name: source, workspace: shared}]
 
+    # ── localisation: fresh translations INTO the checkout, before the build ─
+    # Only for repositories with a .tolgeerc (detect-toolchain) and only on
+    # main; skipped — no pod at all — otherwise. A task skipped by `when` does
+    # not hold back `build`. Inside, it degrades to the committed translations
+    # when the app is not provisioned in Tolgee or Tolgee does not answer.
+    - name: localise
+      retries: 2
+      runAfter: [toolchain]
+      when:
+        - {input: "$(tasks.toolchain.results.tolgee)", operator: in, values: ["true"]}
+        - {input: "$(params.git-ref)", operator: in, values: ["main"]}
+      taskRef: {name: tolgee-sync}
+      params:
+        - {name: app, value: "$(params.repo-name)"}
+        - {name: nodeVersion, value: "$(tasks.toolchain.results.node)"}
+      workspaces: [{name: source, workspace: shared}]
+
     # ── build first: the image is the artifact everything else judges ──────
     - name: build
       retries: 2
-      runAfter: [toolchain]
+      # After localise, so the image bundles the translations it pulled.
+      runAfter: [toolchain, localise]
       taskRef: {name: buildpacks-build}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}

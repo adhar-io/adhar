@@ -47,7 +47,8 @@ var dashboardFolders = map[string]bool{
 	"Data":          true,
 	"Delivery":      true,
 	"AI":            true,
-	"Applications":  true,
+	"Resilience":    true, // chaos engineering (Chaos Mesh); moved out of Applications 2026-10-23
+	"Applications":  true, // per-application dashboards ONLY — TestOnlyApplicationDashboardsUseTheApplicationsFolder
 }
 
 type dashboardDoc struct {

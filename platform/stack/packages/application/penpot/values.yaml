@@ -87,12 +87,25 @@ ingress:
   enabled: false
 
 # Penpot MCP integration pulls an extra image; keep the core install lean.
+# Requests measured on the DigitalOcean cluster (2026-10-22). The chart ships
+# none, so every Penpot pod took the namespace's 64Mi default while the backend
+# JVM held ~1.5 GiB: the scheduler packed it onto full nodes and the kubelet
+# evicted it five times in one afternoon ("request is 64Mi, has larger
+# consumption of memory"). Requests only — a limit would also shrink the JVM's
+# default heap (25% of the cgroup limit), which is a tuning change of its own.
 backend:
   service:
     type: ClusterIP
+  resources:
+    requests: {cpu: 100m, memory: 1536Mi}
 frontend:
   service:
     type: ClusterIP
+  resources:
+    requests: {cpu: 20m, memory: 256Mi}
+exporter:
+  resources:
+    requests: {cpu: 20m, memory: 192Mi}
 
 persistence:
   assets:

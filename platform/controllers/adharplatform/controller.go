@@ -45,9 +45,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
@@ -1370,7 +1372,7 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 		if err := r.Get(ctx, client.ObjectKeyFromObject(resource), latest); err != nil {
 			return err
 		}
-		latest.Status = *desired
+		latest.Status = mergeOwnedStatus(latest.Status, *desired)
 		return r.Status().Update(ctx, latest)
 	}); err != nil {
 		logger.Error(err, "Failed to update resource status after reconcile")
@@ -1394,6 +1396,24 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 		// Cancel the context to trigger manager shutdown
 		r.CancelFunc()
 	}
+}
+
+// mergeOwnedStatus returns the status this reconciler writes: its own fields
+// from desired, and the fields OTHER controllers own taken from latest.
+//
+// The status is read at the start of a reconcile and written at the end, and
+// a reconcile can take a long time. Copying the whole in-memory status over the
+// freshly read object reverted every write another controller made in
+// between: the node autoscaler's status.autoscaling (whose lastScaleUp /
+// lastScaleDown stamps ARE its cooldowns — losing one lets the next tick buy a
+// second machine for the same pending pods) and the DataPlane controller's
+// status.fleet. Both of them patch only their own subtree; this keeps the
+// platform reconciler from undoing that.
+func mergeOwnedStatus(latest, desired v1alpha1.AdharPlatformStatus) v1alpha1.AdharPlatformStatus {
+	out := desired
+	out.Autoscaling = latest.Autoscaling
+	out.Fleet = latest.Fleet
+	return out
 }
 
 // ReconcilePlatformNamespace labels the platform namespace as the control
@@ -1432,8 +1452,28 @@ func (r *AdharPlatformReconciler) ReconcilePlatformNamespace(ctx context.Context
 // SetupWithManager sets up the controller with the Manager.
 func (r *AdharPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.AdharPlatform{}).
+		For(&v1alpha1.AdharPlatform{}, builder.WithPredicates(platformEventFilter())).
 		Complete(r)
+}
+
+// platformEventFilter admits the AdharPlatform events that can change what a
+// reconcile does: creation and deletion, a spec change (generation), and an
+// annotation or label change (`adhar up` re-triggers an existing platform by
+// stamping the CLI start-time annotation).
+//
+// Status-only updates are dropped. Three writers update this status — the
+// reconciler itself at the end of every pass, the node autoscaler every tick,
+// the DataPlane controller on every fleet roll-up — and each of those writes
+// queued another FULL pass (list every Argo CD Application, re-render and
+// re-apply the SSO proxy, re-check the gateway secrets) on a control plane this
+// platform already strains. The reconciler requeues itself on a timer in every
+// state, so nothing waits on a status event to make progress.
+func platformEventFilter() predicate.Predicate {
+	return predicate.Or(
+		predicate.GenerationChangedPredicate{},
+		predicate.AnnotationChangedPredicate{},
+		predicate.LabelChangedPredicate{},
+	)
 }
 
 // isPlatformAlreadyDeployed checks if the platform is already fully deployed

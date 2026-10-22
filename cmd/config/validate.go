@@ -3,8 +3,10 @@ package config
 import (
 	"adhar-io/adhar/cmd/helpers"
 	"fmt"
+	"sort"
 
 	platformconfig "adhar-io/adhar/platform/config"
+	pfactory "adhar-io/adhar/platform/providers"
 
 	"github.com/spf13/cobra"
 )
@@ -34,10 +36,44 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	// LoadConfig runs the SchemaValidator + provider validation and returns a
 	// descriptive error listing every problem when the config is invalid.
-	if _, err := platformconfig.LoadConfig(path); err != nil {
+	cfg, err := platformconfig.LoadConfig(path)
+	if err != nil {
 		return fmt.Errorf("✖ invalid configuration: %w", err)
 	}
 
 	helpers.Println("● Configuration is valid")
+	printSizing(cfg)
 	return nil
+}
+
+// printSizing shows what each environment will build — sizes resolved exactly as
+// the provider resolves them, so a default is visible before it is billed — and
+// any advice about those sizes. Advice never fails validation.
+func printSizing(cfg *platformconfig.Config) {
+	if err := cfg.ResolveEnvironments(); err != nil {
+		return
+	}
+	names := make([]string, 0, len(cfg.ResolvedEnvironments))
+	for name := range cfg.ResolvedEnvironments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		env := cfg.ResolvedEnvironments[name]
+		sizes, err := pfactory.ResolveEffectiveSizes(env)
+		if err != nil || sizes.Worker == "" {
+			continue
+		}
+		cp := sizes.ControlPlane
+		switch {
+		case sizes.Managed:
+			cp = "managed by the cloud"
+		case cp == "":
+			cp = "n/a"
+		}
+		helpers.Printf("  %s (%s): control plane %s, %d × %s workers\n", name, env.ResolvedProvider, cp, sizes.Workers, sizes.Worker)
+		for _, w := range pfactory.SizingWarnings(name, env) {
+			helpers.Printf("  ⚠ %s\n", w)
+		}
+	}
 }

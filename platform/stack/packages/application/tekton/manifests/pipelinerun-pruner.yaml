@@ -36,6 +36,9 @@ spec:
     spec:
       backoffLimit: 2
       ttlSecondsAfterFinished: 600
+      # Under Forbid a hung run blocks every later one; bound it below the
+      # 30-minute schedule.
+      activeDeadlineSeconds: 1200
       template:
         spec:
           restartPolicy: Never

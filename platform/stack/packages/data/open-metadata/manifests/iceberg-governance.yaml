@@ -71,10 +71,16 @@ spec:
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 2
+  # A controller restart across 03:30 should not skip the day's ingest, but a
+  # run that starts hours late is not worth starting.
+  startingDeadlineSeconds: 3600
   jobTemplate:
     spec:
       backoffLimit: 3
       ttlSecondsAfterFinished: 3600
+      # Waits up to 10 min for OpenMetadata, then ingests; under Forbid a hung
+      # run would otherwise block every later night.
+      activeDeadlineSeconds: 7200
       template:
         spec:
           restartPolicy: Never

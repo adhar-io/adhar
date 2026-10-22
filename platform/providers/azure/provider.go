@@ -138,6 +138,13 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 		azureConfig.ResourceGroup = get("resourceGroup", "rg")
 		azureConfig.Location = get("location", "region")
 		azureConfig.VMSize = get("vmSize", "machineType")
+		// The control-plane/worker split. vmSize above used to size EVERY VM,
+		// and still does when these are absent; see provider.ControlPlaneSize.
+		azureConfig.ControlPlaneVMSize = get("controlPlaneMachineType", "controlPlaneVmSize")
+		azureConfig.WorkerVMSize = get("workerMachineType", "workerVmSize")
+		azureConfig.ImagePublisher = get("imagePublisher")
+		azureConfig.ImageOffer = get("imageOffer")
+		azureConfig.ImageSKU = get("imageSku")
 		azureConfig.VNetCIDR = get("vnetCidr", "vnetCIDR")
 		azureConfig.SubnetCIDR = get("subnetCidr", "subnetCIDR")
 		azureConfig.DiskType = get("diskType")
@@ -168,6 +175,8 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 		for _, k := range []string{"subscriptionId", "subscription", "resourceGroup", "rg",
 			"location", "region", "vmSize", "machineType", "vnetCidr", "vnetCIDR",
 			"subnetCidr", "subnetCIDR", "diskType",
+			"controlPlaneMachineType", "controlPlaneVmSize", "workerMachineType", "workerVmSize",
+			"imagePublisher", "imageOffer", "imageSku",
 			// Read above, and read by `adhar up`'s edge/DNS wiring. Missing from
 			// this list they were reported as ignored while being acted on, which
 			// is worse than no warning at all — it sends you looking for a bug in
@@ -210,6 +219,17 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	}
 	if azureConfig.SubscriptionID == "" {
 		azureConfig.SubscriptionID = os.Getenv("AZURE_SUBSCRIPTION_ID")
+	}
+
+	// The role sizes may also arrive at the TOP level: the in-cluster
+	// autoscaler passes the recorded worker size there, and an environment's
+	// clusterConfig lands there. The provider block's section wins, as it does
+	// for every other Azure key.
+	if azureConfig.ControlPlaneVMSize == "" {
+		azureConfig.ControlPlaneVMSize = provider.ConfigString(topLevelOnly(config), provider.KeyControlPlaneMachineType)
+	}
+	if azureConfig.WorkerVMSize == "" {
+		azureConfig.WorkerVMSize = provider.ConfigString(topLevelOnly(config), provider.KeyWorkerMachineType)
 	}
 
 	// Parse top-level region as location if not set in config section
@@ -367,6 +387,17 @@ func normaliseKey(k string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// topLevelOnly is the provider map without its nested `config:` section.
+func topLevelOnly(m map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if k != "config" {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // normaliseKeys re-keys a config map through normaliseKey.
@@ -576,14 +607,21 @@ type Config struct {
 	TenantID       string `json:"tenantId"`
 	ResourceGroup  string `json:"resourceGroup"`
 	Location       string `json:"location"`
-	VMSize         string `json:"vmSize"`
-	DiskSizeGB     int32  `json:"diskSizeGB"`
-	DiskType       string `json:"diskType"`
-	ImagePublisher string `json:"imagePublisher"`
-	ImageOffer     string `json:"imageOffer"`
-	ImageSKU       string `json:"imageSKU"`
-	VNetCIDR       string `json:"vnetCIDR"`
-	SubnetCIDR     string `json:"subnetCIDR"`
+	// VMSize is the legacy provider-wide size (`vmSize`): when set it sizes
+	// every VM that nothing more specific sizes. ControlPlaneVMSize and
+	// WorkerVMSize (`controlPlaneMachineType` / `workerMachineType`) separate
+	// the two roles. None is defaulted here — the defaults are
+	// provider.MachineDefaultsFor("azure"), applied by controlPlaneSize/workerSize.
+	VMSize             string `json:"vmSize"`
+	ControlPlaneVMSize string `json:"controlPlaneVmSize,omitempty"`
+	WorkerVMSize       string `json:"workerVmSize,omitempty"`
+	DiskSizeGB         int32  `json:"diskSizeGB"`
+	DiskType           string `json:"diskType"`
+	ImagePublisher     string `json:"imagePublisher"`
+	ImageOffer         string `json:"imageOffer"`
+	ImageSKU           string `json:"imageSKU"`
+	VNetCIDR           string `json:"vnetCIDR"`
+	SubnetCIDR         string `json:"subnetCIDR"`
 
 	// Authentication options
 
@@ -617,9 +655,9 @@ func NewProvider(config *Config) (*Provider, error) {
 	if config.Location == "" {
 		config.Location = "East US"
 	}
-	if config.VMSize == "" {
-		config.VMSize = "Standard_D2s_v3"
-	}
+	// No VMSize default here any more: it was Standard_D2s_v3 (2 vCPU / 8 GiB)
+	// for the control plane AND every worker, and it made AKS's own default
+	// unreachable. Sizes resolve per role through controlPlaneSize/workerSize.
 	if config.DiskSizeGB == 0 {
 		// 256 GiB. Two things share this disk. The containerd image cache alone
 		// measured 35 GiB on a worker, which at 50 took the node over the
@@ -943,7 +981,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	// Cost the cluster with each node group's OWN size; plannedVCPUs handles the
 	// control plane being deliberately smaller than the workers.
 	needVCPU, shape := p.plannedVCPUs(ctx, spec)
-	if err := p.checkQuota(ctx, needVCPU, plannedVMSize(spec, p.config.VMSize), shape); err != nil {
+	if err := p.checkQuota(ctx, needVCPU, plannedVMSize(spec, p.config.workerSize("", "", false)), shape); err != nil {
 		return nil, err
 	}
 
@@ -1075,10 +1113,23 @@ func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	if spec.ControlPlane.Replicas > 1 {
 		return fmt.Errorf("HA control plane not yet supported for the Azure provider: requested %d control-plane replicas, only 1 is supported", spec.ControlPlane.Replicas)
 	}
-	if spec.ControlPlane.InstanceType == "" {
-		spec.ControlPlane.InstanceType = p.config.VMSize // Use default VM size
-	}
+	spec.ControlPlane.InstanceType = p.config.controlPlaneSize(spec)
 	return nil
+}
+
+// controlPlaneSize is the control plane's VM size for a spec.
+func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
+	fromSpec := ""
+	if spec != nil {
+		fromSpec = spec.ControlPlane.InstanceType
+	}
+	return provider.ControlPlaneSize("azure", fromSpec, c.ControlPlaneVMSize, c.VMSize)
+}
+
+// workerSize is a worker's VM size: the node group's own, else what the group's
+// existing members run (scale paths), else the configured/default size.
+func (c *Config) workerSize(groupSize, membersSize string, managed bool) string {
+	return provider.WorkerSize("azure", managed, groupSize, membersSize, c.WorkerVMSize, c.VMSize)
 }
 
 // createClusterInfrastructure creates the Azure infrastructure for a manual Kubernetes cluster
@@ -1444,10 +1495,11 @@ func (p *Provider) createWorkerNodes(ctx context.Context, resourceGroupName, vne
 	var workerNodes []NodeInfo
 
 	for _, nodeGroup := range spec.NodeGroups {
+		vmSize := p.config.workerSize(nodeGroup.InstanceType, "", false)
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			vmName := fmt.Sprintf("%s-worker-%s-%d", clusterName, nodeGroup.Name, i)
 
-			nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, nodeGroup.InstanceType, false, sshPubKey, startupScript)
+			nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, vmSize, false, sshPubKey, startupScript)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create worker node %s: %w", vmName, err)
 			}
@@ -1465,9 +1517,14 @@ func (p *Provider) createVirtualMachine(ctx context.Context, resourceGroupName, 
 	log.Printf("Creating virtual machine: %s with VM size: %s", vmName, vmSize)
 	log.Printf("VM configuration: Image=%s:%s:%s, DiskSize=%dGB", p.config.ImagePublisher, p.config.ImageOffer, p.config.ImageSKU, p.config.DiskSizeGB)
 
-	// Use default VM size if not specified
+	// Use the configured worker size if the caller named none (every caller
+	// does now; this is a guard, not a policy).
 	if vmSize == "" {
-		vmSize = p.config.VMSize
+		if isMaster {
+			vmSize = p.config.controlPlaneSize(nil)
+		} else {
+			vmSize = p.config.workerSize("", "", false)
+		}
 	}
 
 	// Create public IP
@@ -2286,7 +2343,7 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 // whatever its existing members run. Falls back to the configured size only
 // when the group is empty (a group scaled to zero and back).
 func (p *Provider) workerVMSize(ctx context.Context, tracker *ResourceTracker, prefix string) string {
-	return pickWorkerVMSize(tracker.VirtualMachines, prefix, p.config.VMSize, func(vmName string) string {
+	return pickWorkerVMSize(tracker.VirtualMachines, prefix, p.config.workerSize("", "", false), func(vmName string) string {
 		vm, err := p.virtualMachineClient.Get(ctx, tracker.ResourceGroup, vmName, nil)
 		if err != nil || vm.Properties == nil || vm.Properties.HardwareProfile == nil || vm.Properties.HardwareProfile.VMSize == nil {
 			return ""
@@ -2486,7 +2543,7 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 	return &types.NodeGroup{
 		Name:         nodeGroupName,
 		Replicas:     replicas,
-		InstanceType: p.config.VMSize,
+		InstanceType: p.config.workerSize("", "", false),
 		Status:       "ready",
 		CreatedAt:    cluster.CreatedAt,
 		UpdatedAt:    time.Now(),
@@ -2502,7 +2559,7 @@ func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*typ
 		{
 			Name:         "default",
 			Replicas:     3,
-			InstanceType: "Standard_D2s_v3",
+			InstanceType: p.config.workerSize("", "", false),
 			Status:       "ready",
 			CreatedAt:    time.Now().Add(-1 * time.Hour),
 			UpdatedAt:    time.Now(),

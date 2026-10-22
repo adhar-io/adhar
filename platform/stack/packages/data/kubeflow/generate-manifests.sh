@@ -155,3 +155,38 @@ with open(p, "w") as f:
     f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in docs))
 print(f"injected MinIO service-link env into {n} container env lists")
 PYEOF_MINIO
+
+# Memory requests measured on the DigitalOcean cluster (2026-10-22, working set
+# now / peak over three hours). Upstream's requests are sized for a busy
+# multi-user Kubeflow; here they reserved ~1.8 GiB that four idle processes
+# never touched, on workers sitting at 99% of memory REQUESTS while CI builds
+# waited for a node:
+#   ml-pipeline (api-server)          500Mi -> 192Mi   (25 / 89 MiB)
+#   ml-pipeline-persistenceagent      500Mi ->  96Mi   (12 / 13 MiB)
+#   ml-pipeline-visualizationserver   500Mi -> 448Mi   (94 / 353 MiB)
+#   mysql                             800Mi -> 512Mi   (372 / 373 MiB)
+# CPU requests are left as upstream ships them. Pinned by
+# TestMeasuredMemoryRequestsStayRightSized.
+python3 - "${INSTALL_YAML}" <<'PYEOF_RESOURCES'
+import sys, yaml
+p = sys.argv[1]
+docs = [d for d in yaml.safe_load_all(open(p)) if d]
+want = {
+    ("ml-pipeline", "ml-pipeline-api-server"): "192Mi",
+    ("ml-pipeline-persistenceagent", "ml-pipeline-persistenceagent"): "96Mi",
+    ("ml-pipeline-visualizationserver", "ml-pipeline-visualizationserver"): "448Mi",
+    ("mysql", "mysql"): "512Mi",
+}
+n = 0
+for d in docs:
+    if d.get("kind") != "Deployment": continue
+    for c in d["spec"]["template"]["spec"].get("containers", []):
+        key = (d["metadata"]["name"], c["name"])
+        if key in want:
+            c.setdefault("resources", {}).setdefault("requests", {})["memory"] = want[key]
+            n += 1
+assert n == len(want), f"resized {n} of {len(want)} containers; upstream renamed one"
+with open(p, "w") as f:
+    f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in docs))
+print(f"resized {n} memory requests")
+PYEOF_RESOURCES

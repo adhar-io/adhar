@@ -140,7 +140,9 @@ spec:
               path: /healthz/readiness
               port: http
           resources:
-            {}
+            requests:
+              cpu: 20m
+              memory: 448Mi
           volumeMounts:
             - name: data
               mountPath: /home/node/.n8n

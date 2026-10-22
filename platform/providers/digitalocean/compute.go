@@ -324,10 +324,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	}
 
 	// Control-plane droplet
-	masterSize := spec.ControlPlane.InstanceType
-	if masterSize == "" {
-		masterSize = p.config.DropletSize
-	}
+	masterSize := p.config.controlPlaneSize(spec)
 	existing, err := p.computeClusterDroplets(ctx, name)
 	if err != nil {
 		return nil, err
@@ -360,10 +357,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	}
 	var workers []workerReq
 	for _, ng := range spec.NodeGroups {
-		size := ng.InstanceType
-		if size == "" {
-			size = p.config.DropletSize
-		}
+		size := p.config.workerSize(ng.InstanceType, "", false)
 		count := ng.Replicas
 		if count <= 0 {
 			count = 1
@@ -374,7 +368,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	}
 	if len(workers) == 0 {
 		for i := 1; i <= 2; i++ {
-			workers = append(workers, workerReq{fmt.Sprintf("adhar-%s-worker-%d", name, i), p.config.DropletSize})
+			workers = append(workers, workerReq{fmt.Sprintf("adhar-%s-worker-%d", name, i), p.config.workerSize("", "", false)})
 		}
 	}
 
@@ -939,10 +933,11 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 	// the same scheme (and the same droplet size as the existing workers) so a
 	// scaled cluster stays homogeneous.
 	workers = sortedByIndex(workers)
-	size := p.config.DropletSize
-	if len(workers) > 0 && workers[0].SizeSlug != "" {
-		size = workers[0].SizeSlug
+	membersSize := ""
+	if len(workers) > 0 {
+		membersSize = workers[0].SizeSlug
 	}
+	size := p.config.workerSize("", membersSize, false)
 
 	// Count NODES, not droplets: a droplet whose join failed is not capacity
 	// (see reconcileWorkers). One that has been an orphan past the grace period

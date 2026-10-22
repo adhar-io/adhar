@@ -1,0 +1,50 @@
+# Prometheus scraping for RabbitMQ (rabbitmq_prometheus plugin).
+#
+# The Bitnami chart enables the rabbitmq_prometheus plugin and declares the
+# `metrics` container port (9419), but with `metrics.enabled` left off it ships
+# neither a metrics Service nor a ServiceMonitor — so nothing ever scraped the
+# broker and every panel of the RabbitMQ dashboards read "No data". A PodMonitor
+# needs no Service and no chart regeneration.
+#
+# Two endpoints on the same port:
+#   /metrics           aggregated node + message totals (rabbitmq_*, erlang_*)
+#   /metrics/detailed  per-queue depth and consumers (rabbitmq_detailed_queue_*),
+#                      limited to the two cheap queue families. Its `job` is
+#                      renamed so the rabbitmq_identity_info series of the two
+#                      endpoints never collide on (instance, job) — the upstream
+#                      RabbitMQ dashboards join on exactly that pair.
+#
+# Only pods that declare a `metrics` port produce targets: oncall's bundled
+# RabbitMQ (chart 12.x, no metrics port) is matched by the selector and skipped.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: rabbitmq
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    adhar.io/component: data
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+    - port: metrics
+      path: /metrics/detailed
+      params:
+        family:
+          - queue_coarse_metrics
+          - queue_consumer_count
+      interval: 60s
+      relabelings:
+        - action: replace
+          targetLabel: job
+          replacement: rabbitmq-detailed

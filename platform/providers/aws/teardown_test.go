@@ -181,7 +181,13 @@ func TestPlannedShapeMatchesWhatCreateWillBuild(t *testing.T) {
 	if got := plannedInstanceType(spec, nil); got != "m5.xlarge" {
 		t.Errorf("instance type = %q, want the node group's m5.xlarge", got)
 	}
-	if got := plannedInstanceType(&types.ClusterSpec{}, nil); got != "t3.medium" {
-		t.Errorf("instance type = %q, want the compute path's own default", got)
+	// The size the compute path will actually build (the defaults table), not
+	// the t3.medium this used to assume while the compute path built r6i.xlarge.
+	if got, want := plannedInstanceType(&types.ClusterSpec{}, nil), (&Config{}).workerType("", "", false); got != want || got != "r6i.xlarge" {
+		t.Errorf("instance type = %q, want the compute path's own default %q", got, want)
+	}
+	// providers.aws.config.workerMachineType is what an empty spec measures.
+	if got := plannedInstanceType(&types.ClusterSpec{}, &Config{WorkerInstanceType: "m6i.2xlarge"}); got != "m6i.2xlarge" {
+		t.Errorf("instance type = %q, want the configured worker size", got)
 	}
 }

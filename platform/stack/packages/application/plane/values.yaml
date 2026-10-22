@@ -34,6 +34,13 @@ ssl:
 minio:
   local_setup: false
 
+# The Celery worker. The chart requests 50Mi; Celery forks one child per CPU, so
+# on 8-vCPU nodes it held ~650 MiB (peak 661 MiB, 2026-10-22) against a 1000Mi
+# limit — invisible to the scheduler and a third of the way from an OOM kill
+# whenever a burst of notifications or imports lands.
+worker:
+  memoryRequest: 704Mi
+  memoryLimit: 1536Mi
 env:
   # The bucket the rustfs package provisions for this app.
   docstore_bucket: "plane"

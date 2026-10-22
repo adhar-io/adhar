@@ -3036,6 +3036,7 @@ metadata:
     app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
+  nodeCollector.tolerations: "[{\"effect\":\"NoSchedule\",\"key\":\"node-role.kubernetes.io/control-plane\",\"operator\":\"Exists\"}]"
   nodeCollector.volumes: "[{\"hostPath\":{\"path\":\"/var/lib/etcd\"},\"name\":\"var-lib-etcd\"},{\"hostPath\":{\"path\":\"/var/lib/kubelet\"},\"name\":\"var-lib-kubelet\"},{\"hostPath\":{\"path\":\"/var/lib/kube-scheduler\"},\"name\":\"var-lib-kube-scheduler\"},{\"hostPath\":{\"path\":\"/var/lib/kube-controller-manager\"},\"name\":\"var-lib-kube-controller-manager\"},{\"hostPath\":{\"path\":\"/etc/systemd\"},\"name\":\"etc-systemd\"},{\"hostPath\":{\"path\":\"/lib/systemd\"},\"name\":\"lib-systemd\"},{\"hostPath\":{\"path\":\"/etc/kubernetes\"},\"name\":\"etc-kubernetes\"},{\"hostPath\":{\"path\":\"/etc/cni/net.d/\"},\"name\":\"etc-cni-netd\"}]"
   nodeCollector.volumeMounts: "[{\"mountPath\":\"/var/lib/etcd\",\"name\":\"var-lib-etcd\",\"readOnly\":true},{\"mountPath\":\"/var/lib/kubelet\",\"name\":\"var-lib-kubelet\",\"readOnly\":true},{\"mountPath\":\"/var/lib/kube-scheduler\",\"name\":\"var-lib-kube-scheduler\",\"readOnly\":true},{\"mountPath\":\"/var/lib/kube-controller-manager\",\"name\":\"var-lib-kube-controller-manager\",\"readOnly\":true},{\"mountPath\":\"/etc/systemd\",\"name\":\"etc-systemd\",\"readOnly\":true},{\"mountPath\":\"/lib/systemd/\",\"name\":\"lib-systemd\",\"readOnly\":true},{\"mountPath\":\"/etc/kubernetes\",\"name\":\"etc-kubernetes\",\"readOnly\":true},{\"mountPath\":\"/etc/cni/net.d/\",\"name\":\"etc-cni-netd\",\"readOnly\":true}]"
   scanJob.useGCRServiceAccount: "true"
@@ -3587,6 +3588,10 @@ spec:
       automountServiceAccountToken: true
       containers:
         - name: "trivy-operator"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 1280Mi
           image: "mirror.gcr.io/aquasec/trivy-operator:0.34.0"
           imagePullPolicy: IfNotPresent
           env:
@@ -3725,12 +3730,12 @@ spec:
               name: data
               readOnly: false
           resources:
-            limits:
-              cpu: "1"
-              memory: 1Gi
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 256Mi
+            limits:
+              cpu: '1'
+              memory: 1Gi
       volumes:
         - name: tmp-data
           emptyDir: {}

@@ -200,6 +200,136 @@ subjects:
   name: console
   namespace: adhar-system
 ---
+# The console's notification watcher (apps/console/app/server/events/ in the
+# console repo) turns platform state transitions into Notification Center
+# entries — Argo CD health and sync operations, Tekton runs, Kargo freight /
+# promotions / stage verification, Argo Rollouts, every control-plane XR being
+# created / ready / failed / deleted, nodes joining and leaving, the node
+# autoscaler's Events and the resilience gate's Jobs. It runs as THIS
+# ServiceAccount with no request in flight, so each resource it watches needs
+# list + watch here.
+#
+# `read-all` above happens to cover all of it today. This role exists anyway,
+# and names each resource, because `read-all` is the grant most likely to be
+# narrowed (it includes Secrets), and a watcher that loses a resource does not
+# fail — `runWatch` logs one 403 and disables that source, and the feed goes
+# quiet about promotions with nothing on screen to say why. Read-only, and
+# pinned by `TestConsoleWatchedResourcesAreGranted`, which also fails when the
+# control plane gains an XRD this list does not name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: console-event-watcher
+  labels:
+    adhar.io/component: rbac
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - events
+  - namespaces
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  - rollouts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - pipelineruns
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kargo.akuity.io
+  resources:
+  - freights
+  - promotions
+  - stages
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.adhar.io
+  resources:
+  - agentworkloads
+  - applications
+  - authstacks
+  - backuppolicies
+  - buckets
+  - caches
+  - clusters
+  - compliancepolicies
+  - costtrackers
+  - databases
+  - environments
+  - gitops
+  - graphdatabases
+  - healths
+  - loggings
+  - messagings
+  - metrics
+  - networks
+  - nosqldatabases
+  - organisations
+  - pipelines
+  - platformconfigs
+  - projects
+  - queues
+  - releases
+  - repositories
+  - restores
+  - scales
+  - searches
+  - secretrotations
+  - secrets
+  - services
+  - storages
+  - tables
+  - teams
+  - topics
+  - traces
+  - vectors
+  - webhooks
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: console-event-watcher
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: console-event-watcher
+subjects:
+- kind: ServiceAccount
+  name: console
+  namespace: adhar-system
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -306,8 +436,11 @@ spec:
           value: adhar
         - name: KEYCLOAK_CLIENT_ID
           value: adhar-console
+        # No offline_access: an offline token kept the console signed in after
+        # Keycloak's SSO session had ended, so every tool opened from it asked
+        # for the password again. An online token keeps that session alive.
         - name: AUTH_SCOPES
-          value: openid profile email offline_access
+          value: openid profile email
         - name: AUTH_COOKIE_SECURE
           value: 'true'
         - name: K8S_API_URL

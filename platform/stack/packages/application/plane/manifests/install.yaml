@@ -695,11 +695,11 @@ spec:
         tty: true
         resources:
           requests:
-            memory: "50Mi"
-            cpu: "50m"
+            memory: 704Mi
+            cpu: 50m
           limits:
-            memory: "1000Mi"
-            cpu: "500m"
+            memory: 1536Mi
+            cpu: 500m
         command:
           - ./bin/docker-entrypoint-worker.sh
         envFrom:

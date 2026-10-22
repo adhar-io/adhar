@@ -15,6 +15,10 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "manifests")
+# "local:<name>.json" entries whose folder is not "Platform" are written by
+# build-service-dashboards.py (CloudNativePG, Valkey/Redis, Kafka, RabbitMQ,
+# Kubernetes overview/capacity, and the kubernetes-mixin set vendored from
+# kube-prometheus). Edit and re-run THAT script; this one only re-packages them.
 # Hand-authored Adhar dashboards for components with no reliable published
 # grafana.com dashboard (Alloy, external-dns, cosign, tetragon, kubescape,
 # pyroscope, spark-operator). These reference datasources by their fixed UIDs
@@ -39,20 +43,20 @@ DASHBOARDS = [
     ("cilium-operator", 16612, "Platform"),
     ("cilium-hubble", 16613, "Platform"),
     ("coredns", 14981, "Platform"),
-    ("cloudnativepg", 20417, "Platform"),
+    ("cloudnativepg", "local:cloudnativepg.json", "Data"),
     # Networking / DNS / probing
     ("cilium-network-monitoring", 24056, "Platform"),
     ("blackbox-exporter", 13659, "Platform"),
     # Cluster / nodes (node-exporter-driven variants)
     ("kubernetes-nodes-classic", 8171, "Platform"),
-    ("k8s-cluster-overview", 15661, "Platform"),
+    ("k8s-cluster-overview", "local:k8s-cluster-overview.json", "Kubernetes"),
     # Alerting / LGTM
     ("alertmanager", 9578, "Platform"),
     ("loki-stack", 14055, "Platform"),
     # Data stores / messaging (platform services)
     ("redis-overview", 18345, "Platform"),
     ("redis-ha", 11835, "Platform"),
-    ("rabbitmq-overview", 10991, "Platform"),
+    ("rabbitmq-overview", "local:rabbitmq-overview.json", "Data"),
     ("rabbitmq-stream", 14798, "Platform"),
     # Platform application services
     ("keycloak-metrics", 10441, "Platform"),
@@ -66,9 +70,9 @@ DASHBOARDS = [
     ("keycloak", 17878, "Platform"),
     ("vault", 12904, "Platform"),
     ("harbor", 14075, "Platform"),
-    ("kafka-cluster", 762, "Platform"),
-    ("kafka-exporter", 7589, "Platform"),
-    ("redis", 763, "Platform"),
+    ("kafka-cluster", "local:kafka-cluster.json", "Data"),
+    ("kafka-exporter", "local:kafka-exporter.json", "Data"),
+    ("redis", "local:redis.json", "Data"),
     ("spring-boot-statistics", 10280, "Application"),
     ("spring-boot-apm", 12900, "Application"),
     ("jvm-micrometer", 4701, "Application"),
@@ -81,27 +85,27 @@ DASHBOARDS = [
     # Complements the dotdc Views set above with control-plane and
     # per-namespace/pod/workload compute + networking drill-downs.
     # ---------------------------------------------------------------------
-    ("k8s-apiserver", 12116, "Platform"),
-    ("k8s-kubelet", 12123, "Platform"),
-    ("k8s-scheduler", 12130, "Platform"),
-    ("k8s-controller-manager", 12122, "Platform"),
-    ("k8s-proxy", 12129, "Platform"),
+    ("k8s-apiserver", "local:k8s-apiserver.json", "Kubernetes"),
+    ("k8s-kubelet", "local:k8s-kubelet.json", "Kubernetes"),
+    ("k8s-scheduler", "local:k8s-scheduler.json", "Kubernetes"),
+    ("k8s-controller-manager", "local:k8s-controller-manager.json", "Kubernetes"),
     ("k8s-etcd", 20330, "Platform"),
-    ("k8s-persistent-volumes-detail", 12127, "Platform"),
-    ("k8s-compute-cluster", 12114, "Platform"),
-    ("k8s-compute-namespace-pods", 12117, "Platform"),
-    ("k8s-compute-namespace-workloads", 12118, "Platform"),
-    ("k8s-compute-node-pods", 12119, "Platform"),
-    ("k8s-compute-pod", 12120, "Platform"),
-    ("k8s-compute-workload", 12121, "Platform"),
-    ("k8s-networking-cluster", 12124, "Platform"),
-    ("k8s-networking-namespace-pods", 12125, "Platform"),
-    ("k8s-networking-namespace-workload", 12126, "Platform"),
+    ("k8s-persistent-volumes-detail", "local:k8s-persistent-volumes-detail.json", "Kubernetes"),
+    ("k8s-compute-cluster", "local:k8s-compute-cluster.json", "Kubernetes"),
+    ("k8s-compute-namespace-pods", "local:k8s-compute-namespace-pods.json", "Kubernetes"),
+    ("k8s-compute-namespace-workloads", "local:k8s-compute-namespace-workloads.json", "Kubernetes"),
+    ("k8s-compute-node-pods", "local:k8s-compute-node-pods.json", "Kubernetes"),
+    ("k8s-compute-nodes-overview", "local:k8s-compute-nodes-overview.json", "Kubernetes"),
+    ("k8s-compute-pod", "local:k8s-compute-pod.json", "Kubernetes"),
+    ("k8s-compute-workload", "local:k8s-compute-workload.json", "Kubernetes"),
+    ("k8s-networking-cluster", "local:k8s-networking-cluster.json", "Networking"),
+    ("k8s-networking-namespace-pods", "local:k8s-networking-namespace-pods.json", "Networking"),
+    ("k8s-networking-namespace-workload", "local:k8s-networking-namespace-workload.json", "Networking"),
     ("k8s-pods-detail", 12128, "Platform"),
     ("k8s-statefulsets", 12131, "Platform"),
-    ("k8s-use-cluster", 12135, "Platform"),
+    ("k8s-use-cluster", "local:k8s-use-cluster.json", "Kubernetes"),
     ("k8s-cluster-autoscaler", 3831, "Platform"),
-    ("k8s-capacity", 5228, "Platform"),
+    ("k8s-capacity", "local:k8s-capacity.json", "Kubernetes"),
     ("k8s-workloads-metrics", 8588, "Platform"),
     ("kubernetes-events", 23100, "Platform"),
 

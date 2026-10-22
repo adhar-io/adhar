@@ -469,6 +469,12 @@ gitea:
       SSH_DOMAIN: adhar.localtest.me
       ROOT_URL: https://gitea.adhar.localtest.me:8443/
       PROTOCOL: http # TLS terminates at the Gateway; Gitea listens plain HTTP
+      # Single sign-on without a click: an anonymous visitor to / is sent to
+      # /user/login, which the gitea HTTPRoute redirects into the Keycloak OAuth2
+      # source. The default landing page ("home") is a marketing page whose only
+      # way in is a "Sign In" link, so a person already signed in to Keycloak
+      # still had to click. Signed-in users never see the landing page.
+      LANDING_PAGE: login
       SSH_PORT: 22 # rootful image
       SSH_LISTEN_PORT: 2222 # rootless image
     # Keycloak SSO auto-onboarding: first login via the Keycloak OAuth2 source

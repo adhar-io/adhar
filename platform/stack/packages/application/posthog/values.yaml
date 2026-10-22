@@ -73,6 +73,13 @@ clickhouse:
   # upstream's CLICKHOUSE_SERVER_IMAGE when bumping the app image.
   image:
     tag: "26.6.2.158"
+  # The chart sets no resources, so ClickHouse took the namespace's 64Mi default
+  # request while holding ~1 GiB and ~0.7 CPU (2026-10-22) — invisible to the
+  # scheduler on nodes that were evicting pods for memory. Request only: with a
+  # limit ClickHouse sizes max_server_memory_usage to it and starts refusing
+  # merges, which is a tuning decision of its own.
+  resources:
+    requests: {cpu: 250m, memory: 1Gi}
   # PostHog's migrations read two ClickHouse macros the chart never defines
   # ("No macro hostClusterType in config"); the operator writes settings as
   # config.d XML paths, so these land in <macros>.
@@ -269,8 +276,11 @@ web:
   env:
     - name: WEB_CONCURRENCY
       value: "2"
+  # 4Gi, not 2Gi: measured 4.4 GiB working set (2026-10-14); a 2Gi request let
+  # the scheduler stack web+events on one node that then ran out of memory.
+  # TestPostHogRequestsReflectWhatItUses pins it.
   resources:
-    requests: {cpu: 250m, memory: 2Gi}
+    requests: {cpu: 250m, memory: 4Gi}
     limits: {memory: 6Gi}
 events:
   # The events role is PostHog's ingestion HTTP endpoint (/e, /capture, /decide).
@@ -283,8 +293,24 @@ events:
     - name: WEB_CONCURRENCY
       value: "1"
   resources:
-    requests: {cpu: 200m, memory: 2Gi}
+    requests: {cpu: 200m, memory: 4Gi}
     limits: {memory: 5Gi}
+# The Celery worker (posthog-worker-default). bin/docker-worker-celery passes
+# WEB_CONCURRENCY to `--concurrency` and otherwise lets Celery fork one child per
+# CPU — eight on an 8-vCPU node, ~250 MiB each, plus the RedBeat scheduler. On
+# 2026-10-22 that was ~2 GiB against a 2Gi limit: OOMKilled 8 times in an hour
+# and evicted once, holding the posthog app at Progressing. Two children is
+# plenty for the platform's own task volume and makes the footprint independent
+# of the node size; CELERY_MAX_MEMORY_PER_CHILD (KiB) recycles a child that leaks.
+worker:
+  env:
+    - name: WEB_CONCURRENCY
+      value: "2"
+    - name: CELERY_MAX_MEMORY_PER_CHILD
+      value: "524288"
+  resources:
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {memory: 2Gi}
 plugins:
   enabled: false
 

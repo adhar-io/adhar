@@ -53,6 +53,8 @@ webapp:
     enabled: false
 
 server:
+  resources:
+    requests: {cpu: 50m, memory: 1Gi}
   # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
   # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
   # requests it takes longer, so kubelet killed the server, worker, workload
@@ -74,6 +76,8 @@ server:
     failureThreshold: 12
 
 worker:
+  resources:
+    requests: {cpu: 50m, memory: 640Mi}
   # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
   # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
   # requests it takes longer, so kubelet killed the server, worker, workload
@@ -95,6 +99,8 @@ worker:
     failureThreshold: 12
 
 workload-api-server:
+  resources:
+    requests: {cpu: 50m, memory: 640Mi}
   # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
   # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
   # requests it takes longer, so kubelet killed the server, worker, workload
@@ -116,6 +122,8 @@ workload-api-server:
     failureThreshold: 12
 
 workload-launcher:
+  resources:
+    requests: {cpu: 50m, memory: 576Mi}
   # JVM start-up budget. The chart's liveness probe (initialDelay 30 s, 3 × 10 s)
   # gives a Micronaut JVM 60 s to bind its health port; on a node at 100% CPU
   # requests it takes longer, so kubelet killed the server, worker, workload
@@ -135,3 +143,17 @@ workload-launcher:
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 12
+
+# Memory requests for every Airbyte JVM (2026-10-22). The chart ships none, so
+# each took the namespace's 64Mi default while holding 370-780 MiB: the
+# scheduler stacked them onto full nodes and the kubelet evicted server, cron,
+# worker and the workload API server ("request is 64Mi, has larger consumption
+# of memory"). Each request is the measured working set rounded up; no limits,
+# because a limit also moves the JVM's default heap ceiling.
+cron:
+  resources:
+    requests: {cpu: 50m, memory: 768Mi}
+
+connector-builder-server:
+  resources:
+    requests: {cpu: 20m, memory: 448Mi}

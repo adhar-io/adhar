@@ -184,25 +184,7 @@ func (r *Reconciler) newProvider(ctx context.Context, spec *clusterSpec) (pfacto
 			"scale the cluster with the tool that built it", mode)
 	}
 
-	cfg := map[string]interface{}{}
-	for k, v := range spec.ProviderConfig {
-		cfg[k] = v
-	}
-	if spec.Region != "" {
-		cfg["region"] = spec.Region
-	}
-	// Keep the node size in the nested config section the providers read, so a
-	// node added by the autoscaler matches the ones `adhar up` created.
-	if spec.Size != "" {
-		section, _ := cfg["config"].(map[string]interface{})
-		if section == nil {
-			section = map[string]interface{}{}
-		}
-		if _, ok := section["droplet_size"]; !ok {
-			section["droplet_size"] = spec.Size
-		}
-		cfg["config"] = section
-	}
+	cfg := providerMapFor(spec)
 
 	if name := credentialSecretName(spec.Provider); name != "" {
 		secret := &corev1.Secret{}
@@ -223,6 +205,41 @@ func (r *Reconciler) newProvider(ctx context.Context, spec *clusterSpec) (pfacto
 	}
 
 	return pfactory.DefaultFactory.CreateProvider(spec.Provider, cfg)
+}
+
+// providerMapFor is the credential-free provider map a scaling action constructs
+// its provider from: the bootstrap-time map, the region, and the recorded worker
+// size in the keys the providers read.
+func providerMapFor(spec *clusterSpec) map[string]interface{} {
+	cfg := map[string]interface{}{}
+	for k, v := range spec.ProviderConfig {
+		cfg[k] = v
+	}
+	if spec.Region != "" {
+		cfg["region"] = spec.Region
+	}
+	// Keep the node size in the nested config section the providers read, so a
+	// node added by the autoscaler matches the ones `adhar up` created.
+	if spec.Size != "" {
+		section, _ := cfg["config"].(map[string]interface{})
+		if section == nil {
+			section = map[string]interface{}{}
+		}
+		if _, ok := section["droplet_size"]; !ok {
+			section["droplet_size"] = spec.Size
+		}
+		cfg["config"] = section
+		// The provider-agnostic spelling every provider reads as its worker
+		// size (below the node group's existing members, above the built-in
+		// default). droplet_size above reached DigitalOcean only, so on every
+		// other cloud a worker added to an EMPTY group took the provider-wide
+		// size — on GCP the provider block's machine_type rather than the
+		// environment's worker size the cluster was built with.
+		if _, ok := cfg[pfactory.KeyWorkerMachineType]; !ok {
+			cfg[pfactory.KeyWorkerMachineType] = spec.Size
+		}
+	}
+	return cfg
 }
 
 // ensureClusterSSHKey writes the cluster's kubeadm SSH key to the on-disk
@@ -295,10 +312,7 @@ func (r *Reconciler) scaleDown(ctx context.Context, spec *clusterSpec, nodeName 
 	}
 	clusterID := resolveClusterID(ctx, prov, spec.ClusterName)
 
-	if err := r.drainNode(ctx, nodeName); err != nil {
-		// The node stays cordoned: capacity is already withheld, and the next
-		// tick retries the drain rather than removing a machine that still
-		// hosts workloads.
+	if err := r.drainOrRestore(ctx, nodeName); err != nil {
 		return err
 	}
 	if err := remover.RemoveWorkerNode(ctx, clusterID, nodeName); err != nil {
@@ -334,29 +348,67 @@ func resolveClusterID(ctx context.Context, prov pfactory.Provider, name string) 
 	return name
 }
 
+// drainOrRestore drains a node for removal and, when the drain does not
+// finish, puts the node back into service if it was this drain that cordoned
+// it.
+//
+// Leaving it cordoned was the old behaviour, on the theory that "the next tick
+// retries the drain". It never did: a cordoned node is not a worker to Decide
+// (IsWorker), so it is never chosen as a scale-down candidate again. A drain
+// blocked by a PodDisruptionBudget therefore stranded a billing machine
+// forever — still hosting the pods the budget protected, unschedulable for
+// everything else, and subtracted from the worker count, which can itself
+// trigger a scale-up to replace capacity the cluster still pays for. A node an
+// operator cordoned before the autoscaler touched it stays cordoned.
+func (r *Reconciler) drainOrRestore(ctx context.Context, nodeName string) error {
+	cordonedHere, err := r.drainNode(ctx, nodeName)
+	if err == nil || !cordonedHere {
+		return err
+	}
+	// The reconcile context may be what ended the drain, so the uncordon gets
+	// its own short deadline.
+	uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	node := &corev1.Node{}
+	if gerr := r.Get(uctx, types.NamespacedName{Name: nodeName}, node); gerr != nil {
+		return fmt.Errorf("%w; and the node could not be read to uncordon it: %v", err, gerr)
+	}
+	if node.Spec.Unschedulable {
+		patched := node.DeepCopy()
+		patched.Spec.Unschedulable = false
+		if perr := r.Patch(uctx, patched, client.MergeFrom(node)); perr != nil {
+			return fmt.Errorf("%w; and uncordoning %s failed: %v", err, nodeName, perr)
+		}
+	}
+	log.FromContext(ctx).Info("drain did not finish; node returned to service", "node", nodeName, "error", err.Error())
+	return err
+}
+
 // drainNode cordons a node and evicts every pod that can move, honouring
 // PodDisruptionBudgets through the eviction API. DaemonSet and static pods are
 // left alone: nothing can reschedule them, and the machine is about to go.
-func (r *Reconciler) drainNode(ctx context.Context, nodeName string) error {
+// cordonedHere reports whether this call is what cordoned the node.
+func (r *Reconciler) drainNode(ctx context.Context, nodeName string) (cordonedHere bool, err error) {
 	logger := log.FromContext(ctx)
 
 	node := &corev1.Node{}
 	if err := r.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
-		return fmt.Errorf("getting node %s: %w", nodeName, err)
+		return false, fmt.Errorf("getting node %s: %w", nodeName, err)
 	}
 	if !node.Spec.Unschedulable {
 		patched := node.DeepCopy()
 		patched.Spec.Unschedulable = true
 		if err := r.Patch(ctx, patched, client.MergeFrom(node)); err != nil {
-			return fmt.Errorf("cordoning node %s: %w", nodeName, err)
+			return false, fmt.Errorf("cordoning node %s: %w", nodeName, err)
 		}
+		cordonedHere = true
 	}
 
 	deadline := time.Now().Add(r.drainTimeout())
 	for {
 		pods := &corev1.PodList{}
 		if err := r.List(ctx, pods); err != nil {
-			return fmt.Errorf("listing pods on %s: %w", nodeName, err)
+			return cordonedHere, fmt.Errorf("listing pods on %s: %w", nodeName, err)
 		}
 		remaining := 0
 		for i := range pods.Items {
@@ -382,18 +434,18 @@ func (r *Reconciler) drainNode(ctx context.Context, nodeName string) error {
 				if apierrors.IsNotFound(err) {
 					continue
 				}
-				return fmt.Errorf("evicting %s/%s: %w", p.Namespace, p.Name, err)
+				return cordonedHere, fmt.Errorf("evicting %s/%s: %w", p.Namespace, p.Name, err)
 			}
 		}
 		if remaining == 0 {
-			return nil
+			return cordonedHere, nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("drain of %s timed out with %d pod(s) still running", nodeName, remaining)
+			return cordonedHere, fmt.Errorf("drain of %s timed out with %d pod(s) still running", nodeName, remaining)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return cordonedHere, ctx.Err()
 		case <-time.After(10 * time.Second):
 		}
 	}

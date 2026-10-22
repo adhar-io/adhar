@@ -362,6 +362,12 @@ data:
         groups_claim="groups" \
         token_policies="default" \
         ttl="1h" >/dev/null || log "ERROR: oidc role write failed — the OIDC method exists but has no usable role; re-run by syncing the openbao app"
+      # List the OIDC method on the UI's sign-in page. Without it the page opens
+      # on the Token method and Keycloak hides behind an "Other" dropdown, so a
+      # person already signed in to Keycloak had to know to pick OIDC first. With
+      # it, OIDC is the first tab and the route (httproute.yaml.tmpl) opens it.
+      bao auth tune -listing-visibility=unauth oidc/ >/dev/null \
+        || log "ERROR: could not list the oidc method on the sign-in page; re-run by syncing the openbao app"
 
       # Map Keycloak groups -> OpenBao policies so an OIDC login is actually
       # USEFUL. Without this a signed-in user only gets the `default` policy

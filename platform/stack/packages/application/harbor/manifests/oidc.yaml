@@ -3,7 +3,8 @@
 # Harbor stores its auth configuration in its database, applied at runtime via the
 # admin API — there is no Helm value for it. So a Job PUTs the OIDC config once
 # Harbor is up. auth_mode=oidc_auth switches the login page to "Login via OIDC
-# Provider" (the local admin still works for break-glass at /account/sign-in).
+# Provider" (the local admin still works for break-glass at /account/sign-in),
+# and primary_auth_mode=true skips even that button.
 ---
 # The Keycloak `harbor` client secret, from keycloak-clients (realm job wave 20).
 apiVersion: external-secrets.io/v1
@@ -43,6 +44,11 @@ data:
   # oidc_verify_cert=false: Keycloak is served over the self-signed platform cert.
   # oidc_auto_onboard=true: create a Harbor user on first OIDC login.
   # platform-admin group -> Harbor system admin.
+  # primary_auth_mode=true: the UI's auth guard sends a visitor without a Harbor
+  # session straight to /c/oidc/login instead of drawing the sign-in page with a
+  # "Login via OIDC Provider" button, so a person already signed in to Keycloak
+  # lands inside Harbor with no click. Break-glass local admin login stays at
+  # /account/sign-in, which the guard leaves alone.
   oidc-config.json: |
     {
       "auth_mode": "oidc_auth",
@@ -55,7 +61,8 @@ data:
       "oidc_auto_onboard": true,
       "oidc_user_claim": "preferred_username",
       "oidc_groups_claim": "groups",
-      "oidc_admin_group": "platform-admin"
+      "oidc_admin_group": "platform-admin",
+      "primary_auth_mode": true
     }
 ---
 apiVersion: batch/v1

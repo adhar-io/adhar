@@ -246,3 +246,332 @@ spec:
               {{- if $resourceSummary }}
               resources: {{ toYaml $resourceSummary | nindent 4 }}
               {{- end }}
+    - step: localisation
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- /* LOCALISATION — the same step in every Application composition
+                   (application-multienv, application-argocd, application-local-argocd);
+                   TestTheLocalisationStepIsIdenticalInEveryApplicationComposition keeps
+                   the copies equal.
+
+                   An application that declares `localisation: {provider: tolgee}` gets,
+                   idempotently, from the platform's Tolgee (application/tolgee):
+                     * a Tolgee project named after the application, in the Tolgee
+                       organisation of its Adhar organisation (slug; `adhar` by default),
+                       carrying the declared languages (only ever added);
+                     * a CI key → Secret `<app>-tolgee-ci` in adhar-system, read by app-ci;
+                     * a read-only key (translations.view) → Secret `<app>-tolgee` in every
+                       environment namespace of the application, read by the app at
+                       runtime. All three Secrets carry api-url, project-id and api-key.
+                   Keys are created once and KEPT; a new one is minted only when a Secret is
+                   missing or Tolgee refuses the stored key.
+
+                   The work is a Job in adhar-system (an Object: a namespaced XR composes
+                   only into its own namespace) running as `tolgee-provisioner`, which the
+                   tolgee package ships; per environment namespace a RoleBinding grants it
+                   Secret writes there and nowhere else. The Job is named by a hash of the
+                   declaration, so an unchanged declaration never runs twice and a changed
+                   one runs once more. It is never TTL-deleted — the provider would only
+                   recreate it. It does not hold the application's readiness: a
+                   localisation server that is down must not stop an app from deploying,
+                   which falls back to the translations bundled at build time.
+
+                   Which namespaces: the project's environments when this composition
+                   observes a Project (multienv — and nothing is rendered until the project
+                   has published them), the AgentWorkload's namespace for an `ai`
+                   application, otherwise the destination namespace. */ -}}
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := default (dict) $xr.spec.parameters -}}
+            {{- $l10n := default (dict) (get $p "localisation") -}}
+            {{- if eq (toString (default "" (get $l10n "provider"))) "tolgee" -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $xrns := $xr.metadata.namespace -}}
+            {{- $pc := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- $base := toString (default "en" (get $l10n "baseLanguage")) -}}
+            {{- $langs := list -}}
+            {{- range (default (list $base) (get $l10n "languages")) }}{{ $langs = append $langs (toString .) }}{{ end -}}
+            {{- if not (has $base $langs) }}{{ $langs = prepend $langs $base }}{{ end -}}
+            {{- $langs = uniq $langs -}}
+            {{- $desired := dig "desired" "resources" (dict) . -}}
+            {{- $observed := dig "observed" "resources" (dict) . -}}
+            {{- $projStatus := dig "project" "resource" "status" "atProvider" "manifest" "status" (dict) $observed -}}
+            {{- $namespaces := list -}}
+            {{- $waiting := false -}}
+            {{- if hasKey $desired "project" -}}
+            {{-   range (dig "environments" (list) $projStatus) }}{{ $namespaces = append $namespaces (toString .namespace) }}{{ end -}}
+            {{-   if not $namespaces }}{{ $waiting = true }}{{ end -}}
+            {{- else if hasKey $desired "agent-workload" -}}
+            {{-   $namespaces = list (printf "%s-%s" $name (dig "ai" "environment" "dev" $p)) -}}
+            {{- else -}}
+            {{-   $namespaces = list (dig "destination" "namespace" $xrns $p) -}}
+            {{- end -}}
+            {{- $namespaces = uniq $namespaces -}}
+            {{- /* Tolgee organisation slugs: 3-60 of [a-z0-9-] with at least one letter. */ -}}
+            {{- $org := regexReplaceAll "[^a-z0-9-]+" (lower (toString (dig "organisation" "adhar" $projStatus))) "-" | trimAll "-" -}}
+            {{- if not (regexMatch "[a-z]" $org) }}{{ $org = printf "org-%s" $org }}{{ end -}}
+            {{- if lt (len $org) 3 }}{{ $org = printf "%s-org" $org }}{{ end -}}
+            {{- $org = trunc 60 $org | trimSuffix "-" -}}
+            {{- $decl := dict "application" $name "organisation" $org "baseLanguage" $base "languages" $langs "namespaces" $namespaces -}}
+            {{- $hash := trunc 8 (sha256sum (toJson $decl)) -}}
+            {{- $job := printf "%s-%s" (printf "tolgee-%s" $name | trunc 53 | trimSuffix "-") $hash -}}
+            {{- $obs := dig "tolgee-provision" "resource" (dict) $observed -}}
+            {{- $obsName := dig "spec" "forProvider" "manifest" "metadata" "name" "" $obs -}}
+            {{- $obsStatus := dig "status" "atProvider" "manifest" "status" (dict) $obs -}}
+            {{- $labels := dict "adhar.io/application" $name "adhar.io/localisation" "tolgee" "app.kubernetes.io/managed-by" "adhar" -}}
+            {{- if $waiting }}
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ClaimConditions
+            conditions:
+              - type: Localised
+                status: "False"
+                reason: WaitingForEnvironments
+                message: "waiting for the project to publish its environments before provisioning Tolgee"
+                target: Composite
+            {{- else }}
+            {{- range $namespaces }}
+            {{- if ne . "adhar-system" }}
+            ---
+            # Lets tolgee-provisioner write `<app>-tolgee` in this environment namespace.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ printf "tolgee-rbac-%s" . | trunc 63 | trimSuffix "-" }}
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels: {feature: apps, managed-by: adhar}
+            spec:
+              providerConfigRef: {name: {{ quote $pc }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ printf "tolgee-provisioner-%s" $name | trunc 63 | trimSuffix "-" | quote }}
+                    namespace: {{ quote . }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tolgee-provisioner-env-secrets}
+                  subjects:
+                    - {kind: ServiceAccount, name: tolgee-provisioner, namespace: adhar-system}
+            {{- end }}
+            {{- end }}
+            ---
+            # The provisioning Job (see the header of this step).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: tolgee-provision
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels: {feature: apps, managed-by: adhar}
+            spec:
+              providerConfigRef: {name: {{ quote $pc }}, kind: ClusterProviderConfig}
+              forProvider:
+                manifest:
+                  apiVersion: batch/v1
+                  kind: Job
+                  metadata:
+                    name: {{ quote $job }}
+                    namespace: adhar-system
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    backoffLimit: 10
+                    activeDeadlineSeconds: 7200
+                    template:
+                      metadata:
+                        labels:
+                          adhar.io/application: {{ quote $name }}
+                          adhar.io/localisation: tolgee
+                      spec:
+                        serviceAccountName: tolgee-provisioner
+                        restartPolicy: OnFailure
+                        enableServiceLinks: false
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 65532
+                          seccompProfile: {type: RuntimeDefault}
+                        containers:
+                          - name: provision
+                            image: docker.io/alpine/k8s:1.31.1
+                            env:
+                              - {name: HOME, value: /tmp}
+                              - {name: TOLGEE_URL, value: "http://tolgee.adhar-system.svc.cluster.local:8080"}
+                              - {name: APP, value: {{ quote $name }}}
+                              - {name: ORG, value: {{ quote $org }}}
+                              - {name: BASE, value: {{ quote $base }}}
+                              - {name: LANGS, value: {{ join " " $langs | quote }}}
+                              - {name: NAMESPACES, value: {{ join " " $namespaces | quote }}}
+                              # push/pull for the paved-road CI; read-only for the running app.
+                              - {name: CI_SCOPES, value: '["keys.view","keys.create","keys.edit","translations.view","translations.edit","translations.state-edit"]'}
+                              - {name: READ_SCOPES, value: '["translations.view"]'}
+                            securityContext:
+                              allowPrivilegeEscalation: false
+                              capabilities: {drop: ["ALL"]}
+                            resources:
+                              requests: {cpu: 10m, memory: 32Mi}
+                              limits: {memory: 128Mi}
+                            command: [/bin/sh, -c]
+                            args:
+                              - |
+                                set -eu
+                                set -o pipefail
+                                API="$TOLGEE_URL"
+                                SYS=adhar-system
+                                CI_SECRET="${APP}-tolgee-ci"
+                                RT_SECRET="${APP}-tolgee"
+                                log() { echo "[tolgee:${APP}] $*" >&2; }
+                                sget() { kubectl -n "$1" get secret "$2" -o json 2>/dev/null | jq -r --arg k "$3" '.data[$k] // empty' | base64 -d 2>/dev/null || true; }
+
+                                # ── Tolgee and the platform's admin credential (both WAITED for) ──
+                                i=0
+                                until curl -sf -o /dev/null "$API/actuator/health/readiness"; do
+                                  i=$((i+1)); [ "$i" -gt 360 ] && { log "ERROR: Tolgee does not answer at $API after 30 minutes — is the tolgee package enabled?"; exit 1; }
+                                  sleep 5
+                                done
+                                i=0
+                                while :; do
+                                  AU=$(sget "$SYS" tolgee-admin username); AP=$(sget "$SYS" tolgee-admin password)
+                                  [ -n "$AU" ] && [ -n "$AP" ] && break
+                                  i=$((i+1)); [ "$i" -gt 120 ] && { log "ERROR: Secret $SYS/tolgee-admin is still empty after 20 minutes — see Job tolgee-admin-bootstrap"; exit 1; }
+                                  sleep 10
+                                done
+
+                                # ── a super-authenticated session: Tolgee mints project API keys only for one ──
+                                JWT=""; n=0
+                                while [ -z "$JWT" ]; do
+                                  code=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST "$API/api/public/generatetoken" \
+                                    -H 'content-type: application/json' \
+                                    -d "$(jq -nc --arg u "$AU" --arg p "$AP" '{username:$u,password:$p}')")
+                                  case "$code" in
+                                    200) JWT=$(jq -r '.accessToken' /tmp/r.json) ;;
+                                    429) n=$((n+1)); [ "$n" -gt 40 ] && { log "ERROR: sign-in still rate limited"; exit 1; }; sleep $((10 + n * 3)) ;;
+                                    *) log "ERROR: Tolgee refused the platform administrator (HTTP $code)"; exit 1 ;;
+                                  esac
+                                done
+                                rm -f /tmp/r.json
+                                api() {
+                                  if [ $# -ge 3 ]; then
+                                    curl -s -o /tmp/r.json -w '%{http_code}' -X "$1" "$API$2" -H "Authorization: Bearer $JWT" -H 'content-type: application/json' -d "$3"
+                                  else
+                                    curl -s -o /tmp/r.json -w '%{http_code}' -X "$1" "$API$2" -H "Authorization: Bearer $JWT"
+                                  fi
+                                }
+                                must() { case " $1 " in *" $2 "*) ;; *) log "ERROR: $3 failed (HTTP $2): $(head -c 400 /tmp/r.json 2>/dev/null || true)"; exit 1 ;; esac; }
+
+                                # ── organisation ──
+                                code=$(api GET "/v2/organizations/$ORG")
+                                if [ "$code" = "404" ]; then
+                                  code=$(api POST /v2/organizations "$(jq -nc --arg s "$ORG" '{name:$s, slug:$s, description:"Adhar organisation \($s) (managed by the platform)"}')")
+                                  must "200 201" "$code" "creating organisation $ORG"
+                                  log "created organisation $ORG"
+                                else
+                                  must "200" "$code" "reading organisation $ORG"
+                                fi
+                                ORG_ID=$(jq -r '.id' /tmp/r.json)
+
+                                # ── project ──
+                                code=$(api GET "/v2/organizations/$ORG/projects?search=$APP&size=1000")
+                                must "200" "$code" "listing the projects of $ORG"
+                                PID=$(jq -r --arg n "$APP" '[._embedded.projects[]? | select(.name == $n) | .id][0] // empty' /tmp/r.json)
+                                if [ -z "$PID" ]; then
+                                  body=$(jq -nc --arg n "$APP" --argjson o "$ORG_ID" --arg b "$BASE" --arg l "$LANGS" \
+                                    '{name:$n, organizationId:$o, baseLanguageTag:$b, languages: ($l | split(" ") | map(select(length > 0)) | map({name:., originalName:., tag:.}))}')
+                                  code=$(api POST /v2/projects "$body")
+                                  must "200 201" "$code" "creating project $APP"
+                                  PID=$(jq -r '.id' /tmp/r.json)
+                                  log "created project $APP ($PID) in $ORG"
+                                else
+                                  log "project $APP ($PID) exists in $ORG"
+                                fi
+
+                                # ── languages: only ever added ──
+                                code=$(api GET "/v2/projects/$PID/languages?size=1000")
+                                must "200" "$code" "listing the languages of $APP"
+                                have=" $(jq -r '[._embedded.languages[]?.tag] | join(" ")' /tmp/r.json) "
+                                for l in $LANGS; do
+                                  case "$have" in *" $l "*) continue ;; esac
+                                  code=$(api POST "/v2/projects/$PID/languages" "$(jq -nc --arg t "$l" '{name:$t, originalName:$t, tag:$t}')")
+                                  must "200 201" "$code" "adding language $l"
+                                  log "added language $l"
+                                done
+
+                                # ── API keys: KEPT while Tolgee still accepts them for this project ──
+                                valid() {
+                                  [ -n "$1" ] || return 1
+                                  r=$(curl -s -w '\n%{http_code}' -H "X-API-Key: $1" "$API/v2/api-keys/current" || true)
+                                  [ "$(printf '%s' "$r" | tail -n 1)" = "200" ] || return 1
+                                  [ "$(printf '%s' "$r" | sed '$d' | jq -r '.projectId // empty')" = "$PID" ]
+                                }
+                                mint() {
+                                  code=$(api POST /v2/api-keys "$(jq -nc --argjson p "$PID" --arg d "$1" --argjson s "$2" '{projectId:$p, description:$d, scopes:$s}')")
+                                  must "200 201" "$code" "creating API key \"$1\""
+                                  k=$(jq -r '.key // empty' /tmp/r.json)
+                                  [ -n "$k" ] || { log "ERROR: Tolgee returned no key for \"$1\""; exit 1; }
+                                  printf '%s' "$k"
+                                }
+                                CI_KEY=$(sget "$SYS" "$CI_SECRET" api-key)
+                                if valid "$CI_KEY"; then log "CI key kept"
+                                else CI_KEY=$(mint "adhar CI ($APP)" "$CI_SCOPES"); log "CI key minted"; fi
+                                RT_KEY=$(sget "$SYS" "$RT_SECRET" api-key)
+                                if ! valid "$RT_KEY"; then
+                                  RT_KEY=""
+                                  for ns in $NAMESPACES; do
+                                    k=$(sget "$ns" "$RT_SECRET" api-key)
+                                    if valid "$k"; then RT_KEY="$k"; break; fi
+                                  done
+                                fi
+                                if [ -n "$RT_KEY" ]; then log "runtime key kept"
+                                else RT_KEY=$(mint "adhar runtime ($APP, read-only)" "$READ_SCOPES"); log "runtime key minted"; fi
+
+                                # ── Secrets (server-side apply: no last-applied annotation carrying the key) ──
+                                put() {
+                                  kubectl create secret generic "$2" -n "$1" \
+                                    --from-literal=api-url="$API" --from-literal=project-id="$PID" --from-literal=api-key="$3" \
+                                    --dry-run=client -o json \
+                                    | jq --arg a "$APP" '.metadata.labels = {"adhar.io/application": $a, "adhar.io/localisation": "tolgee", "app.kubernetes.io/managed-by": "tolgee-provisioner"}' \
+                                    | kubectl apply --server-side --field-manager=tolgee-provisioner --force-conflicts -f - >/dev/null
+                                }
+                                put "$SYS" "$CI_SECRET" "$CI_KEY"
+                                put "$SYS" "$RT_SECRET" "$RT_KEY"
+                                for ns in $NAMESPACES; do
+                                  [ "$ns" = "$SYS" ] && continue
+                                  n=0
+                                  until put "$ns" "$RT_SECRET" "$RT_KEY" 2>/tmp/err; do
+                                    n=$((n+1)); [ "$n" -gt 60 ] && { log "ERROR: cannot write $ns/$RT_SECRET: $(cat /tmp/err)"; exit 1; }
+                                    log "waiting for namespace $ns and its RoleBinding"; sleep 10
+                                  done
+                                done
+                                log "done: project $APP ($PID) in organisation $ORG; $SYS/$CI_SECRET; $RT_SECRET in: $NAMESPACES"
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ClaimConditions
+            conditions:
+              - type: Localised
+                target: Composite
+                {{- if and (eq $obsName $job) (gt (int (default 0 (get $obsStatus "succeeded"))) 0) }}
+                status: "True"
+                reason: Provisioned
+                message: {{ quote (printf "Tolgee project %s in organisation %s; Secret %s-tolgee-ci in adhar-system and %s-tolgee in: %s" $name $org $name $name (join ", " $namespaces)) }}
+                {{- else if and (eq $obsName $job) (gt (int (default 0 (get $obsStatus "failed"))) 0) }}
+                status: "False"
+                reason: Retrying
+                message: {{ quote (printf "Job adhar-system/%s has failed attempts; read its logs" $job) }}
+                {{- else }}
+                status: "False"
+                reason: Provisioning
+                message: {{ quote (printf "Job adhar-system/%s is provisioning the Tolgee project" $job) }}
+                {{- end }}
+            {{- end }}
+            {{- end }}

@@ -76,6 +76,16 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters"]
     verbs: ["get", "list", "watch"]
+  # Supply chain: Trivy Operator's vulnerability reports for the images the
+  # application workloads run (critical CVE count).
+  - apiGroups: ["aquasecurity.github.io"]
+    resources: ["vulnerabilityreports"]
+    verbs: ["get", "list"]
+  # Efficiency: live pod CPU/memory usage from metrics-server, compared with
+  # what the containers request.
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

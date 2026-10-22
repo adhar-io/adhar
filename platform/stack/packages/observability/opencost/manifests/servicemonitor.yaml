@@ -6,6 +6,20 @@
 # ports on the same Service are skipped because only "http" is listed here.
 # Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
 # feeds the OpenCost Grafana dashboards (job="opencost").
+#
+# OpenCost also re-exports ten kube-state-metrics series under their KSM names
+# (kube_pod_container_resource_requests, kube_node_status_allocatable, ...).
+# With honorLabels they land in Prometheus beside kube-state-metrics' own copy,
+# identical except for job="opencost", so every dashboard and alert that sums a
+# kube_* metric without pinning job="kube-state-metrics" counted pods, requests
+# and allocatable TWICE (measured 2026-10-23: 1206 vs 1206 request series).
+# Seven of them are dropped here; OpenCost's cost model reads the same names
+# from kube-state-metrics. Kept: the OpenCost-only series (kube_pod_labels,
+# kube_node_labels, kube_namespace_labels, *_cpu_cores / *_memory_bytes) and
+# the three the OpenCost dashboards select with job="$job"
+# (kube_node_status_capacity, kube_persistentvolume_capacity_bytes,
+# kube_persistentvolumeclaim_info) — dashboards reading those must pin
+# job="kube-state-metrics" themselves.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -32,3 +46,7 @@ spec:
       interval: 60s
       scrapeTimeout: 30s
       honorLabels: true
+      metricRelabelings:
+        - action: drop
+          sourceLabels: [__name__]
+          regex: kube_(job_status_failed|node_status_allocatable|persistentvolumeclaim_resource_requests_storage_bytes|pod_container_resource_requests|pod_container_status_running|pod_container_status_terminated_reason|pod_owner)

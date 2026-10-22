@@ -1,0 +1,213 @@
+# Tolgee — the platform's localisation server.
+#
+# Every frontend application gets its UI text from here: the control plane
+# creates a Tolgee project and API keys for any Application that declares
+# `localisation: {provider: tolgee}` (compositions/apps/*, step `localisation`),
+# the paved-road CI pushes new keys and pulls translations before each build so
+# the image bundles a fresh fallback, and the running app reads the latest
+# translations at runtime with the read-only key in `<app>-tolgee`.
+#
+# Image: the official `tolgee/tolgee`, pinned. Upstream publishes several
+# releases a week; bump by reading the release notes and moving this tag (and
+# `appVersion` in adhar-package.yaml) together.
+#
+# What is turned OFF on purpose:
+#   * the embedded Postgres the Docker profile starts (TOLGEE_POSTGRES_AUTOSTART)
+#     — the database is the platform's (`Database` tolgee-db, CNPG);
+#   * anonymous usage telemetry to app.tolgee.io (TOLGEE_TELEMETRY_ENABLED);
+#   * the demo project and quick-start guide for the initial user;
+#   * local file storage — files go to RustFS (S3), so the pod is stateless.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tolgee
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tolgee, app.kubernetes.io/part-of: tolgee}
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
+spec:
+  selector: {app.kubernetes.io/name: tolgee}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tolgee
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tolgee, app.kubernetes.io/part-of: tolgee, adhar.io/plane: control}
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
+spec:
+  # One replica: without Redis Tolgee keeps its caches and websocket fan-out in
+  # process, and every platform package runs a single replica (see
+  # TestNoPackageWorkloadShipsMoreThanOneReplica).
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: tolgee}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: tolgee, app.kubernetes.io/part-of: tolgee, adhar.io/plane: control}
+    spec:
+      # One namespace for every package (ADR-0011) means a <NAME>_PORT env var
+      # per Service; Spring's relaxed binding reads TOLGEE_* from the
+      # environment, which is exactly the shape that has crashed other packages
+      # here (packages/CONFLICTS.md).
+      enableServiceLinks: false
+      securityContext:
+        # The image is built FROM postgres:*-alpine, whose `postgres` user is
+        # uid 70. Tolgee writes only to /data and /tmp, both emptyDirs below.
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # Spring Boot exits when the datasource does not answer, and a crash
+        # loop's back-off then outlasts the database by minutes. The image ships
+        # pg_isready (its base is postgres:alpine), so nothing extra is pulled.
+        - name: wait-for-db
+          image: docker.io/tolgee/tolgee:v3.236.1
+          command: [/bin/sh, -c]
+          args:
+            - |
+              until pg_isready -q -h tolgee-db-rw.adhar-system.svc.cluster.local -p 5432; do
+                echo "waiting for tolgee-db"; sleep 3
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+      containers:
+        - name: tolgee
+          image: docker.io/tolgee/tolgee:v3.236.1
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            # ── JVM ── a bounded heap inside the container limit: 60% of 2 GiB
+            # is ~1.2 GiB heap, the rest is metaspace, threads and direct buffers.
+            # ExitOnOutOfMemoryError: a JVM that has thrown OOM is not a server
+            # anyone should keep talking to; let the kubelet restart it.
+            - name: JAVA_OPTS
+              value: "-XX:MaxRAMPercentage=60 -XX:InitialRAMPercentage=25 -XX:+ExitOnOutOfMemoryError -XX:+UseG1GC"
+            # ── database ──
+            - {name: TOLGEE_POSTGRES_AUTOSTART_ENABLED, value: "false"}
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://tolgee-db-rw.adhar-system.svc.cluster.local:5432/tolgee"}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: {secretKeyRef: {name: tolgee-db-credentials, key: username}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: tolgee-db-credentials, key: password}}
+            # ── public URL ── links, the OAuth2 redirect and the OAuth2
+            # authorization server's issuer are all derived from these.
+            - {name: TOLGEE_FRONT_END_URL, value: "https://tolgee.adhar.localtest.me:8443"}
+            - {name: TOLGEE_BACK_END_URL, value: "https://tolgee.adhar.localtest.me:8443"}
+            # ── authentication ──
+            # The Docker profile turns authentication OFF (everyone is admin);
+            # this turns it back on.
+            - {name: TOLGEE_AUTHENTICATION_ENABLED, value: "true"}
+            - name: TOLGEE_AUTHENTICATION_JWT_SECRET
+              valueFrom: {secretKeyRef: {name: tolgee-secrets, key: jwt-secret}}
+            - name: TOLGEE_AUTHENTICATION_INITIAL_USERNAME
+              valueFrom: {secretKeyRef: {name: tolgee-admin-credentials, key: username}}
+            - name: TOLGEE_AUTHENTICATION_INITIAL_PASSWORD
+              valueFrom: {secretKeyRef: {name: tolgee-admin-credentials, key: password}}
+            - {name: TOLGEE_AUTHENTICATION_CREATE_DEMO_FOR_INITIAL_USER, value: "false"}
+            # Native (password) login stays ON: it is how the bootstrap Job
+            # obtains the super-token Tolgee requires for minting API keys
+            # (POST /api/public/generatetoken refuses when it is off, and a
+            # Personal Access Token cannot create project API keys), and it is
+            # the break-glass login. Native SIGN-UP is closed at the edge
+            # instead (httproute.yaml.tmpl).
+            - {name: TOLGEE_AUTHENTICATION_NATIVE_ENABLED, value: "true"}
+            # Required for Keycloak users to get an account on first sign-in:
+            # Tolgee refuses an OAuth2 sign-up when registrations are closed.
+            - {name: TOLGEE_AUTHENTICATION_REGISTRATIONS_ALLOWED, value: "true"}
+            - {name: TOLGEE_AUTHENTICATION_NEEDS_EMAIL_VERIFICATION, value: "false"}
+            # ── Keycloak (generic OAuth2) ──
+            # The authorization URL is the browser's, so it is public. Token and
+            # userinfo are server-to-server and go to Keycloak IN-CLUSTER over
+            # plain HTTP: no dependency on the edge certificate (self-signed on
+            # a local platform, which the JVM would refuse), and Keycloak's
+            # fixed `hostname` keeps the issuer the same either way.
+            - name: TOLGEE_AUTHENTICATION_OAUTH2_CLIENT_ID
+              valueFrom: {secretKeyRef: {name: tolgee-oidc, key: clientID}}
+            - name: TOLGEE_AUTHENTICATION_OAUTH2_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: tolgee-oidc, key: clientSecret}}
+            - {name: TOLGEE_AUTHENTICATION_OAUTH2_SCOPES, value: "openid,email,profile"}
+            - {name: TOLGEE_AUTHENTICATION_OAUTH2_AUTHORIZATION_URL, value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth"}
+            - {name: TOLGEE_AUTHENTICATION_OAUTH2_TOKEN_URL, value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token"}
+            - {name: TOLGEE_AUTHENTICATION_OAUTH2_USER_URL, value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/userinfo"}
+            # ── files in RustFS ──
+            - {name: TOLGEE_FILE_STORAGE_S3_ENABLED, value: "true"}
+            - {name: TOLGEE_FILE_STORAGE_S3_ENDPOINT, value: "http://rustfs.adhar-system.svc.cluster.local:9000"}
+            - {name: TOLGEE_FILE_STORAGE_S3_SIGNING_REGION, value: "us-east-1"}
+            - {name: TOLGEE_FILE_STORAGE_S3_BUCKET_NAME, value: "tolgee"}
+            - name: TOLGEE_FILE_STORAGE_S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: tolgee-s3-credentials, key: accessKey}}
+            - name: TOLGEE_FILE_STORAGE_S3_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: tolgee-s3-credentials, key: secretKey}}
+            # ── nothing phones home ──
+            - {name: TOLGEE_TELEMETRY_ENABLED, value: "false"}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+          # Spring Boot + Liquibase/Hibernate: a first start migrates an empty
+          # schema and was the slow case. 60 × 10 s = 10 minutes, honest for a
+          # JVM booting on a shared node; liveness only takes over afterwards,
+          # so a slow boot is never killed half-way through a migration.
+          # Spring Boot enables the liveness/readiness health groups by itself
+          # when it detects Kubernetes; liveness deliberately excludes the
+          # database, so a Postgres failover is not answered with a restart.
+          startupProbe:
+            httpGet: {path: /actuator/health/readiness, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "2", memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        # Tolgee's data path holds nothing durable once files live in S3 and the
+        # initial password comes from the environment.
+        - name: data
+          emptyDir: {sizeLimit: 1Gi}
+        - name: tmp
+          emptyDir: {sizeLimit: 2Gi}
+---
+# Prometheus scrapes Spring Boot's actuator (exposed by the image as
+# health,info,prometheus). The edge route redirects /actuator away, so the
+# metrics are reachable in-cluster only.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tolgee
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tolgee, app.kubernetes.io/part-of: tolgee}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  namespaceSelector: {matchNames: [adhar-system]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: tolgee}
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 60s
+      scrapeTimeout: 30s

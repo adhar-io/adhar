@@ -427,6 +427,16 @@ spec:
     - name: build
       image: $(params.builder)
       securityContext: {runAsUser: 1001}
+      # The lifecycle (detect/build/export, JVM and npm builds inside it) peaks
+      # at ~1.5 GiB and ~1.2 CPU (2026-10-22). With no request the step took a
+      # third of the namespace's 64Mi default — 21 MiB — so it was the first pod
+      # the kubelet evicted when a node ran short ("Container step-build was
+      # using 1197936Ki, request is 22369621"), throwing away a 10-minute build.
+      # A real request makes the pod WAIT for a node with room (which the node
+      # autoscaler sees as demand) instead of starting where it gets evicted.
+      # No limit: an OOM-killed build is no better than an evicted one.
+      computeResources:
+        requests: {cpu: 500m, memory: 1Gi}
       env:
         - {name: CNB_PLATFORM_API, value: "0.12"}
         - {name: DOCKER_CONFIG, value: /harbor-creds}

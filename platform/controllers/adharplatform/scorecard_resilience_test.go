@@ -142,7 +142,11 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 			time.Unix(now-7200, 0).UTC().Format(time.RFC3339)),
 		"gameday": fmt.Sprintf(`{"shop":{"count":2,"experiments":["pod-network-loss"],"latest":{"experiment":"pod-network-loss","verdict":"Pass","probe":"100","at":%q}}}`,
 			time.Unix(now-3600, 0).UTC().Format(time.RFC3339)),
-		"pods": `{"prod":[{"ns":"prod","labels":{"app":"shop","x":"y"},"restarts":0}],"dev":[{"ns":"dev","labels":{"app":"cart"},"restarts":9}]}`,
+		// No Trivy report and no metrics-server: supply chain is graded on the
+		// images alone and efficiency reports null (asserted below).
+		"vulns":   `{}`,
+		"metrics": `{}`,
+		"pods":    `{"prod":[{"ns":"prod","labels":{"app":"shop","x":"y"},"restarts":0}],"dev":[{"ns":"dev","labels":{"app":"cart"},"restarts":9}]}`,
 		"evidence": fmt.Sprintf(`{"shop":{"environment":"test","testedAtEpoch":%d,
 		  "performance":{"status":"passed","p95Ms":120,"errorRate":0,"rps":200,"vus":10,"thresholdP95Ms":500},
 		  "chaos":{"status":"passed","verdict":"Pass","probeSuccessPercentage":100,"recoverySeconds":20,"replicas":2,"detail":"kept answering"},
@@ -160,10 +164,11 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 		args = append(args, "--slurpfile", k+"f", write(k+".json", body))
 	}
 	for k, v := range map[string]string{"wrel": "35", "wsec": "25", "wobs": "15", "wops": "25", "wperf": "20", "wres": "25",
+		"wsup": "20", "weff": "10", "cpumin": "10", "cpumax": "100", "memmin": "20", "memmax": "100",
 		"ga": "90", "gb": "80", "gc": "70", "gd": "60", "evdays": "7", "p95default": "500", "recoverymax": "120", "now": fmt.Sprint(now)} {
 		args = append(args, "--argjson", k, v)
 	}
-	args = append(args, "--arg", "envorder", "prod,test,dev", "--arg", "ts", "now")
+	args = append(args, "--arg", "envorder", "prod,test,dev", "--arg", "ts", "now", "--arg", "trusted", "harbor")
 	out, err := exec.Command("jq", args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("score.jq failed: %v\n%s", err, out)
@@ -199,6 +204,14 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 	}
 	if p, r := shop.Categories["performance"], shop.Categories["resilience"]; p == nil || r == nil || *p != 100 || *r != 100 {
 		t.Errorf("a fully tested and hardened application should score 100 on performance and resilience, got %v/%v", p, r)
+	}
+	// Nothing to measure efficiency with (no metrics-server answer) is null, never a free 100;
+	// supply chain is graded on the running images alone.
+	if e := shop.Categories["efficiency"]; e != nil {
+		t.Errorf("efficiency without metrics-server should be null, got %d", *e)
+	}
+	if sc := shop.Categories["supply_chain"]; sc == nil {
+		t.Errorf("supply chain should be graded on the workload's images")
 	}
 	sig := map[string]float64{}
 	for _, s := range cart.Signals {

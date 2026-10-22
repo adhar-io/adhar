@@ -104,6 +104,17 @@ providers:
 # path: the foundation ships as embedded manifests, so the chart coordinates
 # here are recorded, printed by --dry-run, and otherwise inert. Do not spend
 # time tuning them.
+# ─── Sizing keys (optional; see examples/config.yaml "Machine sizing") ───────
+# Under providers.civo.config (values shown are the built-in defaults):
+#
+#   controlPlaneMachineType: g3.large           # compute mode only (instance size)
+#   workerMachineType: g4s.kube.large           # managed pools take KUBE sizes;
+#                                               # compute default g3.xlarge
+#   image: ubuntu-jammy                         # compute-mode instance image
+#
+# size above is the legacy single size. disk_image and cidr are not read by either
+# mode (Civo picks the OS and network range for managed clusters).
+
 environmentTemplates:
   nonprod-defaults:
     clusterConfig:
@@ -143,6 +154,10 @@ environmentTemplates:
 # production-type one among them, because it has to carry production's load.
 # `clusterConfig` and `autoscaling` on a namespace environment describe that
 # shared cluster; on a `cluster` environment they describe its own.
+# Additional node groups beside `workers` go in an environment's `nodeGroups:` —
+#   nodeGroups:
+#     - {name: highmem, machineType: g4s.kube.xlarge, count: 1}
+# (validated: DNS-1123 name <= 20 chars, count >= 1; see examples/config.yaml).
 environments:
   dev:
     isolation: namespace

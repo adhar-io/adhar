@@ -7,6 +7,7 @@ import (
 
 	"adhar-io/adhar/globals"
 	platformconfig "adhar-io/adhar/platform/config"
+	pfactory "adhar-io/adhar/platform/providers"
 
 	"github.com/spf13/cobra"
 )
@@ -54,13 +55,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s already exists (use --force to overwrite)", outPath)
 	}
 
+	// The provider's own default region. This was "us-east-1" for EVERY
+	// cloud, an AWS region that the generated file then handed to Azure, GCP,
+	// DigitalOcean or Civo — which validation now refuses, rightly.
 	region := createRegion
 	if region == "" {
-		if createProvider == "kind" {
-			region = "local"
-		} else {
-			region = "us-east-1"
-		}
+		region = pfactory.MachineDefaultsFor(createProvider).Region
+	}
+	if region == "" {
+		region = "local"
 	}
 
 	cfg := starterConfig(createProvider, region, createTemplate)

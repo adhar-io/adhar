@@ -393,8 +393,8 @@ func (p *Provider) checkQuota(plan []string) error {
 // plannedInstanceSizes lists the size of EVERY instance the spec will create,
 // control plane first, in the same order createComputeCluster builds them. It is
 // what the quota check sums.
-func plannedInstanceSizes(spec *types.ClusterSpec, fallbackSize string, defaultNodeCount int) []string {
-	control := fallbackSize
+func plannedInstanceSizes(spec *types.ClusterSpec, controlFallback, fallbackSize string, defaultNodeCount int) []string {
+	control := controlFallback
 	if spec != nil && spec.ControlPlane.InstanceType != "" {
 		control = spec.ControlPlane.InstanceType
 	}

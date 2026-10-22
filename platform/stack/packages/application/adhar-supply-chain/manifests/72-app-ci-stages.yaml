@@ -86,6 +86,12 @@ spec:
         printf '%s' "$r" > "$(results.runner.path)"
     - name: maven
       image: docker.io/library/maven:$(params.mavenVersion)-eclipse-temurin-$(params.jdkVersion)
+      # `mvn test` peaked at ~1.3 GiB (2026-10-22). Requests of every step in
+      # this Task are SUMMED into the pod's request even though only the
+      # detected runner does work, so only the heaviest common runner (Maven —
+      # adhar-kit services) carries one; the others keep the namespace default.
+      computeResources:
+        requests: {cpu: 250m, memory: 768Mi}
       workingDir: /workspace/testsrc
       env:
         - {name: DOCKER_HOST, value: "tcp://127.0.0.1:2475"}
@@ -328,6 +334,9 @@ spec:
     # the bookkeeping happens in a separate step.
     - name: sbom
       image: docker.io/anchore/syft:v1.18.1
+      # Measured ~430 MiB cataloguing a JVM image (2026-10-22).
+      computeResources:
+        requests: {cpu: 100m, memory: 384Mi}
       workingDir: $(workspaces.source.path)
       env:
         - {name: DOCKER_CONFIG, value: /harbor-creds}
@@ -405,6 +414,7 @@ spec:
     - {name: go, description: "Go minor from go.mod, else defaultGo"}
     - {name: python, description: "Python minor from .python-version, runtime.txt or pyproject requires-python, else defaultPython"}
     - {name: e2e, description: "true when the repository ships a Playwright suite (e2e/playwright.config.*); gates the e2e stage"}
+    - {name: tolgee, description: "true when the repository carries a Tolgee CLI config (.tolgeerc, .tolgeerc.json/.yaml/.yml); gates the localise stage"}
   steps:
     - name: detect
       image: docker.io/library/bash:5.2
@@ -470,6 +480,18 @@ spec:
         compgen -G "e2e/playwright.config.*" >/dev/null && e2e=true
         echo "e2e=$e2e"
         printf '%s' "$e2e" > "$(results.e2e.path)"
+
+        # Same reasoning for localisation: decided here, so a repository
+        # without Tolgee config never schedules the localise pod at all.
+        # NON-EMPTY: a template rendered with localisation off still ships an
+        # empty .tolgeerc (the scaffolder cannot omit a file), and that must
+        # not schedule the stage either.
+        tolgee=false
+        for f in .tolgeerc .tolgeerc.json .tolgeerc.yaml .tolgeerc.yml; do
+          if [ -s "$f" ] && grep -q '[^[:space:]]' "$f"; then tolgee=true; fi
+        done
+        echo "tolgee=$tolgee"
+        printf '%s' "$tolgee" > "$(results.tolgee.path)"
 ---
 # End-to-end tests in a real browser, on every build.
 #
@@ -531,3 +553,86 @@ spec:
           npx playwright test -c "$CFG"
         fi
         echo "e2e tests passed"
+---
+# Localisation: Tolgee push + pull BEFORE the build, so the image bundles the
+# current translations as its fallback (the running app reads newer ones at
+# runtime from Tolgee with the read-only key in `<app>-tolgee`).
+#
+# Gated twice, both before any pod: detect-toolchain's `tolgee` result (the
+# repository has a .tolgeerc) and the branch (only `main` — a pull request's
+# keys are not the product's yet). Inside the pod it degrades instead of
+# failing when the platform cannot help: no `<app>-tolgee-ci` Secret (the app
+# does not declare `localisation.provider: tolgee`, or the platform has not
+# provisioned it yet) or no answer from Tolgee leaves the build with the
+# translations committed in the repository. A push or pull that Tolgee REFUSES
+# fails the task — that is a broken configuration, not an outage.
+#
+# push --force-mode KEEP: new keys (and translations for keys Tolgee does not
+# have) are created; an existing translation is never overwritten from the
+# repository. The CLI flags --api-url/--project-id override whatever the
+# repository's .tolgeerc says, and the key comes from the Secret through the
+# environment (TOLGEE_API_KEY), never from a file or the log.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: tolgee-sync
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Push new localisation keys to Tolgee and pull the current translations into the checkout.
+  params:
+    - {name: app, type: string, description: "The application (= repository) name; its Secret is <app>-tolgee-ci"}
+    # The Node major the REPOSITORY declares (detect-toolchain), like every
+    # other stage: the pipeline pins no runtime. The CLI needs Node >= 18.
+    - {name: nodeVersion, type: string, default: "22"}
+    - {name: subdirectory, type: string, default: ""}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: synced, description: "true when keys were pushed and translations pulled"}
+  steps:
+    - name: sync
+      image: docker.io/library/node:$(params.nodeVersion)-bookworm-slim
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      env:
+        # The CLI itself IS pinned: it is the platform's tool, not the project's.
+        - {name: TOLGEE_CLI_VERSION, value: "2.21.0"}
+        - {name: HOME, value: /tmp/tolgee-home}
+        - {name: npm_config_cache, value: /tmp/npm-cache}
+        - {name: CI, value: "true"}
+        - name: TOLGEE_API_URL
+          valueFrom: {secretKeyRef: {name: $(params.app)-tolgee-ci, key: api-url, optional: true}}
+        - name: TOLGEE_PROJECT_ID
+          valueFrom: {secretKeyRef: {name: $(params.app)-tolgee-ci, key: project-id, optional: true}}
+        - name: TOLGEE_API_KEY
+          valueFrom: {secretKeyRef: {name: $(params.app)-tolgee-ci, key: api-key, optional: true}}
+      computeResources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {memory: 1Gi}
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        skip() { echo "$1"; printf false > "$(results.synced.path)"; exit 0; }
+        cfg=""
+        for f in .tolgeerc .tolgeerc.json .tolgeerc.yaml .tolgeerc.yml; do
+          if [ -s "$f" ] && grep -q '[^[:space:]]' "$f"; then cfg="$f"; break; fi
+        done
+        [ -n "$cfg" ] || skip "no .tolgeerc; nothing to localise"
+        if [ -z "${TOLGEE_API_URL:-}" ] || [ -z "${TOLGEE_PROJECT_ID:-}" ] || [ -z "${TOLGEE_API_KEY:-}" ]; then
+          skip "Secret $(params.app)-tolgee-ci is missing or incomplete (does .adhar/app.yaml declare localisation.provider: tolgee?); building with the translations committed in the repository"
+        fi
+        if ! node -e 'fetch(process.env.TOLGEE_API_URL + "/api/public/configuration").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'; then
+          skip "WARNING: Tolgee at ${TOLGEE_API_URL} does not answer; building with the translations committed in the repository"
+        fi
+        mkdir -p "$HOME"
+        npm install --prefix /tmp/tolgee-cli --no-audit --no-fund --loglevel=error "@tolgee/cli@${TOLGEE_CLI_VERSION}"
+        tolgee() { /tmp/tolgee-cli/node_modules/.bin/tolgee --api-url "$TOLGEE_API_URL" --project-id "$TOLGEE_PROJECT_ID" "$@"; }
+        owner="$(stat -c '%u:%g' .)"
+        echo "tolgee push ($cfg, project ${TOLGEE_PROJECT_ID}): new keys only, existing translations kept"
+        tolgee push --force-mode KEEP
+        echo "tolgee pull into the path $cfg declares"
+        tolgee pull
+        # The pulled files must belong to whoever owns the checkout, or a later
+        # step running as another user cannot touch them.
+        chown -R "$owner" . 2>/dev/null || true
+        printf true > "$(results.synced.path)"

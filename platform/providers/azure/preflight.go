@@ -192,12 +192,21 @@ func (p *Provider) preflightNamespaces(ctx context.Context) []provider.Check {
 // preflightVMSize catches a size that does not exist in this region — otherwise a
 // create fails only when the first VM is requested, with the network already built.
 func (p *Provider) preflightVMSize(ctx context.Context, spec *types.ClusterSpec) provider.Check {
-	size := plannedVMSize(spec, p.config.VMSize)
+	size := plannedVMSize(spec, p.config.workerSize("", "", false))
 	if size == "" {
 		return provider.Check{
 			Name:   "VM size",
 			Status: provider.CheckWarn,
 			Detail: "no size configured; the provider default will be used",
+		}
+	}
+	// Every size now resolves (the defaults table always has one), so the
+	// "nothing to check" case is the missing CLIENT, not a missing size.
+	if p.vmSizesClient == nil {
+		return provider.Check{
+			Name:   "VM size " + size,
+			Status: provider.CheckWarn,
+			Detail: "could not list the region's VM sizes; not checked",
 		}
 	}
 	cores := p.vmSizeCores(ctx, p.config.Location, size)
@@ -308,7 +317,7 @@ func (p *Provider) skuRestriction(ctx context.Context, size string) string {
 // on either, so both are reported.
 func (p *Provider) preflightQuota(ctx context.Context, spec *types.ClusterSpec) provider.Check {
 	need, detail := p.plannedVCPUs(ctx, spec)
-	size := plannedVMSize(spec, p.config.VMSize)
+	size := plannedVMSize(spec, p.config.workerSize("", "", false))
 	if need == 0 {
 		// preflightVMSize already reported an unresolvable size; do not fail twice
 		// for one cause.
@@ -392,10 +401,7 @@ func (p *Provider) plannedVCPUs(ctx context.Context, spec *types.ClusterSpec) (i
 		return p.vmSizeCores(ctx, p.config.Location, size)
 	}
 
-	cpSize := spec.ControlPlane.InstanceType
-	if cpSize == "" {
-		cpSize = p.config.VMSize
-	}
+	cpSize := p.config.controlPlaneSize(spec)
 	cpReplicas := spec.ControlPlane.Replicas
 	if cpReplicas <= 0 {
 		cpReplicas = 1
@@ -412,10 +418,7 @@ func (p *Provider) plannedVCPUs(ctx context.Context, spec *types.ClusterSpec) (i
 		if n <= 0 {
 			continue
 		}
-		size := ng.InstanceType
-		if size == "" {
-			size = p.config.VMSize
-		}
+		size := p.config.workerSize(ng.InstanceType, "", false)
 		c := cores(size)
 		total += n * c
 		parts = append(parts, fmt.Sprintf("%d × %s at %d vCPU", n, size, c))

@@ -1,0 +1,169 @@
+# The platform's own access to Tolgee.
+#
+# 1. ServiceAccount `tolgee-provisioner` — used by the bootstrap Job below AND by
+#    the per-application provisioning Jobs the control plane composes (the
+#    `localisation` step of compositions/apps/*). It may read the admin
+#    credential and write Secrets in adhar-system; in an application's
+#    environment namespaces it is granted the ClusterRole below by a RoleBinding
+#    the composition creates there, and nowhere else.
+#
+# 2. The bootstrap Job — signs in as the initial administrator and makes sure a
+#    Personal Access Token for the platform exists, publishing
+#    Secret `tolgee-admin` {api-url, username, password, pat}. A PAT that still
+#    authenticates is KEPT; a new one is minted only when the Secret has none or
+#    Tolgee no longer accepts it (a rebuilt database).
+#
+#    Why username/password travel with the PAT: Tolgee mints PROJECT API keys only
+#    for a super-authenticated session (a JWT from /api/public/generatetoken), and
+#    refuses a PAT there outright. The provisioning Jobs therefore sign in with
+#    the password; the PAT is for people and tools that only read or manage
+#    projects.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tolgee-provisioner
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tolgee-provisioner, app.kubernetes.io/part-of: tolgee}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tolgee-provisioner
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: tolgee}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+rules:
+  # Read tolgee-admin / tolgee-admin-credentials and an application's existing
+  # key Secrets (to KEEP their keys); create and server-side-apply
+  # `tolgee-admin`, `<app>-tolgee-ci` and `<app>-tolgee`.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tolgee-provisioner
+  namespace: adhar-system
+  labels: {app.kubernetes.io/part-of: tolgee}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tolgee-provisioner}
+subjects:
+  - {kind: ServiceAccount, name: tolgee-provisioner, namespace: adhar-system}
+---
+# Bound per environment namespace by the Application composition (a RoleBinding
+# in that namespace only), so the provisioner can write `<app>-tolgee` there.
+# Unbound it grants nothing.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tolgee-provisioner-env-secrets
+  labels: {app.kubernetes.io/part-of: tolgee}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, patch]
+---
+# PostSync, and it WAITS rather than skips: a hook runs when a sync happens and a
+# converged application does not sync again by itself, so a Job that exited 0
+# with "not ready yet" would never come back. It also runs again on every later
+# sync, which is harmless: a working PAT is kept.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tolgee-admin-bootstrap
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tolgee-admin-bootstrap, app.kubernetes.io/part-of: tolgee}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: tolgee-admin-bootstrap}
+    spec:
+      serviceAccountName: tolgee-provisioner
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: bootstrap
+          # kubectl + curl + jq in one pinned image (also used by the
+          # Application composition's Jobs).
+          image: docker.io/alpine/k8s:1.31.1
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: TOLGEE_URL, value: "http://tolgee.adhar-system.svc.cluster.local:8080"}
+            - name: ADMIN_USER
+              valueFrom: {secretKeyRef: {name: tolgee-admin-credentials, key: username}}
+            - name: ADMIN_PASS
+              valueFrom: {secretKeyRef: {name: tolgee-admin-credentials, key: password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+              API="$TOLGEE_URL"
+              # Readiness, up to 20 minutes: the JVM boots and migrates first.
+              i=0
+              until curl -sf -o /dev/null "$API/actuator/health/readiness"; do
+                i=$((i+1)); [ "$i" -gt 240 ] && { echo "ERROR: Tolgee did not become ready in 20 minutes; the platform has NO admin token, and no application localisation can be provisioned until this Job succeeds"; exit 1; }
+                sleep 5
+              done
+              echo "Tolgee is ready"
+
+              # Keep a PAT that still works.
+              OLD=$(kubectl -n adhar-system get secret tolgee-admin -o json 2>/dev/null | jq -r '.data.pat // empty' | base64 -d 2>/dev/null || true)
+              PAT=""
+              if [ -n "$OLD" ]; then
+                code=$(curl -s -o /dev/null -w '%{http_code}' -H "X-API-Key: $OLD" "$API/v2/pats/current")
+                if [ "$code" = "200" ]; then PAT="$OLD"; echo "existing admin PAT still authenticates; keeping it"
+                else echo "existing admin PAT is refused (HTTP $code); minting a new one"; fi
+              fi
+
+              if [ -z "$PAT" ]; then
+                # Sign-in is rate limited per client; back off on 429.
+                JWT=""; n=0
+                while [ -z "$JWT" ]; do
+                  code=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST "$API/api/public/generatetoken" \
+                    -H 'content-type: application/json' \
+                    -d "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASS" '{username:$u,password:$p}')")
+                  case "$code" in
+                    200) JWT=$(jq -r '.accessToken' /tmp/login.json) ;;
+                    429) n=$((n+1)); [ "$n" -gt 20 ] && { echo "ERROR: sign-in still rate limited"; exit 1; }; sleep 15 ;;
+                    *) echo "ERROR: Tolgee refused the initial administrator (HTTP $code: $(jq -r '.code // empty' /tmp/login.json 2>/dev/null)). If its password was changed in the UI, Tolgee no longer applies TOLGEE_AUTHENTICATION_INITIAL_PASSWORD — put the current password into Secret tolgee-admin-credentials."; exit 1 ;;
+                  esac
+                done
+                rm -f /tmp/login.json
+                code=$(curl -s -o /tmp/pat.json -w '%{http_code}' -X POST "$API/v2/pats" \
+                  -H "Authorization: Bearer $JWT" -H 'content-type: application/json' \
+                  -d '{"description":"adhar-platform (managed by the tolgee package)","expiresAt":null}')
+                [ "$code" = "201" ] || [ "$code" = "200" ] || { echo "ERROR: could not create the admin PAT (HTTP $code)"; exit 1; }
+                PAT=$(jq -r '.token' /tmp/pat.json); rm -f /tmp/pat.json
+                [ -n "$PAT" ] && [ "$PAT" != "null" ] || { echo "ERROR: Tolgee returned no PAT"; exit 1; }
+                echo "minted a new admin PAT"
+              fi
+
+              # Server-side apply: no last-applied annotation carrying the values.
+              kubectl create secret generic tolgee-admin -n adhar-system \
+                --from-literal=api-url="$API" \
+                --from-literal=username="$ADMIN_USER" \
+                --from-literal=password="$ADMIN_PASS" \
+                --from-literal=pat="$PAT" \
+                --dry-run=client -o json \
+                | jq '.metadata.labels = {"adhar.io/package-name":"tolgee","app.kubernetes.io/part-of":"tolgee"}' \
+                | kubectl apply --server-side --field-manager=tolgee-provisioner --force-conflicts -f - >/dev/null
+              echo "Secret adhar-system/tolgee-admin is current"

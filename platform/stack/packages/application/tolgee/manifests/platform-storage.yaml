@@ -1,0 +1,182 @@
+# Tolgee's state: a Postgres database asked for through the control plane, its
+# files in the platform object store (RustFS), and the secrets the server needs
+# to keep stable across restarts.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: tolgee-db
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 28
+  digits: 5
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# The database credential, generated ONCE: Tolgee's connection pool holds it for
+# the life of the process, and CNPG bootstraps the owner from it.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tolgee-db-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: tolgee-db-credentials
+    template:
+      type: kubernetes.io/basic-auth
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/package-name: tolgee
+      data:
+        username: tolgee
+        # A Password generator emits ONE key, `password`; the rewrite below
+        # renames it, which is the only reason `.PASSWORD` exists here.
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: tolgee-db
+      rewrite:
+        - transform: {template: PASSWORD}
+---
+# Server secrets that must not change between restarts: the JWT signing secret
+# (a new one logs every user out and invalidates every super-token) and the
+# initial administrator's password. CreatedOnce: minted on first sync, never
+# rotated in place.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: tolgee-server
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 64
+  digits: 10
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tolgee-secrets
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: tolgee-secrets
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/package-name: tolgee
+      data:
+        jwt-secret: '{{ .jwt }}'
+  dataFrom:
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: tolgee-server}}
+      rewrite: [{transform: {template: jwt}}]
+---
+# The initial administrator. Tolgee creates this account on first start from
+# TOLGEE_AUTHENTICATION_INITIAL_USERNAME/_PASSWORD; it is the account the
+# bootstrap Job (admin-bootstrap.yaml) signs in as to mint the platform's admin
+# Personal Access Token, and the break-glass login when Keycloak is down.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: tolgee-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 32
+  digits: 6
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tolgee-admin-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: tolgee-admin-credentials
+    template:
+      type: kubernetes.io/basic-auth
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: tolgee
+      data:
+        username: admin
+        password: '{{ .password }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: tolgee-admin
+---
+# Object storage: Tolgee keeps screenshots, imports and exports in S3 when
+# `tolgee.file-storage.s3.enabled` is set. Credentials are mirrored from the
+# RustFS root Secret (the `gitea` ClusterSecretStore is the platform's
+# Kubernetes-provider store over adhar-system), exactly as penpot and plane do;
+# the `tolgee` bucket is created by the rustfs package (buckets.yaml).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tolgee-s3-credentials
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: tolgee-s3-credentials
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        accessKey: '{{ .accessKey }}'
+        secretKey: '{{ .secretKey }}'
+  data:
+    - secretKey: accessKey
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: secretKey
+      remoteRef: {key: root-creds, property: rootPassword}
+---
+# The database, asked for rather than built: the control plane composes the
+# CNPG Cluster and its ScheduledBackup (compositions/database/local-cnpg.yaml).
+# `credentialsSecret` hands the credential above to CNPG as the owner secret.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
+metadata:
+  name: tolgee-db
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  parameters:
+    databaseName: tolgee
+    credentials:
+      masterUsername: tolgee
+    credentialsSecret: tolgee-db-credentials
+    storageSize: 5Gi
+    backupSchedule: 0 40 3 * * *

@@ -386,6 +386,14 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/strapi/manifests"
+          # tolgee disabled locally: a JVM, and the local development core is
+          # CPU-bound already. Frontend apps fall back to the translations the
+          # paved-road CI bundled into their image when Tolgee is absent.
+          - name: "tolgee"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/tolgee/manifests"
           - name: "tooljet"
             enabled: "false"
             namespace: "adhar-system"

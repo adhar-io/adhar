@@ -1,6 +1,6 @@
 # LibreDB Studio values for Adhar — a browser SQL IDE over every database the
 # platform runs. Every key below is a deliberate deviation from the upstream
-# chart defaults (charts/libredb-studio 0.1.63); anything not named here keeps
+# chart defaults (charts/libredb-studio 0.1.101); anything not named here keeps
 # the chart default, notably ingress.enabled=false (routing is the Cilium
 # Gateway API HTTPRoute in manifests/httproute.yaml — never an nginx Ingress),
 # replicaCount=1, the ClusterIP Service on port 80 -> container 3000, the
@@ -9,7 +9,10 @@
 image:
   # Pin the image the chart would otherwise take from .Chart.AppVersion, so a
   # re-render of these manifests cannot silently move the running version.
-  tag: "0.15.0"
+  # 1.0.0 is the first release that reads OIDC_PROMPT (config.oidcPrompt
+  # below); 0.15.0 hard-coded prompt=login and so asked every signed-in user
+  # for their Keycloak password again.
+  tag: "1.0.0"
 
 # Keycloak SSO, natively: LibreDB Studio speaks OIDC itself in the MIT build
 # (docs/OIDC.md — Authorization Code + PKCE, then its own JWT session), so
@@ -29,6 +32,10 @@ config:
   # admin (they get the audit log, the fleet health view and the admin-only
   # connections); every other realm user signs in as `user`.
   oidcAdminRoles: "admin,platform-admin,platform-engineer"
+  # Single sign-on: Studio's default is prompt=login, which makes Keycloak
+  # show its password form even to someone who just signed in to the console.
+  # "omit" sends no prompt, so a live Keycloak session signs them straight in.
+  oidcPrompt: "omit"
   # Strict: no zero-config bootstrap. Without it the app generates a local
   # admin password on first start and prints it to the pod log — a password
   # login beside the SSO one that nobody asked for. Strict needs a JWT_SECRET,

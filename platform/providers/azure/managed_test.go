@@ -38,7 +38,7 @@ func TestAKSToClusterMapsProvisioningStateVersionAndEndpoint(t *testing.T) {
 func TestAgentPoolProfileDefaultsLabelsTaintsAndAutoscaling(t *testing.T) {
 	p := &Provider{config: &Config{VMSize: "Standard_D8s_v5"}}
 	sys := p.agentPoolProfile(&types.NodeGroupSpec{Name: "System-Pool"}, true)
-	if *sys.Name != "systempool" || *sys.Count != aksDefaultReplicas || *sys.VMSize != "Standard_D8s_v5" || *sys.Mode != armcontainerservice.AgentPoolModeSystem || sys.EnableAutoScaling != nil {
+	if *sys.Name != "systempool" || int(*sys.Count) != aksDefaultReplicas || *sys.VMSize != "Standard_D8s_v5" || *sys.Mode != armcontainerservice.AgentPoolModeSystem || sys.EnableAutoScaling != nil {
 		t.Errorf("unexpected system pool %+v", sys)
 	}
 	user := p.agentPoolProfile(&types.NodeGroupSpec{Name: "gpu", Replicas: 3, InstanceType: "Standard_NC6", Labels: map[string]string{"gpu": "true"},

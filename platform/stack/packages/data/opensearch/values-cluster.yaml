@@ -206,10 +206,11 @@ cluster:
     service:
       type: ClusterIP
 
+    # Measured ~230 MiB, peak 272 MiB over three hours (2026-10-22).
     resources:
       requests:
         cpu: 100m
-        memory: 512Mi
+        memory: 384Mi
       limits:
         memory: 1Gi
 
@@ -323,9 +324,11 @@ ismPolicies:
       - name: delete
         actions:
           - delete: {}
-        transitions: []
+    # No `transitions: []` on the last state and no `ismTemplate.priority: 0`:
+    # both are the CRD's zero values, which the API server drops (omitempty),
+    # so Argo CD diffed the stored object against them and held the opensearch
+    # Application OutOfSync forever (2026-10-22). Omitting them means the same.
     ismTemplate:
-      priority: 0
       indexPatterns:
         # Deliberately NOT "*": OpenMetadata's catalogue indices are not dated
         # and must not be rolled over or deleted underneath it.

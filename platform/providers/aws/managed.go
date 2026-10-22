@@ -27,11 +27,17 @@ import (
 // tears both modes down through the same tag-based cleanup.
 
 const (
-	clusterModeEKS      = "eks"
-	eksPollInterval     = 20 * time.Second
-	eksCreateTimeout    = 30 * time.Minute
-	eksDefaultNodeType  = "t3.large"
-	eksDefaultNodeCount = 2
+	clusterModeEKS   = "eks"
+	eksPollInterval  = 20 * time.Second
+	eksCreateTimeout = 30 * time.Minute
+)
+
+// EKS node groups use the same worker size and count as compute mode, from
+// the one defaults table. They were t3.large (burstable, 2 vCPU / 8 GiB) —
+// smaller than what compute mode gives the same workload.
+var (
+	eksDefaultNodeType  = provider.MachineDefaultsFor("aws").ManagedWorker()
+	eksDefaultNodeCount = provider.DefaultWorkerCount("aws", true)
 )
 
 // isManagedMode reports whether the provider config selects EKS.
@@ -290,7 +296,7 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 
 	groups := spec.NodeGroups
 	if len(groups) == 0 {
-		groups = []types.NodeGroupSpec{{Name: "workers", Replicas: eksDefaultNodeCount, InstanceType: eksDefaultNodeType}}
+		groups = []types.NodeGroupSpec{{Name: "workers", Replicas: eksDefaultNodeCount, InstanceType: p.config.workerType("", "", true)}}
 	}
 	for _, ng := range groups {
 		if err := p.ensureEKSNodegroup(ctx, name, nodeRole, publicSubnet, &ng); err != nil {
@@ -327,6 +333,10 @@ func (p *Provider) ensureEKSNodegroup(ctx context.Context, clusterName, nodeRole
 		return err
 	}
 	replicas, minSize, maxSize, instanceType := eksScaling(ng)
+	if strings.TrimSpace(ng.InstanceType) == "" {
+		// providers.aws.config.workerMachineType, else the table default.
+		instanceType = p.config.workerType("", "", true)
+	}
 	in := &eks.CreateNodegroupInput{
 		ClusterName:   aws.String(clusterName),
 		NodegroupName: aws.String(ng.Name),

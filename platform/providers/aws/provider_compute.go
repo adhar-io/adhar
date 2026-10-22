@@ -65,20 +65,10 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 	}
 	log.Printf("Using Ubuntu 22.04 LTS AMI: %s", amiID)
 
-	instanceType := spec.ControlPlane.InstanceType
-	if instanceType == "" {
-		// r6i.large (2 vCPU, 16 GiB), not the previous t3.medium. t3 is BURSTABLE:
-		// once the control plane exhausts its CPU credits the node is throttled, and
-		// a throttled etcd degrades the whole cluster in ways that look like a
-		// network problem rather than a CPU one. t3.medium's 4 GiB is also thin for
-		// etcd plus the API server on a cluster with ~75 applications' worth of
-		// objects — measured: with 8 GiB the API server started failing TLS
-		// handshakes during the first sync of 75 applications, and SSH to the node
-		// timed out with it. 16 GiB is the shape verified on Azure, and memory does
-		// not count against the region's vCPU quota. Override with clusterConfig
-		// `controlPlaneMachineType`.
-		instanceType = "r6i.large"
-	}
+	// The control-plane size: environment clusterConfig controlPlaneMachineType,
+	// else providers.aws.config.controlPlaneMachineType, else the table default
+	// (provider.MachineDefaultsFor("aws")) — see provider.ControlPlaneSize.
+	instanceType := p.config.controlPlaneType(spec)
 
 	var masterNodes []NodeInfo
 
@@ -166,14 +156,9 @@ func (p *Provider) createWorkerNodes(ctx context.Context, subnetID, sgID, cluste
 		if err != nil {
 			return nil, fmt.Errorf("failed to find Ubuntu AMI: %w", err)
 		}
-		instanceType := nodeGroup.InstanceType
-		if instanceType == "" {
-			// A worker with 4 GiB cannot hold this platform's share of ~75 apps, and
-			// burstable CPU makes the autoscaler's utilisation readings meaningless.
-			// r6i.xlarge (4 vCPU, 32 GiB) is the shape verified on Azure, where 4 of
-			// them carried the full catalogue.
-			instanceType = "r6i.xlarge"
-		}
+		// The group's own type, else providers.aws.config.workerMachineType, else
+		// the table default. The scale path resolves through the same function.
+		instanceType := p.config.workerType(nodeGroup.InstanceType, "", false)
 
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			nodeName := fmt.Sprintf("%s-%s-%d", clusterName, nodeGroup.Name, i+1)
@@ -768,13 +753,11 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		if err != nil {
 			return fmt.Errorf("failed to resolve the cluster SSH key pair: %w", err)
 		}
-		instanceType := "t3.medium"
-		for _, m := range members {
-			if m.InstanceType != "" {
-				instanceType = m.InstanceType
-				break
-			}
-		}
+		// A new worker takes the size its group's existing members run, so a
+		// scaled group stays homogeneous; an empty group takes the configured
+		// worker size. This fell back to t3.medium — 2 burstable vCPU, a quarter
+		// of the memory `adhar up` gave every other worker.
+		instanceType := p.config.workerType("", membersInstanceType(members), false)
 		// The same node-prep the cluster was created with; the version comes
 		// from the running control plane so a scaled cluster cannot skew.
 		spec := &types.ClusterSpec{}
@@ -812,6 +795,22 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		log.Printf("Removed worker %s (%s) from cluster %s", name, members[name].InstanceId, clusterID)
 	}
 	return nil
+}
+
+// membersInstanceType is the instance type a node group's members run, choosing
+// the lexically first member so the answer does not depend on map order.
+func membersInstanceType(members map[string]NodeInfo) string {
+	names := make([]string, 0, len(members))
+	for n := range members {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if t := members[n].InstanceType; t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // nodeGroupInstances lists the running workers of one node group by Name tag.
@@ -861,13 +860,7 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 	if err != nil {
 		return nil, err
 	}
-	instanceType := "t3.medium"
-	for _, m := range members {
-		if m.InstanceType != "" {
-			instanceType = m.InstanceType
-			break
-		}
-	}
+	instanceType := p.config.workerType("", membersInstanceType(members), false)
 	return &types.NodeGroup{Name: nodeGroupName, Replicas: len(members), InstanceType: instanceType, Status: "ready", UpdatedAt: time.Now()}, nil
 }
 

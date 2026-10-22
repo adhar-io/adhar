@@ -1,0 +1,66 @@
+# Coder routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
+# Gateway (adhar-cert), replacing the chart's Ingress (disabled in values.yaml).
+# Coder serves its UI at the root of its own hostname; CODER_ACCESS_URL in
+# values.yaml matches this URL so generated links, the `coder` CLI and workspace
+# agents all resolve here.
+#
+# NO oauth2-proxy in front (unlike most platform UIs): Coder authenticates
+# against Keycloak natively (values.yaml CODER_OIDC_*, manifests/keycloak-client.yaml)
+# and its CLI/agent traffic is token-based — a browser-login proxy would break it.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: coder
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder
+    app.kubernetes.io/instance: coder
+    app.kubernetes.io/part-of: coder
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - coder.adhar.localtest.me
+  rules:
+    # Single sign-on, without Coder's own sign-in page. Coder draws a login page
+    # (password form + "Sign in with Keycloak") for anyone without a Coder
+    # session, so a person already signed in to Keycloak was asked to sign in
+    # again. Its OIDC start URL completes silently against that session instead
+    # (same pattern as Plane / LibreDB / JupyterHub). A request that CARRIES
+    # Coder's session cookie is served as before — the header match ranks above
+    # the path-only redirect below. Break-glass local login stays at /login.
+    - matches:
+        - path:
+            type: Exact
+            value: /
+          method: GET
+          headers:
+            - type: RegularExpression
+              name: Cookie
+              value: "(^|.*;\\s*)coder_session_token=[^;]+.*"
+      backendRefs:
+        - name: coder
+          port: 80
+    - matches:
+        - path:
+            type: Exact
+            value: /
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /api/v2/users/oidc/callback
+            # Stated, or Gateway API defaults it to 443 and a local platform on
+            # 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: coder
+          port: 80

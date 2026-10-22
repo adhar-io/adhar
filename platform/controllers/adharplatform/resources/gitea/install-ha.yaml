@@ -126,6 +126,7 @@ stringData:
     DOMAIN={{ .Host }}
     ENABLE_PPROF=false
     HTTP_PORT=3000
+    LANDING_PAGE=login
     PROTOCOL=http
     ROOT_URL=https://gitea.{{ .Host }}{{ .PortSuffix }}/
     SSH_DOMAIN={{ .Host }}
@@ -2950,7 +2951,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 05647565fdbb8aa0fd1c65383f80dc1c5224bffdff85a26f7de706f62324433a
+        checksum/config: 759ba52fc782b54a0b5b4949245c25138908d15f988b0dc82e6b5e7b1da9c388
         backup.velero.io/backup-volumes: data
       labels:
         helm.sh/chart: gitea-12.7.0

@@ -46,8 +46,9 @@ spec:
             - {name: PREFECT_UI_URL, value: "https://prefect.adhar.localtest.me:8443"}
           ports:
             - {name: http, containerPort: 4200}
+          # Measured ~210 MiB, peak 221 MiB over three hours (2026-10-22).
           resources:
-            requests: {cpu: 100m, memory: 512Mi}
+            requests: {cpu: 100m, memory: 320Mi}
             limits: {memory: 1Gi}
           readinessProbe:
             httpGet: {path: /api/health, port: 4200}

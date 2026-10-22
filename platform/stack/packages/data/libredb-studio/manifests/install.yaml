@@ -7,10 +7,10 @@ kind: ServiceAccount
 metadata:
   name: libredb-studio
   labels:
-    helm.sh/chart: libredb-studio-0.1.63
+    helm.sh/chart: libredb-studio-0.1.101
     app.kubernetes.io/name: libredb-studio
     app.kubernetes.io/instance: libredb-studio
-    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: false
 ---
@@ -20,10 +20,10 @@ kind: ConfigMap
 metadata:
   name: libredb-studio-config
   labels:
-    helm.sh/chart: libredb-studio-0.1.63
+    helm.sh/chart: libredb-studio-0.1.101
     app.kubernetes.io/name: libredb-studio
     app.kubernetes.io/instance: libredb-studio
-    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: Helm
 data:
   NODE_ENV: "production"
@@ -43,6 +43,7 @@ data:
   OIDC_SCOPE: "openid profile email"
   OIDC_ROLE_CLAIM: "groups"
   OIDC_ADMIN_ROLES: "admin,platform-admin,platform-engineer"
+  OIDC_PROMPT: "omit"
 ---
 # Source: libredb-studio/templates/seed-configmap.yaml
 apiVersion: v1
@@ -50,10 +51,10 @@ kind: ConfigMap
 metadata:
   name: libredb-studio-seed-connections
   labels:
-    helm.sh/chart: libredb-studio-0.1.63
+    helm.sh/chart: libredb-studio-0.1.101
     app.kubernetes.io/name: libredb-studio
     app.kubernetes.io/instance: libredb-studio
-    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: Helm
 data:
   seed-connections.yaml: |
@@ -207,10 +208,10 @@ kind: Service
 metadata:
   name: libredb-studio
   labels:
-    helm.sh/chart: libredb-studio-0.1.63
+    helm.sh/chart: libredb-studio-0.1.101
     app.kubernetes.io/name: libredb-studio
     app.kubernetes.io/instance: libredb-studio
-    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -229,10 +230,10 @@ kind: Deployment
 metadata:
   name: libredb-studio
   labels:
-    helm.sh/chart: libredb-studio-0.1.63
+    helm.sh/chart: libredb-studio-0.1.101
     app.kubernetes.io/name: libredb-studio
     app.kubernetes.io/instance: libredb-studio
-    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -243,16 +244,17 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: f1b2216b6a62dccd84251ed81f6787a3327e04862832aee1a2281f3ac7a9e605
+        checksum/config: b2cc987fde07ccd7742b2e51b3c709cad7d176c1213cac4afe21eada97d72c9b
         checksum/secret: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
       labels:
-        helm.sh/chart: libredb-studio-0.1.63
+        helm.sh/chart: libredb-studio-0.1.101
         app.kubernetes.io/name: libredb-studio
         app.kubernetes.io/instance: libredb-studio
-        app.kubernetes.io/version: "0.15.0"
+        app.kubernetes.io/version: "1.0.0"
         app.kubernetes.io/managed-by: Helm
     spec:
       serviceAccountName: libredb-studio
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
@@ -268,7 +270,7 @@ spec:
               drop:
               - ALL
             readOnlyRootFilesystem: true
-          image: ghcr.io/libredb/libredb-studio:0.15.0
+          image: ghcr.io/libredb/libredb-studio:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

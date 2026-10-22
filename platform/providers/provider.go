@@ -463,6 +463,9 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	if err != nil {
 		return nil, fmt.Errorf("failed to build cluster specification: %w", err)
 	}
+	for _, w := range SizingWarnings(envConfig.Name, envConfig) {
+		logger.Warnf("%s", w)
+	}
 
 	// Authenticate with the provider.
 	//
@@ -686,15 +689,40 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig, clusterName s
 	//
 	// Local stays at zero: the control plane runs untainted there, so a Kind
 	// cluster needs no separate worker.
-	workerReplicas := 0
-	if isProduction {
-		workerReplicas = 2
-	}
+	//
+	// That rule applied to EVERY provider, so a non-production cloud environment
+	// that did not state `nodeCount` got zero workers: AWS, Azure and GCP then
+	// created a control plane alone (whose NoSchedule taint leaves nothing able
+	// to run), while DigitalOcean and Civo quietly turned the zero into one. The
+	// count now comes from the provider's defaults table — 2 on every cloud, the
+	// historical production/non-production rule for Kind and custom.
+	workerReplicas := DefaultWorkerCount(envProviderType(envConfig), isProduction)
 	spec.NodeGroups = []types.NodeGroupSpec{
 		{
-			Name:     "workers",
+			Name:     config.PrimaryNodeGroupName,
 			Replicas: workerReplicas,
 		},
+	}
+
+	// Additional node groups (a GPU or high-memory pool) from `nodeGroups:`.
+	// Every provider's create path already iterates spec.NodeGroups, and every
+	// teardown finds their machines by the cluster's tag or name prefix.
+	for _, g := range envConfig.NodeGroups {
+		ng := types.NodeGroupSpec{
+			Name:         g.Name,
+			Replicas:     g.Count,
+			InstanceType: strings.TrimSpace(g.MachineType),
+		}
+		if len(g.Labels) > 0 {
+			ng.Labels = map[string]string{}
+			for k, v := range g.Labels {
+				ng.Labels[k] = v
+			}
+		}
+		for _, t := range g.Taints {
+			ng.Taints = append(ng.Taints, types.TaintSpec{Key: t.Key, Value: t.Value, Effect: t.Effect})
+		}
+		spec.NodeGroups = append(spec.NodeGroups, ng)
 	}
 
 	// Carry the environment's autoscaling range onto the node group.
@@ -759,9 +787,10 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig, clusterName s
 			if replicas := parseIntOrDefault(kv.Value, workerReplicas); replicas > 0 {
 				spec.NodeGroups[0].Replicas = replicas
 			}
-		case "nodeinstancetype", "instancetype", "nodesize", "machinetype":
+		case "nodeinstancetype", "instancetype", "nodesize", "machinetype", "workermachinetype":
 			// nodeSize (DO/generic) and machineType (GKE) are the config.yaml
-			// spellings; nodeInstanceType/instanceType are internal aliases.
+			// spellings; workerMachineType says the same thing in the words the
+			// provider block uses; nodeInstanceType/instanceType are internal aliases.
 			spec.NodeGroups[0].InstanceType = kv.Value
 		case "podcidr", "podnetworkcidr":
 			// A cluster that will join a Cilium Cluster Mesh must not share a
@@ -811,6 +840,19 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig, clusterName s
 	}
 
 	return spec, nil
+}
+
+// envProviderType is the provider TYPE (aws, azure, …) of a resolved
+// environment. ResolvedProvider is the NAME of the providers.<name> block, which
+// is usually but not necessarily the same word.
+func envProviderType(envConfig *config.ResolvedEnvironmentConfig) string {
+	if envConfig == nil {
+		return ""
+	}
+	if envConfig.ProviderConfig != nil && envConfig.ProviderConfig.Type != "" {
+		return envConfig.ProviderConfig.Type
+	}
+	return envConfig.ResolvedProvider
 }
 
 // normalizeClusterConfigKey folds a clusterConfig key to a canonical form:
@@ -932,9 +974,16 @@ func clusterConfigString(envConfig *config.ResolvedEnvironmentConfig, keys ...st
 	if envConfig == nil {
 		return ""
 	}
+	// Matched ignoring case and separators, like every other clusterConfig key:
+	// this one lookup was literal, so `control_plane_machine_type` was silently
+	// ignored while `node_count` beside it was honoured. The LAST entry wins, as
+	// it does in buildClusterSpec's loop, so an environment's value overrides the
+	// template's (the template's entries are prepended).
 	for _, want := range keys {
-		for _, kv := range envConfig.ResolvedClusterConfig {
-			if kv.Key == want && strings.TrimSpace(kv.Value) != "" {
+		w := normalizeClusterConfigKey(want)
+		for i := len(envConfig.ResolvedClusterConfig) - 1; i >= 0; i-- {
+			kv := envConfig.ResolvedClusterConfig[i]
+			if normalizeClusterConfigKey(kv.Key) == w && strings.TrimSpace(kv.Value) != "" {
 				return strings.TrimSpace(kv.Value)
 			}
 		}

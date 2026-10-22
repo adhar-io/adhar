@@ -56,6 +56,9 @@ func (v *SchemaValidator) ValidateConfig(config *Config) error {
 	// Validate environments
 	v.validateEnvironments(config.Environments)
 
+	// Regions, counts, autoscaling ranges, disk sizes and node groups.
+	v.validateSizing(config)
+
 	if len(v.errors) > 0 {
 		return v.errors
 	}

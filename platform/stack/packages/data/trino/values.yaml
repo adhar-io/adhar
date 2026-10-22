@@ -4,6 +4,34 @@
 # left disabled (default) and must NOT be enabled (no nginx).
 server:
   workers: 1
+  # Single sign-on: the Keycloak oauth2-proxy in front (manifests/sso.yaml) is
+  # the gate, and Trino has no authenticator of its own (clients connect over
+  # plain HTTP inside the cluster). With no authenticator the web UI still draws
+  # a username/password form, so a person who had just signed in to Keycloak was
+  # asked to sign in AGAIN. `fixed` serves the UI as one user with no form;
+  # it grants nothing a typed username did not already grant.
+  coordinatorExtraConfig: |-
+    web-ui.authentication.type=fixed
+    web-ui.user=adhar-ui
+
+# Heap and requests (2026-10-22). The chart default is an 8G heap per JVM with NO
+# request, so on this platform both pods took the namespace's 64Mi default
+# request while holding ~800-900 MiB and able to grow to 8 GiB each on a 12 GiB
+# node. The coordinator was evicted three times in one afternoon ("request is
+# 64Mi, has larger consumption of memory"). 2G of heap still satisfies Trino's
+# own startup check: query.max-memory-per-node (1GB) + 30% heap headroom (~614MB)
+# fits inside it. The request covers heap in use + the 512M code cache; the heap
+# cap — not a container limit — is what bounds the footprint.
+coordinator:
+  jvm:
+    maxHeapSize: "2G"
+  resources:
+    requests: {cpu: 100m, memory: 1Gi}
+worker:
+  jvm:
+    maxHeapSize: "2G"
+  resources:
+    requests: {cpu: 100m, memory: 1Gi}
 
 ingress:
   enabled: false

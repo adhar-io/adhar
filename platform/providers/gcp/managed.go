@@ -24,11 +24,18 @@ const (
 	clusterModeGKE         = "gke"
 	gkePollInterval        = 15 * time.Second
 	gkeOperationTimeout    = 40 * time.Minute
-	gkeDefaultMachineType  = "e2-standard-4"
-	gkeDefaultNodeCount    = 2
-	gkeDefaultDiskSizeGB   = 100
 	gkeCloudPlatformScope  = "https://www.googleapis.com/auth/cloud-platform"
 	gkeDefaultNodePoolName = "workers"
+)
+
+// GKE pools take the same worker size, count and disk as compute mode, from the
+// one defaults table. gkeDefaultMachineType (e2-standard-4) and
+// gkeDefaultDiskSizeGB (100) used to be unreachable: NewProvider always set
+// e2-standard-2 and 20 GB first.
+var (
+	gkeDefaultMachineType = provider.MachineDefaultsFor("gcp").ManagedWorker()
+	gkeDefaultNodeCount   = provider.DefaultWorkerCount("gcp", true)
+	gkeDefaultDiskSizeGB  = int64(provider.MachineDefaultsFor("gcp").DiskSizeGB)
 )
 
 func (p *Provider) isManagedMode() bool {
@@ -113,13 +120,7 @@ func (p *Provider) gkeNodePool(ng *types.NodeGroupSpec) *container.NodePool {
 	if replicas <= 0 {
 		replicas = gkeDefaultNodeCount
 	}
-	machine := ng.InstanceType
-	if machine == "" {
-		machine = p.config.MachineType
-	}
-	if machine == "" {
-		machine = gkeDefaultMachineType
-	}
+	machine := p.config.workerSize(ng.InstanceType, "", true)
 	disk := int64(p.config.DiskSize)
 	if disk <= 0 {
 		disk = gkeDefaultDiskSizeGB

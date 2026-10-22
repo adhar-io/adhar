@@ -1,0 +1,64 @@
+# RustFS console routed through the Cilium Gateway, behind the rustfs
+# oauth2-proxy (console-sso.yaml). Templated (.tmpl) for the redirect port only;
+# kept apart from console-sso.yaml because that file carries ESO template
+# directives (double-brace ESO templates) that must survive seeding verbatim.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: rustfs
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: rustfs
+    app.kubernetes.io/part-of: rustfs
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  parentRefs:
+  - name: adhar-gateway
+    namespace: adhar-system
+  hostnames:
+  - rustfs.adhar.localtest.me
+  rules:
+  # The bare host signs straight in with Keycloak. The console's own sign-in page
+  # (access-key form + a "Keycloak" button) was the second login a person who had
+  # already passed the edge proxy was shown. RustFS's OIDC start URL completes
+  # silently against the Keycloak session and returns the browser to the console
+  # with STS credentials. The console keeps its credentials in localStorage, not
+  # a cookie, so there is nothing to tell a returning user apart by; re-running
+  # the silent flow on the bare host costs one round trip and no click.
+  # Break-glass access-key login stays at /rustfs/console/auth/login/.
+  - matches:
+    - path:
+        type: Exact
+        value: /
+      method: GET
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /rustfs/admin/v3/oidc/authorize/default
+        # Stated, or Gateway API defaults it to 443 and a local platform on 8443
+        # gets a Location nothing listens on.
+        port: {{ .Port }}
+        statusCode: 302
+  - matches:
+    - path:
+        type: Exact
+        value: /
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /rustfs/console/
+    backendRefs:
+    - name: rustfs-oauth2-proxy
+      port: 4180
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: rustfs-oauth2-proxy
+      port: 4180

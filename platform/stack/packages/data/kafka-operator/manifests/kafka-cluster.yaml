@@ -115,6 +115,32 @@ spec:
     jvmOptions:
       -Xms: 512m
       -Xmx: 1g
+    # Prometheus metrics. Without this the shared cluster exposed NOTHING: the
+    # strimzi-kafka-resources-metrics PodMonitor (strimzi-podmonitors.yaml)
+    # selects its pods but the tcp-prometheus port only exists once a
+    # metricsConfig is set, and the "Kafka / Brokers" dashboard showed only the
+    # application clusters composed in dev/test/prod. The ConfigMap is the
+    # upstream Strimzi rule set (kafka-metrics-configmap.yaml), which labels
+    # per-topic and per-request series — so the shared cluster gets per-topic
+    # bytes and request latency the compact composed rule set cannot provide.
+    # Changing this rolls the broker once.
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: kafka-metrics-config.yml
+  # Topic offsets and consumer-group lag for "Kafka / Topics & Consumer Lag".
+  # Scraped through the same PodMonitor (it carries strimzi.io/kind: Kafka).
+  kafkaExporter:
+    topicRegex: ".*"
+    groupRegex: ".*"
+    resources:
+      requests:
+        cpu: 10m
+        memory: 48Mi
+      limits:
+        memory: 128Mi
   entityOperator:
     topicOperator: {}
     userOperator: {}

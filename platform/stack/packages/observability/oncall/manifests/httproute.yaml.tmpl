@@ -31,6 +31,24 @@ spec:
   hostnames:
     - oncall.adhar.localtest.me
   rules:
+    # The bare host opens the OnCall UI. `/` is oncall-engine, an API whose root
+    # answers "Ok"; the UI is the OnCall plugin inside the Grafana at /grafana.
+    # A person following a link to oncall.<host> was left on a blank "Ok".
+    - matches:
+        - path:
+            type: Exact
+            value: /
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /grafana/a/grafana-oncall-app/
+            # Stated, or Gateway API defaults it to 443 and a local platform on
+            # 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

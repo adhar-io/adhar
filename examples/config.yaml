@@ -56,28 +56,27 @@ providers:
   # aws:
   #   type: aws
   #   # Default: raw compute + kubeadm (adhar-managed Kubernetes). Set
-  #   # useManagedK8s: true for managed EKS instead; every other behaviour
+  #   # clusterMode: managed for EKS instead; every other behaviour
   #   # and operation is identical.
-  #   # useManagedK8s: true
+  #   clusterMode: compute
   #   region: ap-south-1
   #   primary: true  # Set to true if you want provider to handle management cluster
   #   credentials_file: "~/.aws/credentials"
   #   # accessKeyId: "YOUR_AWS_ACCESS_KEY_ID"
   #   # secretAccessKey: "YOUR_AWS_SECRET_ACCESS_KEY"
   #   # useEnvironment: true # Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+  #   vpcConfig:                                  # network; the values shown are the defaults
+  #     cidr: "10.0.0.0/16"
+  #     subnetCidrs: ["10.0.1.0/24", "10.0.2.0/24"] # [public: every node, private: internal LBs]
+  #     availabilityZones: ["ap-south-1a", "ap-south-1b"]  # [nodes, private subnet]; default: the region's first two
   #   config:
-  #     vpc_cidr: "10.0.0.0/16"
-  #     subnet_cidrs:
-  #       - "10.0.1.0/24"
-  #       - "10.0.2.0/24"
-  #       - "10.0.3.0/24"
-  #     instance_types:
-  #       control_plane: "t3.medium"
-  #       worker: "t3.medium"
-  #     ebs:
-  #       volume_type: "gp3"
-  #       volume_size: 50
-  #       iops: 3000
+  #     # Sizes — see "Machine sizing" below. Values shown are the defaults.
+  #     controlPlaneMachineType: "m6i.xlarge"       # 4 vCPU / 16 GiB
+  #     workerMachineType: "r6i.xlarge"             # 4 vCPU / 32 GiB
+  #     diskSizeGb: 256                             # OS disk of every node (node-local PVs live here)
+  #     diskType: "gp3"
+  #     # ami: "ami-0123456789abcdef0"              # pin an exact image; else the Ubuntu 24.04 lookup via
+  #     # imageNameFilter / imageOwner / imageArchitecture
   #     security_groups:
   #       - name: "adhar-cluster-sg"
   #         rules:
@@ -98,9 +97,9 @@ providers:
   # azure:
   #   type: azure
   #   # Default: raw compute + kubeadm (adhar-managed Kubernetes). Set
-  #   # useManagedK8s: true for managed AKS instead; every other behaviour
+  #   # clusterMode: managed for AKS instead; every other behaviour
   #   # and operation is identical.
-  #   # useManagedK8s: true
+  #   clusterMode: compute
   #   region: westindia
   #   primary: true
   #   credentials_file: "~/.azure/accessTokens.json"
@@ -113,9 +112,15 @@ providers:
   #     resource_group: "adhar-rg"
   #     vnet_cidr: "10.1.0.0/16"
   #     subnet_cidr: "10.1.1.0/24"
-  #     vm_size: "Standard_B2s"
-  #     disk_type: "Standard_LRS"
-  #     disk_size_gb: 50
+  #     # Sizes — see "Machine sizing" below. Values shown are the defaults.
+  #     controlPlaneMachineType: "Standard_D4s_v5"  # 4 vCPU / 16 GiB
+  #     workerMachineType: "Standard_E4bds_v5"      # 4 vCPU / 32 GiB, 8 data-disk slots
+  #     # vmSize: "Standard_E4bds_v5"               # legacy: sizes EVERY VM the two keys above do not
+  #     diskType: "Standard_LRS"                    # Premium_LRS is faster for etcd
+  #     diskSizeGb: 256                             # Azure reads disk settings ONLY here, not from clusterConfig
+  #     # imagePublisher: "Canonical"               # default Ubuntu 22.04 (0001-com-ubuntu-server-jammy / 22_04-lts-gen2)
+  #     # imageOffer: "0001-com-ubuntu-server-jammy"
+  #     # imageSku: "22_04-lts-gen2"
   #     network_security_group:
   #       rules:
   #         - name: "SSH"
@@ -144,9 +149,9 @@ providers:
   # gcp:
   #   type: gcp
   #   # Default: raw compute + kubeadm (adhar-managed Kubernetes). Set
-  #   # useManagedK8s: true for managed GKE instead; every other behaviour
+  #   # clusterMode: managed for GKE instead; every other behaviour
   #   # and operation is identical.
-  #   # useManagedK8s: true
+  #   clusterMode: compute
   #   region: asia-south1
   #   primary: true
   #   credentials_file: "~/.config/gcloud/YOUR_GCP_SERVICE_ACCOUNT.json"
@@ -156,9 +161,13 @@ providers:
   #     vpc_name: "adhar-vpc-new"
   #     subnet_name: "adhar-subnet-new"
   #     subnet_cidr: "10.3.0.0/24"
-  #     machine_type: "e2-medium"
-  #     disk_type: "pd-ssd"
-  #     disk_size_gb: 50
+  #     # Sizes — see "Machine sizing" below. Values shown are the defaults.
+  #     controlPlaneMachineType: "e2-standard-4"    # 4 vCPU / 16 GiB
+  #     workerMachineType: "e2-standard-4"          # 1 + 2 nodes fit a new project's 12-vCPU CPUS_ALL_REGIONS
+  #     # machine_type: "e2-standard-4"             # legacy: sizes EVERY node the two keys above do not
+  #     disk_type: "pd-standard"                    # pd-balanced/pd-ssd count against SSD_TOTAL_GB
+  #     disk_size_gb: 256
+  #     # image_family: "ubuntu-2204-lts"           # default; image_project: ubuntu-os-cloud
   #     firewall_rules:
   #       - name: "allow-ssh"
   #         direction: "INGRESS"
@@ -187,14 +196,17 @@ providers:
   #   # useEnvironment: true #Environment variable (DIGITALOCEAN_TOKEN)
   #   # credentials_file: "~/.digitalocean/credentials"
   #   # Default: raw droplets + kubeadm (adhar-managed Kubernetes, Cilium
-  #   # replaces kube-proxy). Set useManagedK8s: true for managed DOKS instead;
+  #   # replaces kube-proxy). Set clusterMode: managed for DOKS instead;
   #   # every other behaviour and operation is identical.
-  #   # useManagedK8s: true
+  #   clusterMode: compute
   #   config:
   #     vpc_uuid: ""  # Leave empty to create new VPC or specify UUID to use existing
   #     vpc_cidr: "10.3.0.0/16"  # CIDR for new VPC (conflicts will be auto-resolved)
   #     reuse_existing_vpc: true  # Set to true to reuse compatible existing VPCs
-  #     droplet_size: "s-2vcpu-2gb"
+  #     # Sizes — see "Machine sizing" below. Values shown are the defaults.
+  #     controlPlaneMachineType: "s-8vcpu-16gb"
+  #     workerMachineType: "s-8vcpu-16gb"
+  #     # droplet_size: "s-8vcpu-16gb"              # legacy: sizes EVERY droplet the two keys above do not
   #     image: "ubuntu-22-04-x64"
   #     ssh_keys: []  # Add your SSH key fingerprints like ["aa:bb:cc:dd:..."]
   #     firewall_rules:
@@ -228,8 +240,11 @@ providers:
   #   # useEnvironment: true #Environment variable (CIVO_TOKEN)
   #   config:
   #     network_id: "YOUR_CIVO_NETWORK_ID"
-  #     size: "g4s.kube.medium"
-  #     disk_image: "ubuntu-22.04-x64"
+  #     # Sizes — see "Machine sizing" below. Values shown are the defaults.
+  #     controlPlaneMachineType: "g3.large"         # compute mode only (an INSTANCE size)
+  #     workerMachineType: "g3.xlarge"              # compute: instance size; managed default g4s.kube.large
+  #     # size: "g4s.kube.large"                    # legacy: sizes EVERY node the two keys above do not
+  #     # image: "ubuntu-jammy"                     # compute-mode instance image (default ubuntu-jammy)
   #     firewall_rules:
   #       - label: "adhar-cluster"
   #         rules:
@@ -388,6 +403,63 @@ providers:
   #   #       enabled: true
   #   #       type: "haproxy"
   #   #       vip: "192.168.1.100"
+
+# ─── Machine sizing ──────────────────────────────────────────────────────────
+# Every size, count and place is configuration. Where each value comes from, most
+# specific first (keys match ignoring case and separators):
+#
+#   control plane  environments.<env>.clusterConfig  controlPlaneMachineType
+#                  providers.<p>.config              controlPlaneMachineType
+#                  providers.<p>.config  legacy size key (vmSize / machine_type /
+#                                        droplet_size / size) — sized EVERY node
+#                  built-in default (below)
+#   workers        clusterConfig machineType | nodeSize | workerMachineType
+#                  (or nodeGroups[].machineType for an additional group)
+#                  on scale-up: the size the group's existing workers run
+#                  providers.<p>.config workerMachineType → legacy size key → default
+#   worker count   clusterConfig nodeCount → autoscaling.minWorkers (if higher)
+#                  → default 2 (every cloud)
+#   autoscaling    environments.<env>.autoscaling {enabled, minWorkers, maxWorkers,
+#                  nodeGroup} (template block as fallback). minWorkers <= maxWorkers.
+#   OS disk        AWS/GCP: clusterConfig diskSizeGb/diskType, else provider config;
+#                  Azure: providers.azure.config diskSizeGb/diskType ONLY;
+#                  DigitalOcean/Civo: implied by the size.
+#   region         environments.<env>.region → providers.<p>.region (format-checked)
+#   zones          AWS vpcConfig.availabilityZones; GCP config.zone (must be in region)
+#   network        AWS vpcConfig {cidr, subnetCidrs}; Azure vnetCidr/subnetCidr;
+#                  GCP subnet_cidr; DigitalOcean vpc_cidr; pod CIDR: clusterConfig podCidr
+#   image          AWS ami/imageNameFilter; Azure imagePublisher/imageOffer/imageSku;
+#                  GCP image_family/image_project; DigitalOcean image; Civo image
+#   version        clusterConfig kubeVersion (or `adhar up --kube-version`)
+#
+# Built-in defaults — the smallest that run the full platform reliably:
+#   provider       control plane      workers                       disk
+#   aws            m6i.xlarge         r6i.xlarge                    256 GiB gp3
+#   azure          Standard_D4s_v5    Standard_E4bds_v5             256 GiB Standard_LRS
+#   gcp            e2-standard-4      e2-standard-4                 256 GiB pd-standard
+#   digitalocean   s-8vcpu-16gb       s-8vcpu-16gb                  (by size)
+#   civo           g3.large           g3.xlarge / g4s.kube.large*   (by size)
+#   (* managed k3s pools take kube sizes.) Control planes are >= 4 vCPU because a
+#   2-vCPU control plane collapses under the platform's ~600 CRDs (leader-election
+#   crash loops); `adhar config validate` prints each environment's resolved sizes
+#   and warns when a control plane is below that.
+#
+# Additional node groups (GPU, high-memory, ...) beside the primary `workers` group:
+#
+#   environments:
+#     prod:
+#       nodeGroups:
+#         - name: gpu                    # DNS-1123, <= 20 chars, not "workers"
+#           machineType: g5.xlarge       # empty = the provider's worker size
+#           count: 1                     # >= 1
+#           labels: {adhar.io/accelerator: nvidia}
+#           taints:                      # applied by managed pools; compute mode records them
+#             - {key: nvidia.com/gpu, value: "true", effect: NoSchedule}
+#       autoscaling:
+#         enabled: true
+#         nodeGroup: workers             # or the name of a nodeGroups entry
+#         minWorkers: 2
+#         maxWorkers: 6
 
 # Environment Templates for reusable configurations
 environmentTemplates:

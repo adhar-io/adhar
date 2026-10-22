@@ -22,7 +22,7 @@ func TestGKETaintEffectSpelling(t *testing.T) {
 func TestGKENodePoolDefaultsAndAutoscaling(t *testing.T) {
 	p := &Provider{config: &Config{MachineType: "n2-standard-4", DiskSize: 200, DiskType: "pd-ssd"}}
 	pool := p.gkeNodePool(&types.NodeGroupSpec{Name: "workers"})
-	if pool.InitialNodeCount != gkeDefaultNodeCount || pool.Config.MachineType != "n2-standard-4" || pool.Config.DiskSizeGb != 200 || pool.Config.DiskType != "pd-ssd" || pool.Autoscaling != nil {
+	if pool.InitialNodeCount != int64(gkeDefaultNodeCount) || pool.Config.MachineType != "n2-standard-4" || pool.Config.DiskSizeGb != 200 || pool.Config.DiskType != "pd-ssd" || pool.Autoscaling != nil {
 		t.Errorf("unexpected default pool %+v / %+v", pool, pool.Config)
 	}
 	if len(pool.Config.OauthScopes) != 1 || pool.Config.OauthScopes[0] != gkeCloudPlatformScope {

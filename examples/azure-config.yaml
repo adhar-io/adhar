@@ -252,6 +252,18 @@ providers:
       subnetCidr: 10.30.1.0/24
 
 # At least one template must exist; environments inherit from one by name.
+# ─── Sizing keys (optional; see examples/config.yaml "Machine sizing") ───────
+# Under providers.azure.config (values shown are the built-in defaults):
+#
+#   controlPlaneMachineType: Standard_D4s_v5    # 4 vCPU / 16 GiB
+#   workerMachineType: Standard_E4bds_v5        # node groups that name no size
+#   imagePublisher: Canonical                   # with imageOffer / imageSku
+#
+# vmSize above is the legacy single size: it sizes every VM those two keys and the
+# environment do not, so this file builds Standard_E4bds_v5 everywhere. Azure reads
+# diskSizeGb/diskType from this block ONLY — the environments' `diskSizeGb: '100'`
+# below has never reached a disk (`adhar config validate` says so).
+
 environmentTemplates:
   dev-defaults:
     clusterConfig:
@@ -291,6 +303,10 @@ environmentTemplates:
 # production-type one among them, because it has to carry production's load.
 # `clusterConfig` and `autoscaling` on a namespace environment describe that
 # shared cluster; on a `cluster` environment they describe its own.
+# Additional node groups beside `workers` go in an environment's `nodeGroups:` —
+#   nodeGroups:
+#     - {name: highmem, machineType: Standard_E8bds_v5, count: 1}
+# (validated: DNS-1123 name <= 20 chars, count >= 1; see examples/config.yaml).
 environments:
   dev:
     isolation: namespace

@@ -402,6 +402,10 @@ spec:
           - name: export-logs
             mountPath: /var/run/cilium/tetragon
       - name: tetragon
+        resources:
+          requests:
+            cpu: 20m
+            memory: 224Mi
         securityContext:
           privileged: true
         image: "quay.io/cilium/tetragon:v1.7.1"

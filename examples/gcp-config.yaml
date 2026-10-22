@@ -142,6 +142,17 @@ providers:
         project: adhar
 
 # At least one template must exist; environments inherit from one by name.
+# ─── Sizing keys (optional; see examples/config.yaml "Machine sizing") ───────
+# Under providers.gcp.config (values shown are the built-in defaults):
+#
+#   controlPlaneMachineType: e2-standard-4      # 4 vCPU / 16 GiB
+#   workerMachineType: e2-standard-4            # node groups that name no size
+#
+# machine_type above is the legacy single size, and an environment's clusterConfig
+# `machineType` overrides it for EVERY node — so this file's control planes are
+# e2-standard-8 too. Set controlPlaneMachineType to size the control plane apart.
+# zone must lie in the provider region.
+
 environmentTemplates:
   prod-defaults:
     clusterConfig:
@@ -178,6 +189,10 @@ environmentTemplates:
 # production-type one among them, because it has to carry production's load.
 # `clusterConfig` and `autoscaling` on a namespace environment describe that
 # shared cluster; on a `cluster` environment they describe its own.
+# Additional node groups beside `workers` go in an environment's `nodeGroups:` —
+#   nodeGroups:
+#     - {name: highmem, machineType: e2-highmem-8, count: 1}
+# (validated: DNS-1123 name <= 20 chars, count >= 1; see examples/config.yaml).
 environments:
   dev:
     isolation: namespace

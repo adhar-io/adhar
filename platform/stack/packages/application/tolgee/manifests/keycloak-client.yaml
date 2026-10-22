@@ -1,0 +1,83 @@
+# Keycloak OIDC client for Tolgee's NATIVE OAuth2 login
+# (TOLGEE_AUTHENTICATION_OAUTH2_*, install.yaml).
+#
+# No oauth2-proxy in front: Tolgee keeps its session as a JWT in the browser's
+# localStorage, so a proxy session would not sign anyone in to Tolgee, and the
+# `tolgee` CLI (CI push/pull) and the runtime SDKs call the same host with API
+# keys that a browser-login proxy would refuse.
+#
+# Generic client contract: the keycloak package's config Job and its 5-minute
+# client-reconcile CronJob ensure every ConfigMap in adhar-system labelled
+# adhar.io/keycloak-client=true carrying a `client.json` key exists in the
+# `adhar` realm, and export a confidential client's secret into the
+# keycloak-clients Secret as TOLGEE_CLIENT_ID / TOLGEE_CLIENT_SECRET.
+#
+# Host convention: https://tolgee.adhar.localtest.me:8443 is rewritten to the
+# real domain by the platform controller when the stack is seeded.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tolgee-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: tolgee-keycloak-client
+    app.kubernetes.io/part-of: tolgee
+  # Wave 0: a ConfigMap is healthy instantly and blocks nothing; the earlier it
+  # exists, the sooner the reconciler exports the client secret.
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  # Keep "description" under 255 chars (Keycloak varchar; longer fails with 500).
+  # Tolgee's frontend builds the redirect as <origin>/login/auth_callback/oauth2.
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "tolgee",
+      "name": "Tolgee Client",
+      "description": "Used for Tolgee SSO (native OAuth2, authorization code; confidential client)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "post.logout.redirect.uris": "https://tolgee.adhar.localtest.me:8443/*"
+      },
+      "redirectUris": [
+        "https://tolgee.adhar.localtest.me:8443/login/auth_callback/oauth2"
+      ],
+      "webOrigins": ["https://tolgee.adhar.localtest.me:8443"]
+    }
+---
+# The client secret as Tolgee reads it. The Deployment references this Secret
+# WITHOUT `optional`, so Tolgee does not start until Keycloak has exported the
+# client — a Tolgee booted with an empty secret would serve a sign-in button
+# that fails, and nothing would restart it.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tolgee-oidc
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  # 10s: the RETRY cadence until keycloak-clients carries the client; the
+  # identity chain is the GitOps phase's critical path.
+  refreshInterval: 10s
+  target:
+    name: tolgee-oidc
+    template:
+      engineVersion: v2
+      data:
+        clientID: tolgee
+        clientSecret: "{{ .TOLGEE_CLIENT_SECRET }}"
+  data:
+    - secretKey: TOLGEE_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: TOLGEE_CLIENT_SECRET

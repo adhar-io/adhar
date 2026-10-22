@@ -208,7 +208,9 @@ spec:
               protocol: TCP
           resources:
             limits: {}
-            requests: {}
+            requests:
+              cpu: 100m
+              memory: 1536Mi
           startupProbe:
             failureThreshold: 30
             httpGet:
@@ -280,7 +282,9 @@ spec:
               protocol: TCP
           resources:
             limits: {}
-            requests: {}
+            requests:
+              cpu: 20m
+              memory: 192Mi
       volumes:
 ---
 # Source: penpot/templates/frontend-deployment.yml
@@ -355,7 +359,9 @@ spec:
               protocol: TCP
           resources:
             limits: {}
-            requests: {}
+            requests:
+              cpu: 20m
+              memory: 256Mi
       volumes:
       - name: app-data
         emptyDir: {}

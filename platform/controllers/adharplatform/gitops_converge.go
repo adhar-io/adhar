@@ -208,6 +208,13 @@ func (r *AdharPlatformReconciler) nudgeApplications(ctx context.Context) (Conver
 		if kind == "" {
 			continue
 		}
+		// A merge patch of the two annotations, not an Update of the listed
+		// object. Argo CD's Application CRD has no status subresource and the
+		// application controller rewrites the object constantly, so a full
+		// Update carried a stale copy of everything else and lost the race on
+		// resourceVersion for exactly the apps that are moving — every pass,
+		// for as long as they moved.
+		base := app.DeepCopy()
 		ann := app.GetAnnotations()
 		if ann == nil {
 			ann = map[string]string{}
@@ -215,7 +222,7 @@ func (r *AdharPlatformReconciler) nudgeApplications(ctx context.Context) (Conver
 		ann[argoCDApplicationAnnotationKeyRefresh] = kind
 		ann[nudgeAnnotation] = now.UTC().Format(time.RFC3339)
 		app.SetAnnotations(ann)
-		if err := r.Client.Update(ctx, app); err != nil {
+		if err := r.Client.Patch(ctx, app, client.MergeFrom(base)); err != nil {
 			logger.Info("Could not refresh stuck application; will retry", "app", app.Name, "error", err)
 			continue
 		}

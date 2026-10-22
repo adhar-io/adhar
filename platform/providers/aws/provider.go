@@ -147,6 +147,59 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	awsConfig.DiskSizeGB = firstInt32(config, 0, "diskSizeGb", "diskSizeGB", "diskSize", "disk_size_gb", "rootVolumeSize")
 	awsConfig.DiskType = firstString("diskType", "disk_type", "volumeType", "rootVolumeType")
 
+	// Every key above is read at the TOP level, which is where environment
+	// clusterConfig values land. The provider block's own `config:` section was
+	// never read at all, so `providers.aws.config.diskSizeGb` went nowhere. It is
+	// now the fallback for each of them; the environment still wins.
+	if section, ok := config["config"].(map[string]interface{}); ok {
+		fold := func(keys ...string) string {
+			return provider.ConfigString(map[string]interface{}{"config": section}, keys...)
+		}
+		if awsConfig.AMI == "" {
+			awsConfig.AMI = fold("ami", "amiId", "imageId")
+		}
+		if awsConfig.ImageNameFilter == "" {
+			awsConfig.ImageNameFilter = fold("imageNameFilter", "imageFilter")
+		}
+		if awsConfig.ImageOwner == "" {
+			awsConfig.ImageOwner = fold("imageOwner")
+		}
+		if awsConfig.ImageArchitecture == "" {
+			awsConfig.ImageArchitecture = fold("imageArchitecture", "arch")
+		}
+		if awsConfig.DiskSizeGB == 0 {
+			awsConfig.DiskSizeGB = int32(provider.ConfigInt(map[string]interface{}{"config": section}, "diskSizeGb", "diskSize", "rootVolumeSize"))
+		}
+		if awsConfig.DiskType == "" {
+			awsConfig.DiskType = fold("diskType", "volumeType", "rootVolumeType")
+		}
+	}
+
+	// Control-plane and worker sizes at the provider level (environment
+	// clusterConfig `controlPlaneMachineType` / `machineType` still win; see
+	// provider.ControlPlaneSize and provider.WorkerSize).
+	awsConfig.ControlPlaneInstanceType = provider.ConfigString(config, provider.KeyControlPlaneMachineType, "controlPlaneInstanceType")
+	awsConfig.WorkerInstanceType = provider.ConfigString(config, provider.KeyWorkerMachineType, "workerInstanceType")
+
+	// Network. These were hardcoded (10.0.0.0/16 with 10.0.1.0/24 and
+	// 10.0.2.0/24, in the region's first two zones) while the shipped configs
+	// carried a `vpcConfig` block that nothing read. The defaults are exactly the
+	// old literals, so a config without these keys — or with the shipped
+	// vpcConfig, which states the same values — builds the same network.
+	vpc, _ := config["vpcConfig"].(map[string]interface{})
+	awsConfig.VPCConfig.CIDR = provider.ConfigString(map[string]interface{}{"config": vpc}, "cidr")
+	if awsConfig.VPCConfig.CIDR == "" {
+		awsConfig.VPCConfig.CIDR = provider.ConfigString(config, "vpcCidr")
+	}
+	awsConfig.VPCConfig.SubnetCIDRs = provider.ConfigStringList(map[string]interface{}{"config": vpc}, "subnetCidrs")
+	if len(awsConfig.VPCConfig.SubnetCIDRs) == 0 {
+		awsConfig.VPCConfig.SubnetCIDRs = provider.ConfigStringList(config, "subnetCidrs")
+	}
+	awsConfig.AvailabilityZones = provider.ConfigStringList(map[string]interface{}{"config": vpc}, "availabilityZones", "zones")
+	if len(awsConfig.AvailabilityZones) == 0 {
+		awsConfig.AvailabilityZones = provider.ConfigStringList(config, "availabilityZones", "zones")
+	}
+
 	// Authentication Method 1: Access Key + Secret Key
 	if accessKey, ok := config["accessKeyId"].(string); ok {
 		awsConfig.AccessKeyID = accessKey
@@ -268,6 +321,17 @@ type Config struct {
 	VPCConfig    VPCConfig           `json:"vpcConfig"`
 	DomainConfig *types.DomainConfig `json:"domainConfig,omitempty"`
 
+	// AvailabilityZones are the zones of the public subnet (where every node
+	// runs) and the private one (internal load balancers). Empty = the
+	// region's first two.
+	AvailabilityZones []string `json:"availabilityZones,omitempty"`
+
+	// ControlPlaneInstanceType and WorkerInstanceType are the provider-level
+	// sizes (`controlPlaneMachineType` / `workerMachineType`). An environment's
+	// clusterConfig wins over both; the defaults are in provider.MachineDefaultsFor.
+	ControlPlaneInstanceType string `json:"controlPlaneInstanceType,omitempty"`
+	WorkerInstanceType       string `json:"workerInstanceType,omitempty"`
+
 	// Node image. All four are optional; together they replace what used to be a
 	// hardcoded Ubuntu 22.04 lookup that no configuration could reach — so a
 	// cluster could not be pinned to a known-good image, could not follow the
@@ -305,6 +369,59 @@ type Config struct {
 type VPCConfig struct {
 	CIDR        string   `json:"cidr"`
 	SubnetCIDRs []string `json:"subnetCidrs"`
+}
+
+// Network defaults: the literals this provider always used.
+const (
+	defaultVPCCIDR           = "10.0.0.0/16"
+	defaultPublicSubnetCIDR  = "10.0.1.0/24"
+	defaultPrivateSubnetCIDR = "10.0.2.0/24"
+)
+
+// vpcCIDR is the cluster VPC's CIDR.
+func (c *Config) vpcCIDR() string {
+	if c != nil && strings.TrimSpace(c.VPCConfig.CIDR) != "" {
+		return strings.TrimSpace(c.VPCConfig.CIDR)
+	}
+	return defaultVPCCIDR
+}
+
+// subnetCIDRs are the public subnet (every node) and the private one (internal
+// load balancers).
+func (c *Config) subnetCIDRs() (public, private string) {
+	public, private = defaultPublicSubnetCIDR, defaultPrivateSubnetCIDR
+	if c == nil {
+		return
+	}
+	if len(c.VPCConfig.SubnetCIDRs) > 0 && c.VPCConfig.SubnetCIDRs[0] != "" {
+		public = c.VPCConfig.SubnetCIDRs[0]
+	}
+	if len(c.VPCConfig.SubnetCIDRs) > 1 && c.VPCConfig.SubnetCIDRs[1] != "" {
+		private = c.VPCConfig.SubnetCIDRs[1]
+	}
+	return
+}
+
+// controlPlaneType is the control plane's instance type for a spec.
+func (c *Config) controlPlaneType(spec *types.ClusterSpec) string {
+	fromSpec, fromProvider := "", ""
+	if spec != nil {
+		fromSpec = spec.ControlPlane.InstanceType
+	}
+	if c != nil {
+		fromProvider = c.ControlPlaneInstanceType
+	}
+	return provider.ControlPlaneSize("aws", fromSpec, fromProvider, "")
+}
+
+// workerType is a worker's instance type: the node group's own, else what the
+// group's existing members run (scale paths), else the configured/default size.
+func (c *Config) workerType(groupType, membersType string, managed bool) string {
+	fromProvider := ""
+	if c != nil {
+		fromProvider = c.WorkerInstanceType
+	}
+	return provider.WorkerSize("aws", managed, groupType, membersType, fromProvider, "")
 }
 
 // NewProvider creates a new AWS provider instance

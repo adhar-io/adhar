@@ -44,8 +44,9 @@ func init() {
 	createCmd.Flags().StringP("region", "r", "local", "Provider region")
 	createCmd.Flags().StringP("version", "", globals.DefaultKubernetesVersion, "Kubernetes version")
 	createCmd.Flags().IntP("control-plane-replicas", "", 1, "Number of control plane nodes")
-	createCmd.Flags().IntP("worker-replicas", "", 3, "Number of worker nodes")
-	createCmd.Flags().StringP("instance-type", "", "m5.large", "Instance type for nodes")
+	createCmd.Flags().IntP("worker-replicas", "", -1, "Number of worker nodes (default: the provider's default, 2 on every cloud)")
+	createCmd.Flags().StringP("instance-type", "", "", "Worker instance type (default: providers.<name>.config workerMachineType, else the provider's built-in default)")
+	createCmd.Flags().StringP("control-plane-instance-type", "", "", "Control-plane instance type (default: providers.<name>.config controlPlaneMachineType, else the provider's built-in default)")
 	createCmd.Flags().StringP("file", "f", "", "Path to configuration file")
 	createCmd.Flags().BoolP("setup-kubeconfig", "", true, "Automatically setup kubeconfig after cluster creation")
 	createCmd.Flags().StringP("kubeconfig-path", "", "", "Custom path for kubeconfig (default: ~/.kube/config)")
@@ -98,23 +99,17 @@ func createCluster(cmd *cobra.Command, name string) error {
 	controlPlaneReplicas, _ := cmd.Flags().GetInt("control-plane-replicas")
 	workerReplicas, _ := cmd.Flags().GetInt("worker-replicas")
 
+	// Sizes: the flags when given, otherwise EMPTY, so the provider resolves
+	// them exactly as `adhar up` does — providers.<name>.config
+	// controlPlaneMachineType / workerMachineType, then the legacy size key,
+	// then the one defaults table (pfactory.MachineDefaultsFor). This command
+	// used to carry a third set of per-cloud literals (t3.medium, e2-medium,
+	// Standard_B2s, s-2vcpu-2gb, g3.medium — all 2 vCPU or less) and gave the
+	// control plane the WORKER's size.
 	instanceType, _ := cmd.Flags().GetString("instance-type")
-	// Use default instance type based on provider
-	if !cmd.Flags().Changed("instance-type") {
-		switch providerName {
-		case "aws":
-			instanceType = "t3.medium"
-		case "gcp":
-			instanceType = "e2-medium"
-		case "azure":
-			instanceType = "Standard_B2s"
-		case "digitalocean":
-			instanceType = "s-2vcpu-2gb"
-		case "civo":
-			instanceType = "g3.medium"
-		default:
-			instanceType = "s-1vcpu-2gb" // Default to DigitalOcean basic size
-		}
+	controlPlaneInstanceType, _ := cmd.Flags().GetString("control-plane-instance-type")
+	if workerReplicas < 0 {
+		workerReplicas = pfactory.DefaultWorkerCount(providerName, true)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Creating cluster '%s' with provider '%s'...\n", name, providerName)
@@ -174,7 +169,7 @@ func createCluster(cmd *cobra.Command, name string) error {
 		Version:  version,
 		ControlPlane: ptypes.ControlPlaneSpec{
 			Replicas:         controlPlaneReplicas,
-			InstanceType:     instanceType,
+			InstanceType:     controlPlaneInstanceType,
 			HighAvailability: controlPlaneReplicas > 1,
 		},
 		NodeGroups: []ptypes.NodeGroupSpec{

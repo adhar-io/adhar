@@ -5,8 +5,8 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: libredb-studio
 category: data
-version: "0.1.63"          # upstream chart version (oci://ghcr.io/libredb/charts/libredb-studio)
-appVersion: "0.15.0"       # ghcr.io/libredb/libredb-studio:0.15.0
+version: "0.1.101"         # upstream chart version (oci://ghcr.io/libredb/charts/libredb-studio)
+appVersion: "1.0.0"        # ghcr.io/libredb/libredb-studio:1.0.0
 description: LibreDB Studio browser SQL IDE over every platform database, with native Keycloak OIDC and pre-provisioned connections.
 maintainer:
   name: Adhar Platform Team

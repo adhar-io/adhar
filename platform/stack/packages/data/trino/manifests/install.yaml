@@ -60,7 +60,7 @@ data:
   jvm.config: |
     -server
     -agentpath:/usr/lib/trino/bin/libjvmkill.so
-    -Xmx8G
+    -Xmx2G
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M
     -XX:+ExplicitGCInvokesConcurrent
@@ -86,6 +86,8 @@ data:
     query.max-memory=4GB
     query.max-memory-per-node=1GB
     discovery.uri=http://localhost:8080
+    web-ui.authentication.type=fixed
+    web-ui.user=adhar-ui
 
   log.properties: |
     io.trino=INFO
@@ -127,7 +129,7 @@ data:
   jvm.config: |
     -server
     -agentpath:/usr/lib/trino/bin/libjvmkill.so
-    -Xmx8G
+    -Xmx2G
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M
     -XX:+ExplicitGCInvokesConcurrent
@@ -254,7 +256,7 @@ spec:
     metadata:
       annotations:
         checksum/catalog-config: 03591c7a519ba131f59c34349ac071649a610510e8ceaa96dd8cd858d705cfb5
-        checksum/coordinator-config: d5d26c7d2d5d92ad9dcda45ff4eb28300d720333168a8f7ca3e4b48f74416780
+        checksum/coordinator-config: e21517f7a54e42c5fec960d057c00c962c60d8027583c1c978c9a225c695214b
 
       labels:
         helm.sh/chart: trino-1.42.2
@@ -342,7 +344,9 @@ spec:
           lifecycle:
             {}
           resources:
-            {}
+            requests:
+              cpu: 100m
+              memory: 1Gi
 ---
 # Source: trino/templates/deployment-worker.yaml
 apiVersion: apps/v1
@@ -373,7 +377,7 @@ spec:
     metadata:
       annotations:
         checksum/catalog-config: 03591c7a519ba131f59c34349ac071649a610510e8ceaa96dd8cd858d705cfb5
-        checksum/worker-config: 622ccec3da870ab972c40d5d41e608c79f5d31deea213716c1acdfa55b972d70
+        checksum/worker-config: a505ee15c7e17b59e36ce690fc96a56ec74ae9f95927742564806ddb5aee1eda
       labels:
         helm.sh/chart: trino-1.42.2
         app.kubernetes.io/name: trino
@@ -459,7 +463,9 @@ spec:
             successThreshold: 1
           lifecycle:
           resources:
-            {}
+            requests:
+              cpu: 100m
+              memory: 1Gi
 ---
 # Source: trino/templates/tests/test-connection.yaml
 apiVersion: v1

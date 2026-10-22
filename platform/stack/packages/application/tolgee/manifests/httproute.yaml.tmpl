@@ -1,0 +1,75 @@
+# Tolgee routed through the Cilium Gateway (adhar-gateway) at tolgee.<host>.
+# TLS terminates at the Gateway (adhar-cert). Rendered at seed time (the
+# redirect ports below); the adhar.localtest.me convention is rewritten to the
+# platform's real domain.
+#
+# NO oauth2-proxy in front: Tolgee signs people in with Keycloak itself
+# (keycloak-client.yaml), keeps its session as a JWT in localStorage, and
+# serves the CLI and the runtime SDKs on the same host with API keys.
+#
+# ONE click remains on the way in. Tolgee's sign-in page draws a
+# "Log in with OAuth2" button whose URL carries a `state` the page generates and
+# keeps in localStorage, and the callback page rejects any return whose state it
+# did not store — so the edge cannot start the Keycloak flow on Tolgee's behalf
+# the way the Coder and Plane routes do. Keycloak already holds the session, so
+# the click returns without a password prompt.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tolgee
+  namespace: adhar-system
+  # Wave 8: after the Service it points at (wave 7).
+  annotations: {argocd.argoproj.io/sync-wave: "8"}
+  labels:
+    app.kubernetes.io/name: tolgee
+    app.kubernetes.io/part-of: tolgee
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - tolgee.adhar.localtest.me
+  rules:
+    # Native SIGN-UP is closed. Registrations must stay "allowed" for Keycloak
+    # users to get an account on first sign-in, and Tolgee has no switch for
+    # "SSO sign-up only" while password login is on, so the edge refuses the
+    # password sign-up endpoint and its page. A POST answered with 302 is
+    # re-issued by the browser as a GET to /login: no account is created.
+    - matches:
+        - path:
+            type: Exact
+            value: /api/public/sign_up
+        - path:
+            type: PathPrefix
+            value: /sign_up
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /login
+            # Stated, or Gateway API defaults it to 443 and a local platform on
+            # 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
+    # Spring Boot's actuator (health, metrics) is for the kubelet and
+    # Prometheus, which reach it in-cluster; it has no business on the edge.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /actuator
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /
+            port: {{ .Port }}
+            statusCode: 302
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: tolgee
+          port: 8080

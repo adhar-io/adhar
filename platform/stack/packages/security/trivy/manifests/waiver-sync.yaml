@@ -67,6 +67,9 @@ spec:
     spec:
       backoffLimit: 2
       ttlSecondsAfterFinished: 600
+      # Runs every five minutes under Forbid: a run that hangs (an apiserver
+      # call that never returns) would block every later run indefinitely.
+      activeDeadlineSeconds: 240
       template:
         spec:
           serviceAccountName: trivy-waiver-sync

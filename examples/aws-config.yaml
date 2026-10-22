@@ -150,6 +150,22 @@ providers:
         - 10.0.2.0/24
 
 # At least one template must exist; environments inherit from one by name.
+# ─── Sizing keys (optional; see examples/config.yaml "Machine sizing") ───────
+# Under providers.aws (values shown are the built-in defaults):
+#
+#   config:
+#     controlPlaneMachineType: m6i.xlarge   # 4 vCPU / 16 GiB; the environment's
+#                                           # clusterConfig controlPlaneMachineType wins
+#     workerMachineType: r6i.xlarge         # any node group that names no size,
+#                                           # and scale-ups of an empty group
+#     diskSizeGb: 256                       # the environment's diskSizeGb wins
+#     diskType: gp3
+#   vpcConfig:
+#     availabilityZones: [ap-southeast-1a, ap-southeast-1b]   # default: the region's first two
+#
+# `adhar config validate` prints what each environment will build and warns when a
+# control plane is below 4 vCPU (r6i.large, used below, is 2).
+
 environmentTemplates:
   dev-defaults:
     clusterConfig:
@@ -190,6 +206,10 @@ environmentTemplates:
 # production-type one among them, because it has to carry production's load.
 # `clusterConfig` and `autoscaling` on a namespace environment describe that
 # shared cluster; on a `cluster` environment they describe its own.
+# Additional node groups beside `workers` go in an environment's `nodeGroups:` —
+#   nodeGroups:
+#     - {name: highmem, machineType: r6i.2xlarge, count: 1}
+# (validated: DNS-1123 name <= 20 chars, count >= 1; see examples/config.yaml).
 environments:
   dev:
     isolation: namespace

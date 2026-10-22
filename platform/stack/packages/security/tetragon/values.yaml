@@ -19,6 +19,13 @@ tetragon:
   # the process became; both are a few bytes per event.
   enableProcessCred: true
   enableProcessNs: true
+  # One agent per node (8 on the DigitalOcean cluster). The chart ships no
+  # resources, so each took the namespace's 64Mi default request while holding
+  # ~175 MiB (peak 194 MiB, 2026-10-22): ~0.9 GiB across the cluster that the
+  # scheduler could not see. Request only — an eBPF agent killed at a limit
+  # leaves its kprobes unenforced until it restarts.
+  resources:
+    requests: {cpu: 20m, memory: 224Mi}
 
 tetragonOperator:
   enabled: true

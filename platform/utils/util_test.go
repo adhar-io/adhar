@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"net/http"
 	"strconv"
 	"testing"
 
@@ -133,5 +134,25 @@ func TestSetPackageLabels(t *testing.T) {
 
 			assert.Equal(t, tc.expectedLabels, obj.GetLabels())
 		})
+	}
+}
+
+// Every GetHttpClient call must share one connection pool that closes idle
+// connections: a Transport per call, with no idle timeout, leaked keep-alive
+// connections for the life of the in-cluster manager.
+func TestGetHttpClientSharesOneBoundedConnectionPool(t *testing.T) {
+	a, b := GetHttpClient(), GetHttpClient()
+	if a.Transport != b.Transport {
+		t.Fatal("each GetHttpClient call builds its own Transport; discarded ones leak their idle connections")
+	}
+	tr, ok := a.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("unexpected transport %T", a.Transport)
+	}
+	if tr.IdleConnTimeout <= 0 {
+		t.Fatal("idle connections are never closed")
+	}
+	if a.Timeout <= 0 {
+		t.Fatal("client has no overall timeout")
 	}
 }

@@ -17,6 +17,29 @@ cert-manager:
 grafana:
   deploymentStrategy:
     type: Recreate
+  # Single sign-on without a second login. OnCall's UI is a plugin inside this
+  # Grafana, which sits behind the oncall oauth2-proxy (manifests/sso.yaml): a
+  # person reaches it only after Keycloak, and the proxy forwards who they are
+  # (--pass-user-headers). Grafana then drew its OWN login form on top, so a
+  # signed-in person was asked for a password nobody had given them. auth.proxy
+  # trusts the proxy's identity headers and signs the user up on first visit.
+  # The chart's `domain = helm-testing-grafana` also made every absolute URL
+  # Grafana built point at a host that does not exist.
+  grafana.ini:
+    server:
+      domain: oncall.adhar.localtest.me
+      root_url: https://oncall.adhar.localtest.me:8443/grafana/
+    auth.proxy:
+      enabled: true
+      # Keyed on the Keycloak username, which every account has; an account with
+      # no email would otherwise reach Grafana unauthenticated.
+      header_name: X-Forwarded-Preferred-Username
+      header_property: username
+      headers: "Email:X-Forwarded-Email Name:X-Forwarded-Preferred-Username"
+      auto_sign_up: true
+      enable_login_token: false
+    users:
+      auto_assign_org_role: Editor
 
 # Bitnami pruned the "-debian-11-rNN" builds this chart's bundled subcharts pin,
 # so mariadb, rabbitmq and redis all failed with ImagePullBackOff on a fresh
@@ -41,3 +64,13 @@ rabbitmq:
 redis:
   image:
     repository: bitnamilegacy/redis
+
+# The chart ships no resources for OnCall's own processes, so both took the
+# namespace's 64Mi default request while the Django engine held ~310 MiB (peak
+# 335) and the Celery worker ~250 MiB (2026-10-22). Requests only.
+engine:
+  resources:
+    requests: {cpu: 20m, memory: 384Mi}
+celery:
+  resources:
+    requests: {cpu: 20m, memory: 320Mi}

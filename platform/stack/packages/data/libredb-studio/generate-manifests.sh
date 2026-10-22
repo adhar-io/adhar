@@ -2,10 +2,10 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-# Chart 0.1.63 -> app 0.15.0 (ghcr.io/libredb/libredb-studio:0.15.0). The chart
+# Chart 0.1.101 -> app 1.0.0 (ghcr.io/libredb/libredb-studio:1.0.0). The chart
 # is published ONLY as an OCI artifact (oci://ghcr.io/libredb/charts/...);
 # there is no https Helm repository to `helm repo add`.
-CHART_VERSION="0.1.63"
+CHART_VERSION="0.1.101"
 
 echo "# LIBREDB STUDIO INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/libredb-studio/generate-manifests.sh'" >>${INSTALL_YAML}

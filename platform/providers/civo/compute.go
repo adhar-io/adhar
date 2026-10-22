@@ -214,9 +214,13 @@ func (p *Provider) ensureComputeFirewall(clusterName, networkID string) (string,
 
 // computeDiskImageID resolves the Ubuntu 22.04 disk image for instances.
 func (p *Provider) computeDiskImageID() (string, error) {
-	image, err := p.client.FindDiskImage(computeDiskImage)
+	name := computeDiskImage
+	if p.config.ComputeImage != "" {
+		name = p.config.ComputeImage
+	}
+	image, err := p.client.FindDiskImage(name)
 	if err != nil {
-		return "", fmt.Errorf("failed to find disk image %q: %w", computeDiskImage, err)
+		return "", fmt.Errorf("failed to find disk image %q: %w", name, err)
 	}
 	return image.ID, nil
 }
@@ -295,7 +299,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	// per-account and modest by default; without this the create provisions some
 	// of the nodes, fails on the one that crosses a limit, and leaves a half-built
 	// cluster behind.
-	if err := p.checkQuota(plannedInstanceSizes(spec, p.config.Size, p.config.DefaultNodeCount)); err != nil {
+	if err := p.checkQuota(plannedInstanceSizes(spec, p.config.controlPlaneSize(nil), p.config.workerSize("", "", false), p.config.DefaultNodeCount)); err != nil {
 		return nil, err
 	}
 
@@ -321,10 +325,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	}
 
 	// Control-plane instance
-	masterSize := spec.ControlPlane.InstanceType
-	if masterSize == "" {
-		masterSize = p.config.Size
-	}
+	masterSize := p.config.controlPlaneSize(spec)
 	master, err := p.createComputeInstance(ctx, fmt.Sprintf("adhar-%s-master-1", name), networkID, firewallID, sshKeyID, imageID, masterSize, userData, []string{tag, computeMasterTag})
 	if err != nil {
 		return nil, err
@@ -337,10 +338,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	}
 	var workers []workerReq
 	for _, ng := range spec.NodeGroups {
-		size := ng.InstanceType
-		if size == "" {
-			size = p.config.Size
-		}
+		size := p.config.workerSize(ng.InstanceType, "", false)
 		count := ng.Replicas
 		if count <= 0 {
 			count = 1
@@ -351,7 +349,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	}
 	if len(workers) == 0 {
 		for i := 1; i <= 2; i++ {
-			workers = append(workers, workerReq{fmt.Sprintf("adhar-%s-worker-%d", name, i), p.config.Size})
+			workers = append(workers, workerReq{fmt.Sprintf("adhar-%s-worker-%d", name, i), p.config.workerSize("", "", false)})
 		}
 	}
 
@@ -795,13 +793,19 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		if err != nil {
 			return err
 		}
-		size := p.config.Size
-		for _, inst := range byName {
-			if inst.Size != "" {
-				size = inst.Size
+		membersSize := ""
+		names := make([]string, 0, len(byName))
+		for n := range byName {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			if byName[n].Size != "" {
+				membersSize = byName[n].Size
 				break
 			}
 		}
+		size := p.config.workerSize("", membersSize, false)
 		// The node-prep script of the running control plane's minor, so a
 		// scaled cluster cannot skew.
 		minor := provider.K8sMinorFromVersion("")

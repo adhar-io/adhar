@@ -67,6 +67,12 @@ type ConfigProviderConfig struct {
 	Kubeconfig  string `mapstructure:"kubeconfig" json:"kubeconfig,omitempty"`
 	KubeContext string `mapstructure:"kubeContext" json:"kubeContext,omitempty"`
 
+	// VPCConfig is the provider-level network block (`vpcConfig: {cidr,
+	// subnetCidrs}`) the AWS configs carry. It had no field here, so mapstructure
+	// dropped it and the AWS provider built its hardcoded network whatever the
+	// file said; it now reaches the provider through ToProviderMap.
+	VPCConfig map[string]interface{} `mapstructure:"vpcConfig" json:"vpcConfig,omitempty"`
+
 	// AWS authentication
 	AccessKeyID     string `mapstructure:"accessKeyId" json:"accessKeyId"`
 	SecretAccessKey string `mapstructure:"secretAccessKey" json:"secretAccessKey"`
@@ -112,6 +118,10 @@ type EnvironmentConfig struct {
 	// a fixed `nodeCount`: the cluster is created with nodeCount workers and
 	// the in-cluster node autoscaler grows/shrinks it between min and max.
 	Autoscaling *AutoscalingConfig `mapstructure:"autoscaling" json:"autoscaling,omitempty"`
+	// NodeGroups adds node groups BESIDES the primary `workers` group (which
+	// clusterConfig `machineType`/`nodeSize` and `nodeCount` describe) — a GPU
+	// or high-memory pool, say. When set it replaces the template's list.
+	NodeGroups []NodeGroupConfig `mapstructure:"nodeGroups" json:"nodeGroups,omitempty"`
 	// Isolation decides what this environment physically IS:
 	//
 	//   namespace (default) — a namespace on the one shared platform cluster.
@@ -146,6 +156,41 @@ type EnvironmentTemplateConfig struct {
 	// Autoscaling is the default for every environment using this template;
 	// an environment's own block wins.
 	Autoscaling *AutoscalingConfig `mapstructure:"autoscaling" json:"autoscaling,omitempty"`
+	// NodeGroups is the default list of additional node groups; an
+	// environment's own list replaces it.
+	NodeGroups []NodeGroupConfig `mapstructure:"nodeGroups" json:"nodeGroups,omitempty"`
+}
+
+// PrimaryNodeGroupName is the node group every cluster has. Its size and count
+// come from clusterConfig (`machineType`/`nodeSize`, `nodeCount`) and the
+// `autoscaling` block, so `nodeGroups` may not redefine it — two places saying
+// the same thing is how they come to disagree.
+const PrimaryNodeGroupName = "workers"
+
+// NodeGroupConfig is one additional node group: its own machine type, count,
+// labels and taints. The OS disk, image and network are the provider's.
+type NodeGroupConfig struct {
+	// Name is a DNS-1123 label, at most 20 characters (it becomes part of every
+	// VM name, and AKS pool names allow 12 after normalisation).
+	Name string `mapstructure:"name" json:"name"`
+	// MachineType is the group's instance type / VM size / droplet slug.
+	// Empty = the provider's worker default (providers.<name>.config
+	// workerMachineType, else the built-in default).
+	MachineType string `mapstructure:"machineType" json:"machineType,omitempty"`
+	// Count is how many nodes the group starts with (at least 1).
+	Count int `mapstructure:"count" json:"count"`
+	// Labels and Taints are applied by managed node pools (EKS, AKS, GKE,
+	// DOKS, Civo). In compute mode they are recorded on the spec but kubeadm
+	// joins do not yet apply them; label/taint those nodes after `adhar up`.
+	Labels map[string]string `mapstructure:"labels" json:"labels,omitempty"`
+	Taints []TaintConfig     `mapstructure:"taints" json:"taints,omitempty"`
+}
+
+// TaintConfig is a Kubernetes node taint.
+type TaintConfig struct {
+	Key    string `mapstructure:"key" json:"key"`
+	Value  string `mapstructure:"value" json:"value,omitempty"`
+	Effect string `mapstructure:"effect" json:"effect"`
 }
 
 // AutoscalingConfig is the config.yaml form of the node autoscaler settings
@@ -207,6 +252,9 @@ type ResolvedEnvironmentConfig struct {
 	// Autoscaling is the environment's node autoscaler configuration, resolved
 	// from the environment block with the template as fallback.
 	Autoscaling *AutoscalingConfig `json:"autoscaling,omitempty"`
+	// NodeGroups are the additional node groups, from the environment or else
+	// its template.
+	NodeGroups []NodeGroupConfig `json:"nodeGroups,omitempty"`
 	// ResolvedIsolation is `namespace` or `cluster`, defaulted and validated.
 	ResolvedIsolation string `json:"resolvedIsolation"`
 	// ProviderConfig is the full provider block from `providers.<name>` for the
@@ -787,6 +835,15 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 	if resolved.Autoscaling == nil && envConfig.Template != "" {
 		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
 			resolved.Autoscaling = template.Autoscaling
+		}
+	}
+
+	// Resolve additional node groups the same way: the environment's list
+	// replaces the template's (a list cannot be merged meaningfully).
+	resolved.NodeGroups = envConfig.NodeGroups
+	if len(resolved.NodeGroups) == 0 && envConfig.Template != "" {
+		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
+			resolved.NodeGroups = template.NodeGroups
 		}
 	}
 

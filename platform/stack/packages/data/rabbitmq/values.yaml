@@ -18,9 +18,13 @@ ingress:
 service:
   type: ClusterIP
 
+# Measured ~105 MiB, peak 175 MiB over three hours (2026-10-22). The request is
+# what the scheduler reserves; RabbitMQ's memory alarm is computed from the
+# LIMIT (vm_memory_high_watermark), so lowering the request changes nothing
+# about when the broker applies back-pressure.
 resources:
   requests:
     cpu: 250m
-    memory: 512Mi
+    memory: 256Mi
   limits:
     memory: 1Gi

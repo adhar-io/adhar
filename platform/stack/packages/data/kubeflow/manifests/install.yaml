@@ -2171,7 +2171,7 @@ spec:
         resources:
           requests:
             cpu: 250m
-            memory: 500Mi
+            memory: 192Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -2240,7 +2240,7 @@ spec:
         resources:
           requests:
             cpu: 120m
-            memory: 500Mi
+            memory: 96Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -2526,7 +2526,7 @@ spec:
         resources:
           requests:
             cpu: 30m
-            memory: 500Mi
+            memory: 448Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -2583,7 +2583,7 @@ spec:
         resources:
           requests:
             cpu: 100m
-            memory: 800Mi
+            memory: 512Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
