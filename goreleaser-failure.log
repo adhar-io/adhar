@@ -2,65 +2,182 @@
 [1;94m  •[0m [1mloading environment variables[0m
 [1;94m    •[0m using token from [48;2;36;36;36m [0m[38;2;237;86;121;48;2;36;36;36m$GITHUB_TOKEN[0m[48;2;36;36;36m [0m
 [1;94m  •[0m [1mgetting and validating git state[0m
-[1;94m    •[0m git state                                      [1;94mcommit[0m=537d84291831d2fefb5b1baa05872b2766f785d1 [1;94mbranch[0m=HEAD [1;94mcurrent_tag[0m=v0.1.1 [1;94mprevious_tag[0m=v0.1.0 [1;94mdirty[0m=false
+[1;94m    •[0m git state                                      [1;94mcommit[0m=3999914b9f3b78ec756be6cebde533800df92ed9 [1;94mbranch[0m=HEAD [1;94mcurrent_tag[0m=v0.1.52 [1;94mprevious_tag[0m=v0.1.51 [1;94mdirty[0m=false
 [1;94m  •[0m [1mparsing tag[0m
 [1;94m  •[0m [1msetting defaults[0m
 [1;94m  •[0m [1mrunning before hooks[0m
 [1;94m    •[0m running                                        [1;94mhook[0m=go mod tidy
 [1;94m    •[0m running                                        [1;94mhook[0m=go generate ./...
+[1;94m    •[0m running                                        [1;94mhook[0m=make build-control-plane VERSION=v0.1.52
 [1;94m  •[0m [1mensuring distribution directory[0m
 [1;94m  •[0m [1msetting up metadata[0m
 [1;94m  •[0m [1mwriting release metadata[0m
 [1;94m  •[0m [1mloading go mod information[0m
 [1;94m  •[0m [1mbuild prerequisites[0m
 [1;94m  •[0m [1mbuilding binaries[0m
-[1;94m    •[0m building                                       [1;94mbinary[0m=dist/adhar_darwin_arm64_v8.0/adhar
 [1;94m    •[0m building                                       [1;94mbinary[0m=dist/adhar_linux_arm64_v8.0/adhar
 [1;94m    •[0m building                                       [1;94mbinary[0m=dist/adhar_linux_amd64_v1/adhar
 [1;94m    •[0m building                                       [1;94mbinary[0m=dist/adhar_darwin_amd64_v1/adhar
+[1;94m    •[0m building                                       [1;94mbinary[0m=dist/adhar_darwin_arm64_v8.0/adhar
 [1;94m    •[0m building                                       [1;94mbinary[0m=dist/adhar_windows_amd64_v1/adhar.exe
-[1;94m    •[0m [3;2mtook: 11m18s[0m
+[1;94m    •[0m [3;2mtook: 12m14s[0m
 [1;94m  •[0m [1mgenerating changelog[0m
 [1;94m  •[0m [1marchives[0m
-[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.1-darwin-arm64.tar.gz
-[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.1-linux-amd64.tar.gz
-[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.1-windows-amd64.zip
-[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.1-linux-arm64.tar.gz
-[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.1-darwin-amd64.tar.gz
-[1;94m    •[0m [3;2mtook: 22s[0m
+[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.52-darwin-amd64.tar.gz
+[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.52-darwin-arm64.tar.gz
+[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.52-windows-amd64.zip
+[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.52-linux-amd64.tar.gz
+[1;94m    •[0m archiving                                      [1;94mname[0m=dist/adhar-0.1.52-linux-arm64.tar.gz
+[1;94m    •[0m [3;2mtook: 31s[0m
+[1;94m  •[0m [1mcataloging artifacts[0m
+[1;94m    •[0m cataloging                                     [1;94mcmd[0m=syft [1;94martifact[0m=dist/adhar-0.1.52-darwin-arm64.tar.gz [1;94msbom[0m=[adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json]
+[1;94m    •[0m cataloging                                     [1;94mcmd[0m=syft [1;94martifact[0m=dist/adhar-0.1.52-darwin-amd64.tar.gz [1;94msbom[0m=[adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json]
+[1;94m    •[0m cataloging                                     [1;94mcmd[0m=syft [1;94martifact[0m=dist/adhar-0.1.52-windows-amd64.zip [1;94msbom[0m=[adhar-0.1.52-windows-amd64.zip.spdx.sbom.json]
+[1;94m    •[0m cataloging                                     [1;94mcmd[0m=syft [1;94martifact[0m=dist/adhar-0.1.52-linux-amd64.tar.gz [1;94msbom[0m=[adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json]
+[1;94m    •[0m cataloging                                     [1;94mcmd[0m=syft [1;94martifact[0m=dist/adhar-0.1.52-linux-arm64.tar.gz [1;94msbom[0m=[adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json]
 [1;94m  •[0m [1mcalculating checksums[0m
+[1;94m  •[0m [1msigning artifacts[0m
+[1;94m    •[0m signing                                        [1;94mcmd[0m=cosign [1;94martifact[0m=adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json [1;94msignature[0m=dist/adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json.sig [1;94mcertificate[0m=dist/adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json.pem
+[1;94m    •[0m signing                                        [1;94mcmd[0m=cosign [1;94martifact[0m=checksums.txt [1;94msignature[0m=dist/checksums.txt.sig [1;94mcertificate[0m=dist/checksums.txt.pem
+Using payload from: dist/checksums.txt
+Generating ephemeral keys...
+Using payload from: dist/adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json
+Generating ephemeral keys...
+Retrieving signed certificate...
+Retrieving signed certificate...
+Successfully verified SCT...
+
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use, available at https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later, and is subject to the Immutable Record notice at https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+
+By typing 'y', you attest that (1) you are not submitting the personal data of any other person; and (2) you understand and agree to the statement and the Agreement terms at the URLs listed above.
+Successfully verified SCT...
+
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use, available at https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later, and is subject to the Immutable Record notice at https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+
+By typing 'y', you attest that (1) you are not submitting the personal data of any other person; and (2) you understand and agree to the statement and the Agreement terms at the URLs listed above.
+tlog entry created with index: 3387345183
+Wrote signature to file dist/adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json.sig
+Wrote certificate to file dist/adhar-0.1.52-darwin-arm64.tar.gz.spdx.sbom.json.pem
+[1;94m    •[0m signing                                        [1;94mcmd[0m=cosign [1;94martifact[0m=adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json [1;94msignature[0m=dist/adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json.sig [1;94mcertificate[0m=dist/adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json.pem
+Using payload from: dist/adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json
+Generating ephemeral keys...
+Retrieving signed certificate...
+Successfully verified SCT...
+
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use, available at https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later, and is subject to the Immutable Record notice at https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+
+By typing 'y', you attest that (1) you are not submitting the personal data of any other person; and (2) you understand and agree to the statement and the Agreement terms at the URLs listed above.
+tlog entry created with index: 3387345233
+Wrote signature to file dist/checksums.txt.sig
+Wrote certificate to file dist/checksums.txt.pem
+tlog entry created with index: 3387345882
+Wrote signature to file dist/adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json.sig
+Wrote certificate to file dist/adhar-0.1.52-darwin-amd64.tar.gz.spdx.sbom.json.pem
+[1;94m    •[0m signing                                        [1;94mcmd[0m=cosign [1;94martifact[0m=adhar-0.1.52-windows-amd64.zip.spdx.sbom.json [1;94msignature[0m=dist/adhar-0.1.52-windows-amd64.zip.spdx.sbom.json.sig [1;94mcertificate[0m=dist/adhar-0.1.52-windows-amd64.zip.spdx.sbom.json.pem
+Using payload from: dist/adhar-0.1.52-windows-amd64.zip.spdx.sbom.json
+Generating ephemeral keys...
+Retrieving signed certificate...
+Successfully verified SCT...
+
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use, available at https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later, and is subject to the Immutable Record notice at https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+
+By typing 'y', you attest that (1) you are not submitting the personal data of any other person; and (2) you understand and agree to the statement and the Agreement terms at the URLs listed above.
+tlog entry created with index: 3387348854
+Wrote signature to file dist/adhar-0.1.52-windows-amd64.zip.spdx.sbom.json.sig
+Wrote certificate to file dist/adhar-0.1.52-windows-amd64.zip.spdx.sbom.json.pem
+[1;94m    •[0m signing                                        [1;94mcmd[0m=cosign [1;94martifact[0m=adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json [1;94msignature[0m=dist/adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json.sig [1;94mcertificate[0m=dist/adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json.pem
+Using payload from: dist/adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json
+Generating ephemeral keys...
+Retrieving signed certificate...
+Successfully verified SCT...
+
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use, available at https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later, and is subject to the Immutable Record notice at https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+
+By typing 'y', you attest that (1) you are not submitting the personal data of any other person; and (2) you understand and agree to the statement and the Agreement terms at the URLs listed above.
+tlog entry created with index: 3387354204
+Wrote signature to file dist/adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json.sig
+Wrote certificate to file dist/adhar-0.1.52-linux-amd64.tar.gz.spdx.sbom.json.pem
+[1;94m    •[0m signing                                        [1;94mcmd[0m=cosign [1;94martifact[0m=adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json [1;94msignature[0m=dist/adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json.sig [1;94mcertificate[0m=dist/adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json.pem
+Using payload from: dist/adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json
+Generating ephemeral keys...
+Retrieving signed certificate...
+Successfully verified SCT...
+
+	The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to the Hosted Project Tools Terms of Use, available at https://lfprojects.org/policies/hosted-project-tools-terms-of-use/.
+	Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+	This may include the email address associated with the account with which you authenticate your contractual Agreement.
+	This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later, and is subject to the Immutable Record notice at https://lfprojects.org/policies/hosted-project-tools-immutable-records/.
+
+By typing 'y', you attest that (1) you are not submitting the personal data of any other person; and (2) you understand and agree to the statement and the Agreement terms at the URLs listed above.
+tlog entry created with index: 3387357293
+Wrote signature to file dist/adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json.sig
+Wrote certificate to file dist/adhar-0.1.52-linux-arm64.tar.gz.spdx.sbom.json.pem
+[1;94m    •[0m [3;2mtook: 38s[0m
 [1;94m  •[0m [1mhomebrew tap formula[0m
 [1;94m    •[0m writing                                        [1;94mformula[0m=dist/homebrew/Formula/adhar.rb
 [1;94m  •[0m [1mdocker images[0m
-[1;94m    •[0m building docker image                          [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.1-arm64
-[1;94m    •[0m building docker image                          [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.1-amd64
-[1;94m    •[0m [3;2mtook: 16s[0m
+[1;94m    •[0m building docker image                          [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.52-arm64
+[1;94m    •[0m building docker image                          [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.52-amd64
+[1;94m    •[0m [3;2mtook: 11s[0m
 [1;94m  •[0m [1mpublishing[0m
 [1;94m    •[0m [1mdocker images[0m
-[1;94m      •[0m pushing                                      [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.1-arm64
-[1;94m      •[0m pushed                                       [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.1-arm64 [1;94mdigest[0m=sha256:9923f04d14ece5d8fa0f064bed97b15b7595da2e5e3465a313fa76760c79fae6
-[1;94m      •[0m pushing                                      [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.1-amd64
-[1;94m      •[0m pushed                                       [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.1-amd64 [1;94mdigest[0m=sha256:37abf207cea199ae691791a00c4d674a82937761e2e38d77d456e1b46f9abde4
-[1;94m      •[0m [3;2mtook: 1m15s[0m
-[1;94m    •[0m [1mdocker manifests[0m
-[1;94m      •[0m creating                                     [1;94mmanifest[0m=ghcr.io/adhar-io/adhar:0.1.1 [1;94mimages[0m=[ghcr.io/adhar-io/adhar:0.1.1-amd64@sha256:37abf207cea199ae691791a00c4d674a82937761e2e38d77d456e1b46f9abde4 ghcr.io/adhar-io/adhar:0.1.1-arm64@sha256:9923f04d14ece5d8fa0f064bed97b15b7595da2e5e3465a313fa76760c79fae6]
-[1;94m      •[0m created, pushing                             [1;94mmanifest[0m=ghcr.io/adhar-io/adhar:0.1.1
-[1;94m      •[0m creating                                     [1;94mmanifest[0m=ghcr.io/adhar-io/adhar:latest [1;94mimages[0m=[ghcr.io/adhar-io/adhar:0.1.1-amd64@sha256:37abf207cea199ae691791a00c4d674a82937761e2e38d77d456e1b46f9abde4 ghcr.io/adhar-io/adhar:0.1.1-arm64@sha256:9923f04d14ece5d8fa0f064bed97b15b7595da2e5e3465a313fa76760c79fae6]
-[1;94m      •[0m created, pushing                             [1;94mmanifest[0m=ghcr.io/adhar-io/adhar:latest
-[1;94m    •[0m [1mscm releases[0m
-[1;94m      •[0m releasing                                    [1;94mtag[0m=v0.1.1 [1;94mrepo[0m=adhar-io/adhar
-[1;94m      •[0m created                                      [1;94murl[0m=https://github.com/adhar-io/adhar/releases/tag/untagged-d2e376bb6feee55be0a8
-[1;94m      •[0m uploading to release                         [1;94mfile[0m=dist/adhar-0.1.1-windows-amd64.zip [1;94mname[0m=adhar-0.1.1-windows-amd64.zip
-[1;94m      •[0m uploading to release                         [1;94mfile[0m=dist/adhar-0.1.1-linux-amd64.tar.gz [1;94mname[0m=adhar-0.1.1-linux-amd64.tar.gz
-[1;94m      •[0m uploading to release                         [1;94mfile[0m=dist/adhar-0.1.1-darwin-arm64.tar.gz [1;94mname[0m=adhar-0.1.1-darwin-arm64.tar.gz
-[1;94m      •[0m uploading to release                         [1;94mfile[0m=dist/adhar-0.1.1-linux-arm64.tar.gz [1;94mname[0m=adhar-0.1.1-linux-arm64.tar.gz
-[1;94m      •[0m uploading to release                         [1;94mfile[0m=dist/adhar-0.1.1-darwin-amd64.tar.gz [1;94mname[0m=adhar-0.1.1-darwin-amd64.tar.gz
-[1;94m      •[0m uploading to release                         [1;94mfile[0m=dist/checksums.txt [1;94mname[0m=checksums.txt
-[1;94m      •[0m published                                    [1;94murl[0m=https://github.com/adhar-io/adhar/releases/tag/v0.1.1
-[1;94m      •[0m release published                            [1;94murl[0m=https://github.com/adhar-io/adhar/releases/tag/v0.1.1
-[1;94m    •[0m [1mhomebrew tap formula[0m
-[1;94m  •[0m [3;2mtook: 1m23s[0m
-[1;91m  ⨯[0m [1mrelease failed after 13m22s[0m             
+[1;94m      •[0m pushing                                      [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.52-arm64
+[1;94m      •[0m pushed                                       [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.52-arm64 [1;94mdigest[0m=sha256:c445dd69f367c7bac05bd0c27f0b114471c5039e011b3c6539f623e4cf9442be
+[1;94m      •[0m pushing                                      [1;94mimage[0m=ghcr.io/adhar-io/adhar:0.1.52-amd64
+[1;94m      •[0m [3;2mtook: 15s[0m
+[1;94m  •[0m [3;2mtook: 15s[0m
+[1;91m  ⨯[0m [1mrelease failed after 14m2s[0m              
     [1;91merror[0m=
-  [1;91m  │ [0m1 error occurred:
-  [1;91m  │ [0m	* homebrew tap formula: template: failed to apply "{{ envOrDefault \"HOMEBREW_TOKEN\" \"\" }}": function "envOrDefault" not defined
+  [1;91m  │ [0mdocker images: failed to publish artifacts: failed to push ghcr.io/adhar-io/adhar:0.1.52-amd64 after 1 tries: failed to push ghcr.io/adhar-io/adhar:0.1.52-amd64: exit status 1: unknown blob
+  [1;91m  │ [0mThe push refers to repository [ghcr.io/adhar-io/adhar]
+  [1;91m  │ [0m1ae9e00df793: Preparing
+  [1;91m  │ [0m0762a1f6557d: Preparing
+  [1;91m  │ [0m187cfc6d1e3e: Preparing
+  [1;91m  │ [0mad51d0769d16: Preparing
+  [1;91m  │ [0m4cde6b0bb6f5: Preparing
+  [1;91m  │ [0mbd3cdfae1d3f: Preparing
+  [1;91m  │ [0m6f1cdceb6a31: Preparing
+  [1;91m  │ [0maf5aa97ebe6c: Preparing
+  [1;91m  │ [0m4d049f83d9cf: Preparing
+  [1;91m  │ [0m275a30dd8ce9: Preparing
+  [1;91m  │ [0mf0d0eff4c231: Preparing
+  [1;91m  │ [0m763a77745f27: Preparing
+  [1;91m  │ [0m621c35e751a5: Preparing
+  [1;91m  │ [0m9486261b5a13: Preparing
+  [1;91m  │ [0m275a30dd8ce9: Waiting
+  [1;91m  │ [0mf0d0eff4c231: Waiting
+  [1;91m  │ [0m763a77745f27: Waiting
+  [1;91m  │ [0m621c35e751a5: Waiting
+  [1;91m  │ [0m9486261b5a13: Waiting
+  [1;91m  │ [0mbd3cdfae1d3f: Waiting
+  [1;91m  │ [0maf5aa97ebe6c: Waiting
+  [1;91m  │ [0m6f1cdceb6a31: Waiting
+  [1;91m  │ [0m4d049f83d9cf: Waiting
+  [1;91m  │ [0m4cde6b0bb6f5: Layer already exists
+  [1;91m  │ [0m187cfc6d1e3e: Layer already exists
+  [1;91m  │ [0mad51d0769d16: Layer already exists
+  [1;91m  │ [0m0762a1f6557d: Layer already exists
+  [1;91m  │ [0mbd3cdfae1d3f: Layer already exists
+  [1;91m  │ [0maf5aa97ebe6c: Layer already exists
+  [1;91m  │ [0m4d049f83d9cf: Layer already exists
+  [1;91m  │ [0m6f1cdceb6a31: Layer already exists
+  [1;91m  │ [0m275a30dd8ce9: Layer already exists
+  [1;91m  │ [0m763a77745f27: Layer already exists
+  [1;91m  │ [0mf0d0eff4c231: Layer already exists
+  [1;91m  │ [0m621c35e751a5: Layer already exists
+  [1;91m  │ [0m9486261b5a13: Pushed
