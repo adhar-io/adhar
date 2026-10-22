@@ -138,7 +138,7 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 		"cnpg":      `{"byKey":{},"byNs":{}}`,
 		"hpas":      `{"byTarget":{"prod/Rollout/shop":{"min":2,"max":5}}}`,
 		"pdbs":      `{"byNs":{"prod":[{"app":"shop"}]}}`,
-		"perfcenter": fmt.Sprintf(`{"shop":{"count":4,"tests":["shop-load","shop-soak"],"latest":{"test":"shop-load","trigger":"schedule","verdict":"pass","reasons":"","at":%q}}}`,
+		"perfcenter": fmt.Sprintf(`{"shop":{"count":4,"tests":["shop-load","shop-soak"],"latest":{"test":"shop-load","trigger":"schedule","verdict":"pass","reasons":"","at":%[1]q},"judged":{"test":"shop-load","trigger":"schedule","verdict":"pass","reasons":"","at":%[1]q}},"cart":{"count":2,"tests":["cart-load"],"latest":{"test":"cart-load","trigger":"console","verdict":"","at":%[1]q},"judged":null,"unjudged":2}}`,
 			time.Unix(now-7200, 0).UTC().Format(time.RFC3339)),
 		"gameday": fmt.Sprintf(`{"shop":{"count":2,"experiments":["pod-network-loss"],"latest":{"experiment":"pod-network-loss","verdict":"Pass","probe":"100","at":%q}}}`,
 			time.Unix(now-3600, 0).UTC().Format(time.RFC3339)),
@@ -177,6 +177,7 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 				Name       string
 				Applicable bool
 				Score      float64
+				Detail     string
 			}
 		}
 	}
@@ -222,6 +223,14 @@ func TestTheScorerGradesApplicationsOnPerformanceAndResilience(t *testing.T) {
 		}
 		if _, ok := sig[n]; ok {
 			t.Errorf("%s is applicable on an application no team test or game day targets", n)
+		}
+	}
+	// cart's Performance Center results were recorded with no verdict (the
+	// console recorded its own runs that way until 2026-10-22): never judged,
+	// so neither a pass nor a failure — and the scorecard says why.
+	for _, sg := range cart.Signals {
+		if sg.Name == "perf_center_gate" && (sg.Applicable || !strings.Contains(sg.Detail, "none with a recorded verdict")) {
+			t.Errorf("unjudged Performance Center results should leave perf_center_gate not applicable with a reason; got applicable=%t %q", sg.Applicable, sg.Detail)
 		}
 	}
 	// The promotion gate and the memory-pressure fault the JVM suites run
@@ -287,5 +296,50 @@ func TestTheScorerOnlyScansApplicationNamespaces(t *testing.T) {
 		if !strings.Contains(line, `"$1"`) && !strings.Contains(line, "adhar.io/perf-result=true,adhar.io/application") {
 			t.Errorf("cluster-wide read outside fetch(): %s", line)
 		}
+	}
+}
+
+// Released Consoles read perfCenter.latest.verdict unguarded, so `latest` must
+// stay the newest run whenever there are results; only `judged` may be null.
+// Making `latest` null crashed the Performance Center page (2026-10-22).
+func TestPerfCenterProjectionKeepsLatestForTheConsole(t *testing.T) {
+	src := readStackFile(t, "application/adhar-scorecards/manifests/scorer-cronjob.yaml")
+	i := strings.Index(src, `jq -c '[ (.items // [])[] | (.metadata.annotations // {}) as $a | {`)
+	j := strings.Index(src[i:], `' "$WORKDIR/perfcenter.raw"`)
+	if i < 0 || j < 0 {
+		t.Fatal("cannot find the Performance Center projection in score.sh")
+	}
+	program := src[i+len(`jq -c '`) : i+j]
+	program = regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(program, "")
+	cm := func(app, verdict, at string) string {
+		ann := fmt.Sprintf(`"adhar.io/perf-finished":%q`, at)
+		if verdict != "" {
+			ann += fmt.Sprintf(`,"adhar.io/perf-verdict":%q`, verdict)
+		}
+		return fmt.Sprintf(`{"metadata":{"namespace":"test","creationTimestamp":%q,"labels":{"adhar.io/application":%q,"adhar.io/perf-test":"%s-load","adhar.io/perf-trigger":"console"},"annotations":{%s}}}`, at, app, app, ann)
+	}
+	in := `{"items":[` + strings.Join([]string{
+		cm("shop", "pass", "2026-10-22T01:00:00Z"),
+		cm("shop", "", "2026-10-22T02:00:00Z"),
+		cm("cart", "", "2026-10-22T01:00:00Z"),
+	}, ",") + `]}`
+	cmd := exec.Command("jq", "-c", program)
+	cmd.Stdin = strings.NewReader(in)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("projection failed: %v\n%s", err, out)
+	}
+	var got map[string]struct {
+		Latest *struct{ Verdict, At string }
+		Judged *struct{ Verdict, At string }
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if s := got["shop"]; s.Latest == nil || s.Latest.At != "2026-10-22T02:00:00Z" || s.Judged == nil || s.Judged.Verdict != "pass" {
+		t.Errorf("shop: latest must be the newest run and judged the newest with a verdict; got %s", out)
+	}
+	if c := got["cart"]; c.Latest == nil || c.Judged != nil {
+		t.Errorf("cart: latest must stay set (the Console reads it) and judged be null; got %s", out)
 	}
 }

@@ -248,12 +248,13 @@ data:
       ($gameDays[$app] // null) as $gd |
       def epoch($t): (($t // "") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // 0);
       [
-        sig("perf_center_gate"; "performance"; ($pc != null);
-            b($pc != null and $pc.latest.verdict == "pass" and ($now - epoch($pc.latest.at)) <= ($evdays * 86400));
+        sig("perf_center_gate"; "performance"; ($pc != null and $pc.judged != null);
+            b($pc != null and $pc.judged != null and $pc.judged.verdict == "pass" and ($now - epoch($pc.judged.at)) <= ($evdays * 86400));
             if $pc == null then "no Performance Center test targets this application"
-            else "latest Performance Center run of \($pc.latest.test) (\($pc.latest.trigger), \($pc.count) result(s) across \($pc.tests | length) test(s)): \(if $pc.latest.verdict == "" then "no verdict recorded" else $pc.latest.verdict end)"
-                 + (if ($pc.latest.reasons // "") != "" then " — \($pc.latest.reasons)" else "" end)
-                 + (if ($now - epoch($pc.latest.at)) > ($evdays * 86400) then " — STALE, older than \($evdays) days" else "" end) end),
+            elif $pc.judged == null then "\($pc.count) Performance Center result(s), none with a recorded verdict — run the test again to judge it"
+            else "latest Performance Center run of \($pc.judged.test) (\($pc.judged.trigger), \($pc.count) result(s) across \($pc.tests | length) test(s)): \(if $pc.judged.verdict == "" then "no verdict recorded" else $pc.judged.verdict end)"
+                 + (if ($pc.judged.reasons // "") != "" then " — \($pc.judged.reasons)" else "" end)
+                 + (if ($now - epoch($pc.judged.at)) > ($evdays * 86400) then " — STALE, older than \($evdays) days" else "" end) end),
         sig("chaos_gameday"; "resilience"; ($gd != null);
             b($gd != null and $gd.latest.verdict == "Pass" and ($now - epoch($gd.latest.at)) <= ($evdays * 86400));
             if $gd == null then "no game day has targeted this application"
@@ -422,7 +423,17 @@ data:
         verdict: ($a["adhar.io/perf-verdict"] // ""),
         reasons: ($a["adhar.io/perf-verdict-reasons"] // ""),
         at: ($a["adhar.io/perf-finished"] // .metadata.creationTimestamp) } ]
-      | group_by(.app) | map({key: .[0].app, value: {count: length, tests: ([.[].test] | unique), latest: (sort_by(.at) | last)}})
+      | group_by(.app) | map({key: .[0].app, value: {count: length, tests: ([.[].test] | unique),
+          # `latest` keeps its meaning (the newest run, judged or not): the
+          # Console reads it, and turning it into null when nothing was judged
+          # crashed the Performance Center page (Cannot read properties of
+          # null, reading verdict; 2026-10-22). The SIGNAL reads `judged`,
+          # the newest run with a verdict: a result recorded with none (the
+          # console recorded its own runs that way until 2026-10-22) was never
+          # judged, so it neither passes nor fails the application.
+          latest: (sort_by(.at) | last),
+          judged: (map(select(.verdict != "")) | sort_by(.at) | last),
+          unjudged: (map(select(.verdict == "")) | length)}})
       | from_entries' "$WORKDIR/perfcenter.raw" >"$WORKDIR/perfcenter.json" 2>/dev/null || echo '{}' >"$WORKDIR/perfcenter.json"
     rm -f "$WORKDIR/perfcenter.raw"
 
