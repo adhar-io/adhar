@@ -739,19 +739,14 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 	}
 	prefix := fmt.Sprintf("adhar-%s-%s-", name, nodeGroupName)
 	byName := map[string]civogo.Instance{}
-	current := []string{}
+	var workers []civogo.Instance
 	for _, inst := range instances {
 		for _, t := range inst.Tags {
 			if t == computeWorkerTag {
 				byName[inst.Hostname] = inst
-				current = append(current, inst.Hostname)
+				workers = append(workers, inst)
 			}
 		}
-	}
-	add, remove := provider.WorkerScalePlan(prefix, current, desired)
-	if len(add) == 0 && len(remove) == 0 {
-		log.Printf("Node group %s of %s already at %d workers", nodeGroupName, name, desired)
-		return nil
 	}
 	sshKeyID, signer, err := p.ensureComputeSSHKey(name)
 	if err != nil {
@@ -761,7 +756,29 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 	if err != nil {
 		return err
 	}
-	if len(add) > 0 {
+
+	// Plan against NODES, not instances: an instance whose join failed is not
+	// capacity, and counted as one it makes every later "scale to N" a silent
+	// no-op (provider.PlanJoinedWorkers).
+	now := time.Now()
+	joined := provider.KubeadmJoinedNodes(signer, computeSSHUser, masterIP)
+	plan := provider.PlanJoinedWorkers(prefix, civoWorkerVMs(prefix, workers, now), joined, desired)
+	if len(plan.Add) == 0 && len(plan.Remove) == 0 && len(plan.Discard) == 0 {
+		log.Printf("Node group %s of %s already at %d workers", nodeGroupName, name, desired)
+		return nil
+	}
+	// Instances change below even when a later step fails.
+	defer p.clearClustersFromCache(clusterID)
+
+	// A worker that never joined has no node to drain: delete the instance
+	// only. RetireWorker by its name could drain a real node that shares it.
+	for _, inst := range civoInstancesToDiscard(plan.Discard, workers, joined, now) {
+		log.Printf("Worker instance %s (%s) never joined cluster %s; discarding it", inst.Hostname, inst.ID, name)
+		if _, err := p.client.DeleteInstance(inst.ID); err != nil {
+			return fmt.Errorf("discarding unjoined instance %s: %w", inst.Hostname, err)
+		}
+	}
+	if len(plan.Add) > 0 {
 		joinCmd, err := provider.JoinCommand(signer, computeSSHUser, masterIP)
 		if err != nil {
 			return err
@@ -793,33 +810,23 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		}
 		userData := provider.KubeadmNodePrepScript(minor)
 		tag := computeClusterTag(name)
-		for _, host := range add {
+		for _, host := range plan.Add {
 			inst, err := p.createComputeInstance(ctx, host, networkID, firewallID, sshKeyID, imageID, size, userData, []string{tag, computeWorkerTag})
 			if err != nil {
 				return err
 			}
-			if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, inst.PublicIP, 15*time.Minute); err != nil {
-				return fmt.Errorf("new worker %s not ready: %w", host, err)
-			}
-			// Both flags from the one constant, matching the create path. The
-			// chain this protects against is real but points the other way in
-			// compute mode: no CCM means no .spec.providerID, which means the CSI
-			// node plugin cannot identify its instance and publishes no CSINode,
-			// which means node.adhar.io/csi-not-ready is never lifted and the node
-			// stays Ready and completely empty. So compute mode asks for neither.
-			// An earlier comment here justified `true` by saying
-			// cloud_integration.go installs the Civo CCM and CSI — it did once, and
-			// stopped (see civoComputeHasExternalCCM); the argument outlived the code.
-			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM); err != nil {
-				return fmt.Errorf("new worker %s: %w", host, err)
-			}
-			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, inst.PublicIP, joinCmd); err != nil {
+			if err := prepareAndJoinCivoWorker(ctx, signer, inst, joinCmd); err != nil {
+				// An instance that did not join is not capacity, only cost —
+				// and left behind, the next decision would count it.
+				if _, derr := p.client.DeleteInstance(inst.ID); derr != nil {
+					log.Printf("Warning: could not discard instance %s after its failed join: %v", host, derr)
+				}
 				return fmt.Errorf("new worker %s: %w", host, err)
 			}
 			log.Printf("Added worker %s to cluster %s", host, name)
 		}
 	}
-	for _, host := range remove {
+	for _, host := range plan.Remove {
 		if err := provider.RetireWorker(signer, computeSSHUser, masterIP, host); err != nil {
 			log.Printf("Warning: %v", err)
 		}
@@ -828,7 +835,6 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		}
 		log.Printf("Removed worker %s from cluster %s", host, name)
 	}
-	p.clearClustersFromCache(clusterID)
 	return nil
 }
 

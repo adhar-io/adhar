@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -938,15 +937,34 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 
 	// Workers are named adhar-<cluster>-<nodeGroup>-<n> at create time; keep
 	// the same scheme (and the same droplet size as the existing workers) so a
-	// scaled cluster stays homogeneous and later scale operations can count
-	// and index the set deterministically.
-	sort.Slice(workers, func(i, j int) bool { return workers[i].Name < workers[j].Name })
+	// scaled cluster stays homogeneous.
+	workers = sortedByIndex(workers)
 	size := p.config.DropletSize
 	if len(workers) > 0 && workers[0].SizeSlug != "" {
 		size = workers[0].SizeSlug
 	}
 
-	current := len(workers)
+	// Count NODES, not droplets: a droplet whose join failed is not capacity
+	// (see reconcileWorkers). One that has been an orphan past the grace period
+	// is discarded — deleted as a droplet only; it has no node to drain, and
+	// draining by its name would hit whichever real node shares it.
+	joined := provider.KubeadmJoinedNodes(signer, computeSSHUser, masterIP)
+	set := reconcileWorkers(workers, joined, time.Now())
+	for _, d := range set.Stale {
+		log.Printf("Worker droplet %s (%d) never joined the cluster; discarding it", d.Name, d.ID)
+		if _, err := p.client.Droplets.Delete(ctx, d.ID); err != nil {
+			return fmt.Errorf("discarding unjoined droplet %s: %w", d.Name, err)
+		}
+	}
+	inUse := make([]string, 0, len(workers)+len(joined.Names))
+	for _, d := range workers {
+		inUse = append(inUse, d.Name)
+	}
+	for n := range joined.Names {
+		inUse = append(inUse, n)
+	}
+
+	current := len(set.Members) + len(set.InFlight)
 	switch {
 	case desired > current:
 		key, _, err := p.ensureSSHKey(ctx, name)
@@ -973,29 +991,26 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		}
 		joinCmd = strings.TrimSpace(joinCmd)
 		tag := computeClusterTag(name)
-		for i := current + 1; i <= desired; i++ {
-			nodeName := fmt.Sprintf("adhar-%s-%s-%d", name, nodeGroup, i)
+		for _, nodeName := range nextWorkerNames(fmt.Sprintf("adhar-%s-%s", name, nodeGroup), inUse, desired-current) {
 			d, err := p.createComputeDroplet(ctx, nodeName, vpcUUID, key.ID, size, userData, []string{tag, computeWorkerTag})
 			if err != nil {
 				return err
 			}
-			ip, _ := d.PublicIPv4()
-			if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, ip, 15*time.Minute); err != nil {
-				return fmt.Errorf("new worker %s not ready: %w", nodeName, err)
-			}
-			privIP, _ := d.PrivateIPv4()
-			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, ip, privIP, true, true); err != nil {
-				return fmt.Errorf("new worker %s: %w", nodeName, err)
-			}
-			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd); err != nil {
+			if err := p.prepareAndJoinComputeWorker(ctx, signer, d, joinCmd); err != nil {
+				// A droplet that did not join is not capacity, only cost, and
+				// left behind it is counted as a worker by the next decision.
+				if _, derr := p.client.Droplets.Delete(ctx, d.ID); derr != nil {
+					log.Printf("Warning: could not discard droplet %s after its failed join: %v", nodeName, derr)
+				}
 				return fmt.Errorf("new worker %s: %w", nodeName, err)
 			}
 		}
 	case desired < current:
-		// Remove the highest-indexed workers first: drain + remove from the
-		// cluster on the control plane, then delete the droplet.
-		for i := current - 1; i >= desired; i-- {
-			if err := p.retireComputeWorker(ctx, signer, masterIP, workers[i]); err != nil {
+		// Remove the highest-indexed MEMBERS first (in-flight droplets are
+		// left to finish): drain + remove from the cluster on the control
+		// plane, then delete the droplet.
+		for i := len(set.Members) - 1; i >= 0 && len(set.InFlight)+i >= desired; i-- {
+			if err := p.retireComputeWorker(ctx, signer, masterIP, set.Members[i]); err != nil {
 				return err
 			}
 		}
@@ -1003,6 +1018,20 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 
 	log.Printf("Scaled cluster %q workers to %d", name, desired)
 	return nil
+}
+
+// prepareAndJoinComputeWorker takes a fresh droplet through node prep, the
+// external cloud-provider kubelet flags and kubeadm join.
+func (p *Provider) prepareAndJoinComputeWorker(ctx context.Context, signer ssh.Signer, d *godo.Droplet, joinCmd string) error {
+	ip, _ := d.PublicIPv4()
+	if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, ip, 15*time.Minute); err != nil {
+		return fmt.Errorf("not ready: %w", err)
+	}
+	privIP, _ := d.PrivateIPv4()
+	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, ip, privIP, true, true); err != nil {
+		return err
+	}
+	return provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd)
 }
 
 // retireComputeWorker takes one worker out of service: drained and deleted

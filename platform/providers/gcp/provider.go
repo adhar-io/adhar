@@ -94,6 +94,10 @@ type NodeInfo struct {
 	PublicIP     string
 	MachineType  string
 	Role         string // "master" or "worker"
+	// CreatedAt is the instance's creation time as GCP reports it; zero when
+	// unknown (state written before it was recorded). A scale decision never
+	// discards a worker it cannot date.
+	CreatedAt time.Time
 }
 
 // expandHomePath expands ~ to the user's home directory
@@ -2276,6 +2280,7 @@ func (p *Provider) createComputeInstance(ctx context.Context, clusterName, insta
 		PublicIP:     publicIP,
 		MachineType:  machineType,
 		Role:         role,
+		CreatedAt:    gcpCreationTime(instance.GetCreationTimestamp()),
 	}
 
 	log.Printf("Successfully created compute instance: %s", instanceName)
@@ -3161,22 +3166,43 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 	// computed as a scale UP.
 	clusterName := extractClusterName(clusterID)
 	prefix := p.workerPrefix(clusterName, nodeGroupName)
-	current := make([]string, 0, len(infra.WorkerNodes))
-	for _, w := range infra.WorkerNodes {
-		current = append(current, w.InstanceName)
-	}
-	add, remove := provider.WorkerScalePlan(prefix, current, replicas)
-	if len(add) == 0 && len(remove) == 0 {
-		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
-		return nil
-	}
 	signer, sshPubKey, err := provider.EnsureClusterSSHKey(clusterName)
 	if err != nil {
 		return fmt.Errorf("failed to load cluster SSH key: %w", err)
 	}
 	masterIP := infra.MasterNodes[0].PublicIP
 
-	if len(add) > 0 {
+	// Plan against NODES, not instances: an instance whose join failed is not
+	// capacity, and counted as one it makes every later "scale to N" a silent
+	// no-op (provider.PlanJoinedWorkers). Workers recorded before creation
+	// times were are dated from GCP first, so an old orphan can be judged.
+	p.dateWorkers(ctx, prefix, infra.WorkerNodes)
+	joined := provider.KubeadmJoinedNodes(signer, gcpSSHUser, masterIP)
+	plan := provider.PlanJoinedWorkers(prefix, gcpWorkerVMs(prefix, infra.WorkerNodes, time.Now()), joined, replicas)
+	if len(plan.Add) == 0 && len(plan.Remove) == 0 && len(plan.Discard) == 0 {
+		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
+		return nil
+	}
+	// Whatever happens below, the state file must describe the instances that
+	// exist — a discard or an add followed by a failure included.
+	defer func() {
+		if err := p.saveState(); err != nil {
+			log.Printf("Warning: failed to persist cluster state after scaling: %v", err)
+		}
+	}()
+
+	// A worker that never joined has no node to drain: delete the instance
+	// only. RetireWorker by its name could drain a real node that shares it.
+	for _, name := range plan.Discard {
+		log.Printf("Worker instance %s never joined cluster %s; discarding it", name, clusterName)
+		kept, zone := withoutWorker(infra.WorkerNodes, name, p.config.Zone)
+		if err := p.deleteInstance(ctx, name, zone); err != nil {
+			return fmt.Errorf("discarding unjoined worker %s: %w", name, err)
+		}
+		infra.WorkerNodes = kept
+	}
+
+	if len(plan.Add) > 0 {
 		joinCmd, err := provider.JoinCommand(signer, gcpSSHUser, masterIP)
 		if err != nil {
 			return err
@@ -3187,49 +3213,33 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 		}
 		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(version))
 		subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", p.config.ProjectID, p.config.Region, infra.SubnetName)
-		for _, name := range add {
+		for _, name := range plan.Add {
 			nodeInfo, err := p.createComputeInstance(ctx, clusterName, name, subnetURL, machineType, false, sshPubKey, startupScript)
 			if err != nil {
 				return fmt.Errorf("failed to create worker node %s: %w", name, err)
 			}
-			if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
-				return fmt.Errorf("new worker %s not ready: %w", name, err)
-			}
-			// Same flags as a worker from `adhar up`: cloud-provider-gcp
-			// initialises the node, the PD CSI node plugin lifts the taint.
-			if err := provider.EnableExternalCloudProvider(signer, gcpSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true); err != nil {
-				return fmt.Errorf("new worker %s: %w", name, err)
-			}
-			if err := provider.KubeadmJoinWorker(signer, gcpSSHUser, nodeInfo.PublicIP, joinCmd); err != nil {
+			if err := prepareAndJoinGCPWorker(ctx, signer, nodeInfo, joinCmd); err != nil {
+				// An instance that did not join is not capacity, only cost —
+				// and left behind, the next decision would count it.
+				if derr := p.deleteInstance(ctx, name, nodeInfo.Zone); derr != nil {
+					log.Printf("Warning: could not discard worker %s after its failed join: %v", name, derr)
+				}
 				return fmt.Errorf("new worker %s: %w", name, err)
 			}
 			infra.WorkerNodes = append(infra.WorkerNodes, *nodeInfo)
 			log.Printf("Added worker %s to cluster %s", name, clusterName)
 		}
 	}
-	for _, name := range remove {
+	for _, name := range plan.Remove {
 		if err := provider.RetireWorker(signer, gcpSSHUser, masterIP, name); err != nil {
 			log.Printf("Warning: %v", err)
 		}
-		zone := p.config.Zone
-		kept := infra.WorkerNodes[:0]
-		for _, w := range infra.WorkerNodes {
-			if w.InstanceName == name {
-				if w.Zone != "" {
-					zone = w.Zone
-				}
-				continue
-			}
-			kept = append(kept, w)
-		}
+		kept, zone := withoutWorker(infra.WorkerNodes, name, p.config.Zone)
 		if err := p.deleteInstance(ctx, name, zone); err != nil {
 			return fmt.Errorf("failed to delete instance %s: %w", name, err)
 		}
 		infra.WorkerNodes = kept
 		log.Printf("Removed worker %s from cluster %s", name, clusterName)
-	}
-	if err := p.saveState(); err != nil {
-		log.Printf("Warning: failed to persist cluster state after scaling: %v", err)
 	}
 	return nil
 }
@@ -4183,19 +4193,19 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 	}
 	for i := 1; i <= 3; i++ {
 		name := fmt.Sprintf("%s-master-%d", clusterName, i)
-		priv, pub, err := p.instanceIPs(ctx, name, zone)
+		priv, pub, created, err := p.instanceDetails(ctx, name, zone)
 		if err != nil {
 			break
 		}
-		infra.MasterNodes = append(infra.MasterNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "master"})
+		infra.MasterNodes = append(infra.MasterNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "master", CreatedAt: created})
 	}
 	for i := 1; i <= 100; i++ {
 		name := fmt.Sprintf("%s-worker-%d", clusterName, i)
-		priv, pub, err := p.instanceIPs(ctx, name, zone)
+		priv, pub, created, err := p.instanceDetails(ctx, name, zone)
 		if err != nil {
 			break
 		}
-		infra.WorkerNodes = append(infra.WorkerNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "worker"})
+		infra.WorkerNodes = append(infra.WorkerNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "worker", CreatedAt: created})
 	}
 	if len(infra.MasterNodes) == 0 {
 		return nil, fmt.Errorf("no control-plane instance %s-master-1 found in zone %s", clusterName, zone)

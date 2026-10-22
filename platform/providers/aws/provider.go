@@ -201,6 +201,9 @@ type NodeInfo struct {
 	PrivateDNSName string
 	InstanceType   string
 	Role           string // "master" or "worker"
+	// CreatedAt is the instance's EC2 LaunchTime; zero when unknown. A scale
+	// decision never discards a worker it cannot date.
+	CreatedAt time.Time
 }
 
 // Register the AWS provider on package import

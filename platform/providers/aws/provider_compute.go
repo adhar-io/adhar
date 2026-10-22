@@ -132,6 +132,7 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 			PrivateIP:      aws.ToString(inst.PrivateIpAddress),
 			PublicIP:       aws.ToString(inst.PublicIpAddress),
 			PrivateDNSName: aws.ToString(inst.PrivateDnsName),
+			CreatedAt:      aws.ToTime(inst.LaunchTime),
 			InstanceType:   instanceType,
 			Role:           "master",
 		})
@@ -283,6 +284,7 @@ func (p *Provider) runWorkerInstance(ctx context.Context, w workerInstanceSpec) 
 		PrivateIP:      aws.ToString(inst.PrivateIpAddress),
 		PublicIP:       aws.ToString(inst.PublicIpAddress),
 		PrivateDNSName: aws.ToString(inst.PrivateDnsName),
+		CreatedAt:      aws.ToTime(inst.LaunchTime),
 		InstanceType:   w.InstanceType,
 		Role:           "worker",
 	}, nil
@@ -338,6 +340,7 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 				PrivateIP:      aws.ToString(instance.PrivateIpAddress),
 				PublicIP:       aws.ToString(instance.PublicIpAddress),
 				PrivateDNSName: aws.ToString(instance.PrivateDnsName),
+				CreatedAt:      aws.ToTime(instance.LaunchTime),
 				InstanceType:   string(instance.InstanceType),
 				Role:           role,
 			}
@@ -721,15 +724,6 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		return err
 	}
 	prefix := fmt.Sprintf("%s-%s-", clusterName, nodeGroupName)
-	current := make([]string, 0, len(members))
-	for name := range members {
-		current = append(current, name)
-	}
-	add, remove := provider.WorkerScalePlan(prefix, current, replicas)
-	if len(add) == 0 && len(remove) == 0 {
-		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
-		return nil
-	}
 	// Bare name: the key is written to ~/.adhar/clusters/<name>/id_ed25519 at
 	// create time, so "aws-dev" here looked for a directory that never exists.
 	signer, err := provider.LoadClusterSSHKey(clusterName)
@@ -738,7 +732,27 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	}
 	masterIP := infra.MasterNodes[0].PublicIP
 
-	if len(add) > 0 {
+	// Plan against NODES, not instances: an instance whose join failed is not
+	// capacity, and counted as one it makes every later "scale to N" a silent
+	// no-op (provider.PlanJoinedWorkers). Nodes here are named by their EC2
+	// hostname, not the Name tag, so they are matched by address.
+	joined := provider.KubeadmJoinedNodes(signer, awsSSHUser, masterIP)
+	plan := provider.PlanJoinedWorkers(prefix, awsWorkerVMs(prefix, members, time.Now()), joined, replicas)
+	if len(plan.Add) == 0 && len(plan.Remove) == 0 && len(plan.Discard) == 0 {
+		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
+		return nil
+	}
+
+	// A worker that never joined has no node to drain: terminate the instance
+	// only. RetireWorker by a name could drain a real node that shares it.
+	for _, name := range plan.Discard {
+		log.Printf("Worker instance %s (%s) never joined cluster %s; discarding it", name, members[name].InstanceId, clusterName)
+		if _, err := p.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{members[name].InstanceId}}); err != nil {
+			return fmt.Errorf("discarding unjoined worker %s: %w", name, err)
+		}
+	}
+
+	if len(plan.Add) > 0 {
 		if len(infra.SubnetIds) == 0 || len(infra.SecurityGroups) == 0 {
 			return fmt.Errorf("cluster %s has no subnet/security group to place workers in", clusterID)
 		}
@@ -767,7 +781,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		if c, gerr := p.GetCluster(ctx, clusterID); gerr == nil && c != nil {
 			spec.Version = c.Version
 		}
-		for _, name := range add {
+		for _, name := range plan.Add {
 			node, err := p.runWorkerInstance(ctx, workerInstanceSpec{
 				Name: name, ClusterName: clusterName, NodeGroup: nodeGroupName, InstanceType: instanceType,
 				AMI: amiID, KeyName: sshKeyName, SubnetID: infra.SubnetIds[0], SecurityGroupID: infra.SecurityGroups[0], UserData: nodeUserData(spec),
@@ -775,38 +789,21 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 			if err != nil {
 				return err
 			}
-			if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, node.PublicIP, 15*time.Minute); err != nil {
-				return fmt.Errorf("new worker %s not ready: %w", name, err)
-			}
-			// The EBS CSI driver is a platform addon on AWS, so a worker carries
-			// the CSI startup taint until its CSINode registers; no
-			// cloud-controller-manager is installed yet (docs/PROVIDERS.md).
-			// externalCCM MUST be true, exactly as it is for a worker created by
-			// `adhar up` (provider_cluster.go). It was false, and the whole chain
-			// downstream of it failed silently:
-			//
-			//   no --cloud-provider=external  ->  kubelet registers with no
-			//   uninitialized taint, so the CCM never touches the node  ->
-			//   .spec.providerID stays empty  ->  the EBS CSI node plugin cannot
-			//   identify its instance ("node providerID empty, cannot parse", after
-			//   IMDS also times out on the pod network) and crash-loops  ->  no
-			//   CSINode object is published  ->  the autoscaler never lifts
-			//   node.adhar.io/csi-not-ready:NoSchedule.
-			//
-			// The visible result is an autoscaled node that is Ready and completely
-			// EMPTY while pods stay Pending: measured at 5 nodes with two sitting at
-			// 3% CPU and 27 pods unschedulable.
-			if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, true, true, node.PrivateDNSName); err != nil {
-				return fmt.Errorf("new worker %s: %w", name, err)
-			}
-			if err := provider.KubeadmJoinWorker(signer, awsSSHUser, node.PublicIP, joinCmd, node.PrivateDNSName); err != nil {
+			if err := prepareAndJoinAWSWorker(ctx, signer, node, joinCmd); err != nil {
+				// An instance that did not join is not capacity, only cost —
+				// and left behind, the next decision would count it.
+				if _, derr := p.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{node.InstanceId}}); derr != nil {
+					log.Printf("Warning: could not discard worker %s (%s) after its failed join: %v", name, node.InstanceId, derr)
+				}
 				return fmt.Errorf("new worker %s: %w", name, err)
 			}
 			log.Printf("Added worker %s (%s) to cluster %s", name, node.InstanceId, clusterID)
 		}
 	}
-	for _, name := range remove {
-		if err := provider.RetireWorker(signer, awsSSHUser, masterIP, name); err != nil {
+	for _, name := range plan.Remove {
+		// The node is registered under the instance's private DNS name, not
+		// its Name tag; retiring by the tag drained nothing and left a ghost.
+		if err := provider.RetireWorker(signer, awsSSHUser, masterIP, awsNodeName(name, members[name])); err != nil {
 			log.Printf("Warning: %v", err)
 		}
 		if _, err := p.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{members[name].InstanceId}}); err != nil {
@@ -847,6 +844,7 @@ func (p *Provider) nodeGroupInstances(ctx context.Context, clusterName, nodeGrou
 				PrivateIP:      aws.ToString(inst.PrivateIpAddress),
 				PublicIP:       aws.ToString(inst.PublicIpAddress),
 				PrivateDNSName: aws.ToString(inst.PrivateDnsName),
+				CreatedAt:      aws.ToTime(inst.LaunchTime),
 				InstanceType:   string(inst.InstanceType),
 				Role:           "worker",
 			}
@@ -947,6 +945,7 @@ func (p *Provider) getClusterMasterNodes(ctx context.Context, clusterName string
 				node.PrivateIP = *instance.PrivateIpAddress
 			}
 			node.PrivateDNSName = aws.ToString(instance.PrivateDnsName)
+			node.CreatedAt = aws.ToTime(instance.LaunchTime)
 			if instance.PublicIpAddress != nil {
 				node.PublicIP = *instance.PublicIpAddress
 			}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"google.golang.org/api/googleapi"
@@ -38,9 +39,17 @@ func (p *Provider) listFirewallRulesWithPrefix(ctx context.Context, prefix strin
 
 // instanceIPs looks an instance's private and public addresses up.
 func (p *Provider) instanceIPs(ctx context.Context, instanceName, zone string) (privateIP, publicIP string, err error) {
+	privateIP, publicIP, _, err = p.instanceDetails(ctx, instanceName, zone)
+	return privateIP, publicIP, err
+}
+
+// instanceDetails looks an instance's addresses and creation time up. The time
+// is zero when GCP reports none it can parse — an undatable worker is never
+// judged an orphan (see gcpWorkerVMs).
+func (p *Provider) instanceDetails(ctx context.Context, instanceName, zone string) (privateIP, publicIP string, created time.Time, err error) {
 	inst, err := p.instanceClient.Get(ctx, &computepb.GetInstanceRequest{Project: p.config.ProjectID, Zone: zone, Instance: instanceName})
 	if err != nil {
-		return "", "", err
+		return "", "", time.Time{}, err
 	}
 	if len(inst.NetworkInterfaces) > 0 {
 		privateIP = inst.NetworkInterfaces[0].GetNetworkIP()
@@ -48,5 +57,5 @@ func (p *Provider) instanceIPs(ctx context.Context, instanceName, zone string) (
 			publicIP = inst.NetworkInterfaces[0].AccessConfigs[0].GetNatIP()
 		}
 	}
-	return privateIP, publicIP, nil
+	return privateIP, publicIP, gcpCreationTime(inst.GetCreationTimestamp()), nil
 }

@@ -1010,3 +1010,111 @@ func ControlPlaneVersion(signer ssh.Signer, user, masterIP string) (string, erro
 	}
 	return "", fmt.Errorf("could not parse a Kubernetes version from %q on %s", strings.TrimSpace(out), masterIP)
 }
+
+// OrphanGrace is how long a worker VM may exist without being a node before
+// it counts as a failed join rather than one still in progress: create, node
+// prep (~3 min) and join (~1 min) run within one scale call, and twenty
+// minutes is several times that.
+const OrphanGrace = 20 * time.Minute
+
+// WorkerVM is one cloud instance of a node group, as a scale decision sees it.
+type WorkerVM struct {
+	Name string
+	// Addrs are the instance's private and public addresses: a node is found
+	// by them when its name differs from the instance's (EC2 hostnames).
+	Addrs []string
+	// Young is true while the VM is inside OrphanGrace — or its age is unknown.
+	Young bool
+}
+
+// JoinedScalePlan is a scale decision made against the NODES a node group
+// has, not its VMs.
+type JoinedScalePlan struct {
+	// Add are new instance names, at indices no VM (orphan included) uses.
+	Add []string
+	// Remove are joined members to drain and delete, highest index first.
+	Remove []string
+	// Discard are VMs that never became nodes and are past OrphanGrace. They
+	// have no node to drain — delete the instance only.
+	Discard []string
+}
+
+// PlanJoinedWorkers is WorkerScalePlan over the workers that actually JOINED.
+//
+// Planning from the VM list counts a VM whose join failed as capacity, and it
+// stays one: on 2026-10-22 a DigitalOcean cluster logged a successful "scale
+// to 5" every three minutes for hours while it had four nodes, all at 99% of
+// their memory, and every CI build waited for a node that never came. Here a
+// member is a VM the control plane lists (by name, or by address for clouds
+// whose node names are hostnames); a young non-member is a join in progress
+// and counts without being touched; an old one is discarded.
+//
+// An empty node list means the control plane could not be asked, never that
+// every VM is an orphan: the plan then falls back to the VM list.
+func PlanJoinedWorkers(prefix string, vms []WorkerVM, joined JoinedNodes, desired int) JoinedScalePlan {
+	var plan JoinedScalePlan
+	all := make([]string, 0, len(vms))
+	for _, vm := range vms {
+		all = append(all, vm.Name)
+	}
+	if len(joined.Names) == 0 {
+		plan.Add, plan.Remove = WorkerScalePlan(prefix, all, desired)
+		return plan
+	}
+	var members []string
+	inFlight := 0
+	for _, vm := range vms {
+		switch {
+		case vmJoined(vm, joined):
+			members = append(members, vm.Name)
+		case vm.Young:
+			inFlight++
+		default:
+			plan.Discard = append(plan.Discard, vm.Name)
+		}
+	}
+	sort.Strings(plan.Discard)
+	if desired < 0 {
+		desired = 0
+	}
+	have := len(members) + inFlight
+	switch {
+	case desired > have:
+		// Every existing name stays reserved, discarded ones included, so a
+		// new VM never reuses the name of one being deleted.
+		// Distinct indices: WorkerScalePlan counts each index once, and two
+		// VMs can carry the same name (an orphan named after a live node).
+		indexed := map[int]bool{}
+		for _, name := range all {
+			if idx, ok := strings.CutPrefix(name, prefix); ok {
+				if i, err := strconv.Atoi(idx); err == nil {
+					indexed[i] = true
+				}
+			}
+		}
+		add, _ := WorkerScalePlan(prefix, all, len(indexed)+desired-have)
+		plan.Add = add
+	case desired < have:
+		_, remove := WorkerScalePlan(prefix, members, max(desired-inFlight, 0))
+		plan.Remove = remove
+	}
+	return plan
+}
+
+// vmJoined decides membership by ADDRESS whenever the VM's addresses are
+// known, and by name only when they are not. Names can collide: the
+// DigitalOcean orphan of 2026-10-22 was named after a live node, and a name
+// match would have counted it as that node.
+func vmJoined(vm WorkerVM, joined JoinedNodes) bool {
+	for _, a := range vm.Addrs {
+		if a != "" && joined.Addresses[a] {
+			return true
+		}
+	}
+	for _, a := range vm.Addrs {
+		if a != "" {
+			return false
+		}
+	}
+	return joined.Names[vm.Name]
+}

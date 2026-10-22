@@ -115,6 +115,9 @@ type Reconciler struct {
 	// minEvaluationInterval. Guarded by mu because reconciles may overlap.
 	mu            sync.Mutex
 	lastEvaluated time.Time
+	// progress notices a scale-up that was reported done and never became
+	// nodes (progress.go). Guarded by mu.
+	progress scaleUpProgress
 }
 
 // dueIn reports how long remains before another evaluation is allowed, and
@@ -276,6 +279,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		reason = string(decision.Action) + " failed: " + actionErr.Error()
 		r.event(platform, corev1.EventTypeWarning, string(decision.Action)+"Failed", reason)
 		logger.Error(actionErr, "autoscaling action failed", "action", decision.Action, "node", decision.Node)
+	}
+	r.mu.Lock()
+	if decision.Action == ActionScaleUp && actionErr == nil {
+		r.progress.recordSuccess(decision.Workers+decision.ScaleUpBy, now)
+	}
+	stall, firstStall := r.progress.check(decision.Workers, now)
+	r.mu.Unlock()
+	if stall != "" {
+		reason = "scale-up made no progress: " + stall
+	}
+	if firstStall {
+		r.event(platform, corev1.EventTypeWarning, "ScaleUpMadeNoProgress", stall)
+		logger.Info("scale-up made no progress", "detail", stall)
 	}
 
 	if err := r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
