@@ -31,7 +31,6 @@ overwrite each other's content on every sync.
 | `ServiceAccount/minio-sa` | mimir, **minio** | mimir bundles its own MinIO. |
 | `ClusterSecretStore/vault`, `Service/vault` | **openbao**, vault | MUTUALLY EXCLUSIVE — exactly one secrets backend may be enabled. Production enables `openbao`; `vault` is disabled. See below. |
 | `DaemonSet/node-agent` | kubescape, velero | Both enabled — pre-existing. |
-| `ConfigMap/adhar-dashboard-external-dns`, `adhar-dashboard-opensearch` | kube-prometheus, external-dns / opensearch | Same dashboard shipped twice; cosmetic. |
 
 **A name a package hardcodes in its binary cannot be fixed by renaming the
 manifest** — a renamed object is simply never read or populated. When two

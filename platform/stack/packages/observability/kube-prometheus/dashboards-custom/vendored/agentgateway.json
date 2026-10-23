@@ -1,0 +1,1357 @@
+{
+ "annotations": {
+  "list": [
+   {
+    "builtIn": 1,
+    "datasource": {
+     "type": "grafana",
+     "uid": "-- Grafana --"
+    },
+    "enable": true,
+    "hide": true,
+    "iconColor": "rgba(0, 211, 255, 1)",
+    "name": "Annotations & Alerts",
+    "type": "dashboard"
+   }
+  ]
+ },
+ "editable": true,
+ "graphTooltip": 1,
+ "panels": [
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "id": 1,
+   "panels": [],
+   "title": "Traffic — all AI data plane requests",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "agentgateway_requests_total across every route on the AI data plane (LLM + MCP).",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 0,
+    "y": 1
+   },
+   "id": 2,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "auto"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum(rate(agentgateway_requests_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "rps",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Requests / sec",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Fraction of requests answered 5xx. A missing upstream (e.g. the optional vLLM backend with vllm not installed) shows up here.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 4,
+    "y": 1
+   },
+   "id": 3,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "auto"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum(rate(agentgateway_requests_total{namespace=~\"$namespace\",status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(agentgateway_requests_total{namespace=~\"$namespace\"}[$__rate_interval])), 1e-9)",
+     "legendFormat": "5xx ratio",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Error ratio (5xx)",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Requests rejected by the token/request budgets in guardrails.yaml. Sustained non-zero means a budget is too tight.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 8,
+    "y": 1
+   },
+   "id": 4,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "auto"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum(rate(agentgateway_requests_total{namespace=~\"$namespace\",status=\"429\"}[$__rate_interval]))",
+     "legendFormat": "429/s",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Rate-limited (429) / sec",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Realized cost over the selected time range, from agentgateway's model cost catalog. Self-hosted vLLM contributes nothing, which is the point of routing local/* models to it.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 3,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     },
+     "unit": "currencyUSD"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 12,
+    "y": 1
+   },
+   "id": 5,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "auto"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum(increase(agentgateway_gen_ai_client_cost_usd_total{namespace=~\"$namespace\"}[$__range]))",
+     "legendFormat": "usd",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "LLM spend (USD, range)",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "agentgateway_guardrail_checks_total — secret/PII regex guards firing. With the shipped Audit/Mask defaults these do not block; use this to decide when to switch them to Reject.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 16,
+    "y": 1
+   },
+   "id": 6,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "auto"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum(rate(agentgateway_guardrail_checks_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "checks/s",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Guardrail hits / sec",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "All MCP protocol requests: initialize, tools/list, tools/call across the seven federated servers.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       }
+      ]
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 20,
+    "y": 1
+   },
+   "id": 7,
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "auto"
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum(rate(agentgateway_mcp_requests_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "mcp/s",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "MCP calls / sec",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Split by HTTP status. 401/403 = JWT or authorization policy (security.yaml); 429 = budget (guardrails.yaml).",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 40,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "normal"
+      }
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 5
+   },
+   "id": 8,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (status) (rate(agentgateway_requests_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "{{status}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Request rate by status",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "agentgateway-llm vs agentgateway-mcp: how the AI data plane's traffic divides between completions and tool calls.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 5
+   },
+   "id": 9,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (route) (rate(agentgateway_requests_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "{{route}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Request rate by route",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "End-to-end time through the proxy. For LLM traffic this is dominated by the provider, not by agentgateway — use the LLM panels below to separate the two.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "min": 0,
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 13
+   },
+   "id": 10,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "histogram_quantile(0.50, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+     "legendFormat": "p50",
+     "range": true,
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+     "legendFormat": "p95",
+     "range": true,
+     "refId": "B"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+     "legendFormat": "p99",
+     "range": true,
+     "refId": "C"
+    }
+   ],
+   "title": "Gateway latency (p50 / p95 / p99)",
+   "type": "timeseries"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 21
+   },
+   "id": 11,
+   "panels": [],
+   "title": "LLM — tokens, cost and latency per model / provider",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "gen_ai_system is the provider (anthropic / openai / the self-hosted vLLM backend); gen_ai_request_model is the model the caller asked for. This is the panel that answers 'who is spending the context window'.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 40,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "normal"
+      }
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 22
+   },
+   "id": 12,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (gen_ai_system, gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\",gen_ai_token_type=\"input\"}[$__rate_interval]))",
+     "legendFormat": "{{gen_ai_system}} · {{gen_ai_request_model}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Input tokens / sec by model and provider",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Output tokens are the expensive half on every hosted provider. A model whose output rate dwarfs its input rate is generating long answers — often a prompt problem, not a capacity problem.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 40,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "normal"
+      }
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 22
+   },
+   "id": 13,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (gen_ai_system, gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\",gen_ai_token_type=\"output\"}[$__rate_interval]))",
+     "legendFormat": "{{gen_ai_system}} · {{gen_ai_request_model}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Output tokens / sec by model and provider",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Realized spend per model. Models served by the in-cluster vLLM are absent or zero — the visible gap between a claude-* line and a local/* line is the saving from routing a task to the local model.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 40,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "normal"
+      }
+     },
+     "unit": "currencyUSD"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 30
+   },
+   "id": 14,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (gen_ai_request_model) (increase(agentgateway_gen_ai_client_cost_usd_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "{{gen_ai_request_model}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Cumulative USD cost by model",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Perceived responsiveness for a streaming client (Console chat, `adhar ai`). Self-hosted models on CPU will be far worse here than hosted ones — expected, and the reason local/* is opt-in rather than the default.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "min": 0,
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 30
+   },
+   "id": 15,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_time_to_first_token_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+     "legendFormat": "{{gen_ai_request_model}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Time to first token (p95) by model",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Full upstream completion time. Compare against 'Gateway latency' above: the difference is agentgateway's own overhead, which should stay in the low milliseconds.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "min": 0,
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 38
+   },
+   "id": 16,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+     "legendFormat": "{{gen_ai_request_model}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "LLM request duration (p95) by model",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Inverse of the median time-per-output-token: how fast each model streams. Same construction as agentgateway's own upstream dashboard.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "min": 0,
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 38
+   },
+   "id": 17,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "1 / clamp_min(histogram_quantile(0.50, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_time_per_output_token_bucket{namespace=~\"$namespace\"}[$__rate_interval]))), 1e-9)",
+     "legendFormat": "{{gen_ai_request_model}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Output token throughput (tokens/sec) by model",
+   "type": "timeseries"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 46
+   },
+   "id": 18,
+   "panels": [],
+   "title": "Guardrails — what the secret / PII filters are catching",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "Every regex guard evaluation from guardrails.yaml. The shipped defaults are permissive — secrets are Masked (request succeeds, key redacted) and PII is Audited (counted only) — so a non-zero rate here is information, not an outage. Use a week of this series to decide whether to promote secrets to Reject and PII to Mask.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 24,
+    "x": 0,
+    "y": 47
+   },
+   "id": 19,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (gateway) (rate(agentgateway_guardrail_checks_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "{{gateway}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Guardrail checks / sec",
+   "type": "timeseries"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 54
+   },
+   "id": 20,
+   "panels": [],
+   "title": "MCP — federated tool calls across the seven adhar-ai servers",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "MCP protocol methods. A healthy client shows one initialize + one tools/list per session and many tools/call.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 40,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "normal"
+      }
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 55
+   },
+   "id": 21,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (method) (rate(agentgateway_mcp_requests_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+     "legendFormat": "{{method}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "MCP requests / sec by method",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "server is the federated target from mcp-federation.yaml (cluster, gitops, provision, observability, security, cost, catalog); resource is the tool. Calls against gitops/provision/security/catalog are the PR-opening ones restricted to platform-admin by security.yaml.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 55
+   },
+   "id": 22,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (server, resource) (rate(agentgateway_mcp_requests_total{namespace=~\"$namespace\",method=\"tools/call\"}[$__rate_interval]))",
+     "legendFormat": "{{server}} · {{resource}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "Tool calls / sec by server and tool",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "description": "4xx/5xx on the MCP route. 403 means the authorization policy denied a write tool to a non-admin — the control working. 5xx means a federated target is down: with failureMode FailOpen that target's tools simply disappear from tools/list, so check which of the seven adhar-ai-mcp-* Deployments is unhealthy.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisLabel": "",
+      "drawStyle": "line",
+      "fillOpacity": 12,
+      "lineWidth": 1,
+      "showPoints": "never",
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      }
+     },
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 24,
+    "x": 0,
+    "y": 63
+   },
+   "id": 23,
+   "options": {
+    "legend": {
+     "calcs": [
+      "mean",
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "editorMode": "code",
+     "expr": "sum by (route, status) (rate(agentgateway_requests_total{namespace=~\"$namespace\",route=~\".*mcp.*\",status=~\"[45]..\"}[$__rate_interval]))",
+     "legendFormat": "{{route}} · {{status}}",
+     "range": true,
+     "refId": "A"
+    }
+   ],
+   "title": "MCP error rate (5xx on the MCP route)",
+   "type": "timeseries"
+  }
+ ],
+ "refresh": "30s",
+ "schemaVersion": 39,
+ "tags": [
+  "adhar",
+  "ai",
+  "agentgateway",
+  "llm",
+  "mcp"
+ ],
+ "templating": {
+  "list": [
+   {
+    "current": {},
+    "hide": 0,
+    "label": "Data source",
+    "name": "datasource",
+    "query": "prometheus",
+    "refresh": 1,
+    "regex": "",
+    "type": "datasource"
+   },
+   {
+    "current": {
+     "text": "adhar-system",
+     "value": "adhar-system"
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${datasource}"
+    },
+    "definition": "label_values(agentgateway_build_info, namespace)",
+    "hide": 0,
+    "includeAll": true,
+    "label": "Namespace",
+    "multi": true,
+    "name": "namespace",
+    "query": {
+     "query": "label_values(agentgateway_build_info, namespace)",
+     "refId": "ns"
+    },
+    "refresh": 2,
+    "sort": 1,
+    "type": "query"
+   }
+  ]
+ },
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "timezone": "browser",
+ "title": "Adhar AI Gateway (agentgateway)",
+ "uid": "adhar-agentgateway"
+}

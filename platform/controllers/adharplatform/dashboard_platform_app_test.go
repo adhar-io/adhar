@@ -370,9 +370,9 @@ func TestOnlyApplicationDashboardsUseTheApplicationsFolder(t *testing.T) {
 	}
 }
 
-// Both dashboards are generated; a hand-edit of the output is lost on the next
-// run, so the output must match its generator. Only these two generators: the
-// other kube-prometheus generators have guards of their own.
+// Every dashboard is generated; a hand-edit of the output is lost on the next run,
+// so the output must match its generator: the per-application dashboard, the front
+// page, and every folder dashboard (build-service-dashboards.py).
 func TestGeneratedDashboardsAreUpToDate(t *testing.T) {
 	py, err := exec.LookPath("python3")
 	if err != nil {
@@ -382,6 +382,7 @@ func TestGeneratedDashboardsAreUpToDate(t *testing.T) {
 	for _, script := range []string{
 		filepath.Join(repo, "hack", "dashboards", "build-app-dashboard.py"),
 		filepath.Join(stackRoot(t), "packages", "observability", "kube-prometheus", "build-platform-dashboard.py"),
+		filepath.Join(stackRoot(t), "packages", "observability", "kube-prometheus", "build-service-dashboards.py"),
 	} {
 		out, err := exec.Command(py, script, "--check").CombinedOutput()
 		if err != nil {

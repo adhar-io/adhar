@@ -170,9 +170,49 @@ spec:
     - name: scan
       image: ghcr.io/gitleaks/gitleaks:v8.21.2
       workingDir: $(workspaces.source.path)
-      command: [gitleaks]
-      # --no-git: the clone is shallow; scan the tree, not history.
-      args: [detect, --source=., --no-git, --no-banner, --redact, --exit-code=1, --report-format=json, --report-path=/tmp/gitleaks.json]
+      # The step used to print only "leaks found: 1" and keep the report in the
+      # pod's /tmp, so a failed run (reactapp, 2026-10-23) could not say WHICH
+      # file — the developer had nothing to fix. Now each finding is printed
+      # (file, line, rule, fingerprint; the secret itself stays redacted).
+      #
+      # Scope: the repository's own code. The shared workspace also holds the
+      # .git directory (scan-policy writes into it) and whatever a build or tool
+      # leaves next to the source; third-party trees (node_modules, vendor) and
+      # build output carry sample keys that are not the team's secrets. Same
+      # skip list as source-scan.
+      #
+      # A repository's own .gitleaks.toml is extended, not replaced, and its
+      # .gitleaksignore (fingerprints of accepted false positives) is honoured.
+      script: |
+        #!/bin/sh
+        set -u
+        if [ -f .gitleaks.toml ]; then BASE="path = \"$(pwd)/.gitleaks.toml\""; else BASE="useDefault = true"; fi
+        cat > /tmp/gitleaks.toml <<EOF
+        [extend]
+        ${BASE}
+
+        [allowlist]
+        description = "Not the repository's own code: VCS metadata, dependencies, build output"
+        paths = [
+          '''(^|/)\.git/''',
+          '''(^|/)node_modules/''',
+          '''(^|/)(vendor|third_party)/''',
+          '''(^|/)(dist|build|out|target|coverage|generated|\.next|\.nuxt|\.svelte-kit|\.angular|\.cache)/''',
+          '''(^|/)(\.venv|venv|__pycache__|\.tox)/''',
+        ]
+        EOF
+        # --no-git: the clone is shallow; scan the tree, not history.
+        gitleaks detect --source=. --no-git --no-banner --redact --verbose \
+          --config=/tmp/gitleaks.toml --exit-code=1 \
+          --report-format=json --report-path=/tmp/gitleaks.json
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+          echo ""
+          echo "A committed secret was found (details above; the value is redacted)."
+          echo "  Real secret:     remove it from the repository and ROTATE it — it is in Git history."
+          echo "  False positive:  add the finding's Fingerprint line to .gitleaksignore at the repository root."
+        fi
+        exit "$rc"
 ---
 # Dependency CVEs and manifest misconfigurations, from the source tree: the
 # lockfile tells trivy what the app ships before the image exists, and `deploy/`

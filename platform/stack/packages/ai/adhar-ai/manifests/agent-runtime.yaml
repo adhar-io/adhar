@@ -247,7 +247,8 @@ spec:
             # routes on that name (`claude-*` -> Anthropic, `gpt-*` -> OpenAI,
             # `local/*` -> the in-cluster vLLM) and holds the key server-side.
             # The platform's own repositories, read for the knowledge base:
-            # `packages`, `environments` and the `adhar` source mirror. Gitea
+            # `packages` and `environments`. (The platform's docs and CLI
+            # reference come from the knowledge bundle below, not Gitea.) Gitea
             # requires sign-in for every read (REQUIRE_SIGNIN_VIEW), so the
             # runtime reads with the adhar-ai-bot token; it opens no PRs itself
             # — that path lives in the gitops MCP server.
@@ -261,6 +262,13 @@ spec:
                   # The bot Secret arrives after this Deployment on a fresh
                   # cluster; the runtime starts and indexes once it exists.
                   optional: true
+            # The platform knowledge bundle: docs, examples, changelog and CLI
+            # reference of the release the cluster's controller runs, published
+            # by that controller as the adhar-ai-knowledge-<n> ConfigMaps and
+            # projected below. No egress, no Gitea mirror, and versioned with
+            # the platform — an upgraded controller re-publishes it.
+            - name: ADHAR_AI_KNOWLEDGE_PATH
+              value: "/var/lib/adhar-ai/knowledge"
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # The model every run names unless the caller asks for another.
@@ -439,12 +447,27 @@ spec:
             - name: config
               mountPath: /etc/adhar-ai
               readOnly: true
+            - name: knowledge
+              mountPath: /var/lib/adhar-ai/knowledge
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
         - name: config
           configMap:
             name: adhar-ai-config
+        # The knowledge bundle, split across up to four ConfigMaps (a
+        # ConfigMap is capped at 1 MiB). Every source is optional: the bundle
+        # uses as many parts as it needs, and before the controller has
+        # published it the runtime starts and indexes everything else. The
+        # names must match platform/knowledge (MaxParts); a Go test pins it.
+        - name: knowledge
+          projected:
+            sources:
+              - configMap: {name: adhar-ai-knowledge-0, optional: true}
+              - configMap: {name: adhar-ai-knowledge-1, optional: true}
+              - configMap: {name: adhar-ai-knowledge-2, optional: true}
+              - configMap: {name: adhar-ai-knowledge-3, optional: true}
         - name: tmp
           emptyDir: {}
 ---

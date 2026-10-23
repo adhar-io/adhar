@@ -24,6 +24,11 @@ COPY cmd/ cmd/
 COPY api/ api/
 COPY globals/ globals/
 COPY platform/ platform/
+# The platform knowledge bundle (platform/knowledge) embeds the docs, examples
+# and changelog through the module-root package in knowledge.go.
+COPY knowledge.go README.md CHANGELOG.md ./
+COPY docs/ docs/
+COPY examples/ examples/
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command

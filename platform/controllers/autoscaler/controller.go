@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -53,6 +54,7 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/events"
+	pfactory "adhar-io/adhar/platform/providers"
 )
 
 // tickInterval is the steady-state cadence. Node capacity decisions are slow
@@ -118,6 +120,14 @@ type Reconciler struct {
 	NodeUsage NodeUsageReader
 	// Now is injectable so cooldown behaviour is testable.
 	Now func() time.Time
+	// RESTConfig reaches the API server for the one-time OIDC trust on a
+	// self-managed control plane (apiserver_oidc.go). Nil disables that step.
+	RESTConfig *rest.Config
+	// EnableOIDC applies the API server's OIDC trust; tests substitute it.
+	EnableOIDC func(ctx context.Context, prov pfactory.Provider, clusterName string, rc *rest.Config) (string, error)
+	// ProviderFor builds the cloud provider for the OIDC step; nil means
+	// r.newProvider. Tests substitute it.
+	ProviderFor func(ctx context.Context, spec *clusterSpec) (pfactory.Provider, error)
 
 	// lastEvaluated debounces the watch-driven reconciles; see
 	// minEvaluationInterval. Guarded by mu because reconciles may overlap.
@@ -126,6 +136,8 @@ type Reconciler struct {
 	// progress notices a scale-up that was reported done and never became
 	// nodes (progress.go). Guarded by mu.
 	progress scaleUpProgress
+	// oidcNextAttempt throttles the OIDC trust retries. Guarded by mu.
+	oidcNextAttempt time.Time
 }
 
 // dueIn reports how long remains before another evaluation is allowed, and
@@ -228,6 +240,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	if err := r.clearStartupTaints(ctx); err != nil {
 		logger.Error(err, "clearing CSI startup taints")
 	}
+
+	// Also before the autoscaling gate: Headlamp sign-in needs the API server
+	// to trust Keycloak whether or not this cluster autoscales.
+	r.ensureAPIServerOIDC(ctx)
 
 	platform, err := r.findPlatform(ctx)
 	if err != nil {

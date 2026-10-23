@@ -23,6 +23,7 @@ import (
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/knowledge"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/charmbracelet/lipgloss"
@@ -183,6 +184,11 @@ func init() {
 	// Use the polished, persona-grouped help layout for the whole command tree
 	// (`adhar --help`, `adhar <cmd> --help`, and `adhar help <cmd>`).
 	rootCmd.SetHelpFunc(styledHelp)
+
+	// The controller publishes this release's CLI reference for the in-cluster
+	// AI knowledge base (platform/knowledge). It renders lazily, so commands
+	// added after this init (main.go's) are included.
+	knowledge.SetCommandTree(rootCmd)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,

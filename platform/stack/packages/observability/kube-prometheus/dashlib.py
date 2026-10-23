@@ -19,6 +19,9 @@ default is the provisioned `prometheus` UID); Loki panels use the provisioned
 `loki` UID directly.
 """
 
+import json
+import re
+
 PROM = {"type": "prometheus", "uid": "${datasource}"}
 LOKI = {"type": "loki", "uid": "loki"}
 
@@ -337,12 +340,23 @@ def qvar(name, label, query, multi=True, include_all=True, all_value=None, regex
 # --------------------------------------------------------------------------------------------
 
 class Dash:
+    """A dashboard laid out top to bottom.
+
+    collapse=N: every row after the first N is emitted COLLAPSED, its panels nested
+    inside it (Grafana's collapsible rows). collapse={titles}: every row except those. The aggregated dashboards keep the
+    health-at-a-glance row open and fold each component into its own row, so the
+    page opens fast and reads as a table of contents. Authoring stays linear:
+    rows and lines are placed exactly as for an open dashboard and json() folds
+    them at the end.
+    """
+
     def __init__(self, uid, title, description, tags, variables, links=None, time_from="now-3h",
-                 refresh="30s"):
+                 refresh="30s", collapse=None):
         self.uid, self.title, self.description = uid, title, description
         self.tags, self.variables, self.links = tags, variables, links or []
         self.time_from, self.refresh = time_from, refresh
         self.panels, self.y, self._id = [], 0, 0
+        self.collapse = collapse
 
     def _nid(self):
         self._id += 1
@@ -368,6 +382,133 @@ class Dash:
             x += w
         self.y += h
 
+    # ---------------------------------------------------------------------------------------
+    # Aggregation: whole dashboards and vendored panels folded into this one
+    # ---------------------------------------------------------------------------------------
+
+    def add_variables(self, variables, keep_first=False):
+        """Union of template variables. The same name with a different query is a
+        conflict: the panels written against one would silently read the other —
+        unless keep_first says the two are the same selector reached through
+        different metrics (e.g. Kafka's namespace from the brokers or the exporter)."""
+        have = {v["name"]: v for v in self.variables}
+        for v in variables:
+            old = have.get(v["name"])
+            if old is None:
+                self.variables.append(v)
+                have[v["name"]] = v
+            elif old.get("definition", old.get("query")) != v.get("definition", v.get("query")) \
+                    and v["name"] != "datasource" and not keep_first:
+                raise ValueError(f"{self.title}: variable ${v['name']} defined twice differently:\n"
+                                 f"  {old.get('definition')}\n  {v.get('definition')}")
+
+    def merge(self, other, skip_rows=(), rename=None, variables=True, keep_first=False):
+        """Append another Dash's rows and panels below this one's (its rows become
+        this dashboard's sections). skip_rows drops rows by title (with their panels);
+        rename maps an old row title to a new one."""
+        rename = rename or {}
+        if variables:
+            self.add_variables(other.variables, keep_first=keep_first)
+        skipping = False
+        base = None
+        for p in other.panels:
+            if p["type"] == "row":
+                skipping = p["title"] in skip_rows
+                if skipping:
+                    continue
+                if base is None:
+                    base = p["gridPos"]["y"]
+            if skipping:
+                continue
+            if base is None:
+                base = p["gridPos"]["y"]
+            q = json.loads(json.dumps(p))
+            q["id"] = self._nid()
+            if q["type"] == "row":
+                q["title"] = rename.get(q["title"], q["title"])
+            q["gridPos"]["y"] = self.y + (p["gridPos"]["y"] - base)
+            self.panels.append(q)
+        self._resync_y()
+
+    def embed(self, src, row=None, var_map=None, skip=(), describe=None, uid_map=None, skip_rows=()):
+        """Place a vendored dashboard's panels (e.g. the kubernetes-mixin) into this one.
+
+        src: dashboard JSON. Its rows become rows here (prefixed with `row` when given);
+        a dashboard without rows gets one row titled `row`. var_map renames template
+        variables inside every string ($instance -> $kubelet_instance), so two embedded
+        dashboards that both call a different thing $instance stop colliding. Datasources
+        are re-pointed at this dashboard's ${datasource}. describe(panel) supplies a
+        description for any panel that has none."""
+        var_map = var_map or {}
+        flat, dropping = [], False
+        for p in src.get("panels", []):
+            if p.get("type") == "row":
+                dropping = p.get("title") in skip_rows
+                if dropping:
+                    continue
+                kids = p.get("panels") or []
+                flat.append(dict(p, panels=[]))
+                flat.extend(kids)
+            elif not dropping:
+                flat.append(p)
+        flat = [p for p in flat if p.get("title") not in skip and p.get("type") != "text"]
+        if not flat:
+            return
+        prefix = row is not None and flat[0].get("type") == "row"
+        if flat[0].get("type") != "row":
+            if row is None:
+                raise ValueError(f"{self.title}: embedding {src.get('title')!r} needs a row title")
+            self.row(row)
+        base = min(p["gridPos"]["y"] for p in flat)
+        start = self.y
+        for p in flat:
+            q = _rewrite(json.loads(json.dumps(p)), var_map, uid_map or {})
+            q["id"] = self._nid()
+            q["gridPos"] = dict(q["gridPos"], y=start + p["gridPos"]["y"] - base)
+            if q["type"] == "row":
+                q["collapsed"] = False
+                q["panels"] = []
+                if prefix:
+                    q["title"] = f"{row} · {q['title']}"
+            else:
+                _repoint_datasource(q)
+                if not (q.get("description") or "").strip():
+                    q["description"] = describe(q) if describe else q.get("title", "")
+            self.panels.append(q)
+        self._resync_y()
+
+    def _resync_y(self):
+        self.y = max([p["gridPos"]["y"] + p["gridPos"]["h"] for p in self.panels] or [0])
+
+    def _folded(self):
+        if self.collapse is None:
+            return self.panels
+        out, current = [], None
+        y = 0              # next free top-level line
+        row_new = row_old = 0
+        for p in self.panels:
+            p = json.loads(json.dumps(p))
+            if p["type"] == "row":
+                if isinstance(self.collapse, (set, frozenset, tuple, list)):
+                    fold = p["title"] not in self.collapse
+                else:
+                    fold = sum(1 for q in out if q["type"] == "row") >= self.collapse
+                row_old, row_new = p["gridPos"]["y"], y
+                p["gridPos"] = dict(p["gridPos"], y=y)
+                p["collapsed"] = fold
+                p["panels"] = []
+                out.append(p)
+                current = p if fold else None
+                y += 1
+                continue
+            p["gridPos"] = dict(p["gridPos"], y=row_new + (p["gridPos"]["y"] - row_old))
+            if current is not None:
+                current["panels"].append(p)
+            else:
+                out.append(p)
+                y = max(y, p["gridPos"]["y"] + p["gridPos"]["h"])
+        return out
+
     def json(self):
         return {
             "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"},
@@ -380,7 +521,7 @@ class Dash:
             "id": None,
             "links": self.links,
             "liveNow": False,
-            "panels": self.panels,
+            "panels": self._folded(),
             "refresh": self.refresh,
             "schemaVersion": 39,
             "tags": self.tags,
@@ -418,3 +559,38 @@ def E(expr, **sel):
     if "<<" in expr:
         raise ValueError(f"unsubstituted placeholder in {expr}")
     return expr
+
+
+_PROM_UIDS = {"prometheus", "$datasource", "${datasource}", "${DS_PROMETHEUS}", "$DS_PROMETHEUS", "${prometheus}"}
+
+
+def _repoint_datasource(panel):
+    """Point a vendored panel (and its targets) at this dashboard's ${datasource}."""
+    def fix(ds):
+        if isinstance(ds, str):
+            return PROM if ds in _PROM_UIDS or ds.lower() == "prometheus" else ds
+        if isinstance(ds, dict) and (ds.get("uid") in _PROM_UIDS or (ds.get("type") == "prometheus" and ds.get("uid") != "mimir")):
+            return dict(PROM)
+        return ds
+    if "datasource" in panel:
+        panel["datasource"] = fix(panel["datasource"])
+    for t in panel.get("targets", []) or []:
+        if "datasource" in t:
+            t["datasource"] = fix(t["datasource"])
+
+
+def _rewrite(obj, var_map, uid_map):
+    """Rename template variables and dashboard uids inside every string of obj."""
+    if isinstance(obj, dict):
+        return {k: _rewrite(v, var_map, uid_map) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rewrite(v, var_map, uid_map) for v in obj]
+    if isinstance(obj, str):
+        for old, new in var_map.items():
+            obj = re.sub(r"\$\{%s([}:.])" % re.escape(old), "${%s\\1" % new, obj)
+            obj = re.sub(r"\$%s\b" % re.escape(old), "$" + new, obj)
+            obj = obj.replace(f"var-{old}=", f"var-{new}=")
+        for old, new in uid_map.items():
+            obj = obj.replace(f"/d/{old}", f"/d/{new}")
+        return obj
+    return obj

@@ -79,16 +79,18 @@ spec:
                   value: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
                 - name: RAG_DB_NAME
                   value: "adhar_ai_rag"
-                # The docs tree the runtime indexes. Same mount, same content.
-                - name: ADHAR_AI_DOCS_PATH
-                  value: "/etc/adhar-ai/docs"
+                # The platform knowledge bundle (docs, examples, changelog, CLI
+                # reference). Same projection, same content as the runtime's;
+                # see agent-runtime.yaml.
+                - name: ADHAR_AI_KNOWLEDGE_PATH
+                  value: "/var/lib/adhar-ai/knowledge"
               envFrom:
                 - secretRef:
                     name: adhar-ai-rag-app
                     optional: true
               volumeMounts:
-                - name: docs
-                  mountPath: /etc/adhar-ai/docs
+                - name: knowledge
+                  mountPath: /var/lib/adhar-ai/knowledge
                   readOnly: true
                 - name: tmp
                   mountPath: /tmp
@@ -100,13 +102,17 @@ spec:
                 requests: {cpu: 100m, memory: 256Mi}
                 limits: {cpu: "1", memory: 1Gi}
           volumes:
-            # Optional: with no docs ConfigMap the other knowledge sources (the
-            # tool inventory, the live cluster inventory, findings and notes)
-            # still refresh. A missing docs mount degrades the base, it does not
-            # fail the job.
-            - name: docs
-              configMap:
-                name: adhar-ai-docs
-                optional: true
+            # Optional, part by part: before the controller has published the
+            # bundle the other knowledge sources (manifests, environments, the
+            # tool inventory, the live cluster, findings and notes) still
+            # refresh. A missing bundle degrades the base, it does not fail the
+            # job. Names pinned to platform/knowledge (MaxParts) by a Go test.
+            - name: knowledge
+              projected:
+                sources:
+                  - configMap: {name: adhar-ai-knowledge-0, optional: true}
+                  - configMap: {name: adhar-ai-knowledge-1, optional: true}
+                  - configMap: {name: adhar-ai-knowledge-2, optional: true}
+                  - configMap: {name: adhar-ai-knowledge-3, optional: true}
             - name: tmp
               emptyDir: {}

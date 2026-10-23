@@ -702,8 +702,14 @@ def dashboard():
              "title": "Adhar AI", "tooltip": "The AI plane: agent runs, models, tokens, MCP tools and guardrails", "type": "link", "url": "/d/adhar-ai/adhar-ai"},
             {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": ["application"], "targetBlank": False,
              "title": "Applications", "tooltip": "One dashboard per custom application", "type": "dashboards", "url": ""},
-            {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": ["adhar"], "targetBlank": False,
-             "title": "Adhar dashboards", "tooltip": "Other Adhar platform dashboards", "type": "dashboards", "url": ""},
+        ] + [
+            # One dropdown per Grafana folder (dash_common.FOLDER_TAG): each folder holds a
+            # small aggregated set, so the dropdown is the folder's table of contents.
+            {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": [tag], "targetBlank": False,
+             "title": folder, "tooltip": f"The {folder} dashboards", "type": "dashboards", "url": ""}
+            for folder, tag in (("Kubernetes", "adhar-kubernetes"), ("Networking", "adhar-networking"), ("Data", "adhar-data"),
+                                ("Delivery", "adhar-delivery"), ("Security", "adhar-security"),
+                                ("Observability", "adhar-observability"), ("Resilience", "adhar-resilience"))
         ],
         "panels": build(),
         "refresh": "1m",

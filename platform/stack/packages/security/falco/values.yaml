@@ -164,6 +164,11 @@ falcosidekick:
       hostport: http://loki.adhar-system.svc.cluster.local:3100
       format: json
       extralabels: "k8s.ns.name,k8s.pod.name"
+      # The chart's own "Falco logs" Grafana dashboard is off: its panels are part of
+      # Security / Runtime Threats (kube-prometheus dash_security.py), which reads
+      # these Loki streams beside Falco's and Tetragon's metrics.
+      grafanaDashboard:
+        enabled: false
     # Warning and above become Alertmanager alerts, which the platform routes to
     # the Console's Notification Center (kube-prometheus alertmanager-console-webhook).
     # Notice/Info stay in Loki and the UI — they are telemetry, not pages.

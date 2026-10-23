@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Download curated Grafana dashboards from grafana.com and emit them as
-in-repo sidecar ConfigMaps for the two-folder (Platform / Application) layout.
+"""Vendoring and packaging helpers for Grafana dashboards.
 
-Each dashboard's datasource inputs are pinned to the platform's provisioned
-datasource UIDs (prometheus / loki / tempo / mimir / pyroscope) so the JSON is
-self-contained and provisions without prompting. Output goes to manifests/ as
-one ConfigMap per dashboard (grafana_dashboard=1 label, grafana_folder
-annotation). Runtime needs no egress — the JSON is committed to the repo.
+Every dashboard this package ships is BUILT, not downloaded: build-service-dashboards.py
+(one small set per Grafana folder, dash_<folder>.py) and build-platform-dashboard.py
+(the "Adhar Platform" front page). Until 2026-10-23 this script downloaded ~90
+community dashboards from grafana.com; most showed "No data" here (written for other
+exporters / label sets), several were duplicates of one another, and a dozen served
+packages disabled in every profile, so they were replaced by the aggregated set.
+
+What remains here:
+  * configmap_yaml(): the sidecar ConfigMap shape every built dashboard is wrapped in
+    (grafana_dashboard=1 label, grafana_folder annotation);
+  * fetch() / pin_datasources(): to vendor a published dashboard as a SOURCE (e.g. into
+    dashboards-custom/vendored/) for a builder to embed — never to ship it as is.
+
+DASHBOARDS is deliberately empty; running this script writes nothing.
 """
 import json
 import os
@@ -26,146 +34,9 @@ OUT_DIR = os.path.join(HERE, "manifests")
 # no-op on them. A source string "local:<file>" reads dashboards-custom/<file>.
 CUSTOM_DIR = os.path.join(HERE, "dashboards-custom")
 
-# name | source | folder
-#   source is either an int grafana.com dashboard id, or a str direct-download
-#   URL (for projects that publish their dashboard JSON outside grafana.com).
-# Platform = hardware/OS, Kubernetes, networking, data stores, LGTM stack,
-# security, and platform application services (ArgoCD/Gitea/Keycloak/Vault/...).
-# Application = application-runtime dashboards (Spring Boot / Micrometer / JVM).
-DASHBOARDS = [
-    ("node-exporter-full", 1860, "Platform"),
-    ("kubernetes-global", 15757, "Platform"),
-    ("kubernetes-namespaces", 15758, "Platform"),
-    ("kubernetes-nodes", 15759, "Platform"),
-    ("kubernetes-pods", 15760, "Platform"),
-    ("kube-state-metrics", 13332, "Platform"),
-    ("cilium-agent", 16611, "Platform"),
-    ("cilium-operator", 16612, "Platform"),
-    ("cilium-hubble", 16613, "Platform"),
-    ("coredns", 14981, "Platform"),
-    ("cloudnativepg", "local:cloudnativepg.json", "Data"),
-    # Networking / DNS / probing
-    ("cilium-network-monitoring", 24056, "Platform"),
-    ("blackbox-exporter", 13659, "Platform"),
-    # Cluster / nodes (node-exporter-driven variants)
-    ("kubernetes-nodes-classic", 8171, "Platform"),
-    ("k8s-cluster-overview", "local:k8s-cluster-overview.json", "Kubernetes"),
-    # Alerting / LGTM
-    ("alertmanager", 9578, "Platform"),
-    ("loki-stack", 14055, "Platform"),
-    # Data stores / messaging (platform services)
-    ("redis-overview", 18345, "Platform"),
-    ("redis-ha", 11835, "Platform"),
-    ("rabbitmq-overview", "local:rabbitmq-overview.json", "Data"),
-    ("rabbitmq-stream", 14798, "Platform"),
-    # Platform application services
-    ("keycloak-metrics", 10441, "Platform"),
-    ("minio", "https://raw.githubusercontent.com/minio/minio/master/docs/metrics/prometheus/grafana/minio-dashboard.json", "Platform"),
-    ("prometheus", 19105, "Platform"),
-    ("loki", 13407, "Platform"),
-    ("cert-manager", 11001, "Platform"),
-    ("kyverno", 15987, "Platform"),
-    ("argocd", 14584, "Platform"),
-    ("gitea", 13192, "Platform"),
-    ("keycloak", 17878, "Platform"),
-    ("vault", 12904, "Platform"),
-    ("harbor", 14075, "Platform"),
-    ("kafka-cluster", "local:kafka-cluster.json", "Data"),
-    ("kafka-exporter", "local:kafka-exporter.json", "Data"),
-    ("redis", "local:redis.json", "Data"),
-    ("spring-boot-statistics", 10280, "Application"),
-    ("spring-boot-apm", 12900, "Application"),
-    ("jvm-micrometer", 4701, "Application"),
-    ("kafka-streams", 13966, "Application"),
-    ("nodejs", 11159, "Application"),
-    ("spark-performance", 7890, "Application"),
-
-    # ---------------------------------------------------------------------
-    # Kubernetes control plane + detail (kubernetes-mixin family, 12114-12135)
-    # Complements the dotdc Views set above with control-plane and
-    # per-namespace/pod/workload compute + networking drill-downs.
-    # ---------------------------------------------------------------------
-    ("k8s-apiserver", "local:k8s-apiserver.json", "Kubernetes"),
-    ("k8s-kubelet", "local:k8s-kubelet.json", "Kubernetes"),
-    ("k8s-scheduler", "local:k8s-scheduler.json", "Kubernetes"),
-    ("k8s-controller-manager", "local:k8s-controller-manager.json", "Kubernetes"),
-    ("k8s-etcd", 20330, "Platform"),
-    ("k8s-persistent-volumes-detail", "local:k8s-persistent-volumes-detail.json", "Kubernetes"),
-    ("k8s-compute-cluster", "local:k8s-compute-cluster.json", "Kubernetes"),
-    ("k8s-compute-namespace-pods", "local:k8s-compute-namespace-pods.json", "Kubernetes"),
-    ("k8s-compute-namespace-workloads", "local:k8s-compute-namespace-workloads.json", "Kubernetes"),
-    ("k8s-compute-node-pods", "local:k8s-compute-node-pods.json", "Kubernetes"),
-    ("k8s-compute-nodes-overview", "local:k8s-compute-nodes-overview.json", "Kubernetes"),
-    ("k8s-compute-pod", "local:k8s-compute-pod.json", "Kubernetes"),
-    ("k8s-compute-workload", "local:k8s-compute-workload.json", "Kubernetes"),
-    ("k8s-networking-cluster", "local:k8s-networking-cluster.json", "Networking"),
-    ("k8s-networking-namespace-pods", "local:k8s-networking-namespace-pods.json", "Networking"),
-    ("k8s-networking-namespace-workload", "local:k8s-networking-namespace-workload.json", "Networking"),
-    ("k8s-pods-detail", 12128, "Platform"),
-    ("k8s-statefulsets", 12131, "Platform"),
-    ("k8s-use-cluster", "local:k8s-use-cluster.json", "Kubernetes"),
-    ("k8s-cluster-autoscaler", 3831, "Platform"),
-    ("k8s-capacity", "local:k8s-capacity.json", "Kubernetes"),
-    ("k8s-workloads-metrics", 8588, "Platform"),
-    ("kubernetes-events", 23100, "Platform"),
-
-    # ---------------------------------------------------------------------
-    # LGTM stack internals (Tempo / Loki / Mimir operational mixins)
-    # ---------------------------------------------------------------------
-    ("tempo-operational", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-operational.json", "Platform"),
-    ("tempo-reads", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-reads.json", "Platform"),
-    ("tempo-writes", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-writes.json", "Platform"),
-    ("tempo-resources", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-resources.json", "Platform"),
-    ("loki-writes", "https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-writes.json", "Platform"),
-    ("loki-reads", "https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-reads.json", "Platform"),
-    ("loki-operational", "https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-operational.json", "Platform"),
-    ("mimir-overview", 17607, "Platform"),
-    ("mimir-overview-resources", 17606, "Platform"),
-    ("mimir-overview-networking", 17605, "Platform"),
-
-    # ---------------------------------------------------------------------
-    # Security / policy / secrets
-    # ---------------------------------------------------------------------
-    ("trivy-operator", 17813, "Platform"),
-    ("falco", "local:falco.json", "Platform"),  # 11914 reads falco_events from the retired falco-exporter
-    ("external-secrets", "https://raw.githubusercontent.com/external-secrets/external-secrets/main/docs/snippets/dashboard.json", "Platform"),
-
-    # ---------------------------------------------------------------------
-    # Platform application services (infra/control-plane runtimes)
-    # ---------------------------------------------------------------------
-    ("crossplane", 24549, "Platform"),
-    ("keda-operator", 22111, "Platform"),
-    ("keda-scaled-object", 23951, "Platform"),
-    ("velero", 11055, "Platform"),
-    ("opencost", 22208, "Platform"),
-    ("opencost-namespace", 22252, "Platform"),
-    ("argo-workflows", 25113, "Platform"),
-    ("argo-workflows-controller", 25112, "Platform"),
-    ("tekton", 16559, "Platform"),
-    ("dapr-system-services", "https://raw.githubusercontent.com/dapr/dapr/master/grafana/grafana-system-services-dashboard.json", "Platform"),
-    ("dapr-sidecar", "https://raw.githubusercontent.com/dapr/dapr/master/grafana/grafana-sidecar-dashboard.json", "Platform"),
-    ("jupyterhub", 5849, "Platform"),
-    ("trino-cluster", 20208, "Platform"),
-    ("trino-pod", 20207, "Platform"),
-    ("opensearch", 15178, "Platform"),
-    ("victoria-metrics", 10229, "Platform"),
-    ("victoria-metrics-cluster", 11176, "Platform"),
-    ("mongodb", 2583, "Platform"),
-    ("mysql", 7362, "Platform"),
-
-    # ---------------------------------------------------------------------
-    # Hand-authored Adhar dashboards (no reliable published grafana.com source).
-    # Source files live in dashboards-custom/; they reference datasource UIDs
-    # (prometheus/loki/tempo/pyroscope) directly.
-    # ---------------------------------------------------------------------
-    ("alloy", "local:alloy.json", "Platform"),
-    ("external-dns", "local:external-dns.json", "Platform"),
-    ("cosign", "local:cosign.json", "Platform"),
-    ("tetragon", "local:tetragon.json", "Platform"),
-    ("kubescape", "local:kubescape.json", "Platform"),
-    ("pyroscope", "local:pyroscope.json", "Platform"),
-    ("spark-operator", "local:spark-operator.json", "Platform"),
-]
+# name | source | folder — dashboards downloaded and shipped as is. Empty on purpose
+# (see the module docstring); add a builder in dash_<folder>.py instead.
+DASHBOARDS = []
 
 # grafana.com input pluginId -> our provisioned datasource UID.
 PLUGIN_UID = {
@@ -256,6 +127,8 @@ def main():
         except Exception as e:  # noqa: BLE001 - report and continue
             failed.append((name, gid, str(e)))
             print(f"FAIL  {name:24} (id {gid}): {e}", file=sys.stderr)
+    if not DASHBOARDS:
+        print("nothing to download: every dashboard is built by build-service-dashboards.py / build-platform-dashboard.py")
     print(f"\n{len(ok)} dashboards written to {OUT_DIR}, {len(failed)} failed")
     if failed:
         for name, gid, err in failed:

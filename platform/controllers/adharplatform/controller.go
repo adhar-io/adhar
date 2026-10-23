@@ -55,6 +55,7 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/domain"
 	"adhar-io/adhar/platform/events"
+	"adhar-io/adhar/platform/knowledge"
 	"adhar-io/adhar/platform/utils"
 	"adhar-io/adhar/platform/utils/files"
 	"encoding/base64"
@@ -99,6 +100,10 @@ type AdharPlatformReconciler struct {
 	TempDir          string
 	StackDir         string // Path to the platform/stack directory on the host filesystem
 	RepoMap          *utils.RepoMap
+
+	// KnowledgeBundle overrides the bundle reconcileKnowledgeBundle publishes;
+	// nil (the normal case) publishes this binary's own, knowledge.Current().
+	KnowledgeBundle *knowledge.Bundle
 
 	// Events publishes platform lifecycle events onto the bus. Nil is a
 	// working configuration and the normal one locally: publishing is advisory
@@ -224,6 +229,11 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// CI workspaces need a volume that follows the pod; see globals.CIStorageClass.
 	if err := r.reconcileCIStorageClass(ctx); err != nil {
 		log.FromContext(ctx).Info("Could not publish the CI StorageClass yet", "error", err)
+	}
+	// This release's docs and CLI reference for the AI knowledge base; see
+	// knowledge.go. Replaces the Gitea mirror of the adhar repository.
+	if err := r.reconcileKnowledgeBundle(ctx); err != nil {
+		log.FromContext(ctx).Info("Could not publish the platform knowledge bundle yet", "error", err)
 	}
 
 	// Click-free SSO for the Argo CD UI, once the platform can supply the
@@ -638,9 +648,11 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	// are booting, so a local cluster either had no templates or paid for two
 	// library builds to get them. Best effort — see mirrorGiteaRepository.
 	r.mirrorGiteaRepository(ctx, globals.GitOpsRepoTemplates, globals.TemplatesUpstreamURL)
-	// The platform's own source, for the AI knowledge base: docs/ and cmd/
-	// are not in the packages or environments repos. Same best-effort rules.
-	r.mirrorGiteaRepository(ctx, globals.GitOpsRepoSource, globals.SourceUpstreamURL)
+	// The platform's own docs and CLI reference are NOT mirrored here any more:
+	// the AI knowledge base reads them from the bundle this controller
+	// publishes (reconcileKnowledgeBundle), which is the release the cluster
+	// runs and needs no egress. Clusters bootstrapped before 2026-10-23 keep an
+	// `adhar/adhar` mirror nothing reads; it is safe to delete.
 
 	// Populate repositories with content
 	if err := r.populateRepositories(ctx); err != nil {

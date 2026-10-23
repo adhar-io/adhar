@@ -1,7 +1,7 @@
 # LGTM datasources — the metrics/logs/traces/profiles backends, wired into one
 # correlated Grafana experience. The Grafana sidecar loads any ConfigMap labelled
 # grafana_datasource=1. UIDs are FIXED (prometheus/mimir/loki/tempo/pyroscope) to
-# exactly match the UIDs the in-repo dashboards pin to (generate-dashboards.py) —
+# exactly match the UIDs the in-repo dashboards pin to (build-service-dashboards.py) —
 # without fixed UIDs those dashboards' Loki/Tempo/Mimir/Pyroscope panels resolve
 # to "datasource not found".
 #

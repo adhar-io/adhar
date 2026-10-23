@@ -90,11 +90,95 @@ data:
           "includeVars": false,
           "keepTime": true,
           "tags": [
-            "adhar"
+            "adhar-kubernetes"
           ],
           "targetBlank": false,
-          "title": "Adhar dashboards",
-          "tooltip": "Other Adhar platform dashboards",
+          "title": "Kubernetes",
+          "tooltip": "The Kubernetes dashboards",
+          "type": "dashboards",
+          "url": ""
+        },
+        {
+          "asDropdown": true,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "adhar-networking"
+          ],
+          "targetBlank": false,
+          "title": "Networking",
+          "tooltip": "The Networking dashboards",
+          "type": "dashboards",
+          "url": ""
+        },
+        {
+          "asDropdown": true,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "adhar-data"
+          ],
+          "targetBlank": false,
+          "title": "Data",
+          "tooltip": "The Data dashboards",
+          "type": "dashboards",
+          "url": ""
+        },
+        {
+          "asDropdown": true,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "adhar-delivery"
+          ],
+          "targetBlank": false,
+          "title": "Delivery",
+          "tooltip": "The Delivery dashboards",
+          "type": "dashboards",
+          "url": ""
+        },
+        {
+          "asDropdown": true,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "adhar-security"
+          ],
+          "targetBlank": false,
+          "title": "Security",
+          "tooltip": "The Security dashboards",
+          "type": "dashboards",
+          "url": ""
+        },
+        {
+          "asDropdown": true,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "adhar-observability"
+          ],
+          "targetBlank": false,
+          "title": "Observability",
+          "tooltip": "The Observability dashboards",
+          "type": "dashboards",
+          "url": ""
+        },
+        {
+          "asDropdown": true,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "adhar-resilience"
+          ],
+          "targetBlank": false,
+          "title": "Resilience",
+          "tooltip": "The Resilience dashboards",
           "type": "dashboards",
           "url": ""
         }

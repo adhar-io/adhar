@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -200,13 +201,29 @@ func RunAPIServerOIDC(signer ssh.Signer, user, host string, cfg APIServerOIDC) (
 // control plane is not ours), the control-plane node's external address, and
 // the issuer from Keycloak's own HTTPRoute.
 func EnableClusterOIDC(ctx context.Context, prov Provider, clusterName string, kubeconfig []byte) (string, error) {
-	sshProv, ok := prov.(ComputeSSHUserProvider)
-	if !ok {
-		return "skipped: this provider does not build self-managed control planes", nil
-	}
 	rc, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 	if err != nil {
 		return "", fmt.Errorf("parsing the kubeconfig: %w", err)
+	}
+	return EnableClusterOIDCFromREST(ctx, prov, clusterName, rc)
+}
+
+// APIServerOIDCMarkerKey is the adhar-cluster-spec ConfigMap key that records
+// the issuer the API server was configured to trust. Its presence means the job
+// is done: the in-cluster manager stops trying, and a re-run of `adhar up` or
+// `adhar cluster oidc` only refreshes it.
+const APIServerOIDCMarkerKey = "apiserverOIDCIssuer"
+
+// EnableClusterOIDCFromREST is EnableClusterOIDC for a caller that already has
+// a REST config — the in-cluster manager, which finishes the job when `adhar
+// up`'s one attempt ran before Keycloak was serving (2026-10-23: a fresh
+// DigitalOcean cluster came up with no OIDC trust at all, and Headlamp's login
+// failed on every API call until it was applied by hand). On success it records
+// the issuer under APIServerOIDCMarkerKey in adhar-cluster-spec.
+func EnableClusterOIDCFromREST(ctx context.Context, prov Provider, clusterName string, rc *rest.Config) (string, error) {
+	sshProv, ok := prov.(ComputeSSHUserProvider)
+	if !ok {
+		return "skipped: this provider does not build self-managed control planes", nil
 	}
 	kc, err := kubernetes.NewForConfig(rc)
 	if err != nil {
@@ -239,7 +256,17 @@ func EnableClusterOIDC(ctx context.Context, prov Provider, clusterName string, k
 	if err != nil {
 		return "", err
 	}
-	return RunAPIServerOIDC(signer, sshProv.ComputeSSHUser(), host, APIServerOIDC{IssuerURL: issuer})
+	line, err := RunAPIServerOIDC(signer, sshProv.ComputeSSHUser(), host, APIServerOIDC{IssuerURL: issuer})
+	if err != nil {
+		return line, err
+	}
+	if spec != nil && spec.Name != "" {
+		patch := fmt.Sprintf(`{"data":{%q:%q}}`, APIServerOIDCMarkerKey, issuer)
+		if _, perr := kc.CoreV1().ConfigMaps("adhar-system").Patch(ctx, "adhar-cluster-spec", types.MergePatchType, []byte(patch), metav1.PatchOptions{}); perr != nil {
+			return line, fmt.Errorf("configured, but could not record it in adhar-cluster-spec: %w", perr)
+		}
+	}
+	return line, nil
 }
 
 // keycloakIssuer is the platform realm's issuer URL, from the hostname of the
