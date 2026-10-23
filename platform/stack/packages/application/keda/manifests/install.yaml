@@ -12102,7 +12102,7 @@ spec:
               cpu: 1
               memory: 1000Mi
             requests:
-              cpu: 100m
+              cpu: 25m
               memory: 100Mi
       volumes:
       - name: certificates
@@ -12235,7 +12235,7 @@ spec:
               cpu: 1
               memory: 1000Mi
             requests:
-              cpu: 100m
+              cpu: 50m
               memory: 100Mi
       volumes:
       - name: certificates
@@ -12350,7 +12350,7 @@ spec:
               cpu: 1
               memory: 1000Mi
             requests:
-              cpu: 100m
+              cpu: 50m
               memory: 100Mi
       volumes:
       - name: certificates

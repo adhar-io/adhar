@@ -47,6 +47,10 @@ const (
 type trackedStage struct {
 	label  string
 	detail string
+	// result is shown beside a FINISHED stage (DoneWith): what the stage found,
+	// e.g. "1 file differs". Detail describes work in progress and is dropped on
+	// completion; this is the one thing worth keeping on the line afterwards.
+	result string
 	state  stageState
 	start  time.Time
 	end    time.Time
@@ -144,6 +148,16 @@ func (t *StageTracker) SetDetail(i int, detail string) {
 // Done marks stage i complete.
 func (t *StageTracker) Done(i int) { t.setFinal(i, stageDone) }
 
+// DoneWith marks stage i complete and keeps a short result beside it.
+func (t *StageTracker) DoneWith(i int, result string) {
+	t.mu.Lock()
+	if i >= 0 && i < len(t.stages) {
+		t.stages[i].result = result
+	}
+	t.mu.Unlock()
+	t.setFinal(i, stageDone)
+}
+
 // Fail marks stage i failed.
 func (t *StageTracker) Fail(i int) { t.setFinal(i, stageFailed) }
 
@@ -160,7 +174,11 @@ func (t *StageTracker) setFinal(i int, s stageState) {
 			if s == stageFailed {
 				icon = stFailStyle.Render("✖")
 			}
-			fmt.Fprintf(t.w, "  %s %s  %s\n", icon, t.stages[i].label,
+			label := t.stages[i].label
+			if r := t.stages[i].result; r != "" {
+				label += "  " + r
+			}
+			fmt.Fprintf(t.w, "  %s %s  %s\n", icon, label,
 				stDetailStyle.Render(fmtElapsed(t.stages[i].end.Sub(t.stages[i].start))))
 		}
 	}
@@ -306,6 +324,9 @@ func (t *StageTracker) renderLocked(first bool) {
 		case stageDone:
 			glyph = stDoneStyle.Render("✓")
 			label = stLabelDone.Render(s.label)
+			if s.result != "" {
+				label += "  " + s.result
+			}
 			extra = stDetailStyle.Render(fmtElapsed(s.end.Sub(s.start)))
 		case stageFailed:
 			glyph = stFailStyle.Render("✖")

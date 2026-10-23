@@ -3,6 +3,7 @@ package upgrade
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -129,7 +130,7 @@ func TestUpgradeOnlyWarnsAboutChurnWhenItPushed(t *testing.T) {
 	}
 	// And the "Pushing stack" announcement must branch too, so it does not
 	// claim a push after reporting no changes.
-	if !strings.Contains(src, `helpers.Println("◌ Re-applying the platform ApplicationSet…")`) {
+	if !regexp.MustCompile(`applyDefs := \[\]helpers\.StageDef\{\{Label: "applicationset"[^\n]*\n\s*if diff\.any\(\) \{\n\s*applyDefs = \[\]helpers\.StageDef\{\{Label: "push`).MatchString(src) {
 		t.Error("the phase-3 announcement always says it is pushing the stack; after \"no changes\" " +
 			"that is not what happens, and the operator has no way to tell a real push from a no-op")
 	}

@@ -152,7 +152,9 @@ spec:
             - {name: NEO4J_dbms_security_procedures_unrestricted, value: "apoc.*"}
             - {name: NEO4J_dbms_security_procedures_allowlist, value: "apoc.*"}
           resources:
-            requests: {cpu: 200m, memory: 1Gi}
+            # cpu 200m -> 100m: measured max 5m on the AWS cluster (2026-10-24),
+            # the request was ~40x use; 100m is the floor kept for databases.
+            requests: {cpu: 100m, memory: 1Gi}
             # The limit must exceed heap + pagecache + JVM overhead: 1g + 512m
             # plus metaspace and threads. Set it to the sum and the JVM is
             # killed the first time it touches its own ceiling.

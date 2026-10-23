@@ -92,24 +92,24 @@ const (
 	proxyRouteName = "argocd-server"
 )
 
-// repointRulesToProxy sends the Argo CD route's CATCH-ALL traffic to the SSO
-// proxy and reports whether anything changed.
+// repointRulesToProxy sends EVERY rule of the Argo CD route to the SSO proxy
+// and reports whether anything changed.
 //
-// Only rules with no header match are touched. post-install.yaml carries a
-// rule that keeps requests holding an `argocd.token` session cookie on Argo CD
-// itself — a browser already signed in (the local admin during a bring-up, or
-// anyone who used Argo CD's own login) must not be thrown onto the Keycloak
-// page the instant SSO comes up, and Argo CD validates that token anyway.
-// Until 2026-10-09 this loop rewrote every rule, which is exactly what made
-// Keycloak's readiness look like a forced logout.
+// From 2026-10-09 to 2026-10-24 a rule matching an `argocd.token` cookie was
+// left on Argo CD itself, so an admin signed in during the bring-up was not
+// thrown onto Keycloak when SSO came up. It cost more than it saved: any STALE
+// token — one from an earlier cluster on the same hostname, or every admin
+// token after the day-0 credential rotation — took that rule, Argo CD rejected
+// it, and the UI (whose isSSO check only auto-redirects a Keycloak-issued
+// token) parked the user on its own login page. Through the proxy every
+// request carries a Keycloak bearer token, which Argo CD prefers over the
+// cookie, so a stale cookie no longer matters and sign-in is click-free.
+// Clusters bootstrapped with the old two-rule route are repointed whole.
 func repointRulesToProxy(rules []interface{}) bool {
 	changed := false
 	for i := range rules {
 		rule, ok := rules[i].(map[string]interface{})
 		if !ok {
-			continue
-		}
-		if ruleHasHeaderMatch(rule) {
 			continue
 		}
 		refs, ok := rule["backendRefs"].([]interface{})
@@ -132,22 +132,6 @@ func repointRulesToProxy(rules []interface{}) bool {
 		rules[i] = rule
 	}
 	return changed
-}
-
-// ruleHasHeaderMatch reports whether any match of an HTTPRoute rule constrains
-// request headers — the mark of a rule more specific than the catch-all.
-func ruleHasHeaderMatch(rule map[string]interface{}) bool {
-	matches, _ := rule["matches"].([]interface{})
-	for _, m := range matches {
-		match, ok := m.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if headers, ok := match["headers"].([]interface{}); ok && len(headers) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // reconcileArgoCDSSOProxy installs the oauth2-proxy that fronts the Argo CD UI

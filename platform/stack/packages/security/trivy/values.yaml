@@ -56,6 +56,8 @@ trivy:
   server:
     # Measured 50 MiB idle, 204 MiB peak over three hours with scans running
     # (2026-10-22); the 1Gi limit still covers a DB update.
+    # cpu request 100m -> 50m: measured max 1m on the AWS cluster
+    # (2026-10-24), the request was 100x use; scans burst to the 1-CPU limit.
     resources:
-      requests: {cpu: 100m, memory: 256Mi}
+      requests: {cpu: 50m, memory: 256Mi}
       limits: {cpu: "1", memory: 1Gi}

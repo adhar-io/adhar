@@ -275,7 +275,7 @@ spec:
             limits:
               memory: 1Gi
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
@@ -416,7 +416,7 @@ spec:
             limits:
               memory: 1Gi
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
           volumeMounts:
             - name: configuration

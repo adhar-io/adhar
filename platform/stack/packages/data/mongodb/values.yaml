@@ -17,9 +17,11 @@ operator:
   replicas: 1
 
   # Resource requests/limits for the operator pod (Adhar defaults).
+  # cpu request 100m -> 25m: measured max 2m on the AWS cluster (2026-10-24),
+  # the request was 50x use; the 500m limit is unchanged.
   resources:
     requests:
-      cpu: 100m
+      cpu: 25m
       memory: 200Mi
     limits:
       cpu: 500m

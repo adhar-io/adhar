@@ -299,10 +299,14 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		// success panel) — so confirming the happy path here told them only what
 		// they had already written down.
 		logger.Debugf("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
+		// Not a warning: an environment whose name repeats the host's first label
+		// (host dev.adhar.io, environment dev) gets no `*.dev.dev.<zone>` listener,
+		// but its applications are routed as `<app>-dev.<host>` under the host's own
+		// wildcard (platformRouteHost), so they stay publicly reachable with a
+		// trusted certificate. Nothing is for the operator to fix.
 		for _, env := range templateData.SkippedRouteEnvironments() {
-			logger.Warnf("Environment %q has no public hostname on %s: *.%s.%s is a name Let's Encrypt refuses (repeated label), so its Gateway listener is omitted — "+
-				"applications promoted to %q are reachable only inside the cluster. Choose a host whose first label is not an environment name to avoid this.",
-				env, host, env, host, env)
+			logger.Debugf("Environment %q shares the host's first label (%s): no *.%s.%s listener; its applications are routed as <app>-%s.%s",
+				env, host, env, host, env, host)
 		}
 
 		// Say so NOW if a publicly trusted certificate cannot be issued. Without
@@ -478,7 +482,9 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		}
 		effective := scaling.WithDefaults()
 		if advice := capacityAdvice(workers, perWorker, productionProfileRequestCPUMilli, effective.MaxWorkers, effective.ScaleUpCooldown.Duration, 4); advice != "" {
-			logger.Warnf("Capacity: %s", advice)
+			// Advisory only — the node autoscaler acts on the same shortfall, so it
+			// belongs in the debug log (and the failure dump), not on the checklist.
+			logger.Debugf("Capacity: %s", advice)
 		}
 	}
 

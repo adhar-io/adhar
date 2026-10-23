@@ -47,9 +47,13 @@ spec:
   # against its own probe on exactly the loaded nodes where boot is slowest.
   # No memory limit: the heap in jvmOptions is the real bound, and a limit here
   # would turn a slow GC into an OOMKill.
+  #
+  # cpu 300m -> 160m: measured max 102m on the AWS cluster (2026-10-24), so
+  # this is 1.5x the observed peak; still a real CFS share for boot, and there
+  # is no CPU limit to throttle it.
   resources:
     requests:
-      cpu: 300m
+      cpu: 160m
       memory: 1Gi
   storage:
     type: jbod

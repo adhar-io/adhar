@@ -261,7 +261,7 @@ spec:
         volumeMounts:
         resources:
           requests:
-            cpu: 250m
+            cpu: 50m
             memory: 1Gi
         envFrom:
           - secretRef:
@@ -377,7 +377,7 @@ spec:
                 name: openmetadata-fernetkey-secret
           resources:
             requests:
-              cpu: 250m
+              cpu: 50m
               memory: 1Gi
 ---
 # Source: openmetadata/templates/cron-reindex.yaml
@@ -462,7 +462,7 @@ spec:
                   name: openmetadata-fernetkey-secret
             resources:
               requests:
-                cpu: 250m
+                cpu: 50m
                 memory: 1Gi                     
           restartPolicy: OnFailure
   schedule: "0/5 * * * *"

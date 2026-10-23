@@ -16,3 +16,13 @@ dagsterWebserver:
 dagster-user-deployments:
   enabled: true
   deployments: []
+
+# Bundled PostgreSQL (bitnami subchart). cpu 250m -> 100m: measured max 29m on
+# the AWS cluster (2026-10-24), the request was ~9x use; 100m is the floor kept
+# for databases. The subchart applies this block to the init-chmod-data init
+# container as well, which otherwise held the pod's effective request at 250m.
+postgresql:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m

@@ -165,8 +165,13 @@ PYEOF_MINIO
 #   ml-pipeline-persistenceagent      500Mi ->  96Mi   (12 / 13 MiB)
 #   ml-pipeline-visualizationserver   500Mi -> 448Mi   (94 / 353 MiB)
 #   mysql                             800Mi -> 512Mi   (372 / 373 MiB)
-# CPU requests are left as upstream ships them. Pinned by
-# TestMeasuredMemoryRequestsStayRightSized.
+# Pinned by TestMeasuredMemoryRequestsStayRightSized.
+#
+# CPU requests measured on the AWS cluster (2026-10-24, max of five
+# `kubectl top` samples): upstream's reserved 10-60x what two idle services use
+# while PostHog, Tolgee and CI pods sat Pending for "Insufficient cpu":
+#   ml-pipeline (api-server)          250m -> 50m    (max 13m)
+#   ml-pipeline-persistenceagent      120m -> 25m    (max 2m)
 python3 - "${INSTALL_YAML}" <<'PYEOF_RESOURCES'
 import sys, yaml
 p = sys.argv[1]
@@ -177,7 +182,11 @@ want = {
     ("ml-pipeline-visualizationserver", "ml-pipeline-visualizationserver"): "448Mi",
     ("mysql", "mysql"): "512Mi",
 }
-n = 0
+want_cpu = {
+    ("ml-pipeline", "ml-pipeline-api-server"): "50m",
+    ("ml-pipeline-persistenceagent", "ml-pipeline-persistenceagent"): "25m",
+}
+n = ncpu = 0
 for d in docs:
     if d.get("kind") != "Deployment": continue
     for c in d["spec"]["template"]["spec"].get("containers", []):
@@ -185,8 +194,12 @@ for d in docs:
         if key in want:
             c.setdefault("resources", {}).setdefault("requests", {})["memory"] = want[key]
             n += 1
+        if key in want_cpu:
+            c.setdefault("resources", {}).setdefault("requests", {})["cpu"] = want_cpu[key]
+            ncpu += 1
 assert n == len(want), f"resized {n} of {len(want)} containers; upstream renamed one"
+assert ncpu == len(want_cpu), f"resized {ncpu} of {len(want_cpu)} CPU requests; upstream renamed one"
 with open(p, "w") as f:
     f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in docs))
-print(f"resized {n} memory requests")
+print(f"resized {n} memory and {ncpu} CPU requests")
 PYEOF_RESOURCES

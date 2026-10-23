@@ -18,8 +18,13 @@ kind: HTTPRoute
 metadata:
   name: tolgee
   namespace: adhar-system
-  # Wave 8: after the Service it points at (wave 7).
-  annotations: {argocd.argoproj.io/sync-wave: "8"}
+  # Wave 7, WITH the Service and Deployment, not after them. Argo CD applies a
+  # whole wave before it waits on health, so the route exists while Tolgee is
+  # still starting (a 503 until it is ready). At wave 8 it waited on the
+  # Deployment: on a cluster at its maxWorkers the pod stayed Pending past its
+  # progress deadline, the sync retried forever, and with no route the
+  # console's app drawer had no Tolgee tile at all (AWS, 2026-10-24).
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
   labels:
     app.kubernetes.io/name: tolgee
     app.kubernetes.io/part-of: tolgee

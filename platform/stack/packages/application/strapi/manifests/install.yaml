@@ -682,7 +682,10 @@ spec:
             # completed inside these limits.
             # Strapi (Node) holds ~400-600 MiB serving; the build on first boot
             # peaks higher, which the limit covers.
-            requests: {cpu: 250m, memory: 512Mi}
+            # cpu 250m -> 50m: measured max 1m serving on the AWS cluster
+            # (2026-10-24), the request was ~250x use; the 2-CPU limit still
+            # covers the first-boot admin build.
+            requests: {cpu: 50m, memory: 512Mi}
             # 3Gi: the admin build alone takes a 2 GiB heap (see step 3).
             limits: {cpu: "2", memory: 3Gi}
           securityContext:

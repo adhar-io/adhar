@@ -459,10 +459,15 @@ spec:
           value: http://adhar-ai-runtime.adhar-system.svc.cluster.local:8080
         - name: GITEA_URL
           value: http://gitea-http.adhar-system.svc.cluster.local:3000
+        # The profile's ApplicationSet, committed to the packages repo at
+        # seeding and kept live by the adhar-platform-applicationset Argo CD
+        # Application. It pointed at environments/production/config.yaml,
+        # which neither exists (the directory is `prod`) nor decides what
+        # deploys, so every Marketplace toggle failed.
         - name: ADHAR_APPSET_REPO
-          value: adhar/environments
+          value: adhar/packages
         - name: ADHAR_APPSET_FILE
-          value: production/config.yaml
+          value: applicationset.yaml
         - name: ARGOCD_URL
           value: http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80
         - name: ARGOCD_NAMESPACE

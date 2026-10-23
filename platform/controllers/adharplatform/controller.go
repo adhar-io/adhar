@@ -540,6 +540,18 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 
 	logger.Info("● Successfully applied platform stack ApplicationSet")
 
+	// The Application that keeps the live ApplicationSet equal to the copy in
+	// the packages repo, which is what the Marketplace commits to.
+	sourcePath := filepath.Join(r.StackDir, "adhar-appset-source.yaml")
+	if sourceBytes, err := os.ReadFile(sourcePath); err == nil {
+		if err := r.applyManifestNoOwner(ctx, sourceBytes, resource, "Platform ApplicationSet source"); err != nil {
+			logger.Error(err, "Failed to apply the platform ApplicationSet source Application")
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("reading platform ApplicationSet source %s: %w", sourcePath, err)
+	}
+
 	// The workload-cluster ApplicationSet (thin agent profile, roadmap P2.2)
 	// generates nothing until Cluster registrations appear (P2.1),
 	// so applying it unconditionally is harmless on single-cluster platforms.
@@ -584,6 +596,25 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	// Don't shut down yet - we need to wait for applications to become healthy
 	// The next reconciliation will check if everything is ready
 	return nil
+}
+
+// PlatformAppSetRepoFile is where the profile's ApplicationSet lives in the
+// packages repo, so the Marketplace can enable and disable packages with a
+// commit (see adhar-appset-source.yaml).
+const PlatformAppSetRepoFile = "applicationset.yaml"
+
+// InjectPlatformAppSet copies the profile's ApplicationSet into a staged
+// packages tree as PlatformAppSetRepoFile. Verbatim, not rendered: it must be
+// byte-identical to what the CLI applies directly, or Argo CD and the CLI would
+// fight over the live object. Used by seeding AND by `adhar upgrade`'s diff, so
+// the two agree on what the packages repo should contain.
+func InjectPlatformAppSet(stagedPackagesDir, stackDir string, provider v1alpha1.EnvironmentProvider) error {
+	src := filepath.Join(stackDir, appSetFileForProvider(provider))
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("reading platform ApplicationSet %s: %w", src, err)
+	}
+	return os.WriteFile(filepath.Join(stagedPackagesDir, PlatformAppSetRepoFile), b, 0o644)
 }
 
 // appSetFileForProvider selects the platform ApplicationSet for the target
@@ -655,7 +686,7 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	// `adhar/adhar` mirror nothing reads; it is safe to delete.
 
 	// Populate repositories with content
-	if err := r.populateRepositories(ctx); err != nil {
+	if err := r.populateRepositories(ctx, resource.Spec.Provider); err != nil {
 		return fmt.Errorf("failed to populate repositories: %w", err)
 	}
 
@@ -1067,7 +1098,7 @@ func (r *AdharPlatformReconciler) mirrorGiteaRepository(ctx context.Context, nam
 }
 
 // populateRepositories populates the GitOps repositories with content
-func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) error {
+func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context, provider v1alpha1.EnvironmentProvider) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Populating GitOps repositories with content")
 
@@ -1089,7 +1120,7 @@ func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) erro
 	for name, dir := range repos {
 		name, dir := name, dir
 		g.Go(func() error {
-			if err := r.populateGiteaRepo(gctx, podName, name, dir); err != nil {
+			if err := r.populateGiteaRepo(gctx, podName, name, dir, provider); err != nil {
 				return fmt.Errorf("failed to populate %s repository: %w", name, err)
 			}
 			return nil
@@ -1212,7 +1243,7 @@ func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec, txtOwnerID 
 // pack-objects reuses the bundle's deltas, so no recompression happens. When
 // the host has no git, the original in-pod path (kubectl cp + git add/commit)
 // is used instead; the result is identical, only slower.
-func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName, repoName, localSourceDir string) error {
+func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName, repoName, localSourceDir string, provider v1alpha1.EnvironmentProvider) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Populating repository", "repo", repoName, "source", localSourceDir)
 
@@ -1221,6 +1252,11 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 		return fmt.Errorf("staging %s with domain: %w", repoName, err)
 	}
 	defer cleanupStage()
+	if repoName == globals.GitOpsRepoPackages {
+		if err := InjectPlatformAppSet(stagedSrc, r.StackDir, provider); err != nil {
+			return err
+		}
+	}
 
 	ns := globals.AdharSystemNamespace
 	workDir := "/tmp/" + repoName + "-working"

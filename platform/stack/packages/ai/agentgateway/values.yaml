@@ -158,7 +158,8 @@ rbac:
 # --- Resources ---------------------------------------------------------------
 resources:
   requests:
-    # Chart default. Adequate for a single-Gateway control plane; the data plane
-    # proxy pods are sized separately by AgentgatewayParameters if needed.
-    cpu: 100m
+    # Was the chart default 100m; measured max 4m on the AWS cluster
+    # (2026-10-24), 25x use. 50m floor: it serves xDS to the proxies. The data
+    # plane proxy pods are sized separately by AgentgatewayParameters if needed.
+    cpu: 50m
     memory: 128Mi

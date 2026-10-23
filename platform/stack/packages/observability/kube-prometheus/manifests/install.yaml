@@ -98168,6 +98168,9 @@ spec:
       app.kubernetes.io/name: grafana
       app.kubernetes.io/instance: prometheus
   strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
     type: RollingUpdate
   template:
     metadata:

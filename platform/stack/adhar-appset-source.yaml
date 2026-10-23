@@ -1,0 +1,48 @@
+# The platform ApplicationSet, under GitOps.
+#
+# What the platform deploys is the `enabled` flag on each element of the
+# profile's ApplicationSet (adhar-appset-local.yaml / adhar-appset-production.yaml).
+# Until 2026-10-24 that file existed only in the CLI's checkout: `adhar up` and
+# `adhar upgrade` applied it straight to the cluster, so nothing in Gitea
+# versioned it and the console's Marketplace had nothing it could commit to —
+# every enable/disable failed with "Could not locate the ApplicationSet YAML".
+#
+# Seeding now commits the profile's ApplicationSet to the packages repo as
+# `applicationset.yaml` (injectPlatformAppSet), and this Application keeps the
+# live object equal to it. A Marketplace toggle is one commit to that file;
+# Argo CD applies it and the ApplicationSet controller creates or prunes the
+# package's Application. `adhar upgrade` labels such a commit in its diff, since
+# pushing the local stack would revert it.
+#
+# Deliberately:
+#   - prune: false and NO resources-finalizer. Deleting or emptying this
+#     Application must never cascade into deleting the ApplicationSet, which
+#     would take every platform Application with it.
+#   - the CLI still applies the same file directly during `adhar up`, so the
+#     ApplicationSet exists before Argo CD has synced this Application.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: adhar-platform-applicationset
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar
+    adhar.io/component: platform-stack
+spec:
+  project: default
+  source:
+    repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages
+    targetRevision: main
+    path: .
+    directory:
+      recurse: false
+      include: applicationset.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: adhar-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

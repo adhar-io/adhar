@@ -66,6 +66,46 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "patch"]
+  # restart the console after the Gitea password changes (it reads it as env).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["adhar-console"]
+    verbs: ["get", "patch"]
+---
+# The ExternalSecrets copying gitea-credential live in more than one namespace
+# (Kargo's sits in adhar-environments), so finding and resyncing them is
+# cluster-wide. It only touches ExternalSecret objects, never Secret values.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-credential-rotation
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/name: credential-rotation
+    adhar.io/component: security
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-credential-rotation
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/name: credential-rotation
+    adhar.io/component: security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-credential-rotation
+subjects:
+  - kind: ServiceAccount
+    name: credential-rotation
+    namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -186,6 +226,42 @@ spec:
                   echo "argocd gitea credential $s updated"
                 fi
               done
+
+              # Everything else reads the password through an ExternalSecret over
+              # the `gitea` ClusterSecretStore (the console's gitea-credentials,
+              # CI's gitea-ci-creds, Kargo's kargo-gitea-creds), and those copies
+              # refresh on their own interval — up to an hour. The console also
+              # takes it as env at start-up, so even a refreshed copy changes
+              # nothing in a running pod. Left alone, the Service Catalog reported
+              # "Gitea — Not authorised to read this source" (Basic auth with the
+              # old password) and Kargo could not read the repos it promotes in
+              # for the next hour (DigitalOcean, 2026-10-23). So: force every
+              # copy to resync now, wait until the console's copy carries the
+              # new password, then restart the console.
+              ES_API="${API}/apis/external-secrets.io/v1"
+              "${CURL_K8S[@]}" -o /tmp/es.json "${ES_API}/externalsecrets" || echo '{"items":[]}' > /tmp/es.json
+              jq -r '.items[]
+                | select([(.spec.data // [])[].remoteRef.key, (.spec.dataFrom // [])[].extract.key] | index("gitea-credential"))
+                | "\(.metadata.namespace) \(.metadata.name)"' /tmp/es.json | while read -r ens ename; do
+                "${CURL_K8S[@]}" --fail-with-body -X PATCH -H 'Content-Type: application/merge-patch+json' \
+                  -d "{\"metadata\": {\"annotations\": {\"force-sync\": \"$(date +%s)\"}}}" \
+                  "${ES_API}/namespaces/${ens}/externalsecrets/${ename}" >/dev/null \
+                  && echo "externalsecret ${ens}/${ename} resynced" \
+                  || echo "WARNING: could not resync externalsecret ${ens}/${ename}"
+              done
+              if [ "$(kget gitea-credentials)" = "200" ]; then
+                for _ in $(seq 1 60); do
+                  [ "$(jq -r '.data.GITEA_PASSWORD // empty' /tmp/kget.json | base64 -d)" = "${GITEA_NEW}" ] && break
+                  sleep 2; kget gitea-credentials >/dev/null
+                done
+                if "${CURL_K8S[@]}" --fail-with-body -X PATCH -H 'Content-Type: application/strategic-merge-patch+json' \
+                  -d "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"kubectl.kubernetes.io/restartedAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}}}}" \
+                  "${API}/apis/apps/v1/namespaces/${NS}/deployments/adhar-console" >/dev/null; then
+                  echo "adhar-console restarted onto the rotated gitea credential"
+                else
+                  echo "WARNING: could not restart adhar-console; it keeps the old gitea password until its next restart"
+                fi
+              fi
 
               # ------------------------------------------------------------
               # 4. Rotate ArgoCD admin: bcrypt into argocd-secret; keep the

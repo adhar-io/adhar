@@ -859,7 +859,7 @@ spec:
               cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 100m
+              cpu: 25m
               memory: 200Mi
       securityContext:
         runAsNonRoot: true

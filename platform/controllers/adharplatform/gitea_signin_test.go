@@ -161,3 +161,31 @@ func TestCredentialRotationKeepsArgoCDsGiteaCredentialsCurrent(t *testing.T) {
 		t.Fatalf("expected at least 4 Argo CD Gitea credentials in argocd-auth.yaml, found %d", carrying)
 	}
 }
+
+// The console, CI and Kargo read the Gitea password through ExternalSecret
+// copies of gitea-credential that refresh hourly, and the console takes it as
+// env at start-up. A rotation that only patched the source left the Service
+// Catalog showing "Gitea — Not authorised to read this source" for the next
+// hour (DigitalOcean, 2026-10-23). The Job must resync every copy, restart the
+// console, and hold the RBAC to do both.
+func TestCredentialRotationPropagatesToEveryGiteaCredentialCopy(t *testing.T) {
+	job, err := os.ReadFile(filepath.Join("..", "..", "stack", "packages", "security",
+		"adhar-credential-rotation", "manifests", "rotate-job.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(job)
+	for what, re := range map[string]string{
+		"find every ExternalSecret copying gitea-credential": `index\("gitea-credential"\)`,
+		"force-sync those ExternalSecrets":                   `\\"force-sync\\"`,
+		"wait for the console's copy to carry GITEA_NEW":     `\.data\.GITEA_PASSWORD[^\n]*\n?[^\n]*= "\$\{GITEA_NEW\}"`,
+		"restart the console":                                `restartedAt[\s\S]*deployments/adhar-console`,
+		"RBAC to list and patch ExternalSecrets":             `resources: \["externalsecrets"\]\s*\n\s*verbs: \["list", "patch"\]`,
+		"RBAC to patch the console Deployment":               `resourceNames: \["adhar-console"\]\s*\n\s*verbs: \["get", "patch"\]`,
+		"bind the ClusterRole to the Job's ServiceAccount":   `kind: ClusterRoleBinding[\s\S]*?name: credential-rotation\n\s*namespace: adhar-system`,
+	} {
+		if !regexp.MustCompile(re).MatchString(src) {
+			t.Errorf("rotate-job.yaml must %s", what)
+		}
+	}
+}

@@ -3,3 +3,10 @@
 controlPlane:
   ingress:
     enabled: false
+  # cpu request 200m -> 80m: the syncer measured max 50m on the AWS cluster
+  # (2026-10-24), the request was 4x use. Only the CPU request is overridden;
+  # memory and ephemeral-storage keep the chart defaults.
+  statefulSet:
+    resources:
+      requests:
+        cpu: 80m

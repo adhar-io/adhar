@@ -162,3 +162,17 @@ spec:
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
                 limits: {cpu: 500m, memory: 512Mi}
+          # The operator injects two init containers that only copy binaries,
+          # each requesting 500m by default. Init requests count as the pod's
+          # floor, so litmus-db-0 reserved 500m while its containers ask 150m
+          # and use ~10m (AWS cluster, 2026-10-24). 50m each; memory and
+          # limits restate the operator defaults unchanged.
+          initContainers:
+            - name: mongod-posthook
+              resources:
+                requests: {cpu: 50m, memory: 400M}
+                limits: {cpu: "1", memory: 500M}
+            - name: mongodb-agent-readinessprobe
+              resources:
+                requests: {cpu: 50m, memory: 400M}
+                limits: {cpu: "1", memory: 500M}

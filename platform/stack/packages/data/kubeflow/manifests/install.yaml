@@ -2170,7 +2170,7 @@ spec:
           timeoutSeconds: 2
         resources:
           requests:
-            cpu: 250m
+            cpu: 50m
             memory: 192Mi
         securityContext:
           allowPrivilegeEscalation: false
@@ -2239,7 +2239,7 @@ spec:
         name: ml-pipeline-persistenceagent
         resources:
           requests:
-            cpu: 120m
+            cpu: 25m
             memory: 96Mi
         securityContext:
           allowPrivilegeEscalation: false

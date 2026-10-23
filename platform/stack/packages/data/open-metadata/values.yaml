@@ -129,7 +129,11 @@ extraEnvs:
 # Scheduling hints only -- deliberately no memory LIMIT: the server JVM sizes its
 # heap from the container limit and reindexing is memory hungry, so a limit here
 # turns a slow reindex into an OOMKill loop.
+# cpu 250m -> 50m: measured max 24m on the AWS cluster (2026-10-24), the
+# request was ~10x use. The chart applies this block to the server, its
+# run-db-migrations init container and the reindex CronJob alike; none sets a
+# CPU limit, so a reindex or migration still bursts onto idle cores.
 resources:
   requests:
-    cpu: 250m
+    cpu: 50m
     memory: 1Gi

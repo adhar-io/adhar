@@ -118,7 +118,10 @@ spec:
           failureThreshold: 6
         resources:
           requests:
-            cpu: 200m
+            # 200m -> 100m: measured max 61m on the AWS cluster (2026-10-24),
+            # the request was ~3x use. With no CPU limit (below) the first-boot
+            # `kc.sh build` still bursts onto idle cores.
+            cpu: 100m
             memory: 512Mi
           limits:
             # NO CPU limit. `cpu: '1'` was measured holding this container at

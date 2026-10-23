@@ -270,11 +270,12 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 `redis`, `spark-operator`, `pyroscope`, `argo-workflows`, `mariadb-operator`
 (off since 2026-10-10: nothing on the platform consumes a MySQL-protocol
 database — oncall ships its own MariaDB, chaos-mesh and kubeflow their own
-MySQL — so it was a CNPG-sized footprint with no consumer). (`n8n` was on this
-list until 2026-10-09 and is now **enabled in production**, off locally — it is
-a JVM-free Node service, but it brings its own Postgres-backed queue workers
-and competes for CPU during the identity chain, which is why the local
-development core still leaves it out.) Most are scope decisions —
+MySQL — so it was a CNPG-sized footprint with no consumer). (`n8n` was enabled in
+production from 2026-10-09 to 2026-10-24; it is off in every profile again,
+together with `open-metadata`, `mlflow`, `kubeflow`, `jupyterhub` and `trino` — switched off in
+production on 2026-10-24 to cut the profile's footprint. All four stay wired
+and opt-in; `TestEnvironmentConfigsMatchAppSets` keeps
+`environments/prod/config.yaml` in step with the production ApplicationSet.) Most are scope decisions —
 llm-d runs vLLM model servers, the heaviest workload here; `redis` is the alternative
 to `valkey`, which is the primary key-value store every package wires to, and the one
 package declaring redis (`libredb-studio`) marks it optional. kubescape

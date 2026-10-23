@@ -1,1 +1,16 @@
 # KEDA Helm Chart Values
+
+# CPU requests measured on the AWS cluster (2026-10-24): operator max 2m,
+# metrics apiserver max 4m, admission webhooks max 1m, against the chart's 100m
+# each (25-100x use). Only the CPU request is overridden; memory and the 1-CPU
+# limits keep the chart defaults. The two serving components keep a 50m floor.
+resources:
+  operator:
+    requests:
+      cpu: 25m
+  metricServer:
+    requests:
+      cpu: 50m
+  webhooks:
+    requests:
+      cpu: 50m

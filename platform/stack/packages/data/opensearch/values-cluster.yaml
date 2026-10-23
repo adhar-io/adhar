@@ -161,7 +161,9 @@ cluster:
       diskSize: "20Gi"
       resources:
         requests:
-          cpu: 250m
+          # 250m -> 100m: measured max 52m on the AWS cluster (2026-10-24),
+          # the request was ~5x use; 100m is the floor kept for data stores.
+          cpu: 100m
           # The operator derives the JVM heap from requests.memory / 2, so this
           # is -Xms1g -Xmx1g. Stating it through the request keeps the heap and
           # the cgroup in agreement.

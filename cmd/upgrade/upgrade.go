@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -275,24 +276,33 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// ------------------------------------------------------------------
 	// Phase 2: stack diff.
 	// ------------------------------------------------------------------
-	helpers.Println("▸ Comparing local stack against in-cluster GitOps repositories…")
-	summary, diff, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, stackDir, tmpDir)
+	//
+	// The same checklist as the foundation block: each repository resolves to a
+	// ✓ with what it found, instead of a "Comparing…" line that never resolves
+	// followed by unaligned counts.
+	fmt.Fprintln(os.Stderr)
+	diffTracker := helpers.NewStageTracker(os.Stderr, "Comparing with the in-cluster GitOps repos", []helpers.StageDef{
+		{Label: "packages", Detail: "cloning from Gitea"},
+		{Label: "environments", Detail: "cloning from Gitea"},
+	}, !verbose)
+	diffTracker.Start()
+	changes, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, platform.Spec.Provider, stackDir, tmpDir, diffTracker)
+	diffTracker.Stop()
 	if err != nil {
 		return fmt.Errorf("computing stack diff: %w", err)
 	}
-	fmt.Println(summary)
+	diff := changes.counts()
+	fmt.Print(renderStackChanges(changes))
 
 	if diffOnly {
 		return nil
 	}
-	if !diff.any() {
-		helpers.Println("● Stack already in sync; re-applying ApplicationSet for completeness")
-	} else if !assumeYes {
-		fmt.Print("Push these changes and sync? [y/N]: ")
+	if diff.any() && !assumeYes {
+		fmt.Print(helpers.Indent(confirmPrompt(changes)))
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
-			helpers.Println("Aborted; nothing pushed.")
+			helpers.Println(helpers.MutedStyle.Render("Aborted — nothing was pushed."))
 			return nil
 		}
 	}
@@ -308,14 +318,26 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// could not occur, because a force push of identical content creates no
 	// commit and ArgoCD sees no new revision. Verified live on 2026-10-11: a
 	// no-op upgrade left the packages repo HEAD untouched.
+	applyDefs := []helpers.StageDef{{Label: "applicationset", Detail: "re-applying"}}
 	if diff.any() {
-		helpers.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
-	} else {
-		helpers.Println("◌ Re-applying the platform ApplicationSet…")
+		applyDefs = []helpers.StageDef{{Label: "push + applicationset", Detail: pluralFiles(changes.total()) + " → Gitea"}}
 	}
+	fmt.Fprintln(os.Stderr)
+	applyTracker := helpers.NewStageTracker(os.Stderr, "Applying the stack", applyDefs, !verbose)
+	applyTracker.Start()
+	applyTracker.Activate(0)
 	if err := reconciler.ApplyPlatformStack(ctx, &platform); err != nil {
+		applyTracker.Fail(0)
+		applyTracker.Stop()
 		return fmt.Errorf("applying platform stack: %w", err)
 	}
+	if diff.any() {
+		applyTracker.DoneWith(0, helpers.MutedStyle.Render(pluralFiles(changes.total())+" pushed"))
+	} else {
+		applyTracker.Done(0)
+	}
+	applyTracker.Stop()
+	fmt.Println()
 
 	// Say what is about to happen, with a number.
 	//
@@ -363,9 +385,9 @@ func upgradeOutcomeReport(diff stackDiff, apps int, skipFoundation bool) string 
 	}
 
 	if !diff.any() {
-		bullet("Upgrade applied — the stack was already in sync, so no application is")
-		cont("re-comparing: a push of identical content creates no commit, and ArgoCD",
-			"only reacts to a new revision.")
+		bullet("Nothing to push — the stack is already in sync, so no application is")
+		cont("re-comparing (identical content makes no commit, and ArgoCD only reacts",
+			"to a new revision).")
 		// Only claim the foundation ran when it did: --skip-foundation makes
 		// this path the whole command, and saying otherwise would describe work
 		// the operator explicitly asked to skip.
@@ -377,24 +399,24 @@ func upgradeOutcomeReport(diff stackDiff, apps int, skipFoundation bool) string 
 
 	if diff.packagesChanged() {
 		if apps > 0 {
-			bullet("Upgrade applied — ArgoCD is re-comparing all %d applications.", apps)
-			cont("A push to the shared packages repo flips every app OutOfSync, so expect",
-				"~10 min of churn even for a one-file change. That is normal, not a fault.")
+			bullet("ArgoCD is re-comparing all %d applications — allow about 10 minutes.", apps)
 		} else {
-			bullet("Upgrade applied — ArgoCD is syncing the stack.")
+			bullet("ArgoCD is syncing the stack — allow about 10 minutes.")
 		}
+		cont("Every app tracks the packages repo, so even a one-file push",
+			"flips every app OutOfSync for a while. That is expected, not a fault.")
 		// Only the churn case gets the recovery advice. Telling an operator that
 		// "a wave-stuck app needs its operation terminated" right after telling
 		// them nothing is re-comparing is two sentences that contradict each
 		// other, and it is advice for a situation they are not in.
-		cont("Track it with `adhar get status`; a wave-stuck app needs its operation",
-			"terminated before it will pick up the new revision.")
+		cont("Watch it with `adhar get status`; a wave-stuck app needs its operation",
+			"terminated before it picks up the new revision.")
 		return b.String()
 	}
 
-	bullet("Upgrade applied — only the environments repo changed, so the")
-	cont("application fleet is not re-comparing: nothing tracks that repo except",
-		"the Kargo projects and AppProjects built from it.")
+	bullet("Pushed — only the environments repo changed, so the application")
+	cont("fleet is not re-comparing: nothing tracks that repo except the Kargo",
+		"projects and AppProjects built from it.")
 	return b.String()
 }
 
@@ -440,10 +462,73 @@ func (d stackDiff) any() bool {
 // packagesChanged reports whether the monorepo every Application tracks moved.
 func (d stackDiff) packagesChanged() bool { return d["packages"] > 0 }
 
-func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.BuildCustomizationSpec, stackDir, tmpDir string) (string, stackDiff, error) {
+// fileChange is one path that differs between Gitea and the staged stack.
+// Status is git's name-status letter, read as "what the push does to Gitea":
+// A adds, M modifies, D deletes, R renames. Owner is set when the file's last
+// commit in Gitea was made in-cluster (Kargo, the Marketplace) — the push would
+// revert it.
+type fileChange struct {
+	Status string
+	Path   string
+	Owner  string
+}
+
+// repoChanges is one repository's differences, in the order git reported them.
+type repoChanges struct {
+	Repo  string
+	Files []fileChange
+}
+
+type stackChanges []repoChanges
+
+func (c stackChanges) counts() stackDiff {
+	d := stackDiff{}
+	for _, r := range c {
+		if len(r.Files) > 0 {
+			d[r.Repo] = len(r.Files)
+		}
+	}
+	return d
+}
+
+func (c stackChanges) total() int {
+	n := 0
+	for _, r := range c {
+		n += len(r.Files)
+	}
+	return n
+}
+
+// promotions lists the changed files whose last commit was made in-cluster.
+func (c stackChanges) promotions() []string {
+	var out []string
+	for _, r := range c {
+		for _, f := range r.Files {
+			if f.Owner != "" {
+				out = append(out, r.Repo+"/"+f.Path)
+			}
+		}
+	}
+	return out
+}
+
+// historyDepth is how much history each clone fetches. The packages repo is
+// large and only its tree matters; the environments repo is tiny, and its
+// history is how a Kargo-written file is recognised (a depth-1 clone only knows
+// the tip commit).
+func historyDepth(repo string) int {
+	if repo == "environments" {
+		return 50
+	}
+	// Enough to see who last wrote applicationset.yaml (a Marketplace toggle)
+	// without paying for the packages repo's whole history.
+	return 10
+}
+
+func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.BuildCustomizationSpec, provider v1alpha1.EnvironmentProvider, stackDir, tmpDir string, tracker *helpers.StageTracker) (stackChanges, error) {
 	creds, err := utils.GetSecretByName(ctx, kubeClient, utils.GiteaNamespace, utils.GiteaAdminSecret)
 	if err != nil {
-		return "", nil, fmt.Errorf("reading gitea credentials: %w", err)
+		return nil, fmt.Errorf("reading gitea credentials: %w", err)
 	}
 	username := string(creds.Data["username"])
 	password := string(creds.Data["password"])
@@ -453,45 +538,181 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 	// partly to repair platforms where it is not.
 	dialAddr := gatewayDialAddress(ctx, kubeClient)
 
-	var b strings.Builder
-	diff := stackDiff{}
-	for _, repo := range []string{"packages", "environments"} {
-		cloneDir := filepath.Join(tmpDir, "repo-"+repo)
-		if err := cloneGiteaRepo(ctx, cfg, username, password, repo, cloneDir, dialAddr); err != nil {
-			return "", nil, err
+	var out stackChanges
+	for i, repo := range []string{"packages", "environments"} {
+		tracker.Activate(i)
+		fail := func(err error) (stackChanges, error) {
+			tracker.Fail(i)
+			return nil, err
 		}
-		// Remove clone metadata so the directory diff sees content only.
-		if err := os.RemoveAll(filepath.Join(cloneDir, ".git")); err != nil {
-			return "", nil, err
+		cloneDir := filepath.Join(tmpDir, "repo-"+repo)
+		if err := cloneGiteaRepo(ctx, cfg, username, password, repo, cloneDir, dialAddr, historyDepth(repo)); err != nil {
+			return fail(err)
+		}
+		// Move clone metadata aside so the directory diff sees content only,
+		// while history stays readable for the ownership lookup below.
+		gitDir := cloneDir + ".git"
+		if err := os.Rename(filepath.Join(cloneDir, ".git"), gitDir); err != nil {
+			return fail(err)
 		}
 
 		// Compare against the stack as it would be seeded (templates rendered,
 		// host convention rewritten), not the raw checkout.
+		tracker.SetDetail(i, "comparing")
 		staged, cleanup, err := adharplatform.StageStack(filepath.Join(stackDir, repo), cfg)
 		if err != nil {
-			return "", nil, fmt.Errorf("staging %s: %w", repo, err)
+			return fail(fmt.Errorf("staging %s: %w", repo, err))
+		}
+		// Seeding adds the profile's ApplicationSet to the packages repo; the
+		// diff must expect it too, or it would report the file as deleted.
+		if repo == globals.GitOpsRepoPackages {
+			if err := adharplatform.InjectPlatformAppSet(staged, stackDir, provider); err != nil {
+				cleanup()
+				return fail(err)
+			}
 		}
 		names, err := gitDiffNames(ctx, cloneDir, staged)
 		cleanup()
 		if err != nil {
-			return "", nil, err
+			return fail(err)
 		}
-		if len(names) == 0 {
-			fmt.Fprintf(&b, "   %s: no changes\n", repo)
+		rc := repoChanges{Repo: repo, Files: classifyChanges(ctx, gitDir, names)}
+		out = append(out, rc)
+		result := helpers.MutedStyle.Render("no changes")
+		if len(rc.Files) > 0 {
+			result = helpers.WarningStyle.Render(pluralFiles(len(rc.Files)) + " differ")
+			if len(rc.Files) == 1 {
+				result = helpers.WarningStyle.Render("1 file differs")
+			}
+		}
+		tracker.DoneWith(i, result)
+	}
+	return out, nil
+}
+
+// classifyChanges turns gitDiffNames lines into changes, labelling each file
+// whose last commit in Gitea (history at gitDir) was made in-cluster.
+func classifyChanges(ctx context.Context, gitDir string, names []string) []fileChange {
+	var out []fileChange
+	for _, n := range names {
+		fc := parseNameStatus(n)
+		// Only a file Gitea already has can carry someone else's commit.
+		if !strings.HasPrefix(fc.Status, "A") {
+			fc.Owner = inClusterChange(ctx, gitDir, fc.Path)
+		}
+		out = append(out, fc)
+	}
+	return out
+}
+
+// parseNameStatus reads one gitDiffNames line ("M  path", "R100  old  new").
+func parseNameStatus(line string) fileChange {
+	fields := strings.Split(line, "  ")
+	fc := fileChange{Status: fields[0]}
+	switch len(fields) {
+	case 1:
+	case 2:
+		fc.Path = fields[1]
+	default:
+		fc.Path = fields[1] + " → " + fields[len(fields)-1]
+	}
+	return fc
+}
+
+// inClusterChange describes the commit that last wrote path when that commit
+// was made INSIDE the cluster — a Kargo promotion or a Marketplace toggle — or
+// returns "".
+//
+// Two things edit the GitOps repos in-cluster by design: Kargo commits
+// `promote: dev -> test` into the environments repo, and the console's
+// Marketplace commits `chore(marketplace): enable …` to applicationset.yaml in
+// the packages repo. The upgrade compares the whole tree, lists those files as
+// differing, and pushing reverts them — which happened on 2026-10-15 and
+// 2026-10-23 with nothing on screen to say the "change" was not drift.
+// Best effort: unreadable history labels nothing.
+func inClusterChange(ctx context.Context, gitDir, path string) string {
+	out, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "log", "-1",
+		"--format=%an%x1f%s", "--", path).Output()
+	if err != nil {
+		return ""
+	}
+	author, subject, ok := strings.Cut(strings.TrimSpace(string(out)), "\x1f")
+	if !ok {
+		return ""
+	}
+	switch {
+	case strings.Contains(strings.ToLower(author), "kargo"):
+		return "Kargo (" + strconv.Quote(subject) + ")"
+	case strings.HasPrefix(subject, "chore(marketplace):"):
+		return "the Marketplace (" + strconv.Quote(subject) + ")"
+	}
+	return ""
+}
+
+func pluralFiles(n int) string {
+	if n == 1 {
+		return "1 file"
+	}
+	return fmt.Sprintf("%d files", n)
+}
+
+// changeGlyph renders git's status letter as what the push does to Gitea.
+func changeGlyph(status string) string {
+	switch {
+	case strings.HasPrefix(status, "A"):
+		return helpers.SuccessStyle.Render("+")
+	case strings.HasPrefix(status, "D"):
+		return helpers.ErrorStyle.Render("−")
+	case strings.HasPrefix(status, "R"), strings.HasPrefix(status, "C"):
+		return helpers.InfoStyle.Render("→")
+	default:
+		return helpers.WarningStyle.Render("~")
+	}
+}
+
+// renderStackChanges is the file list printed under the comparison checklist,
+// returned as a string so its layout can be asserted without a cluster.
+// Repositories without changes are already reported by the checklist itself.
+func renderStackChanges(c stackChanges) string {
+	if c.total() == 0 {
+		return ""
+	}
+	const maxShown = 40
+	var b strings.Builder
+	b.WriteString("\n")
+	for _, r := range c {
+		if len(r.Files) == 0 {
 			continue
 		}
-		diff[repo] = len(names)
-		fmt.Fprintf(&b, "   %s: %d file(s) differ\n", repo, len(names))
-		const maxShown = 40
-		for i, n := range names {
+		b.WriteString(helpers.Indent(helpers.BoldStyle.Render(r.Repo)+helpers.MutedStyle.Render("  "+pluralFiles(len(r.Files)))) + "\n")
+		for i, f := range r.Files {
 			if i == maxShown {
-				fmt.Fprintf(&b, "      … and %d more\n", len(names)-maxShown)
+				b.WriteString(helpers.Indent(helpers.MutedStyle.Render(fmt.Sprintf("  … and %d more", len(r.Files)-maxShown))) + "\n")
 				break
 			}
-			fmt.Fprintf(&b, "      %s\n", n)
+			b.WriteString(helpers.Indent("  "+changeGlyph(f.Status)+" "+f.Path) + "\n")
+			if f.Owner != "" {
+				b.WriteString(helpers.Indent("    "+helpers.WarningStyle.Render(
+					fmt.Sprintf("%s changed in-cluster by %s — pushing reverts it", helpers.IconDegraded, f.Owner))) + "\n")
+			}
 		}
 	}
-	return b.String(), diff, nil
+	b.WriteString("\n")
+	return b.String()
+}
+
+// confirmPrompt names what the push does, and says so louder when it would
+// undo a Kargo promotion.
+func confirmPrompt(c stackChanges) string {
+	if p := c.promotions(); len(p) > 0 {
+		what := "1 file was changed in-cluster (Kargo or the Marketplace) — pushing rolls it back."
+		if len(p) > 1 {
+			what = fmt.Sprintf("%d files were changed in-cluster (Kargo or the Marketplace) — pushing rolls them back.", len(p))
+		}
+		return helpers.WarningStyle.Render(helpers.IconDegraded+" "+what) +
+			"\n" + helpers.Gutter + fmt.Sprintf("Push %s to Gitea anyway? [y/N]: ", pluralFiles(c.total()))
+	}
+	return fmt.Sprintf("Push %s to Gitea and sync? [y/N]: ", pluralFiles(c.total()))
 }
 
 // cloneGiteaRepo clones a repo from the in-cluster Gitea over its external URL
@@ -523,7 +744,7 @@ func gatewayDialAddress(ctx context.Context, kubeClient client.Client) string {
 	return ""
 }
 
-func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, username, password, repo, dest string, dialAddr string) error {
+func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, username, password, repo, dest string, dialAddr string, depth int) error {
 	host := cfg.IngressHost
 	if host == "" {
 		host = cfg.Host
@@ -566,7 +787,7 @@ func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, us
 	if dialAddr != "" && cfg.Port != "" {
 		args = append(args, "-c", fmt.Sprintf("http.curloptResolve=gitea.%s:%s:%s", host, cfg.Port, dialAddr))
 	}
-	args = append(args, "clone", "--quiet", "--depth", "1", base.String(), dest)
+	args = append(args, "clone", "--quiet", "--depth", strconv.Itoa(depth), base.String(), dest)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {

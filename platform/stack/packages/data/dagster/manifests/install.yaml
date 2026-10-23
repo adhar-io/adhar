@@ -639,7 +639,7 @@ spec:
           imagePullPolicy: "Always"
           resources:
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
           command:
             - /bin/sh
@@ -664,7 +664,7 @@ spec:
           imagePullPolicy: "IfNotPresent"
           resources:
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
           securityContext:
             runAsUser: 1001

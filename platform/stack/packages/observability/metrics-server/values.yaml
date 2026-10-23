@@ -22,10 +22,12 @@ defaultArgs:
 # Additional Metrics Server configuration
 replicas: 1
 
+# cpu request 100m -> 50m: measured max 4m on the AWS cluster (2026-10-24),
+# the request was 25x use; 50m floor because it serves the metrics API.
 resources:
   requests:
     memory: 64Mi
-    cpu: 100m
+    cpu: 50m
   limits:
     memory: 128Mi
     cpu: 200m

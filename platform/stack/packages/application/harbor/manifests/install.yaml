@@ -2160,7 +2160,7 @@ spec:
               cpu: 1
               memory: 2Gi
             requests:
-              cpu: 200m
+              cpu: 50m
               memory: 512Mi
       volumes:
       - name: trivy-internal-certs

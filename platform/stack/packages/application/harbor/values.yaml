@@ -115,8 +115,11 @@ trivy:
   severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
   vulnType: "os,library"
   ignoreUnfixed: false
+  # cpu 200m -> 50m: measured max 1m between scans on the AWS cluster
+  # (2026-10-24), the request was ~200x use; scans burst up to the chart's
+  # 1-CPU limit, which is unchanged.
   resources:
-    requests: {cpu: 200m, memory: 512Mi}
+    requests: {cpu: 50m, memory: 512Mi}
     limits: {memory: 2Gi}
 
 # Metrics/exporter enabled so kube-prometheus scrapes Harbor and the Grafana

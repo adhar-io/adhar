@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -259,48 +258,48 @@ func TestSSOProxyManifestDependsOnTheHost(t *testing.T) {
 		"an empty host yields a hostname ending in a dot; reconcileArgoCDSSOProxy must refuse to apply that")
 }
 
-// An operator signed in to Argo CD during the bring-up must not be thrown onto
-// the Keycloak login page the moment the `argocd` client exists. The route
-// keeps session-cookie holders on Argo CD itself, and the SSO switch repoints
-// only the catch-all (2026-10-09).
-func TestArgoCDSessionHoldersAreNotRepointedAtTheSSOProxy(t *testing.T) {
+// Every Argo CD request goes through the SSO proxy — including ones carrying
+// an `argocd.token` cookie.
+//
+// A rule kept cookie holders on Argo CD itself (2026-10-09) so a bring-up admin
+// session survived the SSO switch. But a STALE token — from an earlier cluster
+// on the same hostname, or any admin token after the day-0 credential rotation
+// — took that rule too, Argo CD rejected it, and its UI only auto-redirects a
+// Keycloak-issued token, so the user was parked on Argo CD's login page
+// (2026-10-24). Through the proxy every request carries a Keycloak bearer token,
+// which Argo CD prefers over the cookie, so sign-in is click-free.
+func TestEveryArgoCDRouteRuleReachesTheSSOProxy(t *testing.T) {
 	docs := decodeDocs(t, "resources/argocd/post-install.yaml")
 	route := findByKind(docs, "HTTPRoute", proxyRouteName)
 	require.NotNil(t, route)
-	spec := route["spec"].(map[string]interface{})
-	rules, _ := spec["rules"].([]interface{})
-	require.Len(t, rules, 2, "expected the session-cookie rule and the catch-all")
-
-	session := rules[0].(map[string]interface{})
-	matches := session["matches"].([]interface{})
-	headers, _ := matches[0].(map[string]interface{})["headers"].([]interface{})
-	require.Len(t, headers, 1, "the first rule must match on the session cookie")
-	header := headers[0].(map[string]interface{})
-	assert.Equal(t, "Cookie", header["name"])
-	assert.Equal(t, "RegularExpression", header["type"])
-	pattern := header["value"].(string)
-	assert.Contains(t, pattern, `argocd\.token=[^;]+`, "a logged-out browser (empty cookie) must NOT match, or it never reaches SSO")
-	re := regexp.MustCompile("^(?:" + pattern + ")$")
-	assert.True(t, re.MatchString("foo=bar; argocd.token=eyJhbGciOi.rest"), "a live session must match")
-	assert.False(t, re.MatchString("argocd.token="), "a cleared cookie must not match")
-	assert.False(t, re.MatchString("foo=bar"), "no cookie must not match")
-
-	require.True(t, repointRulesToProxy(rules), "the catch-all should have been repointed")
-	backend := func(rule interface{}) (string, int64) {
-		ref := rule.(map[string]interface{})["backendRefs"].([]interface{})[0].(map[string]interface{})
-		port, _ := ref["port"].(int64)
-		if port == 0 {
-			if p, ok := ref["port"].(int); ok {
-				port = int64(p)
+	rules, _ := route["spec"].(map[string]interface{})["rules"].([]interface{})
+	for i, r := range rules {
+		for _, m := range r.(map[string]interface{})["matches"].([]interface{}) {
+			if h, _ := m.(map[string]interface{})["headers"].([]interface{}); len(h) > 0 {
+				t.Errorf("rule %d matches on headers; a cookie-holder rule sends stale sessions to Argo CD's login page", i)
 			}
 		}
-		return ref["name"].(string), port
 	}
-	name, port := backend(rules[0])
-	assert.Equal(t, "argo-cd-argocd-server", name, "the session rule must still reach Argo CD directly")
-	assert.EqualValues(t, 80, port)
-	name, port = backend(rules[1])
-	assert.Equal(t, proxyServiceName, name, "the catch-all must now reach the SSO proxy")
-	assert.EqualValues(t, proxyServicePort, port)
-	assert.False(t, repointRulesToProxy(rules), "a second pass must be a no-op")
+
+	// A cluster bootstrapped with the old two-rule route must be repointed whole.
+	legacy := []interface{}{
+		map[string]interface{}{
+			"matches": []interface{}{map[string]interface{}{
+				"path":    map[string]interface{}{"type": "PathPrefix", "value": "/"},
+				"headers": []interface{}{map[string]interface{}{"type": "RegularExpression", "name": "Cookie", "value": `.*argocd\.token=[^;]+.*`}},
+			}},
+			"backendRefs": []interface{}{map[string]interface{}{"name": "argo-cd-argocd-server", "port": int64(80)}},
+		},
+		map[string]interface{}{
+			"matches":     []interface{}{map[string]interface{}{"path": map[string]interface{}{"type": "PathPrefix", "value": "/"}}},
+			"backendRefs": []interface{}{map[string]interface{}{"name": "argo-cd-argocd-server", "port": int64(80)}},
+		},
+	}
+	require.True(t, repointRulesToProxy(legacy))
+	for i, r := range legacy {
+		ref := r.(map[string]interface{})["backendRefs"].([]interface{})[0].(map[string]interface{})
+		assert.Equal(t, proxyServiceName, ref["name"], "rule %d still bypasses the SSO proxy", i)
+		assert.EqualValues(t, proxyServicePort, ref["port"])
+	}
+	assert.False(t, repointRulesToProxy(legacy), "a second pass must be a no-op")
 }

@@ -155,5 +155,18 @@ coder:
     - name: adhar-ca
       mountPath: /etc/adhar-ca
       readOnly: true
+  # coderd idles at ~150-250 MiB; the chart's 4 GiB / 2 CPU request held a
+  # quarter of a worker for nothing. Workspaces are their own pods.
+  # cpu request 250m -> 50m: measured max 7m on the AWS cluster (2026-10-24),
+  # the request was ~35x use. (These values were previously only hand-edited
+  # into manifests/install.yaml; stating them here keeps a regeneration from
+  # restoring the chart default.)
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 50m
+      memory: 512Mi
   service:
     type: ClusterIP

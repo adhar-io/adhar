@@ -3154,9 +3154,14 @@ repoServer:
 
   # -- Resource limits and requests for the repo server pods.
   # Requests only — same single-node CPU-weight rationale as the controller.
+  # cpu 300m -> 100m: measured max 23m on the AWS cluster (2026-10-24), ~13x
+  # use. Kept above 1.5x the observed peak because manifest renders burst when
+  # many Applications refresh at once; with no limit the burst still lands.
+  # The chart applies this block to the copyutil init container too, which
+  # held the pod's effective request at 300m on its own.
   resources:
     requests:
-      cpu: 300m
+      cpu: 100m
       memory: 512Mi
   #  limits:
   #    cpu: 50m

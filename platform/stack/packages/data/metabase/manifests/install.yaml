@@ -75,7 +75,9 @@ spec:
           failureThreshold: 6
         resources:
           requests:
-            cpu: 250m
+            # 250m -> 50m: measured max 18m on the AWS cluster (2026-10-24);
+            # the request was ~14x use. No CPU limit, so JVM start bursts.
+            cpu: 50m
             memory: 1Gi
           limits:
             # 2Gi, not 1Gi. Metabase is a JVM application and 1Gi was not enough

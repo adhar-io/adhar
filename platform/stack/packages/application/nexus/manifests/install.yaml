@@ -91,7 +91,11 @@ spec:
           ports:
             - {name: http, containerPort: 8081}
           resources:
-            requests: {cpu: 500m, memory: 2Gi}
+            # cpu 500m -> 50m: measured max 7m on the AWS cluster (2026-10-24);
+            # the request was ~70x use and helped keep pods Pending for
+            # "Insufficient cpu". No CPU limit, so a cold start still bursts
+            # onto idle cores.
+            requests: {cpu: 50m, memory: 2Gi}
             limits: {memory: 3Gi}
           # Nexus 3 cold-starts slowly (Jetty + OrientDB init, minutes on an
           # empty PVC). A startupProbe gates liveness/readiness so the app gets

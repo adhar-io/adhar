@@ -22,9 +22,13 @@ service:
 # what the scheduler reserves; RabbitMQ's memory alarm is computed from the
 # LIMIT (vm_memory_high_watermark), so lowering the request changes nothing
 # about when the broker applies back-pressure.
+# cpu 250m -> 100m: measured max 6m on the AWS cluster (2026-10-24), the
+# request was ~40x use; 100m is the floor kept for stateful brokers. The chart
+# applies the same block to the prepare-plugins-dir init container, which set
+# the pod's effective request too.
 resources:
   requests:
-    cpu: 250m
+    cpu: 100m
     memory: 256Mi
   limits:
     memory: 1Gi

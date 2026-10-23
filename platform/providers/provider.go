@@ -463,8 +463,10 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	if err != nil {
 		return nil, fmt.Errorf("failed to build cluster specification: %w", err)
 	}
+	// Sizing advice is for `adhar config validate`, which prints it; during
+	// provisioning the operator has already chosen, so it stays in the debug log.
 	for _, w := range SizingWarnings(envConfig.Name, envConfig) {
-		logger.Warnf("%s", w)
+		logger.Debugf("%s", w)
 	}
 
 	// Authenticate with the provider.

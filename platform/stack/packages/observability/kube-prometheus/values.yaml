@@ -1237,6 +1237,19 @@ alertmanager:
 ## Using default values from https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
 ##
 grafana:
+  # Replace the pod rather than surge a second one. The grafana-oidc-reload hook
+  # restarts Grafana once its Keycloak client secret exists, and on a cluster at
+  # its maxWorkers a surge pod has nowhere to go: on AWS (2026-10-23) it sat
+  # Pending for 40 minutes behind 19 other pods while the old pod — started
+  # before the secret, so with an EMPTY client secret — kept serving, and every
+  # click from the console's app drawer ended in Keycloak's
+  # "unauthorized_client". Grafana is a single replica; a few seconds of
+  # downtime on restart is the right trade for a restart that always lands.
+  deploymentStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   enabled: true
   namespaceOverride: ""
 

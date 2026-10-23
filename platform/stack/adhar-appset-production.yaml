@@ -244,7 +244,8 @@ spec:
             category: "observability"
             manifestPath: "observability/victoria-metrics/manifests"
           - name: "trino"
-            enabled: "true"
+            # Off in production since 2026-10-24 (operator decision): opt-in.
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/trino/manifests"
@@ -254,7 +255,8 @@ spec:
             category: "data"
             manifestPath: "data/metabase/manifests"
           - name: "mlflow"
-            enabled: "true"
+            # Off in production since 2026-10-24 (operator decision): opt-in.
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mlflow/manifests"
@@ -330,7 +332,8 @@ spec:
             category: "data"
             manifestPath: "data/dagster/manifests"
           - name: "open-metadata"
-            enabled: "true"
+            # Off in production since 2026-10-24 (operator decision): opt-in.
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/open-metadata/manifests"
@@ -398,7 +401,8 @@ spec:
             manifestPath: "application/coder/manifests"
           # n8n disabled by default: a workflow-automation tool, not part of the paved road.
           - name: "n8n"
-            enabled: "true"
+            # Off in production since 2026-10-24 (operator decision): opt-in.
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/n8n/manifests"
@@ -503,7 +507,8 @@ spec:
             category: "security"
             manifestPath: "security/adhar-policy-packs/manifests"
           - name: "jupyterhub"
-            enabled: "true"
+            # Off in production since 2026-10-24 (operator decision): opt-in.
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/jupyterhub/manifests"
@@ -555,7 +560,8 @@ spec:
           # rewrites it to adhar-system (ADR-0011). Heavy (MySQL/Argo/API/UI);
           # disabled in the local core, enable per environment.
           - name: "kubeflow"
-            enabled: "true"
+            # Off in production since 2026-10-24 (operator decision): opt-in.
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kubeflow/manifests"
