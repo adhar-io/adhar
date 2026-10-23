@@ -1582,7 +1582,7 @@ data:
             {
               "type": "timeseries",
               "title": "Watches & latency p99 by verb",
-              "description": "Registered watchers (right) and 99th percentile request latency by verb (left).",
+              "description": "Open WATCH requests (long-running, right) and 99th percentile request latency by verb (left). Thousands of watches is normal: every controller watches what it owns.",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -1605,7 +1605,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(apiserver_registered_watchers{job=\"apiserver\"})",
+                  "expr": "sum(apiserver_longrunning_requests{job=\"apiserver\", verb=\"WATCH\"})",
                   "legendFormat": "watchers",
                   "range": true,
                   "instant": false,

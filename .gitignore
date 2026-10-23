@@ -61,3 +61,7 @@ config.azure.yaml
 config.gcp.yaml
 config.digitalocean.yaml
 config.civo.yaml
+
+# Python bytecode from the dashboard generators (build-*-dashboards.py)
+__pycache__/
+*.pyc

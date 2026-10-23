@@ -561,10 +561,10 @@ def control_plane():
                      "thousands of objects are what make a LIST, and Argo CD's cluster cache, expensive.",
                      [T(f'topk(15, max by (resource) (apiserver_resource_objects{{{A}}}))', "{{resource}}")],
                      unit="short", min=0, max=None, th=NEUTRAL, decimals=0), 8),
-           (ts("Watches & latency p99 by verb", "Registered watchers (right) and 99th percentile request latency by "
-               "verb (left).",
+           (ts("Watches & latency p99 by verb", "Open WATCH requests (long-running, right) and 99th percentile request "
+               "latency by verb (left). Thousands of watches is normal: every controller watches what it owns.",
                [T(f'histogram_quantile(0.99, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket{{{A}, verb!~"WATCH|CONNECT"}}[$__rate_interval])))', "{{verb}} p99"),
-                T(f'sum(apiserver_registered_watchers{{{A}}})', "watchers")],
+                T(f'sum(apiserver_longrunning_requests{{{A}, verb="WATCH"}})', "watchers")],
                unit="s", overrides=[{"matcher": {"id": "byName", "options": "watchers"},
                                      "properties": [{"id": "unit", "value": "short"},
                                                     {"id": "custom.axisPlacement", "value": "right"}]}]), 8))
