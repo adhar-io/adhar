@@ -4974,6 +4974,8 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONHOG_ADDR
+          value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
         - name: WEB_CONCURRENCY
           value: '1'
         lifecycle:
@@ -5300,6 +5302,8 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONHOG_ADDR
+          value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
         - name: WEB_CONCURRENCY
           value: '2'
         lifecycle:
@@ -5455,6 +5459,8 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONHOG_ADDR
+          value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5592,6 +5598,8 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONHOG_ADDR
+          value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
         - name: WEB_CONCURRENCY
           value: "2"
         - name: CELERY_MAX_MEMORY_PER_CHILD
@@ -5713,6 +5721,8 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONHOG_ADDR
+          value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -6195,7 +6205,8 @@ spec:
           - -ec
           - 'cp -R /code/posthog/user_scripts/. /udf/scripts/
 
-            cp /code/posthog/user_scripts/latest_user_defined_function.xml /udf/config/user_defined_function.xml
+            python3 -I -c "$ADHAR_UDF_ALIAS_SCRIPT" /code/posthog/user_scripts/latest_user_defined_function.xml
+            /udf/config/user_defined_function.xml
 
             chmod -R a+rX /udf/scripts/*
 
@@ -6203,6 +6214,20 @@ spec:
             UDF definitions"
 
             '
+          env:
+          - name: ADHAR_UDF_ALIAS_SCRIPT
+            value: "import copy, re, sys\nimport xml.etree.ElementTree as ET\nsrc,\
+              \ dst = sys.argv[1], sys.argv[2]\ntree = ET.parse(src)\nroot = tree.getroot()\n\
+              fns = root.findall(\"function\")\nnames = {f.findtext(\"name\") for\
+              \ f in fns}\nnewest = {}\nfor f in fns:\n    m = re.fullmatch(r\"(.+)_v(\\\
+              d+)\", f.findtext(\"name\") or \"\")\n    if m and int(m.group(2)) >\
+              \ newest.get(m.group(1), (-1, None))[0]:\n        newest[m.group(1)]\
+              \ = (int(m.group(2)), f)\nadded = []\nfor base, (ver, f) in sorted(newest.items()):\n\
+              \    if base in names:\n        continue\n    alias = copy.deepcopy(f)\n\
+              \    alias.find(\"name\").text = base\n    root.append(alias)\n    added.append(f\"\
+              {base}->v{ver}\")\ntree.write(dst, encoding=\"unicode\")\nprint(f\"\
+              {len(fns)} UDFs from the image + {len(added)} unversioned aliases: \"\
+              \ + \", \".join(added))"
           volumeMounts:
           - name: user-scripts
             mountPath: /udf/scripts

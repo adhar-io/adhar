@@ -73,10 +73,14 @@ func paProvisionedDatasourceUIDs(t *testing.T) map[string]bool {
 type paGridPos struct{ X, Y, W, H int }
 
 type paPanel struct {
-	ID         int             `json:"id"`
-	Type       string          `json:"type"`
-	Title      string          `json:"title"`
-	Collapsed  bool            `json:"collapsed"`
+	ID          int    `json:"id"`
+	Type        string `json:"type"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Collapsed   bool   `json:"collapsed"`
+	Options     struct {
+		ColorMode string `json:"colorMode"`
+	} `json:"options"`
 	GridPos    paGridPos       `json:"gridPos"`
 	Datasource json.RawMessage `json:"datasource"`
 	Targets    []struct {
@@ -91,6 +95,7 @@ type paPanel struct {
 type paDashboard struct {
 	UID         string    `json:"uid"`
 	Title       string    `json:"title"`
+	Tags        []string  `json:"tags"`
 	Panels      []paPanel `json:"panels"`
 	Annotations struct {
 		List []struct {
@@ -277,10 +282,10 @@ func TestTheComposedAppDashboardIsWellFormed(t *testing.T) {
 	}
 }
 
-// Every section a service owner needs, each fed by the series adhar-kit apps
+// Every section a JVM service owner needs, each fed by the series adhar-kit apps
 // actually publish (verified against live Spring services).
 func TestTheComposedAppDashboardCoversEverySignal(t *testing.T) {
-	body := paComposedAppDashboard(t)
+	body := composedAppDashboardFor(t, "    dashboard: {type: backend-jvm}\n", nil)
 	d, _ := paCheckDashboard(body, paProvisionedDatasourceUIDs(t))
 	rows := map[string][]paPanel{}
 	var current string
@@ -303,12 +308,13 @@ func TestTheComposedAppDashboardCoversEverySignal(t *testing.T) {
 		return b.String()
 	}
 	for row, wants := range map[string][]string{
-		"Golden Signals (RED)":         {"http_server_requests_seconds_count", "http_server_requests_seconds_bucket", `status=~"5.."`, `status=~"4.."`, "histogram_quantile(0.99"},
-		"Saturation & Resources":       {"container_cpu_usage_seconds_total", "container_memory_working_set_bytes", "kube_pod_container_resource_limits", "container_cpu_cfs_throttled_periods_total", "rollout_info_replicas_updated", "kube_horizontalpodautoscaler_status_desired_replicas"},
-		"JVM":                          {"jvm_memory_used_bytes", "jvm_gc_pause_seconds", "jvm_threads_states_threads", "hikaricp_connections_active", "kafka_consumer_fetch_manager_records_lag_max"},
-		"Business Metrics (adhar-kit)": {"$business_metric", "adhar_business_"},
-		"Logs (Loki)":                  {`app="cart"`, "loki"},
-		"Traces (Tempo)":               {`service="cart"`, "traces_spanmetrics_calls_total", `{resource.service.name="cart"}`, "tempo", "mimir"},
+		"Golden Signals (RED)":                   {"http_server_requests_seconds_count", "http_server_requests_seconds_bucket", `status=~"5.."`, `status=~"4.."`, "histogram_quantile(0.99"},
+		"Saturation & Resources":                 {"container_cpu_usage_seconds_total", "container_memory_working_set_bytes", "kube_pod_container_resource_limits", "container_cpu_cfs_throttled_periods_total", "rollout_info_replicas_updated", "kube_horizontalpodautoscaler_status_desired_replicas"},
+		"Dependencies (what this service calls)": {"traces_service_graph_request_total", `client="cart"`, "db_client_operation_duration_seconds_bucket", "hikaricp_connections_active", "kafka_consumer_fetch_manager_records_lag_max", "traces_spanmetrics_latency_bucket"},
+		"JVM":                                    {"jvm_memory_used_bytes", "jvm_gc_pause_seconds", "jvm_threads_states_threads", "jvm_memory_usage_after_gc"},
+		"Business Metrics (adhar-kit)":           {"$business_metric", "adhar_business_"},
+		"Logs (Loki)":                            {`app="cart"`, "loki"},
+		"Traces (Tempo)":                         {`service="cart"`, "traces_spanmetrics_calls_total", `resource.service.name="cart"`, "tempo", "mimir"},
 	} {
 		if _, ok := rows[row]; !ok {
 			t.Errorf("the application dashboard has no %q row", row)
@@ -347,17 +353,35 @@ func TestTheComposedAppDashboardCoversEverySignal(t *testing.T) {
 // composed per Application (app-dashboard-<name>), or shipped by a golden-path
 // skeleton into the app's own repository. A platform component filed there
 // (Chaos Mesh was, until 2026-10-23) buries the apps teams open it for.
+//
+// One shipped dashboard is allowed there, by path AND title: Application Logs, the
+// cross-application view of those same apps' logs — it is about the applications,
+// and the folder is where their owners look first. It must stay there, too.
+const appLogsDashboardPath = "observability/kube-prometheus/manifests/dashboard-app-logs.yaml"
+
 func TestOnlyApplicationDashboardsUseTheApplicationsFolder(t *testing.T) {
 	var offenders []string
+	appLogs := false
 	for _, d := range shippedDashboards(t) {
+		rel := shortStackPath(d.path)
+		if rel == appLogsDashboardPath {
+			if strings.TrimSpace(d.folder) != "Applications" || d.title != "Application Logs" {
+				t.Errorf("%s must be the \"Application Logs\" dashboard filed under Applications, got %q in %q",
+					rel, d.title, d.folder)
+			}
+			appLogs = true
+			continue
+		}
 		if strings.TrimSpace(d.folder) != "Applications" {
 			continue
 		}
-		rel := shortStackPath(d.path)
 		if strings.HasPrefix(rel, "application/adhar-templates/") && strings.Contains(rel, "/skeleton/") {
 			continue // rendered into a scaffolded app's repo: one per application
 		}
 		offenders = append(offenders, fmt.Sprintf("%s (%s)", d.title, rel))
+	}
+	if !appLogs {
+		t.Errorf("%s is not shipped: the Applications folder lost its logs dashboard", appLogsDashboardPath)
 	}
 	sort.Strings(offenders)
 	for _, o := range offenders {

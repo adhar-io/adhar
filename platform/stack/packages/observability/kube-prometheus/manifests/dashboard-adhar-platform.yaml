@@ -60,6 +60,18 @@ data:
       "links": [
         {
           "asDropdown": false,
+          "icon": "doc",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [],
+          "targetBlank": false,
+          "title": "Application Logs",
+          "tooltip": "Logs of every custom application, by environment, application and component",
+          "type": "link",
+          "url": "/d/adhar-app-logs"
+        },
+        {
+          "asDropdown": false,
           "icon": "external link",
           "includeVars": false,
           "keepTime": true,
@@ -259,7 +271,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -329,7 +341,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -403,7 +415,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -477,7 +489,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -551,7 +563,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -625,7 +637,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -699,7 +711,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -773,7 +785,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -847,7 +859,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -921,7 +933,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -995,7 +1007,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -1069,7 +1081,7 @@ data:
               "fields": "",
               "values": false
             },
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center",
@@ -5340,7 +5352,14 @@ data:
                   "show": false
                 },
                 "sortBy": []
-              }
+              },
+              "links": [
+                {
+                  "title": "Application Logs",
+                  "url": "/d/adhar-app-logs?${__url_time_range}",
+                  "targetBlank": false
+                }
+              ]
             },
             {
               "id": 66,
@@ -8746,7 +8765,14 @@ data:
                   "mode": "multi",
                   "sort": "desc"
                 }
-              }
+              },
+              "links": [
+                {
+                  "title": "Application Logs",
+                  "url": "/d/adhar-app-logs?${__url_time_range}",
+                  "targetBlank": false
+                }
+              ]
             },
             {
               "id": 114,

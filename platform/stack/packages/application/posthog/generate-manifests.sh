@@ -110,10 +110,52 @@ PYEOF_WAVES
 # config dir, where the stock config.xml loads *_function.*xml. Taking the files
 # from the app image, not a pinned copy, keeps the UDF set in step with the
 # migrations that call it.
+#
+# Unversioned aliases (2026-10-23). latest_user_defined_function.xml declares
+# the executable funnel UDFs only under VERSIONED names (aggregate_funnel_v11,
+# aggregate_funnel_v12, JSONDropKeys_v12 …): udf_versioner.py renames them for
+# PostHog Cloud's rolling deploys. HogQL appends that suffix only when
+# is_cloud() or is_ci() (posthog/hogql/functions/udfs.py), so a self-hosted
+# instance emits the BARE names and every funnel query failed with
+#   Function with name `aggregate_funnel` does not exist
+# Upstream's hobby stack mounts the unversioned source file
+# (docker/clickhouse/user_defined_function.xml), which the image does not ship.
+# So the init container writes the latest file plus, for every `<base>_vN`, an
+# alias `<base>` cloned from its NEWEST version — identical command (which
+# already points into vN/ under user_scripts), arguments, return type and
+# format, only the name differs. Names already unversioned are left alone, and
+# the versioned entries stay, so a Cloud-style build would keep working too.
+UDF_ALIAS_SCRIPT=$(cat <<'PYEOF_ALIAS'
+import copy, re, sys
+import xml.etree.ElementTree as ET
+src, dst = sys.argv[1], sys.argv[2]
+tree = ET.parse(src)
+root = tree.getroot()
+fns = root.findall("function")
+names = {f.findtext("name") for f in fns}
+newest = {}
+for f in fns:
+    m = re.fullmatch(r"(.+)_v(\d+)", f.findtext("name") or "")
+    if m and int(m.group(2)) > newest.get(m.group(1), (-1, None))[0]:
+        newest[m.group(1)] = (int(m.group(2)), f)
+added = []
+for base, (ver, f) in sorted(newest.items()):
+    if base in names:
+        continue
+    alias = copy.deepcopy(f)
+    alias.find("name").text = base
+    root.append(alias)
+    added.append(f"{base}->v{ver}")
+tree.write(dst, encoding="unicode")
+print(f"{len(fns)} UDFs from the image + {len(added)} unversioned aliases: " + ", ".join(added))
+PYEOF_ALIAS
+)
+export UDF_ALIAS_SCRIPT
 python3 - ${INSTALL_YAML} <<'PYEOF_UDF'
-import sys, yaml
+import os, sys, yaml
 path = sys.argv[1]
 docs = [d for d in yaml.safe_load_all(open(path)) if d]
+alias_script = os.environ["UDF_ALIAS_SCRIPT"]
 
 app_image = None
 for d in docs:
@@ -137,9 +179,10 @@ for d in docs:
             "image": app_image,
             "command": ["/bin/sh", "-ec",
                 "cp -R /code/posthog/user_scripts/. /udf/scripts/\n"
-                "cp /code/posthog/user_scripts/latest_user_defined_function.xml /udf/config/user_defined_function.xml\n"
+                "python3 -I -c \"$ADHAR_UDF_ALIAS_SCRIPT\" /code/posthog/user_scripts/latest_user_defined_function.xml /udf/config/user_defined_function.xml\n"
                 "chmod -R a+rX /udf/scripts/*\n"
                 "echo \"installed $(grep -c '<function>' /udf/config/user_defined_function.xml) UDF definitions\"\n"],
+            "env": [{"name": "ADHAR_UDF_ALIAS_SCRIPT", "value": alias_script}],
             "volumeMounts": [
                 {"name": "user-scripts", "mountPath": "/udf/scripts"},
                 {"name": "udf-config", "mountPath": "/udf/config"},

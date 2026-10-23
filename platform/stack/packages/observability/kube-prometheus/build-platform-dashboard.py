@@ -31,6 +31,9 @@ OUT = os.path.join(HERE, "manifests", "dashboard-adhar-platform.yaml")
 PROM = {"type": "prometheus", "uid": "prometheus"}
 MIMIR = {"type": "prometheus", "uid": "mimir"}
 LOKI = {"type": "loki", "uid": "loki"}
+# The custom applications' logs (dash_applications.py, Applications folder). Pinned
+# first in the link bar and on the panels that make someone want the lines behind them.
+APP_LOGS = {"title": "Application Logs", "url": "/d/adhar-app-logs?${__url_time_range}", "targetBlank": False}
 TEMPO = {"type": "tempo", "uid": "tempo"}
 
 GREEN, AMBER, RED, BLUE, GREY = "green", "#EAB839", "red", "#5794F2", "text"
@@ -130,8 +133,11 @@ class Board:
         return out
 
     def stat(self, title, expr, desc, unit="short", w=4, h=4, th=NEUTRAL, decimals=0,
-             ds=PROM, graph=False, text_mode="value", mappings=None, color_mode="value"):
+             ds=PROM, graph=False, text_mode="value", mappings=None, color_mode=None):
         p = self._base("stat", title, desc, w, h, ds)
+        # Rows can switch the default (the front row fills each tile with its
+        # status colour; the rest of the dashboard keeps coloured values).
+        color_mode = color_mode or getattr(self, "stat_color_mode", "value")
         p["targets"] = self._targets(ds, [expr], instant=not graph)
         p["fieldConfig"] = {"defaults": {"unit": unit, "decimals": decimals, "thresholds": th,
                                          "color": {"mode": "thresholds"}, "mappings": mappings or [],
@@ -285,6 +291,9 @@ def build():
 
     # =========================================================== at a glance ====
     b.row("Platform at a glance", desc="Is the platform healthy right now? Every tile is red/amber only when something needs a person.")
+    # The front row reads at a glance across a room: each tile's whole
+    # background takes its threshold colour (green / amber / red).
+    b.stat_color_mode = "background"
     b.stat("Nodes Ready", 'sum(kube_node_status_condition{condition="Ready",status="true"})',
            "Nodes whose kubelet reports Ready. Compare with Node count: a gap is a NotReady node.",
            th=steps((None, RED), (1, GREEN)))
@@ -342,6 +351,7 @@ def build():
             h=10, legend="{{component}}",
             mappings=[{"type": "value", "options": {"0": {"text": "Degraded", "color": RED}, "1": {"text": "Available", "color": GREEN}}}])
 
+    b.stat_color_mode = "value"
     # =========================================================== capacity ====
     b.row("Capacity & Nodes", desc="Requests vs usage per node: requests decide scheduling, usage decides performance.")
     b.stat("Nodes", 'count(kube_node_info)', "Nodes registered with the API server.", w=4)
@@ -475,7 +485,7 @@ def build():
     b.row("Custom Applications (SLO)", collapsed=True,
           desc="Golden signals of every custom application, from the Micrometer metrics adhar-kit apps publish. Per-app detail lives in the Applications folder.")
     sel = f'{APPS_NS},{HTTP_FILTER}'
-    b.table("Service Level by Application", [
+    slo = b.table("Service Level by Application", [
         (f'sum by (namespace, application) (rate(http_server_requests_seconds_count{{{sel}}}[$__range]))', "Req/s"),
         (ratio5xx("namespace, application", sel, "$__range"), "5xx ratio"),
         (f'1 - ({ratio5xx("namespace, application", sel, "$__range")}) / (1 - $slo)', "Error budget left"),
@@ -487,6 +497,7 @@ def build():
                "5xx ratio": ("percentunit", steps((None, GREEN), (0.001, AMBER), (0.01, RED)), "color-text"),
                "Error budget left": ("percentunit", steps((None, RED), (0.25, AMBER), (0.5, GREEN)), "color-background"),
                "p95": ("s", steps((None, GREEN), (0.5, AMBER), (1, RED)), "color-text")})
+    slo["links"] = [APP_LOGS]
     b.ts("Request Rate by Application", [(f'sum by (application, namespace) (rate(http_server_requests_seconds_count{{{sel}}}[$__rate_interval]))', "{{application}} ({{namespace}})")],
          "HTTP requests per second.", w=8, unit="reqps", decimals=2, legend="table")
     b.ts("5xx Ratio by Application", [(ratio5xx("application, namespace", sel, "$__rate_interval"), "{{application}} ({{namespace}})")],
@@ -608,11 +619,12 @@ def build():
     # =========================================================== observability ====
     b.row("Logs, Traces & Telemetry Pipeline", collapsed=True,
           desc="Error rates from Loki (logs) and Tempo span metrics (traces, in Mimir), and the health of the pipelines that carry them.")
-    b.ts("Error Log Lines by Namespace (Loki)", [
+    errlog = b.ts("Error Log Lines by Namespace (Loki)", [
         (f'topk(10, sum by (namespace) (count_over_time({{{NS}}} | detected_level=~"error|fatal|critical" [$__auto])))', "{{namespace}}")],
         "Log lines Loki classified as error/fatal/critical (its detected_level, read from JSON/logfmt level fields), per namespace. "
         "Counts lines, not incidents. detected_level is ~25x cheaper than a line regex over every stream.",
         ds=LOKI, w=12, decimals=0, legend="table", draw="bars")
+    errlog["links"] = [APP_LOGS]
     b.ts("Trace Error Ratio by Service (Tempo)", [
         ('sum by (service) (rate(traces_spanmetrics_calls_total{status_code="STATUS_CODE_ERROR"}[$__rate_interval])) / sum by (service) (rate(traces_spanmetrics_calls_total[$__rate_interval]))', "{{service}}")],
         "Share of spans with error status, per service, from Tempo's span-metrics generator (remote-written to Mimir).",
@@ -698,6 +710,10 @@ def dashboard():
         "fiscalYearStartMonth": 0,
         "graphTooltip": 1,
         "links": [
+            # Pinned first: where custom-application owners find their logs.
+            {"asDropdown": False, "icon": "doc", "includeVars": False, "keepTime": True, "tags": [], "targetBlank": False,
+             "title": "Application Logs", "tooltip": "Logs of every custom application, by environment, application and component",
+             "type": "link", "url": "/d/adhar-app-logs"},
             {"asDropdown": False, "icon": "external link", "includeVars": False, "keepTime": True, "tags": [], "targetBlank": False,
              "title": "Adhar AI", "tooltip": "The AI plane: agent runs, models, tokens, MCP tools and guardrails", "type": "link", "url": "/d/adhar-ai/adhar-ai"},
             {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": ["application"], "targetBlank": False,

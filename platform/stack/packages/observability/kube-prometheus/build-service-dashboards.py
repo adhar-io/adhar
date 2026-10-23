@@ -37,6 +37,7 @@ sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
 
 import dash_ai  # noqa: E402
+import dash_applications  # noqa: E402
 import dash_data  # noqa: E402
 import dash_delivery  # noqa: E402
 import dash_kubernetes  # noqa: E402
@@ -49,7 +50,7 @@ MANIFESTS = os.path.join(HERE, "manifests")
 MIXIN = os.path.join(HERE, "dashboards-custom", "kubernetes-mixin")
 
 MODULES = [dash_kubernetes, dash_networking, dash_data, dash_delivery, dash_security, dash_observability,
-           dash_ai, dash_resilience]
+           dash_ai, dash_resilience, dash_applications]
 
 # kubernetes-mixin files vendored by --refresh-mixins.
 MIXINS = ["apiserver", "controller-manager", "scheduler", "kubelet", "k8s-resources-cluster",

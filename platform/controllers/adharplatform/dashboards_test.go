@@ -49,7 +49,7 @@ var dashboardFolders = map[string]bool{
 	"Delivery":      true,
 	"AI":            true,
 	"Resilience":    true, // chaos engineering (Chaos Mesh); moved out of Applications 2026-10-23
-	"Applications":  true, // per-application dashboards ONLY — TestOnlyApplicationDashboardsUseTheApplicationsFolder
+	"Applications":  true, // per-application dashboards + Application Logs — TestOnlyApplicationDashboardsUseTheApplicationsFolder
 }
 
 type dashboardDoc struct {
@@ -254,6 +254,7 @@ var dashboardCoverage = map[string][]string{
 	"observability-jvm":       {"kube-prometheus"},
 	"ai":                      {"adhar-ai", "agentgateway", "k8sgpt"},
 	"resilience":              {"velero", "litmus", "k6"},
+	"app-logs":                {"alloy", "loki"},
 }
 
 func TestNoDashboardServesOnlyDisabledPackages(t *testing.T) {

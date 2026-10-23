@@ -61,6 +61,8 @@ UIDS = {
     # AI / Resilience
     "ai": "adhar-ai",
     "resilience": "adhar-resilience",
+    # Applications: the one shipped dashboard there (the rest are composed per app)
+    "app-logs": "adhar-app-logs",
 }
 
 RETIRED = {
@@ -88,6 +90,9 @@ FOLDER_TAG = {
     "Kubernetes": "adhar-kubernetes", "Networking": "adhar-networking", "Data": "adhar-data",
     "Delivery": "adhar-delivery", "Security": "adhar-security", "Observability": "adhar-observability",
     "AI": "adhar-ai", "Resilience": "adhar-resilience",
+    # The tag every per-application dashboard carries (the Application composition):
+    # the Applications dropdown therefore lists them all beside Application Logs.
+    "Applications": "application",
 }
 
 
@@ -102,6 +107,14 @@ def links(folder, *extra):
     out = [
         {"title": "Adhar Platform", "type": "link", "url": f"/d/{UIDS['platform']}", "icon": "dashboard",
          "asDropdown": False, "includeVars": False, "keepTime": True, "targetBlank": False, "tags": []},
+    ]
+    # Pinned on every dashboard: the custom applications' logs are what most people
+    # who open Grafana came for (TestEveryBuiltDashboardPinsApplicationLogs).
+    if folder != "Applications":
+        out.append({"title": "Application Logs", "type": "link", "url": f"/d/{UIDS['app-logs']}", "icon": "doc",
+                    "asDropdown": False, "includeVars": False, "keepTime": True, "targetBlank": False, "tags": [],
+                    "tooltip": "Logs of every custom application, by environment, application and component"})
+    out += [
         {"title": folder, "type": "dashboards", "tags": [FOLDER_TAG[folder]], "asDropdown": True,
          "includeVars": False, "keepTime": True, "targetBlank": False, "icon": "external link"},
         {"title": "All dashboards", "type": "dashboards", "tags": ["adhar"], "asDropdown": True,

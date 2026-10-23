@@ -332,7 +332,8 @@ func TestBuiltDashboardsFillEveryGridLine(t *testing.T) {
 // open section must name it (Kafka: brokers + topics).
 func TestBuiltDashboardsOpenOnAHealthRowAndFoldTheRest(t *testing.T) {
 	openSections := map[string]int{"kafka-cluster": 2, "k8s-cluster-overview": 3, "k8s-nodes": 2,
-		"k8s-workloads": 3, "k8s-storage": 2, "net-traffic": 2}
+		"k8s-workloads": 3, "k8s-storage": 2, "net-traffic": 2,
+		"app-logs": 2} // the logs themselves are the point of that page, not a component to fold
 	for _, name := range builtDashboardNames(t) {
 		t.Run(name, func(t *testing.T) {
 			d, _ := loadBuiltDashboard(t, name)

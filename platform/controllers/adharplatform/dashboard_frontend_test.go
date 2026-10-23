@@ -42,42 +42,60 @@ func composedAppDashboardFor(t *testing.T, extraParams string, labels map[string
 	return body
 }
 
-// frontendSection returns the Frontend row and its panels, wherever they sit:
-// nested in a collapsed row, or following an expanded one at the top level.
+// browserRows are the rows of the browser (Faro) section: the open KPI row and
+// its three detail rows.
+var browserRows = []string{frontendRowTitle, "Browser Errors", "Browser Network (fetch / XHR)", "Pages, Sessions & Releases"}
+
+// frontendSection returns the Frontend row and every panel of the browser
+// section, wherever they sit: nested in a collapsed row, or following an
+// expanded one at the top level.
 func frontendSection(t *testing.T, d paDashboard) (row paPanel, panels []paPanel) {
 	t.Helper()
-	for i, p := range d.Panels {
-		if p.Type != "row" || p.Title != frontendRowTitle {
+	found := false
+	in := false
+	for _, p := range d.Panels {
+		if p.Type == "row" {
+			in = false
+			for _, r := range browserRows {
+				if p.Title == r {
+					in = true
+				}
+			}
+			if p.Title == frontendRowTitle {
+				row, found = p, true
+			}
+			if in {
+				panels = append(panels, p.Panels...)
+			}
 			continue
 		}
-		if p.Collapsed {
-			return p, p.Panels
+		if in {
+			panels = append(panels, p)
 		}
-		for _, q := range d.Panels[i+1:] {
-			if q.Type == "row" {
-				break
-			}
-			panels = append(panels, q)
-		}
-		return p, panels
 	}
-	t.Fatalf("the application dashboard has no %q row", frontendRowTitle)
-	return
+	if !found {
+		t.Fatalf("the application dashboard has no %q row", frontendRowTitle)
+	}
+	return row, panels
 }
 
+// The browser section belongs to browser apps only, open and right below the
+// overview; a backend's dashboard has no trace of it (it used to carry it as a
+// closed row on every service).
 func TestTheFrontendSectionOpensForBrowserApps(t *testing.T) {
 	uids := paProvisionedDatasourceUIDs(t)
 	for _, tc := range []struct {
-		name   string
-		params string
-		labels map[string]any
-		open   bool
+		name    string
+		params  string
+		labels  map[string]any
+		browser bool
 	}{
-		{name: "a service", open: false},
-		{name: "a worker", params: "    type: worker\n", open: false},
-		{name: "a web app", params: "    type: web\n", open: true},
-		{name: "an app labelled as a frontend", labels: map[string]any{"adhar.io/frontend": "true"}, open: true},
-		{name: "an app labelled as not a frontend", labels: map[string]any{"adhar.io/frontend": "false"}, open: false},
+		{name: "a service", browser: false},
+		{name: "a worker", params: "    type: worker\n", browser: false},
+		{name: "a web app", params: "    type: web\n", browser: true},
+		{name: "an app labelled as a frontend", labels: map[string]any{"adhar.io/frontend": "true"}, browser: true},
+		{name: "an app labelled as not a frontend", labels: map[string]any{"adhar.io/frontend": "false"}, browser: false},
+		{name: "a fullstack app", params: "    dashboard: {type: fullstack}\n", browser: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := composedAppDashboardFor(t, tc.params, tc.labels)
@@ -85,25 +103,27 @@ func TestTheFrontendSectionOpensForBrowserApps(t *testing.T) {
 			for _, p := range problems {
 				t.Errorf("%s", p)
 			}
-			if strings.Contains(body, "__FRONTEND__") {
-				t.Fatal("the __FRONTEND__ placeholder was left in the dashboard")
+			if !tc.browser {
+				if strings.Contains(body, frontendRowTitle) || strings.Contains(body, `source="faro"`) {
+					t.Fatal("a backend's dashboard carries the browser (Faro) section")
+				}
+				return
 			}
 			row, panels := frontendSection(t, d)
-			if row.Collapsed == tc.open {
-				t.Errorf("Frontend row collapsed = %v, want %v", row.Collapsed, !tc.open)
+			if row.Collapsed {
+				t.Error("the Frontend row of a browser app is collapsed")
 			}
-			if len(panels) < 15 {
-				t.Errorf("the Frontend section holds %d panels, want the full section", len(panels))
+			if len(panels) < 30 {
+				t.Errorf("the browser section holds %d panels, want the full section", len(panels))
 			}
-			// It sits right below the overview, where a frontend's owner looks first.
 			var order []string
 			for _, p := range d.Panels {
 				if p.Type == "row" {
 					order = append(order, p.Title)
 				}
 			}
-			if len(order) < 3 || order[0] != "Overview" || order[1] != frontendRowTitle || order[2] != "Golden Signals (RED)" {
-				t.Errorf("rows are %v; the Frontend section belongs between Overview and Golden Signals", order)
+			if len(order) < 2 || order[0] != "Overview" || order[1] != frontendRowTitle {
+				t.Errorf("rows are %v; the Frontend section belongs right below Overview", order)
 			}
 		})
 	}
@@ -181,7 +201,7 @@ func TestTheFrontendSectionReadsWhatFaroWrites(t *testing.T) {
 		}
 	}
 	if seen < 10 {
-		t.Errorf("found %d Loki stat/table queries in the expanded section; the check is not looking at it", seen)
+		t.Errorf("found %d Loki stat/table queries at the top level; the check is not looking at the expanded section", seen)
 	}
 }
 

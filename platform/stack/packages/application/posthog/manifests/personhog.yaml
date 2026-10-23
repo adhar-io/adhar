@@ -1,0 +1,157 @@
+# PersonHog — PostHog's person/group data service (gRPC), as upstream's hobby
+# deployment runs it: personhog-replica (reads the persons database) behind
+# personhog-router (the PersonHogService the Django app talks to).
+#
+# Why it exists here (2026-10-23): the pinned PostHog build routes EVERY
+# person / group / group-type lookup through this service and has no ORM
+# fallback ("personhog is the sole read path — there is no ORM fallback",
+# posthog/personhog_client/README.md in the image). With PERSONHOG_ADDR unset,
+# require_personhog_client() raises
+#   RuntimeError: personhog client not configured
+# and session recordings, persons and anything resolving group types answered
+# HTTP 500 (Console: Discover → Product analytics). The chart predates the
+# service and renders nothing for it.
+#
+# Shape and env mirror docker-compose.base.yml / docker-compose.hobby.yml at the
+# app's commit (571f3e573c9a, /code/commit.txt in the image). Upstream ships the
+# images only as `master` and `sha-<commit>`; no build exists for 571f3e573c9a
+# itself, so these are the nearest earlier build, sha-d384eed (2026-10-01). No
+# commit between the two touches rust/personhog-* or the personhog client, so
+# the gRPC contract is the one the app was built against. Pinned by digest per
+# the never-a-floating-tag rule: bump together with values.yaml `image.sha`.
+#
+# Writes/strong reads (split_person, the leader/identity tier) are not deployed,
+# exactly as in hobby: the router answers those with UNIMPLEMENTED.
+#
+# Database: the replica reads the same persons database the app's
+# PERSONS_DB_WRITER_URL names (posthog_persons on the CNPG cluster in
+# platform-postgres.yaml — where apply_persons_migrations created the tables).
+# It connects to the -rw Service: the single-instance cluster's -ro Service has
+# no endpoints. The password comes from the CNPG credential Secret by reference
+# and is spliced in with $(VAR) expansion, as values.yaml does for the app.
+#
+# Wave 2: after the database (-5), alongside the migrate Job, before the app
+# Deployments and bootstrap hook (3) that call it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: posthog-personhog-replica
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  labels: {app: posthog-personhog-replica, app.kubernetes.io/part-of: posthog, app.kubernetes.io/managed-by: adhar}
+spec:
+  selector: {app: posthog-personhog-replica}
+  ports:
+    - {name: grpc, port: 50051, targetPort: grpc, appProtocol: kubernetes.io/h2c}
+    - {name: metrics, port: 9100, targetPort: metrics}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posthog-personhog-replica
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  labels: {app: posthog-personhog-replica, app.kubernetes.io/part-of: posthog, app.kubernetes.io/managed-by: adhar}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: posthog-personhog-replica}}
+  template:
+    metadata:
+      labels: {app: posthog-personhog-replica, app.kubernetes.io/part-of: posthog}
+    spec:
+      # envconfig reads bare names (REPLICA_PORT-style); keep Kubernetes'
+      # service-link variables out of its namespace.
+      enableServiceLinks: false
+      # The image's USER is the name "nobody", which runAsNonRoot cannot verify.
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
+      containers:
+        - name: personhog-replica
+          image: ghcr.io/posthog/posthog/personhog-replica:sha-d384eed@sha256:bed197fc4cf17291ea36ff5657299a30c6b4314ff7e8aa4bd7df042343793311
+          env:
+            - name: ADHAR_PERSONS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: posthog-db-credentials, key: postgresql-password}
+            - name: PRIMARY_DATABASE_URL
+              value: "postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons"
+            - {name: GRPC_ADDRESS, value: "0.0.0.0:50051"}
+            - {name: METRICS_PORT, value: "9100"}
+            # Default pool is 10 + 5 bulk connections; the platform's own
+            # person volume needs a fraction of that on a shared CNPG cluster.
+            - {name: MAX_PG_CONNECTIONS, value: "5"}
+            - {name: BULK_MAX_PG_CONNECTIONS, value: "2"}
+            - {name: RUST_LOG, value: info}
+          ports:
+            - {name: grpc, containerPort: 50051}
+            - {name: metrics, containerPort: 9100}
+          readinessProbe:
+            httpGet: {path: /_readiness, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 15
+          livenessProbe:
+            httpGet: {path: /_liveness, port: metrics}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: posthog-personhog-router
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  labels: {app: posthog-personhog-router, app.kubernetes.io/part-of: posthog, app.kubernetes.io/managed-by: adhar}
+spec:
+  selector: {app: posthog-personhog-router}
+  ports:
+    - {name: grpc, port: 50052, targetPort: grpc, appProtocol: kubernetes.io/h2c}
+    - {name: metrics, port: 9101, targetPort: metrics}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posthog-personhog-router
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  labels: {app: posthog-personhog-router, app.kubernetes.io/part-of: posthog, app.kubernetes.io/managed-by: adhar}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: posthog-personhog-router}}
+  template:
+    metadata:
+      labels: {app: posthog-personhog-router, app.kubernetes.io/part-of: posthog}
+    spec:
+      enableServiceLinks: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
+      containers:
+        - name: personhog-router
+          image: ghcr.io/posthog/posthog/personhog-router:sha-d384eed@sha256:ca112d27cfae4c0bb010f421ee6c6d70abb79acd7c4d4e6eee45708b681e4c6c
+          env:
+            - {name: GRPC_ADDRESS, value: "0.0.0.0:50052"}
+            - {name: REPLICA_URL, value: "http://posthog-personhog-replica.adhar-system.svc.cluster.local:50051"}
+            - {name: BACKEND_TIMEOUT_MS, value: "5000"}
+            - {name: METRICS_PORT, value: "9101"}
+            - {name: RUST_LOG, value: info}
+          ports:
+            - {name: grpc, containerPort: 50052}
+            - {name: metrics, containerPort: 9101}
+          readinessProbe:
+            httpGet: {path: /_readiness, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 15
+          livenessProbe:
+            httpGet: {path: /_liveness, port: metrics}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}

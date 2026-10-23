@@ -149,6 +149,8 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONHOG_ADDR
+          value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
         - name: ADHAR_ADMIN_EMAIL
           valueFrom:
             secretKeyRef:

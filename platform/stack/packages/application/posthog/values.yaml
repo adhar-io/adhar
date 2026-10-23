@@ -228,6 +228,14 @@ env:
     value: "postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons"
   - name: PERSONS_DB_READER_URL
     value: "postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons"
+  # This PostHog build reads persons, groups and group types ONLY through the
+  # personhog gRPC service (no ORM fallback). Unset, every such lookup raised
+  #   RuntimeError: personhog client not configured
+  # and session recordings / persons answered HTTP 500 (2026-10-23). The
+  # service is deployed by manifests/personhog.yaml; this is its router, the
+  # address upstream's hobby compose gives web and worker.
+  - name: PERSONHOG_ADDR
+    value: posthog-personhog-router.adhar-system.svc.cluster.local:50052
 
 # PostgreSQL comes from the platform CNPG operator (manifests/platform-postgres.yaml):
 # the chart's bundled PostgreSQL is 11.7 and PostHog requires 14+.

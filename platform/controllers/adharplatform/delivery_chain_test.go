@@ -281,7 +281,7 @@ func TestEveryApplicationComposesAGrafanaDashboard(t *testing.T) {
 		"composition-resource-name: dashboard",
 		`grafana_dashboard: "1"`,
 		"grafana_folder: Applications",
-		`rollout_info{namespace=\"$env\",name=\"__APP__\"}`,
+		`rollout_info{namespace=\"$env\",name=\"__APP__\",phase=`,
 		"http_server_requests_seconds_count",
 		"container_memory_working_set_bytes",
 	} {

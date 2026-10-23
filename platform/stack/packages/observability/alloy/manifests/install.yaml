@@ -28,60 +28,100 @@ metadata:
     app.kubernetes.io/component: config
 data:
   config.alloy: "logging {\n\tlevel  = \"info\"\n\tformat = \"logfmt\"\n}\n\ndiscovery.kubernetes\
-    \ \"pods\" {\n\trole = \"pod\"\n}\n\ndiscovery.kubernetes \"nodes\" {\n\trole\
-    \ = \"node\"\n}\n\ndiscovery.kubernetes \"services\" {\n\trole = \"service\"\n\
-    }\n\ndiscovery.kubernetes \"endpoints\" {\n\trole = \"endpoints\"\n}\n\ndiscovery.kubernetes\
-    \ \"endpointslices\" {\n\trole = \"endpointslice\"\n}\n\ndiscovery.kubernetes\
-    \ \"ingresses\" {\n\trole = \"ingress\"\n}\n\n// ---------------------------------------------------------------\n\
+    \ \"pods\" {\n\trole = \"pod\"\n\t// Namespace labels as __meta_kubernetes_namespace_label_*:\
+    \ the pod-log\n\t// relabels read adhar.io/plane and adhar.io/environment|team|project\n\
+    \t// from the namespace, which is where the control plane stamps them.\n\tattach_metadata\
+    \ {\n\t\tnamespace = true\n\t}\n}\n\ndiscovery.kubernetes \"nodes\" {\n\trole =\
+    \ \"node\"\n}\n\ndiscovery.kubernetes \"services\" {\n\trole = \"service\"\n}\n\n\
+    discovery.kubernetes \"endpoints\" {\n\trole = \"endpoints\"\n}\n\ndiscovery.kubernetes\
+    \ \"endpointslices\" {\n\trole = \"endpointslice\"\n}\n\ndiscovery.kubernetes \"\
+    ingresses\" {\n\trole = \"ingress\"\n}\n\n// ---------------------------------------------------------------\n\
     // Hub shipping (roadmap P2.3): everything collected here is written\n// to the\
     \ observability hub. Endpoints come from the observability-hub\n// ConfigMap (envFrom)\
-    \ \u2014 in-cluster service URLs on the hub itself,\n// external Gateway URLs\
-    \ on workload-cluster spokes. Every sample and\n// stream carries the cluster\
-    \ label for hub-side separation.\n// ---------------------------------------------------------------\n\
+    \ \u2014 in-cluster service URLs on the hub itself,\n// external Gateway URLs on\
+    \ workload-cluster spokes. Every sample and\n// stream carries the cluster label\
+    \ for hub-side separation.\n// ---------------------------------------------------------------\n\
     prometheus.scrape \"annotated_pods\" {\n\ttargets    = discovery.relabel.scrape_pods.output\n\
-    \tforward_to = [prometheus.remote_write.hub.receiver]\n}\n\ndiscovery.relabel\
-    \ \"scrape_pods\" {\n\ttargets = discovery.kubernetes.pods.targets\n\trule {\n\
-    \t\tsource_labels = [\"__meta_kubernetes_pod_annotation_prometheus_io_scrape\"\
-    ]\n\t\tregex         = \"true\"\n\t\taction        = \"keep\"\n\t}\n\trule {\n\
-    \t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\ttarget_label  = \"\
-    namespace\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_name\"\
-    ]\n\t\ttarget_label  = \"pod\"\n\t}\n}\n\nprometheus.remote_write \"hub\" {\n\t\
-    endpoint {\n\t\turl = sys.env(\"HUB_MIMIR_URL\")\n\t}\n\texternal_labels = {\n\
-    \t\tcluster = sys.env(\"HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// Carry the Kubernetes\
-    \ identity of every log stream: without these\n// relabels Loki only gets job/instance,\
-    \ making namespace/pod filtering\n// (and Grafana's log volume breakdowns) useless.\n\
-    discovery.relabel \"pod_logs\" {\n\ttargets = discovery.kubernetes.pods.targets\n\
-    \trule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\ttarget_label\
-    \  = \"namespace\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_name\"\
-    ]\n\t\ttarget_label  = \"pod\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_container_name\"\
+    \tforward_to = [prometheus.remote_write.hub.receiver]\n}\n\ndiscovery.relabel \"\
+    scrape_pods\" {\n\ttargets = discovery.kubernetes.pods.targets\n\trule {\n\t\tsource_labels\
+    \ = [\"__meta_kubernetes_pod_annotation_prometheus_io_scrape\"]\n\t\tregex     \
+    \    = \"true\"\n\t\taction        = \"keep\"\n\t}\n\trule {\n\t\tsource_labels\
+    \ = [\"__meta_kubernetes_namespace\"]\n\t\ttarget_label  = \"namespace\"\n\t}\n\t\
+    rule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_name\"]\n\t\ttarget_label \
+    \ = \"pod\"\n\t}\n}\n\nprometheus.remote_write \"hub\" {\n\tendpoint {\n\t\turl\
+    \ = sys.env(\"HUB_MIMIR_URL\")\n\t}\n\texternal_labels = {\n\t\tcluster = sys.env(\"\
+    HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// Carry the Kubernetes identity of every log stream:\
+    \ without these\n// relabels Loki only gets job/instance, making namespace/pod filtering\n\
+    // (and Grafana's log volume breakdowns) useless.\ndiscovery.relabel \"pod_logs\"\
+    \ {\n\ttargets = discovery.kubernetes.pods.targets\n\trule {\n\t\tsource_labels\
+    \ = [\"__meta_kubernetes_namespace\"]\n\t\ttarget_label  = \"namespace\"\n\t}\n\t\
+    rule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_name\"]\n\t\ttarget_label \
+    \ = \"pod\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_container_name\"\
     ]\n\t\ttarget_label  = \"container\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_node_name\"\
     ]\n\t\ttarget_label  = \"node\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_label_app_kubernetes_io_name\"\
     , \"__meta_kubernetes_pod_label_app\"]\n\t\tseparator     = \"\"\n\t\ttarget_label\
-    \  = \"app\"\n\t}\n}\n\nloki.source.kubernetes \"pods\" {\n\ttargets    = discovery.relabel.pod_logs.output\n\
+    \  = \"app\"\n\t}\n\t// Custom applications: tie every stream in a WORKLOAD namespace\
+    \ to the\n\t// application, component and environment it belongs to, so one Grafana\n\
+    \t// dashboard can filter a team's logs without knowing pod names. Each rule\n\t\
+    // is gated on the namespace label adhar.io/plane=workload \u2014 a platform\n\t\
+    // stream matches none of them and keeps exactly the labels it had.\n\t// The owner\
+    \ is app.kubernetes.io/instance (CNPG \"<app>-db\", Strimzi\n\t// \"<app>-events\"\
+    ), else the `app` label (\"<app>\", \"<app>-cache\").\n\trule {\n\t\tsource_labels\
+    \ = [\"__meta_kubernetes_namespace_label_adhar_io_plane\", \"__meta_kubernetes_pod_label_app_kubernetes_io_instance\"\
+    , \"__meta_kubernetes_pod_label_app\"]\n\t\tseparator     = \";\"\n\t\tregex   \
+    \      = \"workload;([^;]+);.*\"\n\t\ttarget_label  = \"__tmp_adhar_owner\"\n\t\
+    }\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace_label_adhar_io_plane\"\
+    , \"__meta_kubernetes_pod_label_app_kubernetes_io_instance\", \"__meta_kubernetes_pod_label_app\"\
+    ]\n\t\tseparator     = \";\"\n\t\tregex         = \"workload;;(.+)\"\n\t\ttarget_label\
+    \  = \"__tmp_adhar_owner\"\n\t}\n\t// \"<app>-db\" \u2192 application <app>, component\
+    \ db; a bare \"<app>\" is the\n\t// application's own workload (component app).\n\
+    \trule {\n\t\tsource_labels = [\"__tmp_adhar_owner\"]\n\t\tregex         = \"(.+?)(-(db|cache|events))?\"\
+    \n\t\ttarget_label  = \"adhar_application\"\n\t}\n\trule {\n\t\tsource_labels =\
+    \ [\"__tmp_adhar_owner\"]\n\t\tregex         = \".+\"\n\t\ttarget_label  = \"adhar_component\"\
+    \n\t\treplacement   = \"app\"\n\t}\n\trule {\n\t\tsource_labels = [\"__tmp_adhar_owner\"\
+    ]\n\t\tregex         = \".+-(db|cache|events)\"\n\t\ttarget_label  = \"adhar_component\"\
+    \n\t}\n\t// Explicit pod labels win over the derivation.\n\trule {\n\t\tsource_labels\
+    \ = [\"__meta_kubernetes_namespace_label_adhar_io_plane\", \"__meta_kubernetes_pod_label_adhar_io_application\"\
+    ]\n\t\tseparator     = \";\"\n\t\tregex         = \"workload;(.+)\"\n\t\ttarget_label\
+    \  = \"adhar_application\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace_label_adhar_io_plane\"\
+    , \"__meta_kubernetes_pod_label_adhar_io_component\"]\n\t\tseparator     = \";\"\
+    \n\t\tregex         = \"workload;(.+)\"\n\t\ttarget_label  = \"adhar_component\"\
+    \n\t}\n\t// Environment, team and project come from the NAMESPACE (one value per\n\
+    \t// namespace), via discovery.kubernetes \"pods\" attach_metadata.namespace.\n\t\
+    rule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace_label_adhar_io_plane\"\
+    , \"__meta_kubernetes_namespace_label_adhar_io_environment\"]\n\t\tseparator   \
+    \  = \";\"\n\t\tregex         = \"workload;(.+)\"\n\t\ttarget_label  = \"adhar_environment\"\
+    \n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace_label_adhar_io_plane\"\
+    , \"__meta_kubernetes_namespace_label_adhar_io_team\"]\n\t\tseparator     = \";\"\
+    \n\t\tregex         = \"workload;(.+)\"\n\t\ttarget_label  = \"adhar_team\"\n\t\
+    }\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace_label_adhar_io_plane\"\
+    , \"__meta_kubernetes_namespace_label_adhar_io_project\"]\n\t\tseparator     = \"\
+    ;\"\n\t\tregex         = \"workload;(.+)\"\n\t\ttarget_label  = \"adhar_project\"\
+    \n\t}\n}\n\nloki.source.kubernetes \"pods\" {\n\ttargets    = discovery.relabel.pod_logs.output\n\
     \tforward_to = [loki.write.hub.receiver]\n}\n\nloki.write \"hub\" {\n\tendpoint\
     \ {\n\t\turl = sys.env(\"HUB_LOKI_URL\")\n\t}\n\texternal_labels = {\n\t\tcluster\
-    \ = sys.env(\"HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// The OTLP door for application\
-    \ telemetry. The golden-path templates set\n// OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.adhar-system.svc.cluster.local:4318\n\
-    // on every workload; the SDK pushes traces AND metrics (and logs, when an\n//\
-    \ app chooses to). Every signal must land somewhere \u2014 this receiver used\n\
-    // to forward only traces, so an app's OTLP metrics were silently dropped\n//\
-    \ on the floor while its dashboard stayed empty, and the Service did not\n// even\
-    \ publish the port (see extraPorts below).\notelcol.receiver.otlp \"workloads\"\
-    \ {\n\tgrpc {\n\t\tendpoint = \"0.0.0.0:4317\"\n\t}\n\thttp {\n\t\tendpoint =\
-    \ \"0.0.0.0:4318\"\n\t}\n\toutput {\n\t\ttraces  = [otelcol.processor.batch.workloads.input]\n\
-    \t\tmetrics = [otelcol.processor.batch.workloads.input]\n\t\tlogs    = [otelcol.processor.batch.workloads.input]\n\
+    \ = sys.env(\"HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// The OTLP door for application telemetry.\
+    \ The golden-path templates set\n// OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.adhar-system.svc.cluster.local:4318\n\
+    // on every workload; the SDK pushes traces AND metrics (and logs, when an\n// app\
+    \ chooses to). Every signal must land somewhere \u2014 this receiver used\n// to\
+    \ forward only traces, so an app's OTLP metrics were silently dropped\n// on the\
+    \ floor while its dashboard stayed empty, and the Service did not\n// even publish\
+    \ the port (see extraPorts below).\notelcol.receiver.otlp \"workloads\" {\n\tgrpc\
+    \ {\n\t\tendpoint = \"0.0.0.0:4317\"\n\t}\n\thttp {\n\t\tendpoint = \"0.0.0.0:4318\"\
+    \n\t}\n\toutput {\n\t\ttraces  = [otelcol.processor.batch.workloads.input]\n\t\t\
+    metrics = [otelcol.processor.batch.workloads.input]\n\t\tlogs    = [otelcol.processor.batch.workloads.input]\n\
     \t}\n}\n\notelcol.processor.batch \"workloads\" {\n\toutput {\n\t\ttraces  = [otelcol.exporter.otlphttp.hub.input]\n\
     \t\tmetrics = [otelcol.exporter.prometheus.workloads.input]\n\t\tlogs    = [otelcol.exporter.loki.workloads.input]\n\
     \t}\n}\n\n// OTLP metrics \u2192 the same remote_write every scrape uses, so an\
-    \ app's\n// metrics sit beside the platform's in Mimir under the same cluster\
-    \ label.\n// Resource attributes become the `target_info` series and service.name\
-    \ is\n// promoted to a label, which is what the dashboards' variables key on.\n\
-    otelcol.exporter.prometheus \"workloads\" {\n\tinclude_target_info      = true\n\
-    \tresource_to_telemetry_conversion = true\n\tforward_to = [prometheus.remote_write.hub.receiver]\n\
-    }\n\n// OTLP logs \u2192 Loki, same stream labels as the pod-log tailer.\notelcol.exporter.loki\
+    \ app's\n// metrics sit beside the platform's in Mimir under the same cluster label.\n\
+    // Resource attributes become the `target_info` series and service.name is\n// promoted\
+    \ to a label, which is what the dashboards' variables key on.\notelcol.exporter.prometheus\
+    \ \"workloads\" {\n\tinclude_target_info      = true\n\tresource_to_telemetry_conversion\
+    \ = true\n\tforward_to = [prometheus.remote_write.hub.receiver]\n}\n\n// OTLP logs\
+    \ \u2192 Loki, same stream labels as the pod-log tailer.\notelcol.exporter.loki\
     \ \"workloads\" {\n\tforward_to = [loki.write.hub.receiver]\n}\n\notelcol.exporter.otlphttp\
-    \ \"hub\" {\n\tclient {\n\t\tendpoint = sys.env(\"HUB_TEMPO_URL\")\n\t\ttls {\n\
-    \t\t\tinsecure_skip_verify = true\n\t\t}\n\t}\n}"
+    \ \"hub\" {\n\tclient {\n\t\tendpoint = sys.env(\"HUB_TEMPO_URL\")\n\t\ttls {\n\t\
+    \t\tinsecure_skip_verify = true\n\t\t}\n\t}\n}"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

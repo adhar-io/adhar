@@ -33,6 +33,12 @@ alloy:
       
       discovery.kubernetes "pods" {
       	role = "pod"
+      	// Namespace labels as __meta_kubernetes_namespace_label_*: the pod-log
+      	// relabels read adhar.io/plane and adhar.io/environment|team|project
+      	// from the namespace, which is where the control plane stamps them.
+      	attach_metadata {
+      		namespace = true
+      	}
       }
       
       discovery.kubernetes "nodes" {
@@ -118,6 +124,76 @@ alloy:
       		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
       		separator     = ""
       		target_label  = "app"
+      	}
+      	// Custom applications: tie every stream in a WORKLOAD namespace to the
+      	// application, component and environment it belongs to, so one Grafana
+      	// dashboard can filter a team's logs without knowing pod names. Each rule
+      	// is gated on the namespace label adhar.io/plane=workload — a platform
+      	// stream matches none of them and keeps exactly the labels it had.
+      	// The owner is app.kubernetes.io/instance (CNPG "<app>-db", Strimzi
+      	// "<app>-events"), else the `app` label ("<app>", "<app>-cache").
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_pod_label_app_kubernetes_io_instance", "__meta_kubernetes_pod_label_app"]
+      		separator     = ";"
+      		regex         = "workload;([^;]+);.*"
+      		target_label  = "__tmp_adhar_owner"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_pod_label_app_kubernetes_io_instance", "__meta_kubernetes_pod_label_app"]
+      		separator     = ";"
+      		regex         = "workload;;(.+)"
+      		target_label  = "__tmp_adhar_owner"
+      	}
+      	// "<app>-db" → application <app>, component db; a bare "<app>" is the
+      	// application's own workload (component app).
+      	rule {
+      		source_labels = ["__tmp_adhar_owner"]
+      		regex         = "(.+?)(-(db|cache|events))?"
+      		target_label  = "adhar_application"
+      	}
+      	rule {
+      		source_labels = ["__tmp_adhar_owner"]
+      		regex         = ".+"
+      		target_label  = "adhar_component"
+      		replacement   = "app"
+      	}
+      	rule {
+      		source_labels = ["__tmp_adhar_owner"]
+      		regex         = ".+-(db|cache|events)"
+      		target_label  = "adhar_component"
+      	}
+      	// Explicit pod labels win over the derivation.
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_pod_label_adhar_io_application"]
+      		separator     = ";"
+      		regex         = "workload;(.+)"
+      		target_label  = "adhar_application"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_pod_label_adhar_io_component"]
+      		separator     = ";"
+      		regex         = "workload;(.+)"
+      		target_label  = "adhar_component"
+      	}
+      	// Environment, team and project come from the NAMESPACE (one value per
+      	// namespace), via discovery.kubernetes "pods" attach_metadata.namespace.
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_namespace_label_adhar_io_environment"]
+      		separator     = ";"
+      		regex         = "workload;(.+)"
+      		target_label  = "adhar_environment"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_namespace_label_adhar_io_team"]
+      		separator     = ";"
+      		regex         = "workload;(.+)"
+      		target_label  = "adhar_team"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace_label_adhar_io_plane", "__meta_kubernetes_namespace_label_adhar_io_project"]
+      		separator     = ";"
+      		regex         = "workload;(.+)"
+      		target_label  = "adhar_project"
       	}
       }
       

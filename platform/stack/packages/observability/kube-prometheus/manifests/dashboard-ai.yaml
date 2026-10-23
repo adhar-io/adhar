@@ -47,6 +47,18 @@ data:
           "tags": []
         },
         {
+          "title": "Application Logs",
+          "type": "link",
+          "url": "/d/adhar-app-logs",
+          "icon": "doc",
+          "asDropdown": false,
+          "includeVars": false,
+          "keepTime": true,
+          "targetBlank": false,
+          "tags": [],
+          "tooltip": "Logs of every custom application, by environment, application and component"
+        },
+        {
           "title": "AI",
           "type": "dashboards",
           "tags": [

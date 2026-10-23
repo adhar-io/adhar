@@ -60,6 +60,26 @@ spec:
                       network policy, and model and tool allow-lists on the AI gateway.
                     enum: [service, web, worker, data, ai]
                     default: service
+                  dashboard:
+                    type: object
+                    description: >-
+                      The per-application Grafana dashboard. Each kind of application gets the
+                      template that matches it, so a backend carries no browser section and a
+                      frontend no JVM one.
+                    properties:
+                      type:
+                        type: string
+                        description: >-
+                          Which dashboard template. `backend-jvm` (Spring Boot / adhar-kit,
+                          Quarkus: Micrometer RED, JVM, JDBC/Hikari, Kafka, Valkey, business
+                          metrics), `backend-generic` (Go, Python, Node.js, anything else: RED from
+                          Prometheus or OTLP metrics, runtime panels), `frontend` (SPA / static:
+                          Faro real-user monitoring, what nginx served) or `fullstack` (TanStack
+                          Start: both). `auto` (the default) uses the label
+                          adhar.io/dashboard-type, else `frontend` for a browser app (type `web` or
+                          label adhar.io/frontend: "true"), else `backend-generic`.
+                        enum: [auto, backend-jvm, backend-generic, frontend, fullstack]
+                        default: auto
                   ai:
                     type: object
                     description: Settings that apply only when `type` is `ai`. Ignored otherwise.
