@@ -12,7 +12,7 @@ Cosign-keyless signed. It runs as uid 1000.
 
 Upstream retired `strapi/strapi`, and `naskio/strapi`, the only maintained
 replacement, ships a CLI that fails with `MODULE_NOT_FOUND` on `strapi version`
-(every tag through 5.30.1). Before 5.57.0-2 this package therefore ran the plain
+(every tag through 5.30.1). Before 5.57.0-3 this package therefore ran the plain
 Node image and, on first boot, scaffolded a project, ran npm install (~700 MiB)
 and built the admin panel inside the pod. That took four to six minutes, and
 an interrupted install could poison the volume. The fork's image does all of it

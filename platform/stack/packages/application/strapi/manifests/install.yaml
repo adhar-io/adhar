@@ -4,7 +4,7 @@
 # --------------------------------------------------------
 # Upstream retired `strapi/strapi`, and `naskio/strapi` (the only maintained
 # replacement) ships a CLI that dies with MODULE_NOT_FOUND on `strapi version`
-# alone, on every tag through 5.30.1. Before 5.57.0-2 this package therefore ran
+# alone, on every tag through 5.30.1. Before 5.57.0-3 this package therefore ran
 # the plain Node image and scaffolded, npm-installed (~700 MiB) and built the
 # admin panel inside the pod on first boot. That took four to six minutes, and
 # the volume could be poisoned by an interrupted install (hollow optional
@@ -116,7 +116,7 @@ spec:
         # a node reschedule does not. Same image as the app, so nothing extra to
         # pull. bash's /dev/tcp is used because node:*-slim ships no `nc`.
         - name: wait-for-db
-          image: ghcr.io/adhar-io/strapi:5.57.0-2
+          image: ghcr.io/adhar-io/strapi:5.57.0-3
           command: [bash, -c]
           args:
             - |
@@ -133,7 +133,7 @@ spec:
               drop: ["ALL"]
       containers:
         - name: strapi
-          image: ghcr.io/adhar-io/strapi:5.57.0-2
+          image: ghcr.io/adhar-io/strapi:5.57.0-3
           ports:
             - {name: http, containerPort: 1337}
           env:

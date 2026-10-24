@@ -175,7 +175,7 @@ func TestPlaneInstanceSetupEnablesTheForksKeycloakLogin(t *testing.T) {
 // (src/index.js). The image refuses to build without the fork's core, so the
 // manifest's job is to run it everywhere at one tag and hand it the wiring.
 //
-// Before 5.57.0-2 the pod scaffolded a project with create-strapi and swapped
+// Before 5.57.0-3 the pod scaffolded a project with create-strapi and swapped
 // the core in through an npm override at boot. The release that override
 // pointed at was never published, so the boot script fell back to stock Strapi
 // and production had no admin SSO, saying so only in a log line. The marker
