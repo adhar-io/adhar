@@ -42,9 +42,15 @@ render() {
     --version "${version}" --include-crds "$@" >>"${out}"
 
   python3 - "${out}" "${wave}" <<'PYEOF'
-import sys, yaml
+import os, sys, yaml
 path, wave = sys.argv[1], sys.argv[2]
 docs = [d for d in yaml.safe_load_all(open(path)) if d]
+# The fault catalogue chart (kubernetes-chaos) re-ships litmus-core's
+# chaosexperiments CRD under --include-crds. Two copies in one Application is
+# Argo CD's RepeatedResourceWarning, and two waves owning one CRD; core.yaml
+# (wave 0) is its single owner, so the catalogue render drops CRDs.
+if os.environ.get("DROP_CRDS") == "1":
+    docs = [d for d in docs if d.get("kind") != "CustomResourceDefinition"]
 workloads = 0
 for d in docs:
     # Ordering is explicit rather than left to Argo CD's kind heuristics: the
@@ -83,7 +89,7 @@ PYEOF
 # Wave 0: CRDs + the chaos operator. Everything else is an instance of these.
 render manifests/core.yaml         litmus-core      "${CORE_VERSION}"        0
 # Wave 2: the fault catalogue, after the CRDs are established.
-render manifests/experiments.yaml  kubernetes-chaos "${EXPERIMENTS_VERSION}" 2
+DROP_CRDS=1 render manifests/experiments.yaml  kubernetes-chaos "${EXPERIMENTS_VERSION}" 2
 # Wave 3: ChaosCenter, after manifests/platform-mongodb.yaml (waves 0-1).
 render manifests/install.yaml      litmus           "${CHART_VERSION}"       3 -f values.yaml
 

@@ -17,7 +17,14 @@ kind: ExternalSecret
 metadata:
   name: litmus-oidc
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+  # Wave 1: AFTER sso.yaml's litmus-keycloak-client ConfigMap (wave 0), which is
+  # what makes the keycloak package create the `litmus` client and publish
+  # LITMUS_CLIENT_ID/SECRET into keycloak-clients, and BEFORE the auth server
+  # that reads this Secret (install.yaml, wave 3). At wave -2 it waited for keys
+  # that only a later wave could cause, so on a fresh cluster the whole litmus
+  # sync deadlocked there and no CRD was ever applied (GCP, 2026-10-24: 147
+  # retries, console "Litmus CRDs are not registered").
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
   labels:
     app.kubernetes.io/name: litmus
     app.kubernetes.io/part-of: litmus
