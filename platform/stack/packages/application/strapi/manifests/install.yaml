@@ -1,45 +1,48 @@
 # Strapi — the platform's headless CMS.
 #
-# WHY THIS RUNS A PLAIN NODE IMAGE AND NOT A "STRAPI" IMAGE
-# ---------------------------------------------------------
-# There is no usable general-purpose Strapi server image. Upstream RETIRED
-# `strapi/strapi` (404 on Docker Hub), and `naskio/strapi` — the only maintained
-# replacement — ships a globally installed CLI that cannot resolve its own
-# dependencies:
+# THE IMAGE IS THE PLATFORM'S OWN: ghcr.io/adhar-io/strapi
+# --------------------------------------------------------
+# Upstream retired `strapi/strapi`, and `naskio/strapi` (the only maintained
+# replacement) ships a CLI that dies with MODULE_NOT_FOUND on `strapi version`
+# alone, on every tag through 5.30.1. Before 5.57.0-2 this package therefore ran
+# the plain Node image and scaffolded, npm-installed (~700 MiB) and built the
+# admin panel inside the pod on first boot. That took four to six minutes, and
+# the volume could be poisoned by an interrupted install (hollow optional
+# @swc packages, see git history).
 #
-#   $ docker run --rm --platform linux/amd64 naskio/strapi:5.30.1-alpine strapi version
-#   Error: Cannot find module ... code: 'MODULE_NOT_FOUND'
-#         requireStack: .../@strapi/strapi/dist/src/node/staticFiles.js ...
+# The adhar-io/strapi fork now does all of that at IMAGE BUILD time
+# (adhar/docker/ in the fork, released by .github/workflows/adhar-release.yml):
+# `create-strapi@<version>`, the fork's @strapi/core swapped in through an npm
+# override, the Keycloak admin login and SSO defaults baked into config/ and
+# src/index.js, and the admin panel prebuilt. The image is multi-arch
+# (amd64 + arm64) and Cosign-keyless signed. A pod starts in seconds and runs
+# as uid 1000.
 #
-# `strapi version` alone reproduces it, so the platform's wiring is not involved.
-# Verified broken on 5.30.1, 5.30.1-alpine, 5.28.0-alpine and 5.26.0-alpine, and
-# the newest tag is still 5.30.1 (2025-11-08). That image can neither scaffold a
-# project nor start one, which is why this package shipped disabled.
+# ADMIN SSO
+# ---------
+# Strapi gates admin SSO behind an Enterprise licence. The fork lists only
+# `sso` in ADHAR_BUNDLED_FEATURES (packages/core/core/src/ee/index.ts).
+# Audit logs, review workflows, content releases and seat enforcement stay
+# exactly as locked as in Community Edition. The image refuses to build
+# without that core, so there is no silent fallback to a stock package.
 #
-# So this uses the official Node image and does the two things that image was
-# supposed to do, with the supported upstream tooling: `create-strapi` to
-# scaffold, then `strapi build` + `strapi start`. Verified END TO END on this
-# cluster's amd64 nodes before being wired (2026-09-25): scaffold rc=0, admin
-# panel built in 52 s, "Strapi started successfully", HTTP 200 on /admin,
-# HTTP 204 on /_health, and 41 tables created in the CNPG database.
+# WHAT LIVES ON THE VOLUME
+# ------------------------
+# /srv/app/src/{api,components,extensions} (what the Content-Type Builder
+# writes) and /srv/app/public/uploads (media). The image links those paths
+# into /srv. They are the same paths the self-scaffolding layout used, so an
+# existing volume carries over. On its first start the image migrates that
+# layout once (marker /srv/.adhar-image-layout). It deletes the derived files
+# (node_modules, build output, /srv/.admin-built) and moves the rest of the old
+# scaffold (package.json, config/, .env, src/index.js) to /srv/legacy-scaffold.
 #
-# node:22-bookworm-slim, NOT alpine: Strapi pulls native modules (@swc/core) and
-# the musl build of that one dies with SIGBUS during its postinstall.
-#
-# FIRST BOOT IS SLOW, BY NATURE
-# -----------------------------
-# An empty volume means scaffold + npm install (~700 MB of node_modules) + an
-# admin build. Measured at roughly four to six minutes on a shared node, which
-# is what the very patient startupProbe below is for. Every later start finds the
-# project already on the volume and comes up in seconds.
-#
-# MODE: development, deliberately
-# ------------------------------
-# `NODE_ENV=production` disables Strapi's Content-Type Builder, so an operator
-# could not define a single content type through the UI — a CMS nobody can model
-# content in. Development mode keeps the builder available. `strapi start` (not
-# `develop`) is still used: no file watcher, so it does not rebuild itself under
-# a running site.
+# MODE: `strapi develop`, deliberately
+# ------------------------------------
+# The Content-Type Builder only accepts schema changes when autoReload is on,
+# and only `strapi develop` sets it. The previous `NODE_ENV=development` +
+# `strapi start` left the builder read-only despite what its comment said.
+# STRAPI_ADHAR_MODE=develop runs develop against the PREBUILT admin (no Vite,
+# no rebuild); the file watcher restarts the server after a schema save.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -56,11 +59,9 @@ spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      # Measured: the scaffolded project is 731 MiB, essentially all
-      # node_modules. The npm CACHE is another ~1 GiB and is deliberately kept
-      # OFF this volume (emptyDir, see npm_config_cache below) — it is
-      # reconstructible and does not belong in a backup. The rest is headroom for
-      # uploaded media, which is the only part that grows.
+      # Content types and uploaded media only; node_modules is in the image.
+      # Kept at the size the self-scaffolding layout used, because a bound PVC
+      # cannot shrink.
       storage: 10Gi
 ---
 apiVersion: v1
@@ -87,8 +88,8 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    # The project lives on a ReadWriteOnce PVC, so two pods cannot both mount it
-    # — a rolling update would deadlock on the volume.
+    # The content types live on a ReadWriteOnce PVC, so two pods cannot both
+    # mount it. A rolling update would deadlock on the volume.
     type: Recreate
   selector:
     matchLabels: {app.kubernetes.io/name: strapi}
@@ -102,14 +103,20 @@ spec:
       # here (see packages/CONFLICTS.md).
       enableServiceLinks: false
       securityContext:
+        # The image's `node` user. fsGroup makes a volume written by the
+        # previous layout's root container writable to it.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
       initContainers:
-        # The scaffold step connects to Postgres, so the database must already
-        # answer. Wave ordering gets this right on a fresh install; a node
-        # reschedule does not. Same image as the app, so nothing extra to pull.
-        # bash's /dev/tcp is used because node:*-slim ships no `nc`.
+        # Strapi runs its schema sync against Postgres on boot, so the database
+        # must already answer. Wave ordering gets this right on a fresh install;
+        # a node reschedule does not. Same image as the app, so nothing extra to
+        # pull. bash's /dev/tcp is used because node:*-slim ships no `nc`.
         - name: wait-for-db
-          image: docker.io/library/node:22-bookworm-slim
+          image: ghcr.io/adhar-io/strapi:5.57.0-2
           command: [bash, -c]
           args:
             - |
@@ -120,26 +127,18 @@ spec:
           resources:
             requests: {cpu: 10m, memory: 32Mi}
             limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: strapi
-          image: docker.io/library/node:22-bookworm-slim
-          workingDir: /srv
+          image: ghcr.io/adhar-io/strapi:5.57.0-2
           ports:
             - {name: http, containerPort: 1337}
           env:
-            - {name: HOST, value: "0.0.0.0"}
-            - {name: PORT, value: "1337"}
-            # See the header: production mode would hide the Content-Type Builder.
-            - {name: NODE_ENV, value: development}
-            # HOME and the npm cache must NOT land on the PVC: the cache measured
-            # ~1 GiB, which would otherwise be backed up and would crowd out the
-            # space meant for uploaded media.
-            - {name: HOME, value: /tmp}
-            - {name: npm_config_cache, value: /tmp/npm-cache}
-            # create-strapi and npm are interactive by default; this is what makes
-            # an unattended scaffold possible.
-            - {name: CI, value: "true"}
-            - {name: npm_config_yes, value: "true"}
+            # develop: the Content-Type Builder stays editable (see the header).
+            - {name: STRAPI_ADHAR_MODE, value: develop}
             - {name: DATABASE_CLIENT, value: postgres}
             - {name: DATABASE_HOST, value: strapi-db-rw.adhar-system.svc.cluster.local}
             - {name: DATABASE_PORT, value: "5432"}
@@ -150,7 +149,7 @@ spec:
             - name: DATABASE_PASSWORD
               valueFrom: {secretKeyRef: {name: strapi-db-credentials, key: password}}
             # Generated once (platform-postgres.yaml). Strapi v5 refuses to boot
-            # without any of them.
+            # without any of them, and the image deliberately carries none.
             - name: APP_KEYS
               valueFrom: {secretKeyRef: {name: strapi-secrets, key: APP_KEYS}}
             - name: API_TOKEN_SALT
@@ -163,38 +162,17 @@ spec:
               valueFrom: {secretKeyRef: {name: strapi-secrets, key: JWT_SECRET}}
             - name: ENCRYPTION_KEY
               valueFrom: {secretKeyRef: {name: strapi-secrets, key: ENCRYPTION_KEY}}
-            # The public origin. The scaffolded config/server.js does NOT read any
-            # URL variable — the previous manifest set STRAPI_URL/PUBLIC_URL and
-            # neither had any effect — so the boot script writes a server.js that
-            # honours this one. Rewritten to the platform domain at seed time.
+            # The public origin. The image's config/server.js reads it as
+            # `url` (media URLs, webhook payloads, the SSO callback) and runs
+            # with `proxy` on. Rewritten to the platform domain at seed time.
             - {name: PUBLIC_URL, value: "https://strapi.adhar.localtest.me:8443"}
             # Telemetry off: a platform component does not phone home
-            # (ARCHITECTURE.md §1).
+            # (ARCHITECTURE.md §1). The image sets this too, and turns off the
+            # update check in config/server.js; stated here so the contract
+            # is visible without reading the image.
             - {name: STRAPI_TELEMETRY_DISABLED, value: "true"}
-            - {name: STRAPI_DISABLE_TELEMETRY, value: "true"}
-            - {name: STRAPI_DISABLE_UPDATE_NOTIFICATION, value: "true"}
             # ── Admin-panel SSO (Keycloak) ──
-            # Strapi gates admin SSO behind an Enterprise licence. The Adhar
-            # fork of @strapi/core (github.com/adhar-io/strapi, branch develop,
-            # packages/core/core/src/ee/index.ts) lists `sso` in
-            # ADHAR_BUNDLED_FEATURES so that ONE feature works without a
-            # licence; audit-logs, review-workflows, content-releases and seat
-            # enforcement stay exactly as locked as in Community Edition. It is
-            # published as a release tarball (GitHub Packages cannot host a
-            # package whose scope is not the owner's, and renaming @strapi/core
-            # breaks every internal import) and swapped in through an npm
-            # dependency override. The boot script applies the override, proves
-            # the tarball's version matches the project and that the marker is
-            # in dist, and falls back to the stock package — Strapi up, no SSO
-            # button, a loud log line — when the release does not exist yet.
-            #
-            # STRAPI_VERSION pins the scaffold too: Strapi's packages move in
-            # lockstep, so the fork must be tagged from upstream v<this>, and
-            # the tarball name follows `npm pack` (strapi-core-<version>.tgz).
-            - {name: STRAPI_VERSION, value: "5.57.0"}
-            - name: STRAPI_CORE_OVERRIDE
-              value: https://github.com/adhar-io/strapi/releases/download/adhar-core-v5.57.0-1/strapi-core-5.57.0.tgz
-            # The `strapi-app` Keycloak client (sso.yaml): Strapi's OWN login,
+            # The `strapi-app` Keycloak client (sso.yaml) is Strapi's OWN login,
             # separate from the `strapi` client the edge proxy uses, so each
             # side receives a token minted for itself (see CLAUDE.md on
             # per-app audiences). The browser is sent to the public issuer; the
@@ -208,450 +186,17 @@ spec:
             - name: KEYCLOAK_CLIENT_SECRET
               valueFrom: {secretKeyRef: {name: keycloak-clients, key: STRAPI_APP_CLIENT_SECRET}}
             # Role a Keycloak user receives on first sign-in (admin_roles.code:
-            # strapi-super-admin | strapi-editor | strapi-author). A Super
-            # Admin promotes people from Settings → Users.
+            # strapi-super-admin | strapi-editor | strapi-author). The image's
+            # bootstrap turns on auto-registration with this role on every
+            # start. A Super Admin promotes people from Settings → Users.
             - {name: STRAPI_SSO_DEFAULT_ROLE, value: strapi-editor}
-            # The Adhar Console's Content API key (console-token.yaml). Step 3c
-            # registers its hash as a full-access API token. Optional so Strapi
-            # still boots before ESO writes it; 3c then skips.
+            # The Adhar Console's Content API key (console-token.yaml). The
+            # image's bootstrap registers its hash as a full-access API token
+            # named "Adhar Console", and repairs it if it is edited or deleted.
+            # Optional so Strapi still boots before ESO writes it; the
+            # registration is skipped until then.
             - name: ADHAR_CONSOLE_TOKEN
               valueFrom: {secretKeyRef: {name: strapi-api-token, key: STRAPI_TOKEN, optional: true}}
-          command: [bash, -c]
-          args:
-            - |
-              set -eu
-              APP=/srv/app
-              mkdir -p "$npm_config_cache"
-
-              # Restore /tmp's sticky bit. One line, and without it Strapi
-              # cannot build at all on this platform.
-              #
-              # /tmp here is an emptyDir, and Kubernetes creates those 0777 with
-              # NO sticky bit (drwxrwsrwx) — a real /tmp is 1777 (drwxrwxrwt).
-              # @swc/core materializes its native .node payload into a cache
-              # under /tmp/.cache and validates that path first as a
-              # symlink-attack guard; a world-writable parent without sticky
-              # protection is exactly what it refuses:
-              #
-              #   Error: Failed to load native binding
-              #     cause: Cannot find module './swc.linux-x64-gnu.node'
-              #     cause: SWC native addon: validate cache root /tmp/.cache:
-              #            cache root has a parent writable by another user
-              #            without trusted sticky protection.
-              #
-              # Which surfaces several layers up as Strapi's admin build failing
-              # with a bare "Failed to load native binding", naming neither the
-              # cache nor the permission (AWS cluster, 2026-10-09 — 9 restarts).
-              # The container runs as root, so it can simply set the bit back.
-              chmod 1777 /tmp 2>/dev/null || echo "note: could not set the sticky bit on /tmp"
-
-              # ── 1. Scaffold, once per volume ──
-              if [ ! -f "$APP/package.json" ]; then
-                echo "==> no project on the volume; scaffolding Strapi"
-                cd /srv
-                # --dbclient postgres matters even though every value below is
-                # overridden by the environment at runtime: it is what makes
-                # create-strapi install the `pg` driver. Scaffolding with sqlite
-                # would omit it and the app could never reach Postgres.
-                # The generated config/database.js switches on DATABASE_CLIENT,
-                # so the real credentials come from the environment, not from here.
-                npx -y create-strapi@"$STRAPI_VERSION" app \
-                  --no-run --skip-cloud --use-npm --javascript \
-                  --no-example --no-git-init --install \
-                  --dbclient postgres \
-                  --dbhost "$DATABASE_HOST" --dbport "$DATABASE_PORT" \
-                  --dbname "$DATABASE_NAME" \
-                  --dbusername "$DATABASE_USERNAME" --dbpassword "$DATABASE_PASSWORD"
-                echo "==> scaffold complete"
-              else
-                echo "==> existing project found on the volume"
-              fi
-
-              cd "$APP"
-
-              # ── 1b. Repair a half-installed volume ──
-              #
-              # Step 1 keys off package.json alone, and create-strapi writes
-              # that BEFORE it installs ~700 MB of node_modules. So any
-              # interruption during the first boot — an OOM kill, an eviction, a
-              # node that went away, `adhar up` timing out and the pod being
-              # rescheduled — leaves a volume that looks scaffolded and is not.
-              # Step 1 then skips forever, nothing ever runs npm install again,
-              # and the admin build dies on whatever is missing. On the AWS
-              # cluster (2026-10-09) that surfaced as:
-              #
-              #   ==> existing project found on the volume
-              #   ==> building admin panel (have=none want=5.57.0)
-              #   ✖ Building admin panel
-              #   Error: Failed to load native binding
-              #     at .../node_modules/@swc/core/binding.js:345:11
-              #
-              # @swc/core was on the volume but its platform-specific native
-              # package (@swc/core-linux-x64-gnu) was not — npm installs those as
-              # OPTIONAL dependencies, so they are among the last things written
-              # and the first things lost. The pod had restarted 9 times and
-              # would have restarted forever: a partial first boot poisons the
-              # volume permanently, and no amount of resyncing fixes it because
-              # every retry takes the same `else` branch.
-              #
-              # So prove the dependencies actually load before trusting them. The
-              # probe requires BOTH the framework and the native compiler, which
-              # are the two distinct ways this breaks (missing packages, and a
-              # missing/incompatible native binding for this arch and libc).
-              deps_ok() { node -e 'require("@strapi/strapi");require("@swc/core")' >/dev/null 2>&1; }
-
-              # AN EMPTY PACKAGE DIRECTORY IS NPM REPORTING A FAILURE.
-              #
-              # This is the part that made the volume unrepairable, and it is not
-              # obvious. @swc/core's native binary ships in platform-specific
-              # packages (@swc/core-linux-x64-gnu here: linux, x64, glibc 2.36)
-              # which are declared OPTIONAL. npm treats a failed optional
-              # dependency as a SUCCESS: it creates the directory, fails to
-              # extract into it, says nothing, and exits 0. So the tree ends up
-              # with `node_modules/@swc/core-linux-x64-gnu/` present and `total
-              # 0` inside, `require("@swc/core")` throws "Failed to load native
-              # binding", and every later `npm install` sees the directory in
-              # place and leaves it alone. Measured on the AWS cluster
-              # (2026-10-09): the right package for the right platform, with
-              # nothing in it, 205 GiB free on the volume.
-              #
-              # Deleting the hollow directories is what makes the reinstall
-              # actually refetch them.
-              drop_hollow() {
-                found=""
-                for d in node_modules/@swc/core-linux-* node_modules/@esbuild/*; do
-                  [ -d "$d" ] || continue
-                  if [ -z "$(ls -A "$d" 2>/dev/null)" ]; then
-                    echo "    hollow package: $d"
-                    rm -rf "$d"
-                    found=1
-                  fi
-                done
-                [ -n "$found" ]
-              }
-
-              if ! deps_ok; then
-                echo "==> dependencies on the volume do not load; repairing"
-                drop_hollow || true
-                npm install --no-fund --no-audit --include=optional || true
-              fi
-              if ! deps_ok; then
-                # The npm cache lives on an emptyDir that SURVIVES container
-                # restarts, so a tarball that was truncated during the
-                # interrupted first install is re-read, and re-extracted empty,
-                # on every single retry. Clearing it is what breaks that loop;
-                # without this, `rm -rf node_modules` followed by a reinstall
-                # reproduces the identical broken tree (observed: 1398 packages
-                # "added", same hollow directory, same error).
-                #
-                # Discarding node_modules is safe: it is entirely derived from
-                # package.json + the lockfile, and NONE of the operator's content
-                # lives there (that is in Postgres and in public/uploads).
-                echo "==> still broken; clearing the npm cache and reinstalling from the lockfile"
-                npm cache clean --force >/dev/null 2>&1 || true
-                rm -rf "$npm_config_cache" node_modules
-                mkdir -p "$npm_config_cache"
-                npm install --no-fund --no-audit --include=optional
-                drop_hollow && npm install --no-fund --no-audit --include=optional || true
-                if ! deps_ok; then
-                  # Say WHY, with the underlying dlopen errors. The bare
-                  # "Failed to load native binding" that Strapi's build prints
-                  # names neither the package nor the reason, and this Job is
-                  # the only place that information exists.
-                  echo "dependencies still do not load after a clean install. Diagnostics:"
-                  node -e 'try{require("@swc/core")}catch(e){console.error(String(e));for(const c of (e.cause||[]))console.error("  cause:",String(c))}' 2>&1 | head -20
-                  for d in node_modules/@swc/core-linux-*; do
-                    [ -d "$d" ] && echo "  $d -> $(ls -A "$d" 2>/dev/null | wc -l) file(s)"
-                  done
-                  node -p '"platform: "+process.platform+" "+process.arch+" glibc "+(process.report?process.report.getReport().header.glibcVersionRuntime:"?")' 2>&1
-                  exit 1
-                fi
-                # Force an admin rebuild: the old build was linked against the
-                # modules just thrown away.
-                rm -f /srv/.admin-built
-              fi
-
-              # ── 1c. The Adhar @strapi/core, for admin-panel SSO ──
-              # See STRAPI_CORE_OVERRIDE in the env for why this is an override
-              # and not a package. Idempotent: a volume that already carries the
-              # wanted override and a dist with the marker is left alone, so a
-              # routine restart costs nothing here.
-              core_is_adhar() { grep -q ADHAR_BUNDLED_FEATURES node_modules/@strapi/core/dist/index.js 2>/dev/null; }
-              core_version() { node -p "require('@strapi/core/package.json').version" 2>/dev/null || echo none; }
-              reachable() { node -e 'fetch(process.argv[1],{method:"HEAD",redirect:"follow"}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))' "$1"; }
-              use_stock_core() {
-                npm pkg delete 'overrides.@strapi/core'
-                npm install --no-fund --no-audit --include=optional
-              }
-              have_override="$(npm pkg get 'overrides.@strapi/core' 2>/dev/null | tr -d '"')"
-              [ "$have_override" = "{}" ] && have_override=""
-              want_override="${STRAPI_CORE_OVERRIDE:-}"
-              if [ -n "$want_override" ] && { [ "$have_override" != "$want_override" ] || ! core_is_adhar; }; then
-                if reachable "$want_override"; then
-                  echo "==> switching @strapi/core to the Adhar build ($want_override)"
-                  npm pkg set "overrides.@strapi/core=$want_override"
-                  npm install --no-fund --no-audit --include=optional
-                  if [ "$(core_version)" != "$STRAPI_VERSION" ] || ! core_is_adhar; then
-                    echo "!! that tarball is @strapi/core $(core_version) (marker $(core_is_adhar && echo present || echo MISSING)); this project is $STRAPI_VERSION."
-                    echo "!! Strapi's packages move in lockstep: tag the fork from upstream v$STRAPI_VERSION. Reverting to the stock package — no admin SSO until then."
-                    use_stock_core
-                  fi
-                else
-                  echo "!! $want_override is not downloadable — the adhar-io/strapi release is not published yet. Stock @strapi/core, no admin SSO."
-                  [ -n "$have_override" ] && use_stock_core
-                fi
-              elif [ -z "$want_override" ] && [ -n "$have_override" ]; then
-                echo "==> no override wanted; back to the stock @strapi/core"
-                use_stock_core
-              fi
-              # The OAuth2 strategy config/admin.js registers. Tiny, and needed
-              # on the stock build too: admin.js requires it unconditionally.
-              node -e 'require("passport-oauth2")' >/dev/null 2>&1 || npm install --no-fund --no-audit passport-oauth2@1
-              if core_is_adhar; then
-                echo "==> admin SSO available (Adhar @strapi/core $(core_version))"
-              else
-                echo "==> admin SSO unavailable on this boot (stock @strapi/core $(core_version))"
-              fi
-
-              # ── 2. Teach the project about its public origin ──
-              # Rewritten every start so a changed platform domain takes effect,
-              # and so an operator who edits it knows it is managed.
-              cat > config/server.js <<'JS'
-              // Managed by the Adhar platform (packages/application/strapi).
-              // The scaffolded default reads no URL variable, which left Strapi
-              // building absolute links against localhost from behind the
-              // Gateway. `url` is what fixes admin assets, media URLs and
-              // webhook payloads.
-              module.exports = ({ env }) => ({
-                host: env('HOST', '0.0.0.0'),
-                port: env.int('PORT', 1337),
-                url: env('PUBLIC_URL', undefined),
-                // Behind the platform's oauth2-proxy and Gateway: take the
-                // scheme and client address from X-Forwarded-*.
-                proxy: true,
-                app: {
-                  keys: env.array('APP_KEYS'),
-                },
-                webhooks: {
-                  populateRelations: env.bool('WEBHOOKS_POPULATE_RELATIONS', false),
-                },
-              });
-              JS
-              sed -i 's/^              //' config/server.js
-
-              # ── 2b. The admin panel's own Keycloak login ──
-              # Replaces the scaffolded config/admin.js: the same secrets and
-              # flags, plus an `auth.providers` entry. Only the Enterprise SSO
-              # service reads that list — which the Adhar @strapi/core enables
-              # — so on the stock package it is ignored and the login page
-              # shows the password form alone.
-              cat > config/admin.js <<'JS'
-              // Managed by the Adhar platform (packages/application/strapi).
-              const OAuth2Strategy = require('passport-oauth2');
-
-              // Keycloak >= 17 realm endpoint shape (/realms/<realm>/protocol/
-              // openid-connect/...). The browser goes to the public issuer; the
-              // code-for-token exchange and the userinfo call go to the
-              // in-cluster one, so the server never trusts the public ingress
-              // certificate. The admin flow needs `email`, and `username` or
-              // first+last name, to auto-register a user.
-              const keycloakProviders = (env) => {
-                const trim = (v) => (v || '').replace(/\/+$/, '');
-                const issuer = trim(env('KEYCLOAK_ISSUER_URL', ''));
-                const internal = trim(env('KEYCLOAK_INTERNAL_ISSUER_URL', '')) || issuer;
-                const clientID = env('KEYCLOAK_CLIENT_ID', '');
-                const clientSecret = env('KEYCLOAK_CLIENT_SECRET', '');
-                const publicUrl = trim(env('PUBLIC_URL', ''));
-                if (!issuer || !clientID || !clientSecret || !publicUrl) return [];
-                return [
-                  {
-                    uid: 'keycloak',
-                    displayName: 'Keycloak',
-                    createStrategy: (strapi) => {
-                      const strategy = new OAuth2Strategy(
-                        {
-                          authorizationURL: `${issuer}/protocol/openid-connect/auth`,
-                          tokenURL: `${internal}/protocol/openid-connect/token`,
-                          clientID,
-                          clientSecret,
-                          scope: ['openid', 'email', 'profile'],
-                          // Absolute: Strapi hands back a path, and the request
-                          // the strategy sees arrived over plain HTTP from the proxy.
-                          callbackURL:
-                            publicUrl + strapi.service('admin::passport').getStrategyCallbackURL('keycloak'),
-                        },
-                        (accessToken, refreshToken, profile, done) => done(null, profile)
-                      );
-                      // Strapi authenticates by provider uid, so the strategy
-                      // must answer to it (passport-oauth2 names itself 'oauth2').
-                      strategy.name = 'keycloak';
-                      strategy.userProfile = (accessToken, done) => {
-                        fetch(`${internal}/protocol/openid-connect/userinfo`, {
-                          headers: { Authorization: `Bearer ${accessToken}` },
-                        })
-                          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`userinfo ${r.status}`))))
-                          .then((u) =>
-                            done(null, {
-                              email: u.email,
-                              username: u.preferred_username,
-                              firstname: u.given_name,
-                              lastname: u.family_name,
-                            })
-                          )
-                          .catch(done);
-                      };
-                      return strategy;
-                    },
-                  },
-                ];
-              };
-
-              module.exports = ({ env }) => ({
-                auth: {
-                  secret: env('ADMIN_JWT_SECRET'),
-                  providers: keycloakProviders(env),
-                },
-                apiToken: {
-                  salt: env('API_TOKEN_SALT'),
-                },
-                transfer: {
-                  token: {
-                    salt: env('TRANSFER_TOKEN_SALT'),
-                  },
-                },
-                secrets: {
-                  encryptionKey: env('ENCRYPTION_KEY'),
-                },
-                flags: {
-                  nps: env.bool('FLAG_NPS', false),
-                  // No upsell banner for a feature this distribution ships.
-                  promoteEE: env.bool('FLAG_PROMOTE_EE', false),
-                  docLinks: env.bool('FLAG_DOC_LINKS', true),
-                },
-              });
-              JS
-              sed -i 's/^              //' config/admin.js
-
-              # ── 3. Build the admin panel when it is missing ──
-              # A sentinel rather than a guess at Strapi's internal output paths,
-              # and it carries the version so an image bump rebuilds instead of
-              # serving an admin built against different code.
-              WANT="$(node -p "require('@strapi/strapi/package.json').version" 2>/dev/null || echo unknown)"
-              HAVE="$(cat /srv/.admin-built 2>/dev/null || echo none)"
-              if [ "$WANT" != "$HAVE" ]; then
-                echo "==> building admin panel (have=$HAVE want=$WANT)"
-                # An explicit heap: Node sizes its default from the container
-                # limit (~1 GiB of 2), and the admin build outgrew it — "heap
-                # out of memory" at ~1000 MB, 29 restarts, the strapi sync
-                # stuck past its progress deadline on a fresh DigitalOcean
-                # cluster (2026-10-22). The serving process keeps the default.
-                NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=2048" npm run build
-                echo "$WANT" > /srv/.admin-built
-              else
-                echo "==> admin panel already built for $HAVE"
-              fi
-
-              # ── 3b. Let Keycloak users in without a prior invitation ──
-              # Strapi keeps "auto-register SSO users" and their default role
-              # in its core store (Settings → Single Sign-On), off by default,
-              # with no config-file knob — so the first Keycloak login would
-              # otherwise end in "no account for this email". Written straight
-              # to that store row once the server is up: the row and the roles
-              # only exist after Strapi's own bootstrap. Runs in the background
-              # of this container, idempotent, exits when done.
-              cat > /tmp/adhar-sso-options.js <<'JS'
-              const { Client } = require('pg');
-              (async () => {
-                const want = process.env.STRAPI_SSO_DEFAULT_ROLE || 'strapi-editor';
-                const c = new Client({
-                  host: process.env.DATABASE_HOST, port: Number(process.env.DATABASE_PORT || 5432),
-                  database: process.env.DATABASE_NAME, user: process.env.DATABASE_USERNAME,
-                  password: process.env.DATABASE_PASSWORD, ssl: false,
-                });
-                await c.connect();
-                try {
-                  const role = (await c.query('select id from admin_roles where code = $1', [want])).rows[0];
-                  if (!role) { console.log(`sso options: role ${want} not found; leaving the store alone`); return; }
-                  const row = (await c.query("select id, value from strapi_core_store_settings where key = 'core_admin_auth'")).rows[0];
-                  const current = row && row.value ? JSON.parse(row.value) : {};
-                  const providers = { ssoLockedRoles: [], ...(current.providers || {}), autoRegister: true, defaultRole: role.id };
-                  if (row && current.providers && current.providers.autoRegister === true && String(current.providers.defaultRole) === String(role.id)) {
-                    console.log(`sso options: already auto-registering as ${want}`); return;
-                  }
-                  const value = JSON.stringify({ ...current, providers });
-                  if (row) await c.query('update strapi_core_store_settings set value = $1 where id = $2', [value, row.id]);
-                  else await c.query("insert into strapi_core_store_settings (key, value, type, environment, tag) values ('core_admin_auth', $1, 'object', '', '')", [value]);
-                  console.log(`sso options: auto-register on, default role ${want} (#${role.id})`);
-                } finally { await c.end(); }
-              })().catch((e) => console.error('sso options:', e.message));
-              JS
-              sed -i 's/^              //' /tmp/adhar-sso-options.js
-              if core_is_adhar; then
-                ( until node -e 'fetch("http://127.0.0.1:1337/_health").then(r=>process.exit(r.status===204?0:1),()=>process.exit(1))' 2>/dev/null; do sleep 10; done
-                  NODE_PATH="$APP/node_modules" node /tmp/adhar-sso-options.js ) &
-              fi
-
-              # ── 3c. Register the Adhar Console's API token ──
-              # Strapi keeps only HMAC-SHA512(API_TOKEN_SALT, key) per token
-              # (admin::api-token `hash`), so the hash of the platform-generated
-              # key (console-token.yaml) IS the token — no admin session needed,
-              # which SSO-only Strapi could not script anyway. Upserts one
-              # full-access, non-expiring "Adhar Console" row and repairs it if
-              # it was edited or deleted in the admin. Runs once the server is up
-              # (the table exists only after Strapi's bootstrap).
-              cat > /tmp/adhar-console-token.js <<'JS'
-              const crypto = require('crypto');
-              const { Client } = require('pg');
-              (async () => {
-                const key = process.env.ADHAR_CONSOLE_TOKEN, salt = process.env.API_TOKEN_SALT;
-                if (!key || !salt) { console.log('console token: no ADHAR_CONSOLE_TOKEN; skipping'); return; }
-                const hash = crypto.createHmac('sha512', salt).update(key).digest('hex');
-                const NAME = 'Adhar Console';
-                const c = new Client({
-                  host: process.env.DATABASE_HOST, port: Number(process.env.DATABASE_PORT || 5432),
-                  database: process.env.DATABASE_NAME, user: process.env.DATABASE_USERNAME,
-                  password: process.env.DATABASE_PASSWORD, ssl: false,
-                });
-                await c.connect();
-                try {
-                  // Columns differ across Strapi 5 minors; write only the ones present.
-                  const cols = new Set((await c.query(
-                    "select column_name from information_schema.columns where table_name = 'strapi_api_tokens'",
-                  )).rows.map((r) => r.column_name));
-                  if (!cols.size) { console.log('console token: strapi_api_tokens missing; skipping'); return; }
-                  const row = (await c.query('select id, access_key, type, expires_at from strapi_api_tokens where name = $1 order by id limit 1', [NAME])).rows[0];
-                  if (row && row.access_key === hash && row.type === 'full-access' && !row.expires_at) {
-                    console.log('console token: already registered'); return;
-                  }
-                  const now = new Date();
-                  if (row) {
-                    await c.query("update strapi_api_tokens set access_key = $1, type = 'full-access', lifespan = null, expires_at = null, updated_at = $2 where id = $3", [hash, now, row.id]);
-                    console.log('console token: repaired'); return;
-                  }
-                  const data = {
-                    name: NAME,
-                    description: 'Used by the Adhar Console (Develop → Content). Managed by the platform; deleting it is undone on the next Strapi start.',
-                    type: 'full-access', access_key: hash, lifespan: null, expires_at: null,
-                    created_at: now, updated_at: now,
-                  };
-                  if (cols.has('published_at')) data.published_at = now;
-                  if (cols.has('document_id')) data.document_id = 'a' + crypto.randomBytes(16).toString('hex').slice(0, 23);
-                  const names = Object.keys(data).filter((k) => cols.has(k));
-                  await c.query(
-                    `insert into strapi_api_tokens (${names.join(', ')}) values (${names.map((_, i) => `$${i + 1}`).join(', ')})`,
-                    names.map((k) => data[k]),
-                  );
-                  console.log('console token: registered');
-                } finally { await c.end(); }
-              })().catch((e) => console.error('console token:', e.message));
-              JS
-              sed -i 's/^              //' /tmp/adhar-console-token.js
-              ( until node -e 'fetch("http://127.0.0.1:1337/_health").then(r=>process.exit(r.status===204?0:1),()=>process.exit(1))' 2>/dev/null; do sleep 10; done
-                NODE_PATH="$APP/node_modules" node /tmp/adhar-console-token.js ) &
-
-              # ── 4. Serve ──
-              echo "==> starting Strapi"
-              exec npm run start
           volumeMounts:
             - {name: app, mountPath: /srv}
             - {name: tmp, mountPath: /tmp}
@@ -661,12 +206,12 @@ spec:
           # healthy pod (enforced by TestNoProbeShipsAOneSecondTimeout).
           startupProbe:
             httpGet: {path: /_health, port: http}
-            periodSeconds: 15
+            periodSeconds: 10
             timeoutSeconds: 10
-            # First boot = scaffold + npm install + admin build, measured at four
-            # to six minutes. 80 × 15 s = 20 minutes, an honest budget for that on
-            # a shared node with a cold npm cache.
-            failureThreshold: 80
+            # Normally under a minute. The budget covers the one start that
+            # removes the previous layout's ~700 MiB of node_modules from the
+            # volume, and kubelet's fsGroup walk before it: 30 × 10 s.
+            failureThreshold: 30
           readinessProbe:
             httpGet: {path: /_health, port: http}
             periodSeconds: 20
@@ -678,30 +223,21 @@ spec:
             timeoutSeconds: 15
             failureThreshold: 6
           resources:
-            # The admin build is the peak, not steady state; the verification run
-            # completed inside these limits.
-            # Strapi (Node) holds ~400-600 MiB serving; the build on first boot
-            # peaks higher, which the limit covers.
-            # cpu 250m -> 50m: measured max 1m serving on the AWS cluster
-            # (2026-10-24), the request was ~250x use; the 2-CPU limit still
-            # covers the first-boot admin build.
+            # No admin build at runtime any more, so no 2 GiB build heap and
+            # no 3 GiB limit. `develop` runs a cluster primary plus a worker,
+            # measured at ~360 MiB serving. cpu 50m: measured max 1m serving
+            # on the AWS cluster (2026-10-24).
             requests: {cpu: 50m, memory: 512Mi}
-            # 3Gi: the admin build alone takes a 2 GiB heap (see step 3).
-            limits: {cpu: "2", memory: 3Gi}
+            limits: {cpu: "1", memory: 1536Mi}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-            # Left as the image's own user (root): the scaffold writes a whole
-            # project tree plus ~700 MiB of node_modules onto the PVC, and pinning
-            # a different uid makes that fail on the first write instead of the
-            # tenth. Hardening one half of a filesystem contract hardens neither.
       volumes:
         - name: app
           persistentVolumeClaim:
             claimName: strapi-app
-        # HOME, the npm cache and Strapi's own scratch space. Sized so a cold
-        # npm cache (~1 GiB) plus build temporaries fit without touching the PVC.
+        # Strapi's scratch space (upload temp files).
         - name: tmp
           emptyDir:
-            sizeLimit: 4Gi
+            sizeLimit: 1Gi
