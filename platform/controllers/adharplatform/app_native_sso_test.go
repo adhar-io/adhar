@@ -169,44 +169,60 @@ func TestPlaneInstanceSetupEnablesTheForksKeycloakLogin(t *testing.T) {
 	}
 }
 
-// Strapi: admin SSO is an Enterprise feature that the Adhar build of
-// @strapi/core enables. The boot script swaps that build in through an npm
-// override, config/admin.js registers a Keycloak strategy answering to the
-// provider uid, and the versions must move in lockstep.
-func TestStrapiBootWiresTheKeycloakAdminLogin(t *testing.T) {
+// Strapi: admin SSO is an Enterprise feature that the Adhar fork's @strapi/core
+// enables, and the platform runs the fork's own image, which bakes in that core,
+// the Keycloak strategy (config/admin.js) and the SSO auto-register defaults
+// (src/index.js). The image refuses to build without the fork's core, so the
+// manifest's job is to run it everywhere at one tag and hand it the wiring.
+//
+// Before 5.57.0-3 the pod scaffolded a project with create-strapi and swapped
+// the core in through an npm override at boot. The release that override
+// pointed at was never published, so the boot script fell back to stock Strapi
+// and production had no admin SSO, saying so only in a log line. The marker
+// check also read dist/index.js, but the build is per-file and the marker is
+// in dist/ee/index.js, so even a published tarball would have been rejected.
+// Neither may come back.
+func TestStrapiRunsTheForksImageWithTheKeycloakAdminLogin(t *testing.T) {
 	install := readStackFile(t, "application/strapi/manifests/install.yaml")
 	code := withoutComments(install)
 
-	for _, want := range []string{
-		`npm pkg set "overrides.@strapi/core=$want_override"`,
-		`grep -q ADHAR_BUNDLED_FEATURES node_modules/@strapi/core/dist/index.js`,
-		`create-strapi@"$STRAPI_VERSION"`,
-		`uid: 'keycloak',`,
-		`strategy.name = 'keycloak';`,
-		`getStrategyCallbackURL('keycloak')`,
-		`providers: keycloakProviders(env),`,
-		`autoRegister: true, defaultRole: role.id`,
-		`proxy: true,`,
-	} {
-		if !strings.Contains(code, want) {
-			t.Errorf("strapi install.yaml lost %q", want)
+	ref := regexp.MustCompile(`image:\s*(\S+)`)
+	pinned := regexp.MustCompile(`^ghcr\.io/adhar-io/strapi:\d+\.\d+\.\d+-\d+$`)
+	tags := map[string]bool{}
+	for _, m := range ref.FindAllStringSubmatch(code, -1) {
+		tags[m[1]] = true
+		if !pinned.MatchString(m[1]) {
+			t.Errorf("strapi install.yaml runs %s; every container must run the fork's image, "+
+				"ghcr.io/adhar-io/strapi:<strapi version>-<n>", m[1])
+		}
+	}
+	if len(tags) != 1 {
+		t.Errorf("strapi containers run %d different images %v; the init container and the app must share one tag", len(tags), keys(tags))
+	}
+
+	for _, gone := range []string{"create-strapi", "STRAPI_CORE_OVERRIDE", "overrides.@strapi/core", "npm install"} {
+		if strings.Contains(code, gone) {
+			t.Errorf("strapi install.yaml still contains %q; the image does that at build time, and the "+
+				"boot-time version silently fell back to stock Strapi without SSO", gone)
 		}
 	}
 
 	values, refs := containerEnv(t, install, "Deployment", "strapi")
-	version := values["STRAPI_VERSION"]
-	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(version) {
-		t.Fatalf("STRAPI_VERSION = %q; the scaffold must be pinned", version)
+	// `strapi start` leaves the Content-Type Builder read-only whatever
+	// NODE_ENV says; the image's develop mode keeps it editable.
+	if values["STRAPI_ADHAR_MODE"] != "develop" {
+		t.Errorf("STRAPI_ADHAR_MODE = %q; without develop the Content-Type Builder cannot save a schema", values["STRAPI_ADHAR_MODE"])
 	}
-	override := values["STRAPI_CORE_OVERRIDE"]
-	wantTag := "/adhar-core-v" + version + "-"
-	wantFile := "/strapi-core-" + version + ".tgz"
-	if !strings.Contains(override, wantTag) || !strings.HasSuffix(override, wantFile) {
-		t.Errorf("STRAPI_CORE_OVERRIDE = %q; Strapi's packages move in lockstep, so the tarball must be "+
-			"tagged %s* and named %s to match STRAPI_VERSION", override, wantTag, wantFile)
+	if values["PUBLIC_URL"] == "" {
+		t.Error("PUBLIC_URL is unset; the image's config/server.js and the SSO callback URL are built from it")
 	}
-	if !strings.HasPrefix(override, "https://github.com/adhar-io/strapi/releases/download/") {
-		t.Errorf("STRAPI_CORE_OVERRIDE = %q; must be a release asset of the adhar-io/strapi fork", override)
+	// The console's Content API token is registered by the image's bootstrap
+	// from this env; dropping it silently breaks Develop → Content.
+	if ref := refs["ADHAR_CONSOLE_TOKEN"]; ref["name"] != "strapi-api-token" || ref["key"] != "STRAPI_TOKEN" {
+		t.Errorf("ADHAR_CONSOLE_TOKEN must come from strapi-api-token/STRAPI_TOKEN (console-token.yaml), got %v", ref)
+	}
+	if values["STRAPI_SSO_DEFAULT_ROLE"] == "" {
+		t.Error("STRAPI_SSO_DEFAULT_ROLE is unset; a first Keycloak login then ends in \"no account for this email\"")
 	}
 	if ref := refs["KEYCLOAK_CLIENT_SECRET"]; ref["name"] != "keycloak-clients" || ref["key"] != "STRAPI_APP_CLIENT_SECRET" {
 		t.Errorf("KEYCLOAK_CLIENT_SECRET must come from keycloak-clients/STRAPI_APP_CLIENT_SECRET, got %v", ref)
