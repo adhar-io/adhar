@@ -5,12 +5,12 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: strapi
 category: application
-version: "0.1.0"
-appVersion: 5.30.1
+version: "0.2.0"
+appVersion: 5.57.0
 description: >-
-  Strapi headless CMS — CNPG-backed, behind Keycloak SSO. Self-scaffolds a
-  project on first boot; a production CMS with custom content types is the
-  golden path (your own built image) instead.
+  Strapi headless CMS — CNPG-backed, Keycloak admin SSO, on the platform's own
+  prebuilt image (ghcr.io/adhar-io/strapi). A production CMS with custom
+  content types in Git is the golden path (your own built image) instead.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -20,17 +20,16 @@ homepage: https://strapi.io
 adharCompatibility:
   minVersion: "0.1.0"
   notes: >-
-    Runs the OFFICIAL Node image and scaffolds the project with upstream
-    `create-strapi`, because there is no usable Strapi server image: upstream
-    retired `strapi/strapi` and the only maintained replacement
-    (`naskio/strapi`) ships a CLI that crashes with MODULE_NOT_FOUND on
-    `strapi version` alone, on every tag through 5.30.1. First boot therefore
-    scaffolds, installs ~700 MiB of node_modules and builds the admin panel —
-    four to six minutes — and later starts take seconds. Off in the local
-    profile because that build is too heavy for a Kind node. Runs in
-    development mode so the Content-Type Builder stays available; a production
-    CMS with custom content types is still better built as your own image on
-    the golden path.
+    Runs ghcr.io/adhar-io/strapi, built by the adhar-io/strapi fork: the
+    project is scaffolded with upstream create-strapi, the fork's @strapi/core
+    (admin SSO only; every other Enterprise feature stays locked) is swapped in,
+    and the admin panel is prebuilt, all at image build time. Upstream retired
+    `strapi/strapi` and the community `naskio/strapi` cannot run `strapi
+    version`, which is why the platform builds its own. Multi-arch, starts in
+    seconds, runs as uid 1000. Content types and uploads live on the PVC. Runs
+    `strapi develop` against the prebuilt admin so the Content-Type Builder
+    stays editable. Off in the local profile by choice, not because it cannot
+    run there.
 dependencies:
   - name: cnpg
     category: data
@@ -39,7 +38,7 @@ dependencies:
   - name: keycloak
     category: security
 provenance:
-  sourceRepo: https://github.com/adhar-io/adhar
+  sourceRepo: https://github.com/adhar-io/strapi
   upstreamChart: ""          # no official chart exists; hand-written manifests
   signed: true               # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
   cosignKeyless: true        # Sigstore Fulcio + Rekor, ADR-0019
@@ -54,10 +53,10 @@ planeAffinity: control-plane
 # the platform bootstraps it and people sign in with Keycloak, 2026-10-24.)
 stability: alpha
 resources:
-  cpu: "250m"
-  memory: "1Gi"
+  cpu: "100m"
+  memory: "512Mi"
   footprint: medium
-  localSafe: false   # amd64-only image, and first boot is an npm install + admin build
+  localSafe: true    # multi-arch image, no install or build at runtime
 keywords:
   - cms
   - headless-cms

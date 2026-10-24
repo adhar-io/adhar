@@ -1,63 +1,44 @@
-# strapi — the platform's headless CMS
+# strapi: the platform's headless CMS
 
 **Status: enabled in the production profile, off locally.**
 
-## Why there is no "strapi" image here
+## The image is the platform's own
 
-Upstream **retired `strapi/strapi`** (404 on Docker Hub), and `naskio/strapi` —
-the only maintained general-purpose replacement — ships a globally installed CLI
-that cannot resolve its own dependencies:
+The package runs `ghcr.io/adhar-io/strapi:<strapi version>-<n>`, built from
+the [adhar-io/strapi](https://github.com/adhar-io/strapi) fork (`adhar/docker/`,
+released by `.github/workflows/adhar-release.yml`; the runbook is the fork's
+`adhar/README.md`). The image is multi-arch (amd64 and arm64) and
+Cosign-keyless signed. It runs as uid 1000.
 
-```
-$ docker run --rm --platform linux/amd64 naskio/strapi:5.30.1-alpine strapi version
-Error: Cannot find module ...
-  requireStack:
-    .../@strapi/strapi/dist/src/node/staticFiles.js
-    .../@strapi/strapi/dist/src/node/build.js
-    .../@strapi/strapi/dist/cli.js
-  code: 'MODULE_NOT_FOUND'
-```
+Upstream retired `strapi/strapi`, and `naskio/strapi`, the only maintained
+replacement, ships a CLI that fails with `MODULE_NOT_FOUND` on `strapi version`
+(every tag through 5.30.1). Before 5.57.0-3 this package therefore ran the plain
+Node image and, on first boot, scaffolded a project, ran npm install (~700 MiB)
+and built the admin panel inside the pod. That took four to six minutes, and
+an interrupted install could poison the volume. The fork's image does all of it
+at build time:
 
-`strapi version` alone reproduces it, so no platform wiring is involved.
-Reproduced on **5.30.1, 5.30.1-alpine, 5.28.0-alpine and 5.26.0-alpine**; the
-newest published tag is still 5.30.1 (2025-11-08). That image can neither
-scaffold a project nor start one.
+| Baked in | What it does |
+| --- | --- |
+| `create-strapi@<version>` project | JavaScript, `pg` driver, `config/database.js` reading `DATABASE_*` |
+| Fork's `@strapi/core` (npm override) | Admin SSO without a licence. Only `sso` is in `ADHAR_BUNDLED_FEATURES`, so audit logs, review workflows and content releases stay locked. The build fails without it. |
+| `config/server.js` | `url` from `PUBLIC_URL`, `proxy` on, update check off |
+| `config/admin.js` | Keycloak `passport-oauth2` strategy (uid `keycloak`) from `KEYCLOAK_*` |
+| `src/index.js` | Turns on SSO auto-register with `STRAPI_SSO_DEFAULT_ROLE`, and registers the console's API token (below), on every boot |
+| Prebuilt admin panel | Relative backend URL, so one image serves any domain |
+| One version of every `@strapi/*` package | Stock `create-strapi` hoists `@strapi/admin`/`utils`/`types` at the newest 5.x beside the pinned ones (plugins peer-depend on `^5.0.0`). Two `@strapi/utils` turn every 403 into a 500. The image pins them and fails to build on drift. |
 
-## What this package does instead
+## What lives on the volume
 
-It runs the **official Node image** (`node:22-bookworm-slim`) and performs the
-two steps that image was meant to, using Strapi's own supported tooling:
-
-1. **Scaffold, once per volume** — `npx create-strapi@latest` non-interactively
-   (`--no-run --skip-cloud --use-npm --javascript --no-example --no-git-init`),
-   with `--dbclient postgres` so the `pg` driver is installed. The generated
-   `config/database.js` switches on `DATABASE_CLIENT`, so the real credentials
-   come from the environment at runtime, not from the scaffold.
-2. **Build the admin panel, then serve** — `strapi build` guarded by a version
-   sentinel (`/srv/.admin-built`), then `strapi start`.
-
-`node:*-alpine` is deliberately avoided: Strapi pulls native modules and the musl
-build of `@swc/core` dies with **SIGBUS** during its postinstall.
-
-## Verified end to end
-
-On this cluster's amd64 nodes, before the package was switched on (2026-09-25):
-
-| Step | Result |
-|---|---|
-| `create-strapi` scaffold | rc=0 |
-| `strapi build` | rc=0, admin panel in 52 s |
-| `strapi start` | "Strapi started successfully" |
-| `GET /admin` | HTTP 200 |
-| `GET /_health` | HTTP 204 |
-| CNPG tables created | 41 in `public` |
-| Scaffolded project size | 731 MiB (718 MiB node_modules) |
-| npm cache size | ~1 GiB — kept OFF the PVC on purpose |
-
-Also verified earlier and unchanged: `strapi-db` (CNPG, WAL archiving with gzip
-compression, daily base backup), `strapi-db-credentials` and `strapi-secrets`
-(six distinct generated values), the PVC binding, `strapi-oauth2-proxy` Keycloak
-SSO and the `strapi.<host>` HTTPRoute.
+`/srv/app/src/{api,components,extensions}` holds what the Content-Type Builder
+writes, and `/srv/app/public/uploads` holds media. The image symlinks those
+paths into `/srv`. They are the same paths the self-scaffolding layout used,
+so an existing PVC carries over. On its first start the image migrates that
+layout once (marker: `/srv/.adhar-image-layout`). It deletes the derived files
+(`node_modules`, build output, `/srv/.admin-built`) and moves the rest of the
+old scaffold (`package.json`, `config/`, `.env`, `src/index.js`) to
+`/srv/legacy-scaffold`. Delete that directory once you're satisfied nothing in
+it was hand-edited.
 
 ## Operating notes
 
@@ -81,7 +62,7 @@ SSO and the `strapi.<host>` HTTPRoute.
 ## The console's API token
 
 The Adhar Console's Develop → Content page uses Strapi's Content API, which
-accepts only API tokens, and this Strapi's admin is Keycloak SSO only — so no
+accepts only API tokens. This Strapi's admin is Keycloak SSO only, so no
 human or script can mint one through the admin. The package provisions it:
 
 1. `manifests/console-token.yaml` generates a key once into Secret

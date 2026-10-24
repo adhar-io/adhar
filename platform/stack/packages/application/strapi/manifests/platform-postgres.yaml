@@ -2,11 +2,10 @@
 #
 # Strapi is a framework, not a finished product: its deployable artifact is
 # normally an application YOU scaffold and build. This package runs the
-# maintained community image (`naskio/strapi`, the only one still published —
-# upstream retired `strapi/strapi`), which scaffolds a project into /srv/app on
-# first boot and keeps it on the PVC. That makes "give me a CMS" one click; a
-# production CMS with custom content types is the golden path instead (scaffold a
-# repo, app-ci builds your own image), and the contract says so.
+# platform's own prebuilt one (ghcr.io/adhar-io/strapi, see install.yaml), with
+# content types and uploads on the PVC. That makes "give me a CMS" one click; a
+# production CMS with custom content types in Git is the golden path instead
+# (scaffold a repo, app-ci builds your own image), and the contract says so.
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
