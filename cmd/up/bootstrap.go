@@ -206,10 +206,10 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			host = envConfig.GlobalSettings.DefaultHost
 		}
 	}
+	// Platform CR name defaults to `adhar` across local and production flows.
+	// Environment names identify namespaces / cluster instances, not the
+	// AdharPlatform object itself.
 	platformName := globals.DefaultClusterName
-	if envConfig != nil && envConfig.Name != "" {
-		platformName = envConfig.Name
-	}
 	providerName := ""
 	if envConfig != nil {
 		providerName = envConfig.ResolvedProvider

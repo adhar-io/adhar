@@ -218,6 +218,7 @@ spec:
         # the app's dependency resolution.
         APPDIR_NPM="$(workspaces.source.path)/$(params.subdirectory)"
         APPDIR_NPM="${APPDIR_NPM%/}"
+        mkdir -p /platform/env
         if [ -z "${NEXUS_NPM:-}" ]; then
           echo "no nexus-credentials secret — leaving .npmrc untouched"
         elif [ ! -f "${APPDIR_NPM}/package.json" ]; then
@@ -240,7 +241,13 @@ spec:
           if [ -n "${NEXUS_USER:-}" ] && [ -n "${NEXUS_PASS:-}" ]; then
             AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
             PLATFORM_NPMRC="/platform/npmrc"
-            printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH" > "$PLATFORM_NPMRC"
+            {
+              printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH"
+              # Scoped auth for Nexus metadata/tarball reads. This is NOT the
+              # global `always-auth=true` setting that would leak credentials to
+              # npmjs: scoped keys apply only to this registry path.
+              printf '//%s:always-auth=true\n' "$NEXUS_HOST"
+            } > "$PLATFORM_NPMRC"
             chown 1001:1000 "$PLATFORM_NPMRC"
             printf '%s' "$PLATFORM_NPMRC" > /platform/env/NPM_CONFIG_USERCONFIG
             echo "npm auth configured via NPM_CONFIG_USERCONFIG (${PLATFORM_NPMRC})"

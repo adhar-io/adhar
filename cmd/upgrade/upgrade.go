@@ -154,8 +154,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating kubernetes client: %w", err)
 	}
 
-	// Local platforms are named "adhar"; production platforms are named after
-	// their environment. When the default name is absent but exactly one
+	// Platforms default to the canonical name "adhar". For older clusters that
+	// still carry a non-default name, when the default is absent but exactly one
 	// AdharPlatform exists, use it instead of demanding --name.
 	var platform v1alpha1.AdharPlatform
 	if err := kubeClient.Get(ctx, types.NamespacedName{Name: platformName, Namespace: globals.AdharSystemNamespace}, &platform); err != nil {

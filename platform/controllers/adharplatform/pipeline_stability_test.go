@@ -247,15 +247,17 @@ func TestBuildpacksBuildRoutesPlatformScopesToTheClusterRegistry(t *testing.T) {
 	if !strings.Contains(s, `if [ -z "${NEXUS_NPM:-}" ]; then`) {
 		t.Error("the injection must no-op when nexus-credentials is absent rather than fail the build")
 	}
-	// always-auth would send Nexus credentials to npmjs for every public package.
-	// Matched as an ASSIGNMENT, not as the bare word: the script carries a comment
-	// explaining why the option is absent, and a substring check on "always-auth"
-	// fails on that comment — a test that cannot pass however correct the code is.
-	if strings.Contains(s, "always-auth=") {
-		t.Error("always-auth must not be set: it would leak the registry credential to npmjs")
+	// The global always-auth setting would send Nexus credentials to npmjs for
+	// every public package. Registry-scoped always-auth (//host/path:always-auth)
+	// is allowed and expected: Nexus can require auth on metadata reads.
+	if strings.Contains(s, "\nalways-auth=") {
+		t.Error("global always-auth must not be set: it would leak the registry credential to npmjs")
 	}
 	if strings.Contains(s, `printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH" >> "$NPMRC"`) {
 		t.Error("npm auth must not be written into the application's .npmrc; it is scanned and then baked into the image")
+	}
+	if strings.Index(s, "mkdir -p /platform/env") > strings.Index(s, "NPM_CONFIG_USERCONFIG") {
+		t.Error("the prepare step writes NPM_CONFIG_USERCONFIG before creating /platform/env, so the task fails with 'No such file or directory'")
 	}
 }
 
