@@ -11,11 +11,9 @@ import (
 )
 
 // Plane's root redirect sends a signed-out visitor to its own Keycloak login.
-// Behind a real 443 it must NOT state the port: Envoy then writes `:443` into
-// the Location, the browser sends `Host: plane.<host>:443`, Plane builds its
-// OIDC callback from that Host, and Keycloak rejects the `:443` redirect_uri —
-// so nobody could sign in (AWS, 2026-10-24). A local platform on 8443 still
-// needs the port, or the Location points at 443 where nothing listens.
+// A local platform on 8443 needs the port stated, or the Location points at
+// 443 where nothing listens; behind a real 443 it is left to the listener
+// rather than hardcoded.
 func TestPlaneRootRedirectStatesOnlyANonDefaultPort(t *testing.T) {
 	pkg := filepath.Join("..", "..", "stack", "packages", "application", "plane")
 	for _, tc := range []struct {

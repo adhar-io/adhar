@@ -64,15 +64,14 @@ spec:
             path:
               type: ReplaceFullPath
               replaceFullPath: /auth/keycloak/
-            # The port is stated ONLY when it is not the scheme's default. A
+            # The port is stated ONLY when it is not the scheme's default: a
             # local platform on 8443 needs it, or the Location points at 443,
-            # where nothing listens. Behind a real 443 it must be ABSENT: Envoy
-            # then writes `https://plane.<host>:443/auth/keycloak/`, the browser
-            # sends `Host: plane.<host>:443`, Plane builds its OIDC callback from
-            # that Host, and Keycloak refuses the `:443` redirect_uri with
-            # "Invalid parameter: redirect_uri" — the sign-in never reaches the
-            # form (AWS, 2026-10-24). With no port, Gateway API omits the
-            # scheme's well-known port from the Location.
+            # where nothing listens. Behind a real 443 it is left to the
+            # listener. Note Cilium's Envoy still writes `:443` into the
+            # Location either way (verified 2026-10-24); browsers drop a
+            # default port, so Plane sees `Host: plane.<host>` and its OIDC
+            # callback matches the Keycloak client. Only a client that keeps
+            # `:443` (curl) sends a redirect_uri Keycloak refuses.
 {{- if .PortSuffix }}
             port: {{ .Port }}
 {{- end }}
