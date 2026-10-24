@@ -231,7 +231,9 @@ func TestEveryDashboardTemplateOpensOnAColouredHealthRow(t *testing.T) {
 			for _, l := range d.Links {
 				links[l.Title] = true
 			}
-			for _, want := range []string{"Argo CD", "Kargo", "Repository", "Console", "Adhar Platform", "Application Logs"} {
+			// Console and Adhar Platform were dropped on 2026-10-24 to keep the
+			// controls on one row (TestApplicationDashboardsHaveACompactLinkBar).
+			for _, want := range []string{"Argo CD", "Kargo", "Repository", "Application Logs", "Applications"} {
 				if !links[want] {
 					t.Errorf("no %q link", want)
 				}

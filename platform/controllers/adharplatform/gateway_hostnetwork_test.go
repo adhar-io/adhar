@@ -109,7 +109,7 @@ func TestGatewayPublicAddressesComeFromTheRecordedSpec(t *testing.T) {
 	}
 }
 
-// The in-cluster endpoint. Pods resolve the platform hostnames too, and they
+// The adhar-controlplane endpoint. Pods resolve the platform hostnames too, and they
 // must reach the host-network Envoy through the cluster — not through the
 // public address, which is NAT'd back to a node and generally does not hairpin.
 func TestGatewayShimPointsAtTheReadyNodesInternalAddresses(t *testing.T) {

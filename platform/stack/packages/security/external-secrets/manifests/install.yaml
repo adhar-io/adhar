@@ -7382,7 +7382,7 @@ spec:
                         server:
                           description: |-
                             Server configures the Kubernetes API address and TLS trust, same as the
-                            Kubernetes provider. When omitted, the URL defaults to the in-cluster API.
+                            Kubernetes provider. When omitted, the URL defaults to the adhar-controlplane API.
                           properties:
                             caBundle:
                               description: CABundle is a base64-encoded CA certificate
@@ -22087,7 +22087,7 @@ spec:
                         server:
                           description: |-
                             Server configures the Kubernetes API address and TLS trust, same as the
-                            Kubernetes provider. When omitted, the URL defaults to the in-cluster API.
+                            Kubernetes provider. When omitted, the URL defaults to the adhar-controlplane API.
                           properties:
                             caBundle:
                               description: CABundle is a base64-encoded CA certificate

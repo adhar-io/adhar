@@ -240,7 +240,7 @@ const (
 
 // EnsurePlatformCertificateOnDisk generates the platform certificate and key
 // into dir when absent and returns them. Idempotent: an existing pair is
-// reused so the API server's CA file and the in-cluster Secret always hold the
+// reused so the API server's CA file and the adhar-controlplane Secret always hold the
 // same material. Called before cluster creation (see cluster.Reconcile).
 func EnsurePlatformCertificateOnDisk(dir string, sans []string) ([]byte, []byte, error) {
 	certPath := filepath.Join(dir, PlatformCertFileName)

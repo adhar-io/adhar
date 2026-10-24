@@ -7,7 +7,7 @@ kind: ClusterProviderConfig
 metadata:
   name: kubernetes-provider
 spec:
-  # Manage the local (in-cluster) Kubernetes API by default.
+  # Manage the local (adhar-controlplane) Kubernetes API by default.
   credentials:
     source: InjectedIdentity
 ---

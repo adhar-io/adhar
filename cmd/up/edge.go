@@ -299,7 +299,7 @@ func edgeDNSSecretData(ctx context.Context, dnsProvider string, pc *config.Confi
 		// This line used to be `get(pcv.ClientSecret, "AZURE_CLIENT_SECRET")`,
 		// which knew nothing about clientSecretFile. So `adhar up` built the
 		// cluster from the secret file while this wrote a stale environment value
-		// into the in-cluster Secret: the cluster came up perfectly and then
+		// into the adhar-controlplane Secret: the cluster came up perfectly and then
 		// external-dns crash-looped on AADSTS7000215, leaving every platform
 		// hostname pointing at the previous cluster's dead load-balancer IP
 		// (2026-10-04). Two resolvers for one credential is the bug; any new
@@ -384,7 +384,7 @@ var awsStaticCredentials = resolveAWSStaticCredentials
 
 // resolveAWSStaticCredentials retrieves a concrete key pair from the AWS default
 // credential chain (shared credentials file, named profile, SSO cache, instance
-// role) so the platform can hand it to its in-cluster DNS consumers.
+// role) so the platform can hand it to its adhar-controlplane DNS consumers.
 //
 // external-dns and cert-manager's route53 solver read a Kubernetes Secret, so
 // they need real key material; they cannot resolve a profile themselves. Reading

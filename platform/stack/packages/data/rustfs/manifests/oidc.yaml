@@ -29,7 +29,7 @@
 #     provider. So the reload Job below exists: the client secret arrives from
 #     Keycloak tens of minutes after this pod first starts, and a RustFS that
 #     booted without it never looks again.
-#  4. CONFIG_URL is the in-cluster backchannel and ISSUER is the public issuer
+#  4. CONFIG_URL is the adhar-controlplane backchannel and ISSUER is the public issuer
 #     the ID token actually carries. They differ, and both are needed — the same
 #     split Plane's provider needs.
 #  5. REDIRECT_URI_DYNAMIC must be off. It derives the callback from request
@@ -306,7 +306,7 @@ spec:
               done
               log "ERROR: RustFS restarted but still serves no OIDC provider."
               log "ERROR: discovery is failing. Check the rustfs pod log for an outbound-policy denial"
-              log "ERROR: (RUSTFS_OUTBOUND_ALLOW_ORIGINS must list the in-cluster Keycloak origin) and"
+              log "ERROR: (RUSTFS_OUTBOUND_ALLOW_ORIGINS must list the adhar-controlplane Keycloak origin) and"
               log "ERROR: that RUSTFS_IDENTITY_OPENID_CONFIG_URL is reachable from the pod."
               exit 1
           resources:

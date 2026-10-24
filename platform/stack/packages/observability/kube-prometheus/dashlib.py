@@ -529,11 +529,27 @@ class Dash:
             "time": {"from": self.time_from, "to": "now"},
             "timepicker": {},
             "timezone": "browser",
-            "title": self.title,
+            "title": display_title(self.title),
             "uid": self.uid,
             "version": 1,
             "weekStart": "",
         }
+
+
+# The folder is already where a dashboard lives in Grafana's tree, and the
+# browse view and every search result print it beside the title. Repeating it
+# in the title ("Data / Valkey Cache") made every name start with the same
+# word and pushed the part that differs off the edge of narrow lists. Generators
+# may keep writing the folder-qualified form; it is stripped here, once, so a
+# new dashboard cannot bring the prefix back.
+FOLDERS = ("AI", "Applications", "Data", "Delivery", "Kubernetes", "Networking",
+           "Observability", "Resilience", "Security")
+_FOLDER_PREFIX = re.compile(r"^(?:%s)\s*/\s*" % "|".join(FOLDERS))
+
+
+def display_title(title):
+    """The dashboard title without a leading "<Folder> / "."""
+    return _FOLDER_PREFIX.sub("", title, count=1)
 
 
 def dash_links(*extra):

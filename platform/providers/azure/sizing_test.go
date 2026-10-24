@@ -40,7 +40,7 @@ func TestAzureSizingFlowsFromTheProviderBlock(t *testing.T) {
 		t.Errorf("legacy vmSize no longer sizes both roles: %s / %s", legacy.controlPlaneSize(nil), legacy.workerSize("", "", false))
 	}
 
-	// The in-cluster autoscaler passes the recorded worker size at the top level.
+	// The adhar-controlplane autoscaler passes the recorded worker size at the top level.
 	top, _ := parseProviderConfig(map[string]interface{}{"workerMachineType": "Standard_E16bds_v5", "config": map[string]interface{}{}})
 	if got := top.workerSize("", "", false); got != "Standard_E16bds_v5" {
 		t.Errorf("top-level workerMachineType ignored: %s", got)

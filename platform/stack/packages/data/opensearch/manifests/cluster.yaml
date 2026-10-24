@@ -135,7 +135,7 @@ spec:
       limits:
         memory: 3Gi
       requests:
-        cpu: 100m
+        cpu: 50m
         memory: 2Gi
     roles:
     - master

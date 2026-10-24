@@ -340,7 +340,7 @@ const (
 // vclusterNamespace is the host namespace a mode=vcluster plane runs in.
 func vclusterNamespace(dp *v1alpha1.DataPlane) string { return "dp-" + dp.Name }
 
-// vclusterServer is the in-cluster URL of the vcluster API server — what the
+// vclusterServer is the adhar-controlplane URL of the vcluster API server — what the
 // exported kubeconfig points at, so ArgoCD on the management cluster can reach
 // the plane without any external exposure.
 func vclusterServer(dp *v1alpha1.DataPlane) string {

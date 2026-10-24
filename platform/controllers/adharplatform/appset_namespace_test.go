@@ -107,3 +107,45 @@ func readStackRootFile(t *testing.T, name string) string {
 	}
 	return string(b)
 }
+
+// A custom application runs only in its project's environment namespaces
+// (dev/test/prod). The service-adoption ApplicationSet used to target a
+// namespace named after the repo with CreateNamespace=true, which minted an
+// empty `reactapp` namespace for every adopted app (2026-10-24). Its bootstrap
+// Applications sync only the Application XR, which lives in adhar-system.
+func TestAdoptedServicesNeverGetANamespaceOfTheirOwn(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(stackRoot(t), "adhar-services-appset.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var appset struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Destination struct {
+						Namespace string `json:"namespace"`
+					} `json:"destination"`
+					SyncPolicy struct {
+						SyncOptions              []string       `json:"syncOptions"`
+						ManagedNamespaceMetadata map[string]any `json:"managedNamespaceMetadata"`
+					} `json:"syncPolicy"`
+				} `json:"spec"`
+			} `json:"template"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal(b, &appset); err != nil {
+		t.Fatal(err)
+	}
+	tpl := appset.Spec.Template.Spec
+	if tpl.Destination.Namespace != "adhar-system" {
+		t.Errorf("bootstrap Applications target %q; they must target the control-plane namespace adhar-system, never a per-service namespace", tpl.Destination.Namespace)
+	}
+	for _, o := range tpl.SyncPolicy.SyncOptions {
+		if strings.HasPrefix(o, "CreateNamespace") && strings.HasSuffix(o, "true") {
+			t.Errorf("bootstrap Applications must not create namespaces (found %q)", o)
+		}
+	}
+	if tpl.SyncPolicy.ManagedNamespaceMetadata != nil {
+		t.Errorf("managedNamespaceMetadata implies a namespace this Application owns; it must not own one")
+	}
+}

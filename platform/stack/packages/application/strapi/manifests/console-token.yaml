@@ -8,8 +8,9 @@
 # `strapi_api_tokens` (admin/server/src/services/api-token.ts `hash`). The salt
 # is already ours (strapi-secrets), so the platform decides the key itself:
 #   1. this file generates the key once into Secret `strapi-api-token`;
-#   2. Strapi's boot script (install.yaml step 3c) registers its hash as a
-#      full-access token named "Adhar Console", repairing it if edited/deleted;
+#   2. Strapi's bootstrap (platform-extension.yaml, console-token.js) registers
+#      its hash as a full-access token named "Adhar Console", repairing it if
+#      edited/deleted;
 #   3. the console lists the Secret in envFrom (optional); the Job below
 #      restarts the console once if it started before the Secret existed.
 ---

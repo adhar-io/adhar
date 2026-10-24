@@ -1,0 +1,76 @@
+# OpenBao UI routed through the Cilium Gateway (adhar-gateway) on its OWN
+# hostname, openbao.adhar.localtest.me. TLS terminates at the Gateway
+# (adhar-cert, whose *.adhar.localtest.me wildcard SAN covers this subdomain).
+# The literal host/port is rewritten to the real domain when the stack is seeded
+# into Gitea (stageStack in the platform controller).
+#
+# OpenBao gets a dedicated host (not a sub-path) because its UI serves at /ui/
+# and hardcodes root-absolute asset/redirect paths — under a shared
+# adhar.localtest.me/openbao prefix those break (it redirects "/" -> "/ui/" and
+# the assets 404 against the "/" catch-all). On its own host it safely owns "/".
+#
+# Click-free sign-in (security/keycloak/manifests/sso-start.yaml, openbao.html).
+# OpenBao's UI keeps its token in localStorage, so the edge cannot see a
+# session; a bare load of the home page (`/`, `/ui`, `/ui/`) with no
+# `adhar_sso_openbao` marker goes to /adhar-sso/openbao.html on this host, which
+# signs in through Keycloak's existing session and hands the UI a wrapped
+# token. Every other path — the UI's own routes, /v1 API, and the break-glass
+# /ui/vault/auth?with=token page — goes straight to OpenBao. Rule precedence
+# (Gateway API): an Exact path beats a prefix, and among equal paths more
+# header matches win.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openbao
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: openbao
+    app.kubernetes.io/component: ui
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - openbao.adhar.localtest.me
+  rules:
+    # The start/return page itself (also the OIDC redirect_uri).
+    - matches:
+        - path: {type: PathPrefix, value: /adhar-sso/}
+      backendRefs:
+        - name: adhar-sso-start
+          port: 80
+    # The start page already ran (signed in: 1 h, or it fell back: 5 min).
+    - matches:
+        - path: {type: Exact, value: /}
+          headers:
+            - {type: RegularExpression, name: Cookie, value: '.*adhar_sso_openbao=[^;]+.*'}
+        - path: {type: Exact, value: /ui}
+          headers:
+            - {type: RegularExpression, name: Cookie, value: '.*adhar_sso_openbao=[^;]+.*'}
+        - path: {type: Exact, value: /ui/}
+          headers:
+            - {type: RegularExpression, name: Cookie, value: '.*adhar_sso_openbao=[^;]+.*'}
+      backendRefs:
+        - name: openbao-ui
+          port: 8200
+    - matches:
+        - path: {type: Exact, value: /}
+          method: GET
+        - path: {type: Exact, value: /ui}
+          method: GET
+        - path: {type: Exact, value: /ui/}
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path: {type: ReplaceFullPath, replaceFullPath: /adhar-sso/openbao.html}
+            port: {{ .Port }}
+            statusCode: 302
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: openbao-ui
+          port: 8200

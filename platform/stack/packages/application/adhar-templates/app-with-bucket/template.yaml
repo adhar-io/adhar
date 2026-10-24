@@ -108,7 +108,7 @@ spec:
       input:
         appName: ${{parameters.name}}
         appNamespace: default
-        argoInstance: in-cluster
+        argoInstance: adhar-controlplane
         projectName: default
         # necessary until we generate our own cert
         repoUrl: https://gitea.adhar.localtest.me:8443/giteaAdmin/${{parameters.name}}

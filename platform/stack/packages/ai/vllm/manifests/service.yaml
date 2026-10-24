@@ -1,4 +1,4 @@
-# The stable in-cluster address of the platform's self-hosted inference engine.
+# The stable adhar-controlplane address of the platform's self-hosted inference engine.
 #
 # THE NAME AND PORT ARE PART OF THE PLATFORM CONTRACT — DO NOT RENAME.
 # `agentgateway` fronts vLLM as one of its LLM backends at

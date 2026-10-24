@@ -192,7 +192,7 @@ spec:
 ---
 # Prometheus scrapes Spring Boot's actuator (exposed by the image as
 # health,info,prometheus). The edge route redirects /actuator away, so the
-# metrics are reachable in-cluster only.
+# metrics are reachable adhar-controlplane only.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

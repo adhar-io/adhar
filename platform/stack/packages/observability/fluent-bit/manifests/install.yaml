@@ -77,7 +77,7 @@ data:
         Match *
     
     # ------------------------------------------------------------------------
-    # READY-TO-WIRE: forward to the in-cluster Loki (loki-stack package).
+    # READY-TO-WIRE: forward to the adhar-controlplane Loki (loki-stack package).
     # Uncomment and remove the stdout output above to ship logs to Loki. The
     # loki output plugin pushes to <host>/loki/api/v1/push. Use the Loki
     # gateway (single binary) or the distributed write path.

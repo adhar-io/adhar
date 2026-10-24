@@ -210,12 +210,12 @@ func EnableClusterOIDC(ctx context.Context, prov Provider, clusterName string, k
 
 // APIServerOIDCMarkerKey is the adhar-cluster-spec ConfigMap key that records
 // the issuer the API server was configured to trust. Its presence means the job
-// is done: the in-cluster manager stops trying, and a re-run of `adhar up` or
+// is done: the adhar-controlplane manager stops trying, and a re-run of `adhar up` or
 // `adhar cluster oidc` only refreshes it.
 const APIServerOIDCMarkerKey = "apiserverOIDCIssuer"
 
 // EnableClusterOIDCFromREST is EnableClusterOIDC for a caller that already has
-// a REST config — the in-cluster manager, which finishes the job when `adhar
+// a REST config — the adhar-controlplane manager, which finishes the job when `adhar
 // up`'s one attempt ran before Keycloak was serving (2026-10-23: a fresh
 // DigitalOcean cluster came up with no OIDC trust at all, and Headlamp's login
 // failed on every API call until it was applied by hand). On success it records

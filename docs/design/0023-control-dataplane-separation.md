@@ -326,7 +326,7 @@ spec:
   generators:
     - matrix:
         generators:
-          - clusters: { selector: { matchLabels: { "argocd.argoproj.io/secret-type": "local" } } }  # in-cluster only
+          - clusters: { selector: { matchLabels: { "argocd.argoproj.io/secret-type": "local" } } }  # adhar-controlplane only
           - list:
               elements:   # only plane in (control, both)
                 - { packageName: argo-cd,   plane: control, manifestPath: "core/argo-cd/manifests" }

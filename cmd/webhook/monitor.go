@@ -20,7 +20,7 @@ var monitorCmd = &cobra.Command{
 	Short: "Monitor webhook backend health",
 	Long: `Monitor admission webhook health by checking their backing services.
 
-For each webhook backed by an in-cluster Service, this resolves the Service's
+For each webhook backed by an adhar-controlplane Service, this resolves the Service's
 Endpoints and reports whether ready backends exist (i.e. the webhook can be
 served). Webhooks with an external URL backend are reported as such.
 

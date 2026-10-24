@@ -441,7 +441,7 @@ gitea:
     #  APP_NAME: "Gitea: Git with a cup of tea"
     #  RUN_MODE: dev
     # Webhooks are how the platform's CI starts: an org-level hook posts every
-    # push to the Tekton EventListeners (el-app-ci / el-adhar-ci, in-cluster
+    # push to the Tekton EventListeners (el-app-ci / el-adhar-ci, adhar-controlplane
     # Service names). Gitea's default ALLOWED_HOST_LIST is `external`, which
     # refuses private and cluster-internal targets — every delivery failed with
     # "webhook can only call allowed HTTP servers" and no scaffolded app was

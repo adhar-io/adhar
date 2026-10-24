@@ -1,6 +1,9 @@
-# Bootstrap Nexus: create the hosted repositories (maven/npm/pypi), enable the
-# npm bearer-token realm, and publish a `nexus-credentials` secret the supply
-# chain uses to publish artefacts. Idempotent PostSync hook — safe every sync.
+# Bootstrap Nexus: put the admin account on the platform admin password,
+# create the automation service account, create the hosted repositories
+# (maven/npm/pypi), enable the npm bearer-token realm, re-encrypt stored secrets
+# under the platform's own key, and publish a `nexus-credentials` secret the
+# supply chain uses to publish artefacts. Idempotent PostSync hook — safe every
+# sync — and the same script runs every ten minutes from the CronJob below.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -19,6 +22,8 @@ rules:
   - {apiGroups: [""], resources: [secrets], verbs: [get, create, update, patch]}
   # Read the Keycloak user directory to provision Nexus accounts (step 5).
   - {apiGroups: [""], resources: [configmaps], resourceNames: [keycloak-directory], verbs: [get]}
+  # Restart the console when nexus-credentials changes (it reads it as env).
+  - {apiGroups: [apps], resources: [deployments], resourceNames: [adhar-console], verbs: [get, patch]}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -38,15 +43,167 @@ metadata:
 data:
   bootstrap.sh: |
     set -euo pipefail
-    AUTH="-u ${NEXUS_USER}:${NEXUS_PASS}"
     API="${NEXUS}/service/rest/v1"
-    # 1) Wait for Nexus to be up.
+    NS="${NAMESPACE:-adhar-system}"
+    umask 077
+    # Credentials never go on a command line or into the log (2026-10-24).
+    # Every authenticated curl reads them from a curl config file instead
+    # (`-K`), so they do not show up in /proc/*/cmdline either. $AUTH stays
+    # a plain word list because the rest of this script expands it unquoted.
+    AUTH_FILE=/tmp/nexus-auth.curlrc
+    AUTH="-K ${AUTH_FILE}"
+    curlrc() {  # $1=file $2=user $3=password
+      local u p
+      u=$(printf '%s' "$2" | sed 's/[\\"]/\\&/g'); p=$(printf '%s' "$3" | sed 's/[\\"]/\\&/g')
+      printf 'user = "%s:%s"\n' "$u" "$p" > "$1"
+    }
+    # 0 when $1/$2 is an account with admin rights on this Nexus. The
+    # realms endpoint needs nx-settings-read, so a valid but unprivileged
+    # account does not pass for an administrator.
+    can_admin() {
+      curlrc /tmp/probe.curlrc "$1" "$2"
+      [ "$(curl -s -m 30 -o /dev/null -w '%{http_code}' -K /tmp/probe.curlrc "${API}/security/realms/active" || echo 000)" = "200" ]
+    }
+    # PUT /security/users/<id>/change-password with the new password as a
+    # text/plain body read from a file. Uses whatever $AUTH is.
+    set_password() {  # $1=userId $2=new password
+      printf '%s' "$2" > /tmp/newpw
+      local code
+      code=$(curl -s -m 30 -o /tmp/pwresp -w '%{http_code}' $AUTH -X PUT \
+        -H 'Content-Type: text/plain' --data-binary @/tmp/newpw \
+        "${API}/security/users/$1/change-password" || echo 000)
+      rm -f /tmp/newpw
+      [ "${code}" = "204" ] || { echo "ERROR: changing the password of Nexus user $1 failed (HTTP ${code}): $(head -c 200 /tmp/pwresp 2>/dev/null)"; return 1; }
+    }
+    secret_field() {  # $1=secret $2=key -> decoded value, or empty
+      kubectl -n "${NS}" get secret "$1" -o "jsonpath={.data.$2}" 2>/dev/null | base64 -d 2>/dev/null || true
+    }
+
+    # 1) Wait for Nexus to accept writes. /status answers 200 a while before
+    # the security and config stores are usable; /status/writable is the
+    # one Sonatype documents for "ready to be configured".
     echo "waiting for Nexus…"
+    up=no
     for i in $(seq 1 60); do
-      code=$(curl -s -o /dev/null -w "%{http_code}" "${API}/status" || echo 000)
-      [ "$code" = "200" ] && { echo "Nexus up"; break; }
+      code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "${API}/status/writable" || echo 000)
+      [ "$code" = "200" ] && { echo "Nexus up"; up=yes; break; }
       sleep 10
     done
+    [ "${up}" = "yes" ] || { echo "ERROR: Nexus did not become writable within 10 minutes"; exit 1; }
+
+    # 1b) The admin account takes the PLATFORM ADMIN password (2026-10-24).
+    #
+    # Nexus boots with admin/admin123 (NEXUS_SECURITY_RANDOMPASSWORD=false,
+    # install.yaml) and its status page flags that as "Default Admin
+    # Credentials — The default admin credentials have not been changed".
+    # The platform admin password is Keycloak's bootstrap admin
+    # (Secret keycloak-config, key KEYCLOAK_ADMIN_PASSWORD — what
+    # `adhar get secrets` lists as "Keycloak (admin)", user adhar-admin),
+    # so one break-glass password opens both. Day-to-day sign-in is still
+    # Keycloak SSO through the oauth2-proxy; nothing about that changes.
+    #
+    # Which password Nexus has right now is discovered, not assumed, so
+    # this is safe on every run and on every cluster:
+    #   admin + platform password  -> already done, nothing to change
+    #   admin + admin123           -> first run: change it
+    #   the service account below  -> the platform password was ROTATED
+    #                                 (or someone changed admin by hand):
+    #                                 reset admin to the current one
+    # The CronJob below runs this every ten minutes, so a rotated
+    # keycloak-config converges on its own with no rotation hook.
+    #
+    # NOT done by reading /nexus-data/admin.password: random first-boot
+    # passwords are disabled here, and the file lives on Nexus's RWO volume
+    # where this pod cannot see it anyway.
+    DEFAULT_PASS="admin123"
+    PLATFORM_PASS="${NEXUS_ADMIN_PASSWORD:-}"
+    SVC_USER="adhar-automation"
+    PUB_USER=$(secret_field nexus-credentials username)
+    PUB_PASS=$(secret_field nexus-credentials password)
+    if [ -n "${PLATFORM_PASS}" ] && can_admin admin "${PLATFORM_PASS}"; then
+      echo "admin already uses the platform admin password"
+      curlrc "${AUTH_FILE}" admin "${PLATFORM_PASS}"
+    else
+      if can_admin admin "${DEFAULT_PASS}"; then
+        curlrc "${AUTH_FILE}" admin "${DEFAULT_PASS}"; via="the default admin password"
+      elif [ -n "${PUB_USER}" ] && [ "${PUB_USER}" != "admin" ] && can_admin "${PUB_USER}" "${PUB_PASS}"; then
+        curlrc "${AUTH_FILE}" "${PUB_USER}" "${PUB_PASS}"; via="the ${PUB_USER} service account"
+      else
+        echo "ERROR: no known credential opens the Nexus admin API: not the platform admin password,"
+        echo "ERROR: not admin123, and not the account in Secret nexus-credentials. Reset the admin"
+        echo "ERROR: password by hand (README: 'Admin password') and the next run takes over again."
+        exit 1
+      fi
+      if [ -n "${PLATFORM_PASS}" ]; then
+        set_password admin "${PLATFORM_PASS}" || exit 1
+        can_admin admin "${PLATFORM_PASS}" || { echo "ERROR: admin password changed but the platform admin password does not authenticate"; exit 1; }
+        echo "admin password set to the platform admin password (keycloak-config/KEYCLOAK_ADMIN_PASSWORD), via ${via}"
+        curlrc "${AUTH_FILE}" admin "${PLATFORM_PASS}"
+      else
+        echo "WARNING: keycloak-config/KEYCLOAK_ADMIN_PASSWORD is not available (Keycloak not installed?);"
+        echo "WARNING: Nexus keeps its current admin password and the 'Default Admin Credentials' warning."
+      fi
+    fi
+
+    # 1c) A dedicated service account for automation, published as
+    # nexus-credentials (2026-10-24).
+    #
+    # nexus-credentials USED to carry admin/admin123, and it travels: the
+    # console takes it as env, every Tekton build writes it into .npmrc and
+    # Maven settings.xml inside a workspace that runs developer code, and
+    # the repository composition hands it to provisioning Jobs. Publishing
+    # the platform admin password there would hand Keycloak's master admin
+    # to every build. So automation gets its own nx-admin account with its
+    # own random password; its blast radius is Nexus, exactly as before.
+    # The password is kept while it still works and replaced (and the Secret
+    # rewritten) only when it does not.
+    SVC_PASS=""
+    if [ "${PUB_USER}" = "${SVC_USER}" ] && [ -n "${PUB_PASS}" ] && can_admin "${SVC_USER}" "${PUB_PASS}"; then
+      SVC_PASS="${PUB_PASS}"
+      echo "service account ${SVC_USER} ok"
+    else
+      SVC_PASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+      if curl -s -m 30 $AUTH "${API}/security/users?userId=${SVC_USER}&source=default" | jq -e --arg id "${SVC_USER}" '.[] | select(.userId==$id)' >/dev/null 2>&1; then
+        set_password "${SVC_USER}" "${SVC_PASS}" || exit 1
+        echo "service account ${SVC_USER}: password reset"
+      else
+        jq -nc --arg id "${SVC_USER}" --arg p "${SVC_PASS}" \
+          '{userId:$id,firstName:"Adhar",lastName:"Automation",emailAddress:"adhar-automation@users.adhar.local",password:$p,status:"active",roles:["nx-admin"]}' > /tmp/svcuser.json
+        code=$(curl -s -m 30 -o /tmp/u -w '%{http_code}' $AUTH -H 'Content-Type: application/json' \
+          -X POST "${API}/security/users" --data-binary @/tmp/svcuser.json || echo 000)
+        rm -f /tmp/svcuser.json
+        case "${code}" in 2*) echo "service account ${SVC_USER} created" ;; *) echo "ERROR: creating ${SVC_USER} failed (HTTP ${code}): $(head -c 200 /tmp/u)"; exit 1 ;; esac
+      fi
+    fi
+    # Keep it an active nx-admin even if someone edited it in the UI.
+    jq -nc --arg id "${SVC_USER}" '{userId:$id,firstName:"Adhar",lastName:"Automation",emailAddress:"adhar-automation@users.adhar.local",source:"default",status:"active",readOnly:false,roles:["nx-admin"],externalRoles:[]}' > /tmp/svcuser.json
+    curl -s -m 30 -o /dev/null $AUTH -H 'Content-Type: application/json' -X PUT "${API}/security/users/${SVC_USER}" --data-binary @/tmp/svcuser.json || true
+
+    # Publish the credentials + endpoints the supply chain consumes NOW,
+    # straight after the password is known, so a later failure in this run
+    # cannot leave Nexus and the Secret disagreeing.
+    printf '%s' "${SVC_PASS}" > /tmp/svcpw
+    kubectl create secret generic nexus-credentials -n "${NS}" \
+      --from-literal=username="${SVC_USER}" \
+      --from-file=password=/tmp/svcpw \
+      --from-literal=url="${NEXUS}" \
+      --from-literal=maven-hosted="${NEXUS}/repository/maven-hosted/" \
+      --from-literal=maven-public="${NEXUS}/repository/maven-public/" \
+      --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
+      --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    rm -f /tmp/svcpw
+    echo "nexus-credentials published (${SVC_USER})"
+    # The console reads nexus-credentials as env at start-up, so a changed
+    # account means nothing to a running pod until it restarts. Best effort:
+    # only when the published credential actually changed.
+    if [ "${PUB_USER}" != "${SVC_USER}" ] || [ "${PUB_PASS}" != "${SVC_PASS}" ]; then
+      if kubectl -n "${NS}" get deployment adhar-console >/dev/null 2>&1; then
+        kubectl -n "${NS}" rollout restart deployment/adhar-console >/dev/null 2>&1 \
+          && echo "adhar-console restarted onto the new nexus-credentials" \
+          || echo "WARNING: could not restart adhar-console; it uses the old Nexus credential until its next restart"
+      fi
+    fi
     # 2) Accept the Community Edition EULA. WITHOUT THIS NEXUS SERVES
     # NOTHING. Every /repository/... request answers 403 with "You must
     # accept the End User License Agreement (EULA) through the
@@ -236,16 +393,60 @@ data:
         echo "ERROR: of Nexus authenticates the browser and Nexus still asks for a local login."
       fi
     fi
-    # 4) Publish the credentials + endpoints the supply chain consumes.
-    kubectl create secret generic nexus-credentials -n adhar-system \
-      --from-literal=username="${NEXUS_USER}" \
-      --from-literal=password="${NEXUS_PASS}" \
-      --from-literal=url="${NEXUS}" \
-      --from-literal=maven-hosted="${NEXUS}/repository/maven-hosted/" \
-      --from-literal=maven-public="${NEXUS}/repository/maven-public/" \
-      --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
-      --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
-      --dry-run=client -o yaml | kubectl apply -f -
+    # 4) Onboarding. The wizard Nexus shows administrators has three items
+    # on 3.79.1: CommunityDiscover and CommunityEula (both cleared by the
+    # EULA acceptance in step 2) and ConfigureAnonymousAccess, which applies
+    # until the anonymous-access setting has been SAVED once. Saving back
+    # exactly what GET returns marks it configured without changing whether
+    # anonymous access is on (2026-10-24). Only done while the item is
+    # pending, so the setting is not rewritten every ten minutes.
+    if curl -s -m 30 $AUTH "${NEXUS}/service/rest/internal/ui/onboarding" 2>/dev/null | jq -e '.[]? | select(.type=="ConfigureAnonymousAccess")' >/dev/null 2>&1; then
+      if curl -s -m 30 $AUTH "${API}/security/anonymous" -o /tmp/anon && jq -e 'has("enabled")' /tmp/anon >/dev/null 2>&1; then
+        code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' $AUTH -H 'Content-Type: application/json' \
+          -X PUT "${API}/security/anonymous" --data-binary @/tmp/anon || echo 000)
+        echo "onboarding: anonymous access confirmed as-is (enabled=$(jq -r .enabled /tmp/anon)) -> HTTP ${code}"
+      fi
+    fi
+
+    # 4b) Custom secrets encryption key (2026-10-24).
+    #
+    # Without one, Nexus encrypts stored secrets (proxy/remote credentials,
+    # capability passwords, …) with a key compiled into every Nexus build,
+    # and flags "Default Secret Encryption Key — Nexus was not configured
+    # with an encryption key and is using the Default key". The key file is
+    # generated once adhar-controlplane (secrets-key.yaml) and handed to Nexus via
+    # -Dnexus.secrets.file (install.yaml); that makes the key ACTIVE for new
+    # secrets and clears the warning, but secrets written before it stay
+    # under the default key until a re-encrypt task runs. Nexus reports
+    # exactly that as the "Re-encryption required" status check, so the
+    # check — not a marker — decides whether to submit the task, and an
+    # interrupted run is simply resubmitted next time.
+    if [ -n "${NEXUS_SECRET_KEY_ID:-}" ]; then
+      checks=$(curl -s -m 30 $AUTH "${API}/status/check" || echo '{}')
+      # `| tostring`, NOT `// "unknown"`: jq's // treats false as missing, so
+      # the one value that matters ("unhealthy") would read as "unknown".
+      default_key=$(printf '%s' "${checks}" | jq -r '."Default Secret Encryption Key".healthy | tostring' 2>/dev/null || echo unknown)
+      reencrypt=$(printf '%s' "${checks}" | jq -r '."Re-encryption required".healthy | tostring' 2>/dev/null || echo unknown)
+      if [ "${default_key}" = "false" ]; then
+        echo "WARNING: Nexus still reports the default encryption key: it was started without the"
+        echo "WARNING: nexus-secrets-key file (Deployment not rolled yet?). Re-encryption deferred."
+      elif [ "${reencrypt}" = "false" ]; then
+        jq -nc --arg id "${NEXUS_SECRET_KEY_ID}" '{secretKeyId:$id}' > /tmp/reenc.json
+        code=$(curl -s -m 60 -o /tmp/reenc -w '%{http_code}' $AUTH -H 'Content-Type: application/json' \
+          -X PUT "${API}/secrets/encryption/re-encrypt" --data-binary @/tmp/reenc.json || echo 000)
+        case "${code}" in
+          2*)  echo "re-encryption with key ${NEXUS_SECRET_KEY_ID} submitted (HTTP ${code})" ;;
+          409) echo "re-encryption already running" ;;
+          *)   echo "WARNING: re-encryption request failed (HTTP ${code}): $(head -c 200 /tmp/reenc 2>/dev/null)" ;;
+        esac
+      elif [ "${reencrypt}" = "true" ]; then
+        echo "secrets encryption key ${NEXUS_SECRET_KEY_ID} active, nothing to re-encrypt"
+      else
+        echo "WARNING: could not read Nexus's encryption status checks (${default_key}/${reencrypt}); retrying next run"
+      fi
+    else
+      echo "WARNING: nexus-secrets-key not found; Nexus keeps the default secrets encryption key"
+    fi
     # 5) One Nexus account per Keycloak user, so the proxy's X-Forwarded-User
     # resolves to SOMEONE. Rut Auth authenticates the header but only for a
     # user Nexus already has; a Keycloak user without one got Nexus's own
@@ -272,7 +473,7 @@ data:
       for row in $(jq -c '.[] | @base64' /tmp/users.json | tr -d '"'); do
         u=$(echo "$row" | base64 -d)
         id=$(echo "$u" | jq -r '.username')
-        [ -n "$id" ] && [ "$id" != "admin" ] && [ "$id" != "anonymous" ] || continue
+        [ -n "$id" ] && [ "$id" != "admin" ] && [ "$id" != "anonymous" ] && [ "$id" != "${SVC_USER}" ] || continue
         role=$(echo "$u" | jq -r 'if (.groups | index("platform-admin")) then "nx-admin" elif ((.groups | index("platform-viewer")) and ((.groups | index("platform-developer")) | not)) then "adhar-viewer" else "adhar-developer" end')
         email=$(echo "$u" | jq -r '.email | if . == "" then empty else . end'); [ -n "$email" ] || email="${id}@users.adhar.local"
         first=$(echo "$u" | jq -r '.firstName | if . == "" then empty else . end'); [ -n "$first" ] || first="$id"
@@ -314,9 +515,27 @@ spec:
           image: alpine/k8s:1.31.1
           env:
             - {name: NEXUS, value: "http://nexus.adhar-system.svc.cluster.local:8081"}
-            - {name: NEXUS_USER, value: "admin"}
-            - {name: NEXUS_PASS, value: "admin123"}
+            - {name: NAMESPACE, value: adhar-system}
+            # kubectl wants a writable cache dir; / is not ours as non-root.
+            - {name: HOME, value: /tmp}
+            # The platform admin password Nexus's `admin` takes (bootstrap.sh
+            # step 1b). optional: Keycloak is an optional dependency, and
+            # without it the script leaves the password alone and says so.
+            - name: NEXUS_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-config, key: KEYCLOAK_ADMIN_PASSWORD, optional: true}}
+            # Only the key's ID — the key itself stays in the Nexus pod.
+            - name: NEXUS_SECRET_KEY_ID
+              valueFrom: {secretKeyRef: {name: nexus-secrets-key, key: active-key-id, optional: true}}
           command: [bash, /script/bootstrap.sh]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 256Mi}
           volumeMounts:
             - {name: script, mountPath: /script}
       volumes:
@@ -371,11 +590,27 @@ spec:
           containers:
             - name: config
               image: alpine/k8s:1.31.1
+              # Same env as the bootstrap Job above (keep them in step). This
+              # schedule is also what keeps Nexus's admin on the CURRENT
+              # platform admin password after keycloak-config is rotated.
               env:
                 - {name: NEXUS, value: "http://nexus.adhar-system.svc.cluster.local:8081"}
-                - {name: NEXUS_USER, value: "admin"}
-                - {name: NEXUS_PASS, value: "admin123"}
+                - {name: NAMESPACE, value: adhar-system}
+                - {name: HOME, value: /tmp}
+                - name: NEXUS_ADMIN_PASSWORD
+                  valueFrom: {secretKeyRef: {name: keycloak-config, key: KEYCLOAK_ADMIN_PASSWORD, optional: true}}
+                - name: NEXUS_SECRET_KEY_ID
+                  valueFrom: {secretKeyRef: {name: nexus-secrets-key, key: active-key-id, optional: true}}
               command: [bash, /script/bootstrap.sh]
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                runAsGroup: 65534
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 256Mi}
               volumeMounts:
                 - {name: script, mountPath: /script}
           volumes:

@@ -91,7 +91,7 @@ func TestAppCiDoesNotPinImagesWhereKargoPromotes(t *testing.T) {
 
 // The console and CLI hand the Application XR the repository's PUBLIC clone URL
 // (https://gitea.<domain>/<org>/<repo>.git); the AppProject allow-list and the
-// Kargo git credential the Project composes are written for the in-cluster
+// Kargo git credential the Project composes are written for the adhar-controlplane
 // Gitea. The composition must reconcile the two, or Argo CD refuses the repo
 // and Kargo cannot push the promotion commit (every app, 2026-10-17).
 func TestTheApplicationCompositionAddressesThePlatformGiteaInCluster(t *testing.T) {

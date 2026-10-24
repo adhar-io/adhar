@@ -1,6 +1,6 @@
 package provider_test
 
-// Every provider's managed teardown must sweep the resources its in-cluster
+// Every provider's managed teardown must sweep the resources its adhar-controlplane
 // controllers created — and the two that attribute them by LIVE cluster
 // membership must sweep before the cluster is destroyed.
 //

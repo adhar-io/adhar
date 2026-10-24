@@ -6,7 +6,7 @@
 
 Adhar provisions infrastructure in two fundamentally different situations:
 
-1. **Day-0**: no cluster exists yet. Something outside Kubernetes must create the management cluster — a chicken-and-egg problem no in-cluster tool (Crossplane included) can solve for itself.
+1. **Day-0**: no cluster exists yet. Something outside Kubernetes must create the management cluster — a chicken-and-egg problem no adhar-controlplane tool (Crossplane included) can solve for itself.
 2. **Day-1+**: the management cluster exists and should manage all further infrastructure (workload clusters, databases, networks) declaratively, with reconciliation and drift correction.
 
 A single mechanism cannot serve both well: pure CLI/SDK provisioning gives no continuous reconciliation; pure Crossplane cannot bootstrap its own host.

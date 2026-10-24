@@ -1,6 +1,6 @@
 # A package of your own, delivered the way the platform delivers its own: an
 # Argo CD Application (or ApplicationSet) whose source is replicated into the
-# in-cluster git server first.
+# adhar-controlplane git server first.
 #
 # `replicate: true` is the point of the object. The manifests are copied into
 # Gitea and Argo CD is pointed at THAT, so the cluster keeps working when the
@@ -10,7 +10,7 @@
 #
 # `argoCD.applicationFile` is a path the CONTROLLER reads, so it has to exist
 # where the controller runs: locally that is the machine running `adhar up`, and
-# in-cluster it is a path inside the manager image.
+# adhar-controlplane it is a path inside the manager image.
 apiVersion: platform.adhar.io/v1alpha1
 kind: CustomPackage
 metadata:

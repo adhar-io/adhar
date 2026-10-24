@@ -6,7 +6,7 @@
 #                 it dev → staging → prod over the environments repo, and ArgoCD
 #                 syncs. Deployment admission is gated by 40-verify-images.
 #
-# Harbor is in-cluster HTTP, so trivy/cosign are told the registry is non-TLS and
+# Harbor is adhar-controlplane HTTP, so trivy/cosign are told the registry is non-TLS and
 # given the same admin credential the build SA uses.
 ---
 # The ONE excused finding class: Go stdlib CVEs in buildpack-provided binaries.

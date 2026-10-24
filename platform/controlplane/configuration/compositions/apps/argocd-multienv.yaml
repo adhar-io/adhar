@@ -74,7 +74,7 @@ spec:
                    composes are both written for gitea-http.adhar-system, while the
                    console and CLI hand us the repository's PUBLIC clone URL
                    (https://gitea.<domain>/<org>/<repo>.git) — a form that differs
-                   per installation and that nothing in-cluster needs. Left as-is,
+                   per installation and that nothing adhar-controlplane needs. Left as-is,
                    Argo CD refused the repo ("not permitted in project") and Kargo
                    could not push ("could not read Username") on every app
                    (2026-10-17). Repositories hosted elsewhere pass through unchanged. */ -}}
@@ -624,14 +624,11 @@ spec:
              {"title":"Argo CD","type":"link","icon":"external link","targetBlank":true,"includeVars":false,"keepTime":false,"url":"https://argocd.__PUBLIC_HOST__/applications/adhar-system/__ARGO_APP__${env:text}","tooltip":"This environment's Argo CD Application"},
              {"title":"Kargo","type":"link","icon":"external link","targetBlank":true,"includeVars":false,"keepTime":false,"url":"https://kargo.__PUBLIC_HOST__/project/__PROJECT__","tooltip":"Promotion pipeline (dev → test → prod)"},
              {"title":"Repository","type":"link","icon":"external link","targetBlank":true,"includeVars":false,"keepTime":false,"url":"__REPO_WEB__","tooltip":"Source repository in Gitea"},
-             {"title":"Console","type":"link","icon":"external link","targetBlank":true,"includeVars":false,"keepTime":false,"url":"https://console.__PUBLIC_HOST__/catalog","tooltip":"Adhar Console catalog"},
              {"title":"Application Logs","type":"link","icon":"doc","targetBlank":false,"includeVars":false,"keepTime":false,"url":"/d/adhar-app-logs?var-application=__APP__&var-environment=${env:text}&${__url_time_range}","tooltip":"This application's logs (app, db, cache, events) beside every other application's"},
-             {"title":"Adhar Platform","type":"link","icon":"dashboard","targetBlank":false,"includeVars":false,"keepTime":true,"url":"/d/adhar-platform-overview/adhar-platform","tooltip":"The platform front page"},
              {"title":"Applications","type":"dashboards","asDropdown":true,"icon":"external link","tags":["application"],"targetBlank":false,"includeVars":false,"keepTime":true,"url":"","tooltip":"Other application dashboards"}
             ]` -}}
             {{- $appLinks := `[
              {"title":"Application Logs","type":"link","icon":"doc","targetBlank":false,"includeVars":false,"keepTime":false,"url":"/d/adhar-app-logs?var-application=__APP__&var-environment=${env:text}&${__url_time_range}","tooltip":"This application's logs (app, db, cache, events) beside every other application's"},
-             {"title":"Adhar Platform","type":"link","icon":"dashboard","targetBlank":false,"includeVars":false,"keepTime":true,"url":"/d/adhar-platform-overview/adhar-platform","tooltip":"The platform front page"},
              {"title":"Applications","type":"dashboards","asDropdown":true,"icon":"external link","tags":["application"],"targetBlank":false,"includeVars":false,"keepTime":true,"url":"","tooltip":"Other application dashboards"}
             ]` -}}
             {{- /* END GENERATED APP DASHBOARD */ -}}

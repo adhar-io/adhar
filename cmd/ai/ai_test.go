@@ -192,10 +192,10 @@ func TestProviderProfilesMatchTheGatewayRoutingTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if l.needsKey {
-		t.Fatal("in-cluster inference must not require a key")
+		t.Fatal("adhar-controlplane inference must not require a key")
 	}
-	if providerForModel(l.model) != "none (in-cluster)" {
-		t.Fatalf("local default model %q does not route in-cluster", l.model)
+	if providerForModel(l.model) != "none (adhar-controlplane)" {
+		t.Fatalf("local default model %q does not route adhar-controlplane", l.model)
 	}
 
 	if _, err := profileFor("openai-compatible", "", ""); err == nil {

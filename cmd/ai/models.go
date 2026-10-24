@@ -30,10 +30,10 @@ var modelsCmd = &cobra.Command{
 The data plane routes by model NAME, not by endpoint: ` + "`claude-*`" + ` and
 ` + "`anthropic/*`" + ` go to Anthropic, ` + "`gpt-*`" + ` / ` + "`o1-*`" + ` / ` + "`openai/*`" + ` to OpenAI (which is
 also how an OpenAI-compatible provider such as OpenRouter is reached), and
-` + "`local/*`" + ` / ` + "`vllm/*`" + ` to in-cluster inference that needs no external key at all.
+` + "`local/*`" + ` / ` + "`vllm/*`" + ` to adhar-controlplane inference that needs no external key at all.
 That routing table is the honest answer to "what can I use", so it is shown
 alongside whatever the gateway reports and the models actually being served
-in-cluster.`,
+adhar-controlplane.`,
 	RunE:         runModels,
 	SilenceUsage: true,
 }
@@ -53,7 +53,7 @@ type modelRoute struct {
 var routingTable = []modelRoute{
 	{"claude-* · anthropic/*", "llm-anthropic", "anthropicApiKey", "anthropic"},
 	{"gpt-* · o1-* · chatgpt-* · openai/*", "llm-openai", "openaiApiKey", "openai (or any OpenAI-compatible endpoint)"},
-	{"local/* · vllm/*", "llm-vllm", "— none —", "in-cluster inference (llm-d / vLLM)"},
+	{"local/* · vllm/*", "llm-vllm", "— none —", "adhar-controlplane inference (llm-d / vLLM)"},
 	{"anything else", "llm-openai", "openaiApiKey", "fallback route"},
 }
 
@@ -119,7 +119,7 @@ func runModels(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// servedModels reads the model names in-cluster inference is actually serving,
+// servedModels reads the model names adhar-controlplane inference is actually serving,
 // from the llm-d InferenceModel/InferencePool resources when present and from the
 // vLLM Deployment's served-model argument otherwise. Either way the answer comes
 // from the cluster rather than from a guess about what someone deployed.
@@ -180,7 +180,7 @@ func providerForModel(model string) string {
 	m := strings.ToLower(model)
 	switch {
 	case strings.HasPrefix(m, "local/"), strings.HasPrefix(m, "vllm/"):
-		return "none (in-cluster)"
+		return "none (adhar-controlplane)"
 	case strings.HasPrefix(m, "claude-"), strings.HasPrefix(m, "anthropic/"):
 		return "anthropic"
 	default:

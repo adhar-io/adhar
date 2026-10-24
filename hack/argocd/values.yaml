@@ -200,7 +200,7 @@ configs:
     admin.enabled: true
 
     # -- Timeout to discover if a new manifests version got published to the
-    # repository. 30s (down from the 180s default): the repos live in-cluster
+    # repository. 30s (down from the 180s default): the repos live adhar-controlplane
     # (Gitea, zero-cost polling) and fast change pickup directly shortens both
     # bootstrap convergence and day-2 GitOps feedback loops.
     # 30s re-diffed all ~69 ApplicationSet apps continuously, keeping
@@ -239,7 +239,7 @@ configs:
     # server-side over HTTPS, so x509 verification against that ephemeral CA would
     # otherwise fail ("certificate signed by unknown authority") and SSO login would
     # never start. The CA is not known ahead of time (cannot be baked into this chart),
-    # and this is a local platform terminating edge TLS at the in-cluster Gateway, so we
+    # and this is a local platform terminating edge TLS at the adhar-controlplane Gateway, so we
     # skip verification for the server-side OIDC HTTPS client only. This does NOT affect
     # browser-facing TLS or repo TLS.
     oidc.tls.insecure.skip.verify: "true"

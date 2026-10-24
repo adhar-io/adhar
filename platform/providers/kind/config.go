@@ -136,7 +136,7 @@ func renderRegistryCertsDir(cfg v1alpha1.BuildCustomizationSpec) (string, error)
 		return "", fmt.Errorf("writing insecure registry config %w", err)
 	}
 
-	// Harbor: the kind node pulls kpack-built images tagged with the in-cluster
+	// Harbor: the kind node pulls kpack-built images tagged with the adhar-controlplane
 	// Service DNS harbor-core.adhar-system.svc.cluster.local, which the node's
 	// resolver cannot resolve. We dial Harbor's PINNED core ClusterIP over HTTPS
 	// instead (the core cert carries that IP as a SAN — see the harbor package's
@@ -181,7 +181,7 @@ func writeRegistryMirrorHosts(dir string) error {
 }
 
 const (
-	// HarborCoreRegistryHost is the in-cluster Service DNS that kpack tags images
+	// HarborCoreRegistryHost is the adhar-controlplane Service DNS that kpack tags images
 	// with; it names the node's certs.d directory for Harbor.
 	HarborCoreRegistryHost = "harbor-core.adhar-system.svc.cluster.local"
 	// HarborCorePinnedClusterIP is the fixed ClusterIP pinned onto the harbor-core

@@ -82,6 +82,34 @@ spec:
               nodes: {{ $nodes }}
               replicas: {{ $replicas }}
               tls: {{ $tls }}
+              {{- if $tls }}
+              # The operator requests a cert-manager Certificate for TLS and
+              # leaves its issuer EMPTY unless one is named; cert-manager's
+              # webhook then rejects it ("issuerRef.name: Required value") and
+              # the operator never creates the StatefulSet — the Cache XR reads
+              # Ready (the Valkey CR has no status) while nothing runs and
+              # nothing can be monitored (2026-10-24, a `tls: true` cache in
+              # `default`). The platform's adhar-controlplane issuer is adhar-selfsigned
+              # (security/cert-manager); clients read ca.crt from the Secret.
+              certIssuer: adhar-selfsigned
+              certIssuerType: ClusterIssuer
+              {{- end }}
+              # Storage MUST be stated. With none, valkey-operator v0.0.61
+              # creates the StatefulSet with its own default 8Gi claim, and
+              # every later reconcile then fails "storage has been removed but
+              # cannot be updated in a statefuleset" — BEFORE the step that
+              # assigns hash slots. The node runs, answers PING, and has zero
+              # slots: every command fails `CLUSTERDOWN Hash slot not served`
+              # (the shared adhar-cache, 2026-10-24, which took the oauth2-proxy
+              # session stores down with it). This is exactly the operator's
+              # default, so existing caches reconcile without a change.
+              storage:
+                spec:
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 8Gi
+                  volumeMode: Filesystem
               # anonymousAuth is the inverse of "require a password": the
               # operator generates and requires one when this is false.
               anonymousAuth: {{ not $auth }}

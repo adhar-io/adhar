@@ -3,7 +3,7 @@
 Detailed design for [ADR-0009](../adr/0009-secrets-eso-vault.md). This is the authoritative
 as-built design for how secrets enter an Adhar cluster: the External Secrets Operator (ESO) sync
 plane, the HashiCorp Vault source of truth, the `ClusterSecretStore` fabric that fronts both Vault
-and in-cluster reflection, the `ExternalSecret` pointer contract that GitOps manifests carry, the
+and adhar-controlplane reflection, the `ExternalSecret` pointer contract that GitOps manifests carry, the
 sync-wave ordering that makes the whole chain converge, and the rotation/enforcement story.
 
 > **Amendment (2026-09) — the production backend is now OpenBao, not Vault.**
@@ -55,7 +55,7 @@ are `enabled: "true"` in the local curated core
   │ Vault KV v2  secret/…              │  ◀────  │ ClusterSecretStore     │    │ k8s Secret       │
   │ (source of truth, ADR default)     │         │   "vault"  (provider   │───▶│ (mounted/env by  │
   ├───────────────────────────────────┤         │    vault)              │    │  a pod)          │
-  │ in-cluster Secrets in adhar-system │  ◀────  │ ClusterSecretStore     │    └──────────────────┘
+  │ adhar-controlplane Secrets in adhar-system │  ◀────  │ ClusterSecretStore     │    └──────────────────┘
   │ (Keycloak client secrets, CLI-gen, │         │   keycloak/gitea/argocd│         ▲
   │  self-signed CA)                   │         │   (provider kubernetes)│         │ ExternalSecret
   └───────────────────────────────────┘         └───────────────────────┘─────────┘ (the Git pointer)
@@ -64,9 +64,9 @@ are `enabled: "true"` in the local curated core
 Two ESO provider families are actually in use, both fronted by cluster-scoped `ClusterSecretStore`s
 so any namespace can reference them:
 
-- **`provider: vault`** — the ADR's source-of-truth path. One store, `vault`, backed by the in-cluster
+- **`provider: vault`** — the ADR's source-of-truth path. One store, `vault`, backed by the adhar-controlplane
   Vault KV v2 engine. Anything an operator writes with `vault kv put secret/…` is reachable.
-- **`provider: kubernetes`** — in-cluster *reflection*. Three stores (`keycloak`, `gitea`, `argocd`)
+- **`provider: kubernetes`** — adhar-controlplane *reflection*. Three stores (`keycloak`, `gitea`, `argocd`)
   that read `Secret`s already living in `adhar-system` (Keycloak-issued OIDC client secrets, the
   self-signed platform CA, ESO-`Password`-generated credentials) and re-project them into the exact
   `Secret` name/shape each consumer chart expects. This is how SSO wiring
@@ -132,7 +132,7 @@ its own `ServiceAccount`/`Role`/`RoleBinding` (get/create/patch `secrets` in `ad
 3. Unseals with the stored key (skips if already unsealed).
 4. Logs in with the root token and idempotently configures:
    - **KV v2** at `secret/`,
-   - **`kubernetes` auth** method (mount `kubernetes/`) configured from the in-cluster
+   - **`kubernetes` auth** method (mount `kubernetes/`) configured from the adhar-controlplane
      `KUBERNETES_SERVICE_HOST`/CA; token review runs under Vault's own pod SA via its
      `system:auth-delegator` binding,
    - policy **`external-secrets`** = read on `secret/data/*` + `secret/metadata/*`,

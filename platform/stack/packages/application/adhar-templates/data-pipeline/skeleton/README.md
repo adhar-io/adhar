@@ -48,7 +48,7 @@ Once synced, the Dagster UI answers at
 python -m venv .venv && source .venv/bin/activate
 pip install -r dagster/requirements.txt
 
-# 2. Point at the platform Iceberg REST catalog (port-forward or in-cluster DNS)
+# 2. Point at the platform Iceberg REST catalog (port-forward or adhar-controlplane DNS)
 export ICEBERG_REST_URI=http://iceberg-rest.adhar-system.svc:8181
 export ICEBERG_WAREHOUSE=s3://lakehouse/${{values.name}}
 

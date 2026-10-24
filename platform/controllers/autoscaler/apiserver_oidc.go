@@ -25,7 +25,7 @@ const oidcAttemptTimeout = 8 * time.Minute
 // `adhar up` tries this at the end of a cloud bring-up, but only ONCE and only
 // as a warning: when Keycloak (or its public certificate and DNS) is not ready
 // at that moment, the cluster is left with no OIDC trust and every Headlamp
-// login fails on its first API call (DigitalOcean, 2026-10-23). The in-cluster
+// login fails on its first API call (DigitalOcean, 2026-10-23). The adhar-controlplane
 // manager has everything the step needs — the cluster SSH key mirrored into
 // adhar-cluster-ssh, the provider, the API — so it finishes the job here and
 // keeps retrying until it succeeds. Success is recorded in adhar-cluster-spec

@@ -1,27 +1,18 @@
 # Scrapes Nexus Prometheus metrics (jvm_* / nexus_* metrics) exposed at
 # /service/metrics/prometheus on the http port (8081). Nexus requires
-# authentication for this endpoint, so we scrape with basicAuth using the
-# deterministic bootstrap admin credentials (admin / admin123 — see
-# install.yaml's NEXUS_SECURITY_RANDOMPASSWORD=false). Rotate the password in
-# hardened environments and update the Secret below.
+# authentication for this endpoint, so we scrape with basicAuth.
+#
+# The credentials are the `adhar-automation` service account from
+# nexus-credentials, which config-job.yaml publishes (2026-10-24). This used to
+# be a static Secret in Git holding admin/admin123; that stopped working the
+# moment the bootstrap moved admin onto the platform admin password, and a
+# password in Git is exactly the "Default Admin Credentials" problem anyway.
+# Until the first bootstrap run publishes it, Prometheus just reports the
+# target as down.
 #
 # kube-prometheus has an empty serviceMonitorSelector, so this is picked up
 # cluster-wide with no extra release label; the resulting `job` label is the
 # Service name "nexus".
-apiVersion: v1
-kind: Secret
-metadata:
-  name: nexus-metrics-auth
-  namespace: adhar-system
-  labels:
-    adhar.io/component: observability
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-type: Opaque
-stringData:
-  username: admin
-  password: admin123
----
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -45,8 +36,8 @@ spec:
       interval: 30s
       basicAuth:
         username:
-          name: nexus-metrics-auth
+          name: nexus-credentials
           key: username
         password:
-          name: nexus-metrics-auth
+          name: nexus-credentials
           key: password

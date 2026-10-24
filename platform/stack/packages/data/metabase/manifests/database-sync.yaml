@@ -1,0 +1,356 @@
+# metabase-database-sync — the platform's real databases in Metabase, read-only.
+#
+# Metabase (and the console's Decide pages built on it: Databases, SQL Editor,
+# Questions) showed only its bundled H2 "Sample Database": nothing ever told it
+# what the platform runs (2026-10-24). This CronJob enrols every application
+# database and keeps Metabase in step with the cluster.
+#
+# Which databases. Every CloudNativePG Cluster OUTSIDE adhar-system — the
+# application databases teams' templates create in their environment namespaces
+# (dev / test / prod, or <project>-<env>) — plus a platform one only when it is
+# labelled `adhar.io/bi: "true"`. Platform internals stay out by default: the
+# console's SQL Editor runs through Metabase's admin session, so whatever is
+# registered here is queryable by every console user, and Keycloak's or the
+# console's own database must not be.
+#
+# How, read-only by construction. For each database the job:
+#   1. mints `<cluster>-bi-reader` (kubernetes.io/basic-auth) in its namespace,
+#      once — never rotated under a running Metabase connection;
+#   2. adds a `bi_reader` LOGIN role, member of pg_read_all_data, to the
+#      Cluster's managed roles. CloudNativePG creates it; no SQL is run with the
+#      application's credentials, which are never read. A cluster that already
+#      declares managed roles of its own is SKIPPED with a reason: that list is
+#      one atomic field, and adding to it would fight the team's GitOps;
+#   3. once CloudNativePG reports the role reconciled, registers the database in
+#      Metabase (TLS, `bi_reader`), updates it when its details change, and
+#      deletes it when the Cluster is gone. Only entries this job created are
+#      touched (marked in their description); the Sample Database is removed.
+#
+# The lakehouse too. When the `trino` package runs, its `iceberg` catalog (the
+# RustFS S3 Tables warehouse) is registered as "Lakehouse (Iceberg)", through
+# Metabase's bundled presto-jdbc driver (Trino accepts it with
+# `protocol.v1.alternate-header-name=Presto`) as the user `metabase`, which
+# Trino's access control makes READ-ONLY on every catalog (data/trino
+# values.yaml). Trino disabled → its Service is gone → the entry is removed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metabase-database-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: metabase-database-sync
+    app.kubernetes.io/part-of: metabase
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-metabase-database-sync
+  labels:
+    app.kubernetes.io/name: metabase-database-sync
+    app.kubernetes.io/part-of: metabase
+rules:
+  # Find the databases and enrol the read-only role.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "patch"]
+  # Its OWN credential Secret per database: get by name and create. No list —
+  # the job never enumerates Secrets, so it cannot read the applications'.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+  # Is the lakehouse engine installed? One Service, by name.
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: ["trino"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-metabase-database-sync
+  labels:
+    app.kubernetes.io/name: metabase-database-sync
+    app.kubernetes.io/part-of: metabase
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-metabase-database-sync
+subjects:
+  - kind: ServiceAccount
+    name: metabase-database-sync
+    namespace: adhar-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metabase-database-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: metabase-database-sync
+    app.kubernetes.io/part-of: metabase
+data:
+  sync.py: |
+    """Enrol the platform's application databases into Metabase, read-only."""
+    import base64, json, os, secrets, ssl, sys, urllib.error, urllib.request
+
+    PLATFORM_NS = "adhar-system"
+    ROLE = "bi_reader"
+    MARK = "adhar-managed:"          # shown as the entry's description in Metabase
+    TRINO_HOST = f"trino.{PLATFORM_NS}.svc.cluster.local"
+    TRINO_USER = "metabase"          # read-only in Trino's access control
+    MB = os.environ["MB_URL"].rstrip("/")
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+    K8S = "https://kubernetes.default.svc"
+    TOKEN = open(f"{SA}/token").read().strip()
+    CTX = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+
+    def log(*a):
+        print("[metabase-db-sync]", *a, flush=True)
+
+    def k8s(method, path, body=None, ctype="application/json"):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(K8S + path, data=data, method=method,
+                                     headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": ctype,
+                                              "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, context=CTX, timeout=20) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, {}
+
+    SESSION = None
+    def mb(method, path, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        h = {"Content-Type": "application/json"}
+        if SESSION:
+            h["X-Metabase-Session"] = SESSION
+        req = urllib.request.Request(MB + path, data=data, method=method, headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                raw = r.read()
+                return r.status, (json.loads(raw) if raw else {})
+        except urllib.error.HTTPError as e:
+            return e.code, {"error": e.read()[:300].decode(errors="replace")}
+
+    def eligible(c):
+        ns = c["metadata"]["namespace"]
+        labels = c["metadata"].get("labels") or {}
+        return ns != PLATFORM_NS or labels.get("adhar.io/bi") == "true"
+
+    def ensure_secret(ns, name):
+        sname = f"{name}-bi-reader"
+        code, s = k8s("GET", f"/api/v1/namespaces/{ns}/secrets/{sname}")
+        if code == 200:
+            d = s.get("data") or {}
+            return base64.b64decode(d.get("password", "")).decode()
+        if code != 404:
+            raise RuntimeError(f"reading {ns}/{sname}: HTTP {code}")
+        pw = secrets.token_urlsafe(24)
+        body = {"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/basic-auth",
+                "metadata": {"name": sname, "namespace": ns, "labels": {
+                    "app.kubernetes.io/managed-by": "metabase-database-sync",
+                    "cnpg.io/reload": "true"}},
+                "stringData": {"username": ROLE, "password": pw}}
+        code, _ = k8s("POST", f"/api/v1/namespaces/{ns}/secrets", body)
+        if code not in (200, 201):
+            raise RuntimeError(f"creating {ns}/{sname}: HTTP {code}")
+        log(f"minted {ns}/{sname}")
+        return pw
+
+    def ensure_role(c):
+        """True once CloudNativePG reports bi_reader reconciled; None when skipped."""
+        ns, name = c["metadata"]["namespace"], c["metadata"]["name"]
+        roles = ((c.get("spec") or {}).get("managed") or {}).get("roles") or []
+        names = [r.get("name") for r in roles]
+        if ROLE not in names:
+            if roles:
+                log(f"skip {ns}/{name}: it declares managed roles of its own ({', '.join(map(str, names))}); "
+                    f"add a `{ROLE}` role in pg_read_all_data there to enrol it")
+                return None
+            patch = [{"op": "add", "path": "/spec/managed", "value": {"roles": [{
+                "name": ROLE, "ensure": "present", "login": True, "inherit": True,
+                "inRoles": ["pg_read_all_data"], "connectionLimit": 10,
+                "comment": "Read-only access for Metabase (adhar metabase-database-sync)",
+                "passwordSecret": {"name": f"{name}-bi-reader"}}]}}]
+            if (c.get("spec") or {}).get("managed") is not None:
+                patch = [{"op": "add", "path": "/spec/managed/roles", "value": patch[0]["value"]["roles"]}]
+            code, _ = k8s("PATCH", f"/apis/postgresql.cnpg.io/v1/namespaces/{ns}/clusters/{name}",
+                          patch, "application/json-patch+json")
+            if code != 200:
+                raise RuntimeError(f"enrolling {ns}/{name}: HTTP {code}")
+            log(f"enrolled {ns}/{name}: {ROLE} requested")
+            return False
+        reconciled = ((c.get("status") or {}).get("managedRolesStatus") or {}).get("byStatus", {}).get("reconciled") or []
+        return ROLE in reconciled
+
+    def main():
+        global SESSION
+        code, s = mb("POST", "/api/session", {"username": os.environ["MB_USER"], "password": os.environ["MB_PASSWORD"]})
+        if code != 200 or "id" not in s:
+            log(f"cannot sign in to Metabase: HTTP {code} {s}"); return 1
+        SESSION = s["id"]
+
+        code, clusters = k8s("GET", "/apis/postgresql.cnpg.io/v1/clusters")
+        if code != 200:
+            log(f"cannot list CNPG clusters: HTTP {code}"); return 1
+
+        code, dbs = mb("GET", "/api/database")
+        dbs = dbs.get("data", dbs) if isinstance(dbs, dict) else dbs
+        # An entry is this job's when it connects as bi_reader to a CNPG -rw
+        # Service. Keyed on the connection, not the description: Metabase does
+        # not store a description given at creation, and keying on it made every
+        # run register the same databases again. Duplicates are removed.
+        managed, dupes = {}, []
+        for d in dbs:
+            det = d.get("details") or {}
+            host = str(det.get("host") or "")
+            if det.get("user") != ROLE or not host.endswith(".svc.cluster.local") or "-rw." not in host:
+                continue
+            name, ns = host[: -len(".svc.cluster.local")].split("-rw.", 1)
+            key = f"{ns}/{name}"
+            if key in managed:
+                dupes.append(d)
+            else:
+                managed[key] = d
+        for d in dupes:
+            code, _ = mb("DELETE", f"/api/database/{d['id']}")
+            log(f"removed duplicate entry {d.get('name')} (id {d['id']}): HTTP {code}")
+
+        wanted, failures = set(), 0
+        for c in clusters.get("items", []):
+            if not eligible(c):
+                continue
+            ns, name = c["metadata"]["namespace"], c["metadata"]["name"]
+            key = f"{ns}/{name}"
+            try:
+                pw = ensure_secret(ns, name)
+                ready = ensure_role(c)
+                if ready is None:
+                    continue
+                wanted.add(key)
+                if not ready:
+                    log(f"{key}: waiting for CloudNativePG to create {ROLE}")
+                    continue
+                dbname = (((c.get("spec") or {}).get("bootstrap") or {}).get("initdb") or {}).get("database") or "app"
+                env = (c["metadata"].get("labels") or {}).get("adhar.io/environment") or ns
+                display = f"{name} · {env}" if env != name else name
+                details = {"host": f"{name}-rw.{ns}.svc.cluster.local", "port": 5432, "dbname": dbname,
+                           "user": ROLE, "password": pw, "ssl": True, "ssl-mode": "require",
+                           "tunnel-enabled": False, "advanced-options": False}
+                body = {"engine": "postgres", "name": display, "details": details,
+                        "description": MARK + key, "is_full_sync": True, "auto_run_queries": True}
+                have = managed.get(key)
+                if have is None:
+                    code, r = mb("POST", "/api/database", body)
+                    if code in (200, 201):
+                        log(f"registered {key} as '{display}'")
+                    else:
+                        failures += 1; log(f"registering {key}: HTTP {code} {r}")
+                else:
+                    hd = have.get("details") or {}
+                    changed = have.get("name") != display or any(
+                        hd.get(k) != details[k] for k in ("host", "port", "dbname", "user"))
+                    if changed:
+                        code, r = mb("PUT", f"/api/database/{have['id']}", body)
+                        log(f"updated {key}: HTTP {code}")
+            except Exception as e:  # one database never stops the others
+                failures += 1; log(f"{key}: {e}")
+
+        # The lakehouse: Trino's iceberg catalog, while Trino is installed.
+        lake = [d for d in dbs if d.get("engine") == "presto-jdbc"
+                and (d.get("details") or {}).get("host") == TRINO_HOST]
+        for d in lake[1:]:
+            code, _ = mb("DELETE", f"/api/database/{d['id']}")
+            log(f"removed duplicate lakehouse entry (id {d['id']}): HTTP {code}")
+        code, _ = k8s("GET", f"/api/v1/namespaces/{PLATFORM_NS}/services/trino")
+        if code == 200:
+            details = {"host": TRINO_HOST, "port": 8080, "catalog": "iceberg", "user": TRINO_USER,
+                       "ssl": False, "tunnel-enabled": False, "advanced-options": False}
+            body = {"engine": "presto-jdbc", "name": "Lakehouse (Iceberg)", "details": details,
+                    "description": MARK + "trino/iceberg", "is_full_sync": True, "auto_run_queries": True}
+            if not lake:
+                code, r = mb("POST", "/api/database", body)
+                if code in (200, 201):
+                    log("registered the lakehouse (trino/iceberg)")
+                else:
+                    failures += 1; log(f"registering the lakehouse: HTTP {code} {r}")
+            elif any((lake[0].get("details") or {}).get(k) != details[k] for k in ("port", "catalog", "user")):
+                code, _ = mb("PUT", f"/api/database/{lake[0]['id']}", body)
+                log(f"updated the lakehouse entry: HTTP {code}")
+        elif code == 404:
+            for d in lake[:1]:
+                code, _ = mb("DELETE", f"/api/database/{d['id']}")
+                log(f"removed the lakehouse (trino is not installed): HTTP {code}")
+        else:
+            log(f"cannot tell whether trino is installed (HTTP {code}); lakehouse entry left as is")
+
+        for key, d in managed.items():
+            if key not in wanted:
+                code, _ = mb("DELETE", f"/api/database/{d['id']}")
+                log(f"removed {key} (its cluster is gone): HTTP {code}")
+        for d in dbs:
+            if d.get("is_sample"):
+                code, _ = mb("DELETE", f"/api/database/{d['id']}")
+                log(f"removed the Sample Database: HTTP {code}")
+        log(f"done: {len(wanted)} enrolled, {failures} failure(s)")
+        return 1 if failures else 0
+
+    sys.exit(main())
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: metabase-database-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: metabase-database-sync
+    app.kubernetes.io/part-of: metabase
+  annotations:
+    # After the setup Job has created the admin account it signs in with.
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 240
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: metabase-database-sync
+        spec:
+          serviceAccountName: metabase-database-sync
+          restartPolicy: Never
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: sync
+              image: docker.io/library/python:3.13-alpine
+              command: ["python3", "/sync/sync.py"]
+              env:
+                - name: MB_URL
+                  value: http://metabase.adhar-system.svc.cluster.local
+                - name: MB_USER
+                  valueFrom: {secretKeyRef: {name: metabase-admin-credentials, key: username}}
+                - name: MB_PASSWORD
+                  valueFrom: {secretKeyRef: {name: metabase-admin-credentials, key: password}}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: script, mountPath: /sync, readOnly: true}
+          volumes:
+            - name: script
+              configMap:
+                name: metabase-database-sync

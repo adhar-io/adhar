@@ -58,7 +58,7 @@ What just happened, in order:
 
 1. A Kind node was created with the default CNI and kube-proxy disabled, host ports `8443`/`8080` mapped to the Gateway.
 2. The foundation was installed from manifests **embedded in the binary** (no network fetch): Gateway API CRDs → Cilium → the Cilium Gateway → ArgoCD → Gitea → Crossplane.
-3. Three Git repositories were created in the in-cluster Gitea under the `adhar` org and seeded from the platform stack: **`packages`** (every package's rendered manifests), **`environments`** (per-environment package sets) and **`templates`** (service scaffolding templates).
+3. Three Git repositories were created in the adhar-controlplane Gitea under the `adhar` org and seeded from the platform stack: **`packages`** (every package's rendered manifests), **`environments`** (per-environment package sets) and **`templates`** (service scaffolding templates).
 4. An ArgoCD ApplicationSet wiring the whole catalogue (**100+ packages**) was applied. Locally only the curated local profile is enabled — a single node cannot run the full catalogue. ArgoCD synced them from Gitea.
 
 Variants worth knowing:
@@ -173,7 +173,7 @@ adhar up -f adhar-config.yaml --env production
 adhar get status
 ```
 
-Cloud runs use the production profile (most of the catalogue enabled; `adhar stack list` for the live count), install the controller manager in-cluster for continuous reconciliation, render the foundation in HA mode, and put the Gateway behind a real LoadBalancer with cert-manager-issued TLS.
+Cloud runs use the production profile (most of the catalogue enabled; `adhar stack list` for the live count), install the controller manager adhar-controlplane for continuous reconciliation, render the foundation in HA mode, and put the Gateway behind a real LoadBalancer with cert-manager-issued TLS.
 
 Credentials, regions, node pools and per-cloud caveats: [Provider Guide](PROVIDER_GUIDE.md). Before real workloads: [Production Guide](PRODUCTION.md).
 

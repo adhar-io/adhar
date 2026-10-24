@@ -1622,7 +1622,7 @@ grafana:
   # mimir-query-frontend:8080, which answers 401 because it needs the
   # X-Scope-OrgID tenant header, while extra-datasources.yaml uses
   # mimir-gateway/prometheus, which injects it and answers 200 (both verified
-  # in-cluster). Loki's derivedFields and Tempo's tracesToLogsV2/serviceMap
+  # adhar-controlplane). Loki's derivedFields and Tempo's tracesToLogsV2/serviceMap
   # differed too. So the Mimir datasource worked or did not depending on file
   # ordering — the worst kind of bug to chase.
   #
@@ -4256,7 +4256,7 @@ prometheus:
     ## External URL at which Prometheus will be reachable. Prometheus is exposed on
     ## its own host behind an oauth2-proxy (Keycloak SSO) — see
     ## manifests/prometheus-oauth2-proxy.yaml. routePrefix stays "/" (below) so
-    ## Prometheus keeps serving at root for in-cluster clients (Grafana datasource,
+    ## Prometheus keeps serving at root for adhar-controlplane clients (Grafana datasource,
     ## operator, scrapes); externalUrl only affects generated absolute links.
     externalUrl: "https://prometheus.adhar.localtest.me:8443"
 

@@ -27,7 +27,7 @@ Drive all platform packages from a **single ApplicationSet** per environment (e.
 
 The `namespace` field is templated into each Application's destination, so nearly all packages share `adhar-system` (ADR-0011) while incompatible ones (e.g. `open-function`) opt out per element. Runtime toggling of individual packages patches the affected elements rather than re-applying the whole file — the operational rules are in ADR-0014.
 
-A generator `selector` on `enabled: "true"` means **everything is wired, only enabled entries deploy**. Environment configs (`environments/<env>/config.yaml`) carry the same package schema, giving each environment its own enablement set. Packages themselves are **pre-rendered manifests** (`helm template` via each package's `generate-manifests.sh` + `values.yaml`), so ArgoCD syncs plain YAML — no in-cluster Helm evaluation, and diffs in Git are the exact cluster diff.
+A generator `selector` on `enabled: "true"` means **everything is wired, only enabled entries deploy**. Environment configs (`environments/<env>/config.yaml`) carry the same package schema, giving each environment its own enablement set. Packages themselves are **pre-rendered manifests** (`helm template` via each package's `generate-manifests.sh` + `values.yaml`), so ArgoCD syncs plain YAML — no adhar-controlplane Helm evaluation, and diffs in Git are the exact cluster diff.
 
 ## Consequences
 

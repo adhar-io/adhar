@@ -110,7 +110,7 @@ Every cross-package reference resolves to a local Service name that survives ref
 |---|---|
 | ArgoCD → Gitea (repo URL) | `http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages` (appset `sources[].repoURL`) |
 | Grafana → Loki / Mimir / Tempo | in-namespace Service names (`loki`, `mimir`, `tempo`) |
-| oauth2-proxy / apps → Keycloak | `keycloak:8080` in-cluster; external issuer via HTTPRoute for browser flows |
+| oauth2-proxy / apps → Keycloak | `keycloak:8080` adhar-controlplane; external issuer via HTTPRoute for browser flows |
 
 One RBAC boundary, one ResourceQuota target, one backup label selector, and one `kubectl get pods -n adhar-system` answers "what is the platform running." The `adhar.io/*` label set (`adhar.io/package-name`, `adhar.io/category`, plus `environment`) stamped by the ApplicationSet template gives the intra-namespace selectors that replace the lost namespace boundary.
 

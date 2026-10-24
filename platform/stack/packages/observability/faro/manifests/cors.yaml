@@ -1,0 +1,127 @@
+# faro-cors — the CORS front of the browser telemetry collector.
+#
+# Browsers POST real-user telemetry cross-origin, from every app's own host to
+# faro.<domain>/collect, so every send is preceded by a CORS preflight. Alloy's
+# faro.receiver answers that preflight from a FIXED list of allowed request
+# headers and offers no setting to extend it — only `cors_allowed_origins`. The
+# Faro Web SDK (2.x) adds an `Idempotency-Key` header to every request, after any
+# headers the app supplies, and that header is not on Alloy's list (still true
+# in Alloy v1.19.2). The receiver then omits Access-Control-Allow-Origin, the
+# browser refuses to send, and the SDK logs "Delivery retries exhausted": every
+# frontend's page loads, web vitals, errors and traces were dropped, and the
+# application dashboards showed "No browser telemetry" although the page loaded
+# the SDK and FARO_URL was set (2026-10-24, found by loading the page in a real
+# browser — a curl preflight that does not request that header passes).
+#
+# So the edge answers the preflight here, allowing whatever headers the browser
+# asks for, and forwards the actual POST to the receiver. Origins stay `*`, as
+# the receiver itself is configured (faro/values.yaml): the collector is public
+# by design — it ingests anonymous browser telemetry, holds no credentials and
+# accepts no cookies. Fixing it here rather than in each template means no app
+# patches SDK internals, and a future SDK header cannot reopen the gap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: faro-cors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: faro-cors
+    app.kubernetes.io/part-of: faro
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      server_tokens off;
+      client_max_body_size 5m;
+
+      location = /healthz { access_log off; return 200 "ok\n"; }
+
+      location / {
+        if ($request_method = OPTIONS) {
+          add_header Access-Control-Allow-Origin "*" always;
+          add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+          add_header Access-Control-Allow-Headers $http_access_control_request_headers always;
+          add_header Access-Control-Max-Age 86400 always;
+          add_header Vary "Origin, Access-Control-Request-Headers" always;
+          return 204;
+        }
+        # One Access-Control-Allow-Origin on the response, not two.
+        proxy_hide_header Access-Control-Allow-Origin;
+        add_header Access-Control-Allow-Origin "*" always;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_pass http://faro-alloy.adhar-system.svc.cluster.local:12347;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faro-cors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: faro-cors
+    app.kubernetes.io/part-of: faro
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: faro-cors
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: faro-cors
+        app.kubernetes.io/part-of: faro
+      annotations:
+        # Roll the pod when the nginx config changes.
+        adhar.io/config-revision: "1"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged:1.29-alpine
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: conf
+          configMap:
+            name: faro-cors
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: faro-cors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: faro-cors
+    app.kubernetes.io/part-of: faro
+spec:
+  selector:
+    app.kubernetes.io/name: faro-cors
+  ports:
+    - {name: http, port: 80, targetPort: http}

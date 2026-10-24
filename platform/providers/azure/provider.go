@@ -204,7 +204,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	// principal.
 	//
 	// These are needed even when PROVISIONING uses `useAzureCLI: true`, because the
-	// in-cluster components cannot use a CLI session: azure.json is what the
+	// adhar-controlplane components cannot use a CLI session: azure.json is what the
 	// cloud-controller-manager and the disk CSI driver authenticate with, and with
 	// empty credentials the controller-manager crash-loops. Reading them from the
 	// environment keeps the secret out of the committed config file.
@@ -221,7 +221,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 		azureConfig.SubscriptionID = os.Getenv("AZURE_SUBSCRIPTION_ID")
 	}
 
-	// The role sizes may also arrive at the TOP level: the in-cluster
+	// The role sizes may also arrive at the TOP level: the adhar-controlplane
 	// autoscaler passes the recorded worker size there, and an environment's
 	// clusterConfig lands there. The provider block's section wins, as it does
 	// for every other Azure key.
@@ -2389,7 +2389,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	//
 	// This read p.clusters[clusterID] and p.resourceTrackers[clusterID] directly,
 	// which are populated from ~/.adhar/state/<cloud>/clusters.json — a file the
-	// CLI has and an in-cluster pod never does. So the node autoscaler, which is
+	// CLI has and an adhar-controlplane pod never does. So the node autoscaler, which is
 	// the main caller, could not scale a cloud cluster at all: it decided
 	// correctly that a worker was needed, then failed every cooldown with
 	// "cluster azure-adhar not found" while 52 pods stayed Pending and the
@@ -2404,7 +2404,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	if err != nil {
 		return fmt.Errorf("cluster %s: %w", clusterID, err)
 	}
-	// The tracker is a CACHE. The in-cluster autoscaler adds workers the
+	// The tracker is a CACHE. The adhar-controlplane autoscaler adds workers the
 	// laptop's state file never hears about, so a CLI scale planned from that
 	// file would try to CREATE a VM that already exists. Ask Azure what is
 	// actually in the group before planning — the same by-prefix search the
@@ -2421,7 +2421,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
 	}
 	// A VM is not a worker until it is a NODE. A scale-up that created the VM
-	// and then died before the join — the in-cluster controller was restarted
+	// and then died before the join — the adhar-controlplane controller was restarted
 	// between the two on 2026-10-10 — leaves a VM that counts toward the plan,
 	// so every later tick concluded "already at 4 workers" while the cluster
 	// had three, two pods stayed Pending and the VM billed for nothing. Such a
@@ -3774,7 +3774,7 @@ func lastPathSegment(id string) string {
 }
 
 // clusterFor returns the cluster from local state, or rediscovers it from Azure
-// when state has no record — the in-cluster controllers have no state file.
+// when state has no record — the adhar-controlplane controllers have no state file.
 //
 // A discovery FAILURE is returned as itself and never flattened into "not
 // found". While ListClusters swallowed the error as a log line, an expired

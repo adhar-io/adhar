@@ -174,7 +174,7 @@ packages:
     category: "observability"
     manifestPath: "observability/victoria-metrics/manifests"
   - name: "trino"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/trino/manifests"
@@ -291,7 +291,7 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/coder/manifests"
-  # n8n, OpenMetadata, MLflow, Kubeflow, JupyterHub and Trino are off in production (2026-10-24): opt-in.
+  # n8n, OpenMetadata, MLflow, Kubeflow and JupyterHub are off in production (2026-10-24): opt-in. Trino is on (Iceberg query engine).
   - name: "n8n"
     enabled: "false"
     namespace: "adhar-system"

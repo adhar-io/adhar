@@ -200,7 +200,7 @@ func TestTolgeeSignsInThroughKeycloak(t *testing.T) {
 	}
 	for _, k := range []string{"TOLGEE_AUTHENTICATION_OAUTH2_TOKEN_URL", "TOLGEE_AUTHENTICATION_OAUTH2_USER_URL"} {
 		if !strings.HasPrefix(env[k], "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/") {
-			t.Errorf("%s = %q; server-to-server calls go to Keycloak in-cluster (the JVM refuses a self-signed edge)", k, env[k])
+			t.Errorf("%s = %q; server-to-server calls go to Keycloak adhar-controlplane (the JVM refuses a self-signed edge)", k, env[k])
 		}
 	}
 	// Keycloak users get an account on first sign-in only while registrations are allowed …

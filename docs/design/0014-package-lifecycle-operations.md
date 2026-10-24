@@ -67,7 +67,7 @@ The `selector.matchLabels.enabled: "true"` is the mechanism behind INV-1: an ele
 The full ApplicationSet is Server-Side Applied by the `AdharPlatform` controller exactly twice in a package's life:
 
 - **At bootstrap** — `applyPlatformStack` selects the file with `appSetFileForProvider(spec.Provider)` (`platform/controllers/adharplatform/controller.go:378`; kind/empty → `adhar-appset-local.yaml`, else `-production.yaml`) and applies it via `applyManifest` (SSA, `FieldManager="adhar"`, `ForceOwnership`). This is the imperative→declarative handoff described in [design/0001 §6](0001-management-cluster-first.md).
-- **On `adhar upgrade`** — the exported `AdharPlatformReconciler.ApplyPlatformStack` (`controller.go:301`) re-pushes the stack and re-applies the appset. `cmd/upgrade/upgrade.go` first runs `diffStack` (clones the in-cluster `packages`/`environments` repos, diffs against local `platform/stack/`), prints the summary, and only on confirmation calls `ApplyPlatformStack` — a *deliberate* whole-set change, exactly the case ADR rule 1 reserves file re-apply for.
+- **On `adhar upgrade`** — the exported `AdharPlatformReconciler.ApplyPlatformStack` (`controller.go:301`) re-pushes the stack and re-applies the appset. `cmd/upgrade/upgrade.go` first runs `diffStack` (clones the adhar-controlplane `packages`/`environments` repos, diffs against local `platform/stack/`), prints the summary, and only on confirmation calls `ApplyPlatformStack` — a *deliberate* whole-set change, exactly the case ADR rule 1 reserves file re-apply for.
 
 ### 3.2 The single-package toggle path (operational runbook)
 

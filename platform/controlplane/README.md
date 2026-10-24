@@ -135,8 +135,8 @@ Example providers supported:
 - **GCP**: `GOOGLE_CREDENTIALS` or `GOOGLE_APPLICATION_CREDENTIALS` (4 modular providers)
 - **DigitalOcean**: `DIGITALOCEAN_TOKEN` or `DIGITALOCEAN_ACCESS_TOKEN`
 - **Civo**: `CIVO_TOKEN` or `CIVO_API_KEY`
-- **Kubernetes**: External cluster kubeconfig or in-cluster identity
-- **Helm**: External cluster kubeconfig or in-cluster identity
+- **Kubernetes**: External cluster kubeconfig or adhar-controlplane identity
+- **Helm**: External cluster kubeconfig or adhar-controlplane identity
 
 ## Supported Providers
 

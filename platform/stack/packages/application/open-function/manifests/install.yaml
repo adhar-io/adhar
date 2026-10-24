@@ -10357,7 +10357,7 @@ spec:
                   hostname of an external load balancer or other networking infrastructure,
                   or some other address that traffic will be sent to. \n The .listener.hostname
                   field is used to route traffic that has already arrived at the Gateway
-                  to the correct in-cluster destination. \n If no Addresses are specified,
+                  to the correct adhar-controlplane destination. \n If no Addresses are specified,
                   the implementation MAY schedule the Gateway in an implementation-specific
                   manner, assigning an appropriate set of Addresses. \n The implementation
                   MUST bind all Listeners to every GatewayAddress that it assigns
@@ -11135,7 +11135,7 @@ spec:
                   hostname of an external load balancer or other networking infrastructure,
                   or some other address that traffic will be sent to. \n The .listener.hostname
                   field is used to route traffic that has already arrived at the Gateway
-                  to the correct in-cluster destination. \n If no Addresses are specified,
+                  to the correct adhar-controlplane destination. \n If no Addresses are specified,
                   the implementation MAY schedule the Gateway in an implementation-specific
                   manner, assigning an appropriate set of Addresses. \n The implementation
                   MUST bind all Listeners to every GatewayAddress that it assigns

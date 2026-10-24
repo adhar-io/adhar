@@ -129,7 +129,7 @@ networking:
 
 ## 5. Cloud API endpoint + NIC rewrite (`rewriteCiliumAPIEndpoint`)
 
-Because agents run host-network with the kube-proxy replacement, they cannot reach the API through the in-cluster service VIP. On Kind the baked-in `adhar-control-plane` node name is directly reachable and left untouched. On a cloud provider the controller rewrites `value: "adhar-control-plane"` → the parsed API host from `ctrlconfig.GetConfig()` (default port 6443).
+Because agents run host-network with the kube-proxy replacement, they cannot reach the API through the adhar-controlplane service VIP. On Kind the baked-in `adhar-control-plane` node name is directly reachable and left untouched. On a cloud provider the controller rewrites `value: "adhar-control-plane"` → the parsed API host from `ctrlconfig.GetConfig()` (default port 6443).
 
 Multi-NIC cloud VMs also defeat Cilium's device auto-detection (it derives the direct-routing device from the node InternalIP, which external-cloud-provider nodes lack until the CCM initialises them — after Cilium). To break the cycle, `cloudPrivateNIC` pins the private interface per provider, injecting `direct-routing-device` + `devices` under `routing-mode: tunnel`:
 

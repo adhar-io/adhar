@@ -82,7 +82,7 @@ stringData:
   insecure: "true"
 ---
 # Credential TEMPLATES (repo-creds): matched by URL PREFIX, so every repository
-# on the in-cluster Gitea is covered — the platform stack (`packages`, which
+# on the adhar-controlplane Gitea is covered — the platform stack (`packages`, which
 # every ApplicationSet reads through gitea-http), application repositories in
 # any organisation (the Application compositions rewrite their repoURL to
 # gitea-http), and preview environments. The two `repository` Secrets above

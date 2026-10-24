@@ -279,7 +279,7 @@ type Provider struct {
 	iamClient *iam.Client
 
 	// Teardown and preflight (teardown.go). The load-balancer clients exist
-	// because the in-cluster controllers create load balancers this provider never
+	// because the adhar-controlplane controllers create load balancers this provider never
 	// recorded, in BOTH AWS flavours: the in-tree provider makes a classic ELB,
 	// the out-of-tree one an NLB through the v2 API. The quota client is read-only
 	// and a credential without access to it does not block a create.

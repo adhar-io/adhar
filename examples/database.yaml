@@ -15,7 +15,7 @@ spec:
         engine: postgresql
   parameters:
     engine: postgresql
-    # The CLOUD compositions provision this version. The in-cluster one IGNORES
+    # The CLOUD compositions provision this version. The adhar-controlplane one IGNORES
     # it and lets the CNPG operator choose its own image, because the operator's
     # default is what every existing cluster already runs — deriving an image
     # from this field once downgraded nine live databases from 18 to 16, and

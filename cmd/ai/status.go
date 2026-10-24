@@ -26,7 +26,7 @@ var statusCmd = &cobra.Command{
 	Long: `Show the state of the platform's AI stack.
 
 Reports each part separately — the data plane (agentgateway), the provider key,
-the agent runtime, the federated MCP tool servers and in-cluster inference —
+the agent runtime, the federated MCP tool servers and adhar-controlplane inference —
 because they fail independently and each has a different remedy. The AI packages
 are disabled by default on every profile, so "not installed" is an ordinary
 answer here, not an error.`,
@@ -77,7 +77,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		case !cfg.SecretPresent:
 			add("Provider key", "absent", "Secret "+llmSecret+" not projected — run `adhar ai key set`")
 		case !cfg.Keyed && cfg.Provider == "local":
-			add("Provider key", "ready", "provider=local (in-cluster inference needs no key)")
+			add("Provider key", "ready", "provider=local (adhar-controlplane inference needs no key)")
 		case !cfg.Keyed:
 			add("Provider key", "degraded", "Secret present but every key slot is empty — run `adhar ai key set`")
 		default:

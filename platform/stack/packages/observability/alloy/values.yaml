@@ -22,7 +22,7 @@ alloy:
   # blocks mirror the chart's default template; the "Hub shipping" section
   # (roadmap P2.3) forwards metrics/logs/traces to the observability hub via
   # the HUB_* env vars sourced from the observability-hub ConfigMap (envFrom
-  # below). Endpoints resolve to in-cluster hub services on the management
+  # below). Endpoints resolve to adhar-controlplane hub services on the management
   # cluster, or the hub's external Gateway URLs on workload-cluster spokes.
   configMap:
     content: |-
@@ -64,7 +64,7 @@ alloy:
       // ---------------------------------------------------------------
       // Hub shipping (roadmap P2.3): everything collected here is written
       // to the observability hub. Endpoints come from the observability-hub
-      // ConfigMap (envFrom) — in-cluster service URLs on the hub itself,
+      // ConfigMap (envFrom) — adhar-controlplane service URLs on the hub itself,
       // external Gateway URLs on workload-cluster spokes. Every sample and
       // stream carries the cluster label for hub-side separation.
       // ---------------------------------------------------------------

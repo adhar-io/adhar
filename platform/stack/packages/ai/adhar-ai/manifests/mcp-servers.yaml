@@ -87,7 +87,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -208,7 +208,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -346,7 +346,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -491,7 +491,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -612,7 +612,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -737,7 +737,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -858,7 +858,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
@@ -995,7 +995,7 @@ spec:
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM). There is no server-side
+            # `local/*` -> the adhar-controlplane vLLM). There is no server-side
             # provider selection any more: the model name IS the routing key.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"

@@ -35,7 +35,7 @@ images; this package is the standard manifest set that installs it via the Appli
    to [`agentgateway`](../agentgateway/) at `http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1`
    (publicly `https://ai.<host>/v1/chat/completions`). Callers send an OpenAI-shaped body and pick
    a provider **by model name**: `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` →
-   the in-cluster [`vllm`](../vllm/). One secret (`adhar-ai-llm`, Vault→ESO) still holds the
+   the adhar-controlplane [`vllm`](../vllm/). One secret (`adhar-ai-llm`, Vault→ESO) still holds the
    keys — `API_KEY`/`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` — read server-side by the gateway and
    never returned to a caller. Token/rate budgets and prompt guardrails are enforced there too.
    **This package no longer ships an LLM gateway** ([ADR-0025](../../../../../docs/adr/0025-ai-gateway-agentgateway.md)).

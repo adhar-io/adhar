@@ -143,7 +143,7 @@ A worker added later by `adhar cluster scale` or the node autoscaler takes its v
 
 ### 4.2 Phase 2 — GitOps (declarative, continuous)
 
-After bootstrap, the in-cluster Gitea holds the two repositories that are the platform's source of truth:
+After bootstrap, the adhar-controlplane Gitea holds the two repositories that are the platform's source of truth:
 
 | Repository | Content | Consumed by |
 |------------|---------|-------------|
@@ -187,7 +187,7 @@ The controller-runtime manager registers **five reconcilers**; four own CRDs in 
 | **DataPlane** | `DataPlane` | Registers and governs workload clusters: ArgoCD registration, thin-agent profile, Cilium mesh, telemetry wiring; rolls `FleetStatus` up onto `AdharPlatform` |
 | **Node autoscaler** | — (watches Pods/Nodes) | Scales raw-compute node pools up on unschedulable pods and down when idle; no-ops unless the `AdharPlatform` enables autoscaling |
 
-In local mode the manager runs in the CLI process and exits when the platform is `Deployed`; in production the same manager runs **in-cluster**, so reconciliation is continuous.
+In local mode the manager runs in the CLI process and exits when the platform is `Deployed`; in production the same manager runs **adhar-controlplane**, so reconciliation is continuous.
 
 ### 4.6 Bootstrap resilience
 
@@ -276,7 +276,7 @@ The same architecture deploys at three sizes. This is a spectrum, not separate p
 | Topology | Shape | Status |
 |---|---|---|
 | **T1 — Local** | Single Kind cluster; the manager runs in the CLI process and exits after deployment; the curated local profile (`adhar stack list` shows what it enables); self-signed TLS; < 10 minutes on a laptop | ✅ The default path |
-| **T2 — Single-cluster production** | One cloud cluster runs platform and workloads. Manager runs in-cluster on a single control-plane node (compute-mode providers reject more; multi-master is not implemented yet). HA mode (`enableHAMode`) replicates the *platform*: ArgoCD application controller ×2, server and repo-server autoscaled 2–5, redis-ha ×3 + haproxy ×3, PDBs; the CNPG operator joins the foundation; `gitea-db` and `keycloak-db` run 2 CNPG instances; Crossplane ×2. Gitea itself stays at 1 replica. cert-manager + external-dns automate the edge; Velero backs up state | ✅ **Verified on DigitalOcean** ([Roadmap](ROADMAP.md) Phase 1) |
+| **T2 — Single-cluster production** | One cloud cluster runs platform and workloads. Manager runs adhar-controlplane on a single control-plane node (compute-mode providers reject more; multi-master is not implemented yet). HA mode (`enableHAMode`) replicates the *platform*: ArgoCD application controller ×2, server and repo-server autoscaled 2–5, redis-ha ×3 + haproxy ×3, PDBs; the CNPG operator joins the foundation; `gitea-db` and `keycloak-db` run 2 CNPG instances; Crossplane ×2. Gitea itself stays at 1 replica. cert-manager + external-dns automate the edge; Velero backs up state | ✅ **Verified on DigitalOcean** ([Roadmap](ROADMAP.md) Phase 1) |
 | **T3 — Management + workload clusters** | Control plane governs a fleet of data planes | ✅ **Live-verified** ([Roadmap](ROADMAP.md) Phase 2) |
 
 **Node autoscaling is live-verified in both directions**: a cluster created with 3 workers and `maxWorkers: 10` grew to 9 while the catalogue synced, then removed a node when idle (`cluster idle for 1h40m46s (cpu=21% memory=27%)`) — with both guards observed, the cooldown between moves and the refusal to drain a node holding a ReadWriteOnce volume. Note that on DigitalOcean the binding capacity constraint is the **7 block-volumes-per-droplet attach limit**, not CPU or memory, so `exceed max volume count` is a scale-up signal the autoscaler acts on ([DigitalOcean reference](DIGITALOCEAN_PROVIDER.md)).
@@ -359,8 +359,8 @@ flowchart LR
 
 How the three compose:
 
-- **Model-name routing, not provider selection.** A `PreRouting` policy lifts `.model` out of the request body into an `x-model` header; ordinary Gateway API header matches then pick the backend — `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` → in-cluster vLLM. vLLM is addressed by DNS **name**, not a Service `backendRef`, so `vllm` being absent degrades to a 503 on `local/*` instead of reporting the whole Application Degraded. Moving a task to a self-hosted model is a body field, not a redeployment.
-- **Governance in one place.** One `jwtAuthentication` policy on the Gateway validates Keycloak tokens for every route, LLM and MCP alike — issuer from the public realm URL, JWKS from the **in-cluster** `keycloak:8080` Service so key retrieval works before DNS, TLS and the edge have settled. Authorization is two merged `Allow` rules over the platform's existing groups: `platform-developer` gets completions and read tools; `platform-admin` additionally gets write tools; everyone else gets nothing. "Write" still means **opens a Gitea PR** — there is no `kubectl apply` tool anywhere.
+- **Model-name routing, not provider selection.** A `PreRouting` policy lifts `.model` out of the request body into an `x-model` header; ordinary Gateway API header matches then pick the backend — `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` → adhar-controlplane vLLM. vLLM is addressed by DNS **name**, not a Service `backendRef`, so `vllm` being absent degrades to a 503 on `local/*` instead of reporting the whole Application Degraded. Moving a task to a self-hosted model is a body field, not a redeployment.
+- **Governance in one place.** One `jwtAuthentication` policy on the Gateway validates Keycloak tokens for every route, LLM and MCP alike — issuer from the public realm URL, JWKS from the **adhar-controlplane** `keycloak:8080` Service so key retrieval works before DNS, TLS and the edge have settled. Authorization is two merged `Allow` rules over the platform's existing groups: `platform-developer` gets completions and read tools; `platform-admin` additionally gets write tools; everyone else gets nothing. "Write" still means **opens a Gitea PR** — there is no `kubectl apply` tool anywhere.
 - **Guardrails ship permissive and say so.** Regex guards **Mask** credentials in and out; PII detectors **Audit**. Budgets are `conditional` local rate limits keyed on the caller's group. Every control documents the single field that makes it enforcing. Local rate limits are per proxy replica, so they are exact only at the single replica this package provisions.
 - **It sits behind the Cilium edge and terminates no TLS.** agentgateway brings its own GatewayClass (`agentgateway`), which coexists with `adhar`; `ai.<host>` and `mcp.<host>` are ordinary platform HTTPRoutes on `adhar-gateway` whose backend is agentgateway's ClusterIP Service `adhar-ai-gateway:8080`. One certificate lifecycle, one host-port mapping, one LB per cloud.
 - **Keys stay server-side.** Provider keys come from the `adhar-ai-llm` Secret (OpenBao → ESO) and are never returned to a caller or placed in a model context.
@@ -396,7 +396,7 @@ Each area of this document is backed by ADRs. The full register, with status, is
 
 | This section | Decisions |
 |---|---|
-| [§4 Lifecycle](#4-deployment-lifecycle) | [0001](adr/0001-management-cluster-first.md) management-cluster-first · [0003](adr/0003-in-cluster-gitea.md) in-cluster Gitea · [0004](adr/0004-applicationset-package-model.md) ApplicationSet package model · [0006](adr/0006-embedded-bootstrap-manifests.md) embedded manifests · [0012](adr/0012-single-node-resilience-tuning.md) single-node tuning · [0014](adr/0014-package-lifecycle-operations.md) package lifecycle |
+| [§4 Lifecycle](#4-deployment-lifecycle) | [0001](adr/0001-management-cluster-first.md) management-cluster-first · [0003](adr/0003-adhar-controlplane-gitea.md) adhar-controlplane Gitea · [0004](adr/0004-applicationset-package-model.md) ApplicationSet package model · [0006](adr/0006-embedded-bootstrap-manifests.md) embedded manifests · [0012](adr/0012-single-node-resilience-tuning.md) single-node tuning · [0014](adr/0014-package-lifecycle-operations.md) package lifecycle |
 | [§4.4 Namespaces](#44-one-namespace-one-exception) | [0011](adr/0011-shared-platform-namespace.md) shared `adhar-system` |
 | [§5 Infrastructure](#5-infrastructure--control-plane) | [0005](adr/0005-crossplane-v2-namespaced.md) Crossplane v2 namespaced · [0007](adr/0007-dual-provisioning-paths.md) dual provisioning · [0022](adr/0022-custom-clusters-no-managed-k8s.md) raw-compute clusters |
 | [§6 Networking](#6-networking) | [0002](adr/0002-cilium-cni-and-gateway.md) Cilium CNI + Gateway API |

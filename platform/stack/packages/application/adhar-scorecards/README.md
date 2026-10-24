@@ -2,7 +2,7 @@
 
 Per-service **production-readiness scoring** for the Adhar platform (ROADMAP
 Phase 3). A CronJob computes a 0–100 score and an A–F letter grade for every
-service from real, in-cluster signals and publishes the results to a ConfigMap
+service from real, adhar-controlplane signals and publishes the results to a ConfigMap
 that the Console (Backstage) surfaces as a badge on each catalog entity.
 
 No external service, no database, no custom image — just `kubectl` + `jq` on a

@@ -81,7 +81,7 @@ ArgoCD reconciles. Setting `enabled: "false"` removes the Application, and with 
 
 ## 2. Change a package's configuration
 
-Packages are **pre-rendered Helm charts**, so the Git diff is the cluster diff — no in-cluster Helm surprises ([ADR-0004](adr/0004-applicationset-package-model.md)). Each directory looks like this:
+Packages are **pre-rendered Helm charts**, so the Git diff is the cluster diff — no adhar-controlplane Helm surprises ([ADR-0004](adr/0004-applicationset-package-model.md)). Each directory looks like this:
 
 ```text
 platform/stack/packages/security/cert-manager/

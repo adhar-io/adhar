@@ -2,7 +2,7 @@
 
 Project and issue tracking, routed through the platform Gateway at
 `https://plane.<host>`. Chart `plane/plane-ce` 1.8.0; every app image is the
-Adhar fork's build, `ghcr.io/adhar-io/plane-{backend,frontend,space,admin,live}:1.4.2-2`
+Adhar fork's build, `ghcr.io/adhar-io/plane-{backend,frontend,space,admin,live}:1.4.2-3`
 (upstream line v1.4.2 plus a build number). Plane brings its own Postgres,
 Valkey and RabbitMQ (`local_setup`); its object store is the platform's RustFS.
 
@@ -37,7 +37,7 @@ instance payload the sign-in page renders from (`/api/instances/`) has no
 The Adhar fork ([adhar-io/plane](https://github.com/adhar-io/plane)) adds it
 end to end: `plane/authentication/provider/oauth/keycloak.py` in the backend
 (discovery-driven, with a split-horizon `KEYCLOAK_INTERNAL_ISSUER_URL` so the
-API talks to the realm in-cluster while browsers use the public issuer, and a
+API talks to the realm adhar-controlplane while browsers use the public issuer, and a
 hard refusal of unverified emails), the `KEYCLOAK` instance-configuration
 rows, a God Mode page, and the sign-in button in the web, space and admin
 front ends. **All five images must be the fork's and share one tag** — the

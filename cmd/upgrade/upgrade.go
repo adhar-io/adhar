@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package upgrade implements `adhar upgrade` (roadmap P1.6): converge the
 // foundation components to this binary's embedded manifests, then present the
-// diff between the local platform stack and the in-cluster GitOps repositories
+// diff between the local platform stack and the adhar-controlplane GitOps repositories
 // for review before force-pushing and re-syncing.
 package upgrade
 
@@ -79,7 +79,7 @@ Upgrades the platform on the current kubeconfig context in two phases:
    components roll to the versions this release ships.
 2. **Stack diff & sync** — compares the local platform stack (pre-rendered
    manifests, ADR-0004: the Git diff IS the cluster diff) against the
-   in-cluster GitOps repositories and shows what would change. On
+   adhar-controlplane GitOps repositories and shows what would change. On
    confirmation it force-pushes the stack, re-applies the ApplicationSet and
    requests an ArgoCD refresh.
 
@@ -226,7 +226,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		for _, st := range steps {
 			defs = append(defs, helpers.StageDef{Label: st.name, Detail: "embedded manifest"})
 		}
-		defs = append(defs, helpers.StageDef{Label: "controller-manager", Detail: "in-cluster manager"})
+		defs = append(defs, helpers.StageDef{Label: "controller-manager", Detail: "adhar-controlplane manager"})
 
 		// os.Stderr and !verbose, matching `adhar up`: the animated frames belong
 		// on stderr so piping the command's output stays clean, and a verbose run
@@ -281,7 +281,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// ✓ with what it found, instead of a "Comparing…" line that never resolves
 	// followed by unaligned counts.
 	fmt.Fprintln(os.Stderr)
-	diffTracker := helpers.NewStageTracker(os.Stderr, "Comparing with the in-cluster GitOps repos", []helpers.StageDef{
+	diffTracker := helpers.NewStageTracker(os.Stderr, "Comparing with the adhar-controlplane GitOps repos", []helpers.StageDef{
 		{Label: "packages", Detail: "cloning from Gitea"},
 		{Label: "environments", Detail: "cloning from Gitea"},
 	}, !verbose)
@@ -436,7 +436,7 @@ func countApplications(ctx context.Context, kubeClient client.Client, namespace 
 	return len(list.Items)
 }
 
-// diffStack clones the packages and environments repos from the in-cluster
+// diffStack clones the packages and environments repos from the adhar-controlplane
 // Gitea and diffs them against the local stack directory. It returns a
 // human-readable summary and whether any differences exist.
 // stackDiff records how many files differ per GitOps repository.
@@ -465,7 +465,7 @@ func (d stackDiff) packagesChanged() bool { return d["packages"] > 0 }
 // fileChange is one path that differs between Gitea and the staged stack.
 // Status is git's name-status letter, read as "what the push does to Gitea":
 // A adds, M modifies, D deletes, R renames. Owner is set when the file's last
-// commit in Gitea was made in-cluster (Kargo, the Marketplace) — the push would
+// commit in Gitea was made adhar-controlplane (Kargo, the Marketplace) — the push would
 // revert it.
 type fileChange struct {
 	Status string
@@ -499,7 +499,7 @@ func (c stackChanges) total() int {
 	return n
 }
 
-// promotions lists the changed files whose last commit was made in-cluster.
+// promotions lists the changed files whose last commit was made adhar-controlplane.
 func (c stackChanges) promotions() []string {
 	var out []string
 	for _, r := range c {
@@ -564,9 +564,12 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 			return fail(fmt.Errorf("staging %s: %w", repo, err))
 		}
 		// Seeding adds the profile's ApplicationSet to the packages repo; the
-		// diff must expect it too, or it would report the file as deleted.
+		// diff must expect it too, or it would report the file as deleted. It
+		// is merged with Gitea's copy exactly as the push will merge it, so a
+		// package toggled in the Marketplace is kept, not listed as a revert.
 		if repo == globals.GitOpsRepoPackages {
-			if err := adharplatform.InjectPlatformAppSet(staged, stackDir, provider); err != nil {
+			head, _ := os.ReadFile(filepath.Join(cloneDir, adharplatform.PlatformAppSetRepoFile))
+			if _, err := adharplatform.InjectMergedPlatformAppSet(staged, stackDir, provider, head, lastNonMarketplaceAppSet(ctx, gitDir)); err != nil {
 				cleanup()
 				return fail(err)
 			}
@@ -591,7 +594,7 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 }
 
 // classifyChanges turns gitDiffNames lines into changes, labelling each file
-// whose last commit in Gitea (history at gitDir) was made in-cluster.
+// whose last commit in Gitea (history at gitDir) was made adhar-controlplane.
 func classifyChanges(ctx context.Context, gitDir string, names []string) []fileChange {
 	var out []fileChange
 	for _, n := range names {
@@ -623,7 +626,7 @@ func parseNameStatus(line string) fileChange {
 // was made INSIDE the cluster — a Kargo promotion or a Marketplace toggle — or
 // returns "".
 //
-// Two things edit the GitOps repos in-cluster by design: Kargo commits
+// Two things edit the GitOps repos adhar-controlplane by design: Kargo commits
 // `promote: dev -> test` into the environments repo, and the console's
 // Marketplace commits `chore(marketplace): enable …` to applicationset.yaml in
 // the packages repo. The upgrade compares the whole tree, lists those files as
@@ -647,6 +650,30 @@ func inClusterChange(ctx context.Context, gitDir, path string) string {
 		return "the Marketplace (" + strconv.Quote(subject) + ")"
 	}
 	return ""
+}
+
+// lastNonMarketplaceAppSet is applicationset.yaml at the newest commit in the
+// clone's history that was not a Marketplace toggle — the merge base for a
+// repo pushed before adharplatform.SeededEnabledAnnotation existed. nil when
+// the (shallow) history holds no such commit.
+func lastNonMarketplaceAppSet(ctx context.Context, gitDir string) []byte {
+	out, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "log",
+		"--format=%H%x1f%s", "--", adharplatform.PlatformAppSetRepoFile).Output()
+	if err != nil {
+		return nil
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		sha, subject, ok := strings.Cut(line, "\x1f")
+		if !ok || strings.HasPrefix(subject, "chore(marketplace):") {
+			continue
+		}
+		b, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "show", sha+":"+adharplatform.PlatformAppSetRepoFile).Output()
+		if err != nil {
+			return nil
+		}
+		return b
+	}
+	return nil
 }
 
 func pluralFiles(n int) string {
@@ -691,9 +718,16 @@ func renderStackChanges(c stackChanges) string {
 				break
 			}
 			b.WriteString(helpers.Indent("  "+changeGlyph(f.Status)+" "+f.Path) + "\n")
-			if f.Owner != "" {
+			switch {
+			case f.Owner != "" && strings.HasPrefix(f.Owner, "the Marketplace"):
+				// The push merges the Marketplace's flags into the local file
+				// (adharplatform.MergeMarketplaceToggles), so what differs is
+				// the rest of the file, not the toggle.
+				b.WriteString(helpers.Indent("    "+helpers.MutedStyle.Render(
+					fmt.Sprintf("last changed adhar-controlplane by %s — package toggles made there are kept", f.Owner))) + "\n")
+			case f.Owner != "":
 				b.WriteString(helpers.Indent("    "+helpers.WarningStyle.Render(
-					fmt.Sprintf("%s changed in-cluster by %s — pushing reverts it", helpers.IconDegraded, f.Owner))) + "\n")
+					fmt.Sprintf("%s changed adhar-controlplane by %s — pushing reverts it", helpers.IconDegraded, f.Owner))) + "\n")
 			}
 		}
 	}
@@ -705,9 +739,9 @@ func renderStackChanges(c stackChanges) string {
 // undo a Kargo promotion.
 func confirmPrompt(c stackChanges) string {
 	if p := c.promotions(); len(p) > 0 {
-		what := "1 file was changed in-cluster (Kargo or the Marketplace) — pushing rolls it back."
+		what := "1 file was changed adhar-controlplane (Kargo or the Marketplace) — pushing rolls it back."
 		if len(p) > 1 {
-			what = fmt.Sprintf("%d files were changed in-cluster (Kargo or the Marketplace) — pushing rolls them back.", len(p))
+			what = fmt.Sprintf("%d files were changed adhar-controlplane (Kargo or the Marketplace) — pushing rolls them back.", len(p))
 		}
 		return helpers.WarningStyle.Render(helpers.IconDegraded+" "+what) +
 			"\n" + helpers.Gutter + fmt.Sprintf("Push %s to Gitea anyway? [y/N]: ", pluralFiles(c.total()))
@@ -715,7 +749,7 @@ func confirmPrompt(c stackChanges) string {
 	return fmt.Sprintf("Push %s to Gitea and sync? [y/N]: ", pluralFiles(c.total()))
 }
 
-// cloneGiteaRepo clones a repo from the in-cluster Gitea over its external URL
+// cloneGiteaRepo clones a repo from the adhar-controlplane Gitea over its external URL
 // using the admin credentials. TLS verification is disabled because the
 // platform certificate is self-signed by default.
 // gatewayDialAddress returns the gateway's load-balancer IP, read from the
@@ -831,7 +865,7 @@ func sanitize(s, secret string) string {
 	return strings.ReplaceAll(s, secret, "***")
 }
 
-// liveControllerImage returns the image the in-cluster controller manager runs
+// liveControllerImage returns the image the adhar-controlplane controller manager runs
 // today, or this release's default when none is deployed. See the comment at
 // the call site for why the live value wins.
 func liveControllerImage(ctx context.Context, c client.Client, namespace string) string {

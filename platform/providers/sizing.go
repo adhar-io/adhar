@@ -22,7 +22,7 @@ import (
 // unreachable behind a 20 GB one. `adhar cluster create` and `adhar config
 // create` had a third set of their own.
 //
-// Every path that needs a size — create, `adhar cluster scale`, the in-cluster
+// Every path that needs a size — create, `adhar cluster scale`, the adhar-controlplane
 // node autoscaler, the quota preflight, managed node pools — now resolves it the
 // same way:
 //

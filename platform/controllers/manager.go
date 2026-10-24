@@ -35,7 +35,7 @@ type ManagerConfig struct {
 }
 
 // EnsureControllerManager applies the controller-manager Deployment and RBAC so
-// platform reconciliation continues in-cluster after the CLI process exits. It
+// platform reconciliation continues adhar-controlplane after the CLI process exits. It
 // is idempotent: manifests are applied with server-side apply and force
 // ownership, matching how the platform applies all other resources.
 func EnsureControllerManager(ctx context.Context, kubeClient client.Client, cfg ManagerConfig) error {

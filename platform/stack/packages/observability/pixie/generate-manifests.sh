@@ -9,7 +9,7 @@ echo "# This file is auto-generated with 'platform/stack/packages/observability/
 
 # Pixie (pixie/pixie-chart) deploys the Pixie Vizier eBPF data collector into the
 # 'pl' namespace. Vizier connects to a Pixie Cloud control plane (the web UI lives
-# in Pixie Cloud, not in-cluster, so no Gateway API HTTPRoute is needed).
+# in Pixie Cloud, not adhar-controlplane, so no Gateway API HTTPRoute is needed).
 #
 # A Pixie Cloud deploy key is required for the Vizier to register. It is a
 # per-user cloud credential and cannot be committed, so it is rendered empty

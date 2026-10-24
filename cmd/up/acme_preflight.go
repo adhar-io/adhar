@@ -22,7 +22,7 @@ type acmeDNS01Blocker struct {
 // creates the Certificate, the ACME order goes to "invalid", and the Gateway
 // quietly keeps serving the self-signed fallback — no bootstrap output says
 // anything is wrong, and the first sign of trouble is a browser warning or, far
-// worse, an in-cluster client refusing the certificate hours later. Both
+// worse, an adhar-controlplane client refusing the certificate hours later. Both
 // conditions below were hit on a real deployment: the platform host resolved
 // fine while the PARENT zone had been delegated to nameservers that held no
 // zone for it, so every CAA lookup returned SERVFAIL and issuance could never

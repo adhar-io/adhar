@@ -59,7 +59,7 @@ func (p *Provider) Preflight(ctx context.Context, spec *types.ClusterSpec) []pro
 	return checks
 }
 
-// preflightCloudCredential checks that the in-cluster controllers will have a
+// preflightCloudCredential checks that the adhar-controlplane controllers will have a
 // credential, BEFORE anything billable is created.
 //
 // azureCloudConfig refuses to write an azure.json that cannot authenticate, but
@@ -118,7 +118,7 @@ func (p *Provider) preflightCloudCredential() provider.Check {
 	return provider.Check{
 		Name:   name,
 		Status: provider.CheckFail,
-		Detail: "no service principal: `az login` can create the cluster, but the in-cluster " +
+		Detail: "no service principal: `az login` can create the cluster, but the adhar-controlplane " +
 			"cloud-controller-manager cannot use an operator's CLI token, so no load balancer is created " +
 			"and every platform hostname stays unreachable",
 		Fix: credentialFixHint(p.config.SubscriptionID, p.config.ResourceGroup),

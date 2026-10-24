@@ -47,18 +47,6 @@ data:
           "tags": []
         },
         {
-          "title": "Applications",
-          "type": "dashboards",
-          "tags": [
-            "application"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [

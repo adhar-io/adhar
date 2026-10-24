@@ -8,6 +8,15 @@ crds:
 features:
   forceFailurePolicyIgnore:
     enabled: true
+  # PolicyExceptions ON, and only honoured from the platform namespace. They were
+  # off (the chart default), so the exceptions shipped in
+  # security/adhar-kyverno-policies were inert and every node agent that needs
+  # host access by design — Cilium, Falco, Tetragon, node-exporter, the CSI
+  # drivers — reported as a policy failure (2026-10-24). Restricting the
+  # namespace keeps a team from exempting its own workloads.
+  policyExceptions:
+    enabled: true
+    namespace: adhar-system
 
 # Admit the platform namespace. The chart excludes its own release namespace
 # from BOTH the resource filters and the webhook namespaceSelector, and on this
@@ -28,7 +37,7 @@ config:
           values: [kube-system]
 
 # Trust the platform CA in every Kyverno controller. `verify-image-signatures`
-# fetches signatures from the in-cluster Harbor (harbor-core.adhar-system.svc,
+# fetches signatures from the adhar-controlplane Harbor (harbor-core.adhar-system.svc,
 # an internal CA) — without the CA the verifier fails with "Get https://harbor-
 # core…/v2/: tls: …" and every platform-built image is refused as unverified,
 # so no golden path ever reaches a running Pod (2026-09-15 DO bring-up). The

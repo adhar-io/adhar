@@ -1,6 +1,6 @@
 # RustFS — a Rust, S3-compatible distributed object store (github.com/rustfs/rustfs),
 # added alongside MinIO as the long-term object-storage replacement. Apps that need
-# object storage can point at the in-cluster S3 endpoint http://rustfs-api.rustfs:9000
+# object storage can point at the adhar-controlplane S3 endpoint http://rustfs-api.rustfs:9000
 # (S3 v4 signatures, access-key/secret-key auth). The web console (:9001, served at
 # /rustfs/console/) is exposed with Keycloak SSO via oauth2-proxy — see console-sso.yaml.
 ---
@@ -112,7 +112,7 @@ spec:
             # providers list, so no button is drawn.
             - name: RUSTFS_IDENTITY_OPENID_ENABLE
               value: "on"
-            # The DISCOVERY url is the in-cluster backchannel; the ISSUER is the
+            # The DISCOVERY url is the adhar-controlplane backchannel; the ISSUER is the
             # public one the ID token actually carries. Both are needed and they
             # differ — the same split Plane's provider needs.
             - name: RUSTFS_IDENTITY_OPENID_CONFIG_URL
@@ -151,6 +151,13 @@ spec:
             # must stay off: a leading slash never matches, and `/` is not a
             # legal policy-name character.
             - name: RUSTFS_IDENTITY_OPENID_GROUPS_CLAIM
+              value: groups
+            # The claim POLICIES are read from. Distinct from GROUPS_CLAIM and
+            # defaulting to `policy` (MinIO semantics), which Keycloak never
+            # sends — so every sign-in reached a valid token and then failed with
+            # "OIDC policy mapping did not resolve to current policies" (400,
+            # logged only in /logs/rustfs.log; 2026-10-24).
+            - name: RUSTFS_IDENTITY_OPENID_CLAIM_NAME
               value: groups
             - name: RUSTFS_IDENTITY_OPENID_USERNAME_CLAIM
               value: preferred_username
@@ -200,7 +207,7 @@ spec:
           persistentVolumeClaim:
             claimName: rustfs-data
 ---
-# S3 API endpoint for in-cluster apps (access-key/secret-key auth).
+# S3 API endpoint for adhar-controlplane apps (access-key/secret-key auth).
 apiVersion: v1
 kind: Service
 metadata:

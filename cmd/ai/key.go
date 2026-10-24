@@ -75,7 +75,7 @@ Providers:
   anthropic   (default) claude-* models
   openai      gpt-*, o1-* models
   openrouter  OpenAI-compatible; model ids look like openai/gpt-4o-mini
-  local       in-cluster inference; needs no key at all
+  local       adhar-controlplane inference; needs no key at all
 
 Other properties of the entry (the provider you are not setting, the budgets) are
 left as they are, so setting a second provider does not erase the first.`,

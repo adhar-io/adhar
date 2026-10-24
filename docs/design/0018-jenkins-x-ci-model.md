@@ -99,7 +99,7 @@ platform:
 - **Engine**: `engines.tekton: true`, `jx: false`, `jenkins: false` — Lighthouse launches Tekton
   PipelineRuns, the legacy jx/jenkins engines stay off.
 - **Forge**: `git.kind: gitea`, `git.server: http://gitea-http.adhar-system.svc.cluster.local:3000`,
-  `user: gitea_admin` — in-cluster Gitea is the default forge ([ADR-0003](../adr/0003-in-cluster-gitea.md)),
+  `user: gitea_admin` — adhar-controlplane Gitea is the default forge ([ADR-0003](../adr/0003-adhar-controlplane-gitea.md)),
   but the same config is forge-portable to GitHub/GitLab by construction.
 - **Prow-style config**: `in_repo_config.enabled["*"]: true` (every repo may carry `.lighthouse/`),
   `pod_namespace`/`prowjob_namespace: adhar-system`, and a **Keeper/tide** block that auto-merges PRs
@@ -121,7 +121,7 @@ supplies two secrets ([ADR-0009](../adr/0009-secrets-eso-vault.md): Git carries 
 
 - `lighthouse-oauth-token` — an `ExternalSecret` projecting `gitea-credential.token` from the `gitea`
   `ClusterSecretStore` (`sync-wave: -5`).
-- `lighthouse-hmac-token` — the webhook HMAC, generated **once in-cluster** by the `lighthouse-hmac-gen`
+- `lighthouse-hmac-token` — the webhook HMAC, generated **once adhar-controlplane** by the `lighthouse-hmac-gen`
   Job (`openssl rand -hex 32`, `sync-wave: -5`, get-then-create so it never rotates), gated by a
   dedicated `lighthouse-secret-gen` SA/Role (`get,create` on secrets, `sync-wave: -10`).
 
@@ -232,7 +232,7 @@ land after the namespace. On the local single-node profile, CI runs are batched 
 | `platform/stack/packages/application/jenkins-x/values.yaml` | Lighthouse config: Gitea forge, Tekton engine, Keeper/tide, ChatOps plugins |
 | `platform/stack/packages/application/jenkins-x/manifests/install.yaml` | rendered Lighthouse chart `1.33.1` (foghorn/keeper/webhooks/tekton-controller/gc-jobs) |
 | `platform/stack/packages/application/jenkins-x/manifests/pipeline-catalog.yaml` | 3 catalog Tasks + `adhar-pr-verify`/`adhar-release` Pipelines + PostSync webhook-register Job |
-| `platform/stack/packages/application/jenkins-x/manifests/secrets.yaml` | `lighthouse-oauth-token` (ESO) + `lighthouse-hmac-token` (in-cluster gen Job) |
+| `platform/stack/packages/application/jenkins-x/manifests/secrets.yaml` | `lighthouse-oauth-token` (ESO) + `lighthouse-hmac-token` (adhar-controlplane gen Job) |
 | `platform/stack/packages/application/jenkins-x/manifests/httproute.yaml` | `lighthouse.<host>` → `hook:80` |
 | `platform/stack/packages/application/buildpack/{generate-manifests.sh,values.yaml,manifests/install.yaml}` | kpack `v0.17.1` in `kpack` namespace (CNB builds) |
 | `platform/stack/packages/application/kargo/manifests/promotion-pipeline.yaml` | Project/Warehouse/staging+production Stages in `adhar-environments`, ESO git creds |

@@ -68,7 +68,7 @@ func (p *Provider) azureCloudConfig(resourceGroup, vnet, subnet, nsg string) (st
 		return "", fmt.Errorf("azure.json would have no usable credential: cloud-provider-azure needs a service principal " +
 			"(set providers.azure.clientSecret, or AZURE_CLIENT_SECRET with AZURE_CLIENT_ID and AZURE_TENANT_ID) " +
 			"or managed identity (useManagedIdentity: true). Azure CLI login is enough to CREATE the cluster but the " +
-			"in-cluster controllers cannot use it, and without this the cloud-controller-manager crash-loops and no " +
+			"adhar-controlplane controllers cannot use it, and without this the cloud-controller-manager crash-loops and no " +
 			"load balancer is created")
 	}
 	b, err := json.Marshal(cfg)

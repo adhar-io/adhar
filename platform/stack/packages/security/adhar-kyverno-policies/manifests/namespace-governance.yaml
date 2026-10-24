@@ -44,11 +44,17 @@ spec:
                 - local-path-storage
                 - cilium-secrets   # Cilium-owned, created by the agent
       validate:
+        # `workload` is what the hierarchy compositions stamp on every team
+        # namespace (project home and dev/test/prod), and `ci` is the
+        # supply-chain build sandbox. The policy predated both, so every
+        # namespace the platform created for a team reported as a violation
+        # of its own placement rule (2026-10-24).
         message: >-
-          Namespace must be labelled adhar.io/plane=control, adhar.io/plane=data,
-          or adhar.io/plane=preview (ADR-0023 placement; `preview` is the
-          ephemeral per-pull-request plane of ADR-0017).
+          Namespace must be labelled adhar.io/plane=control, data, workload, ci
+          or preview (ADR-0023 placement; `workload` is a team's application
+          namespace, `ci` the build sandbox, `preview` the ephemeral
+          per-pull-request plane of ADR-0017).
         pattern:
           metadata:
             labels:
-              adhar.io/plane: "control | data | preview"
+              adhar.io/plane: "control | data | workload | ci | preview"

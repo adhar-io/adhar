@@ -192,7 +192,7 @@ data:
 
     # Reverse proxy: TLS terminates at the Cilium Gateway (Envoy). Keycloak 26
     # replaced `proxy=edge` with `proxy-headers`; trust X-Forwarded-* from the
-    # in-cluster gateway and listen plain HTTP.
+    # adhar-controlplane gateway and listen plain HTTP.
     proxy-headers=xforwarded
     http-enabled=true
 
@@ -204,7 +204,7 @@ data:
 
     # Backchannel (server-side OIDC) requests resolve to the fixed hostname above
     # by default in v2 — do NOT set hostname-backchannel-dynamic. This replaces the
-    # old hostname-strict-backchannel=true: the console does in-cluster http
+    # old hostname-strict-backchannel=true: the console does adhar-controlplane http
     # backchannel OIDC (KEYCLOAK_INTERNAL_URL=http://keycloak...svc:8080); a fixed
     # https issuer keeps discovery URLs + the token 'iss' claim consistent so both
     # the console's id-token verification AND kube-apiserver (--oidc-issuer-url is

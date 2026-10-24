@@ -59,7 +59,7 @@ workload profile landed 5/5 Healthy on it, and teardown left no paid resources.
 | Gateway (Cilium Envoy) | ≥ 2 replicas behind the cloud LB; PodDisruptionBudget | Not changed by HA mode |
 | Keycloak | ≥ 2 replicas + CNPG PostgreSQL | Keycloak 1 replica; HA mode runs `keycloak-db` (CNPG) with 2 instances |
 | Crossplane | Leader-elected replicas | HA mode: Crossplane and its RBAC manager ×2 |
-| Observability | Mimir/Loki/Tempo on object storage; retention by policy, not disk size | Mimir/Loki store on the in-cluster RustFS object store |
+| Observability | Mimir/Loki/Tempo on object storage; retention by policy, not disk size | Mimir/Loki store on the adhar-controlplane RustFS object store |
 
 Set `globalSettings.enableHAMode: true` (or pass `--ha` to `adhar up`) to
 select the HA manifest variants listed in the last column. HA mode also adds
@@ -181,7 +181,7 @@ adhar cluster scale <cluster> --workers 10 --node-group workers -p digitalocean 
 
 - [ ] **OpenBao is the production secrets backend** (`security/openbao`) — the MPL-2.0, Linux Foundation fork of Vault, enabled in the production profile. The `vault` package is wired as the alternative and ships **disabled**; exactly one backend may be enabled ([CONFLICTS.md](../platform/stack/packages/CONFLICTS.md))
 - [ ] Nothing downstream changes with the switch: the External Secrets `ClusterSecretStore` keeps the name **`vault`**, uses the `vault:` provider, and a compatibility `Service/vault` in `adhar-system` selects the OpenBao pods, so consumers that address `vault.adhar-system.svc.cluster.local:8200` by DNS (the Console's Secrets page, the credential-rotation Job) work untouched
-- [ ] Harden with auto-unseal via cloud KMS (`seal "awskms"` / `"azurekeyvault"` / `"gcpckms"` in the package `values.yaml`) so no unseal material stays in-cluster — the shipped bootstrap Job otherwise keeps the unseal key and root token in the `openbao-keys` Secret
+- [ ] Harden with auto-unseal via cloud KMS (`seal "awskms"` / `"azurekeyvault"` / `"gcpckms"` in the package `values.yaml`) so no unseal material stays adhar-controlplane — the shipped bootstrap Job otherwise keeps the unseal key and root token in the `openbao-keys` Secret
 - [ ] No secrets in Git, ever — enforce with Gitea push hooks / secret scanning
 - [ ] etcd encryption at rest enabled (managed offerings: verify the provider default)
 
@@ -289,7 +289,7 @@ object store's own volume are deliberately left out (an opt-out default once
 had Velero copy the object store into itself and fill the disk).
 
 > **Repoint the BackupStorageLocation at real object storage in production.**
-> The default is the in-cluster RustFS object store (bucket `adhar-backups`,
+> The default is the adhar-controlplane RustFS object store (bucket `adhar-backups`,
 > Velero under the `velero/` prefix, CNPG under `cnpg/`, data on the
 > `rustfs-data` PVC). A full RustFS volume stops WAL archiving for **every**
 > database at once, which then fills the Postgres volumes and takes SSO down —

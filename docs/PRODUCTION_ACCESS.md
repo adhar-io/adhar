@@ -141,7 +141,7 @@ why the two packages are mutually exclusive: the Vault chart renders its own
 object fight forever.
 
 For production hardening of the backend itself (KMS auto-unseal so no unseal
-material stays in-cluster), see
+material stays adhar-controlplane), see
 [PRODUCTION §5](PRODUCTION.md#5-security-hardening).
 
 ## 4. DNS and TLS are automatic

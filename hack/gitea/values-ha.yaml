@@ -443,7 +443,7 @@ gitea:
   config:
     #  APP_NAME: "Gitea: Git with a cup of tea"
     #  RUN_MODE: dev
-    # See values.yaml: in-cluster webhook targets (the Tekton EventListeners).
+    # See values.yaml: adhar-controlplane webhook targets (the Tekton EventListeners).
     webhook:
       ALLOWED_HOST_LIST: external,private,*.svc.cluster.local
     # Nothing in Gitea is visible without signing in: no anonymous browsing,

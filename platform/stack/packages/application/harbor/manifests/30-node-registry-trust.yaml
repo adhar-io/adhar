@@ -1,4 +1,4 @@
-# Teach every node's containerd to pull from the in-cluster Harbor.
+# Teach every node's containerd to pull from the adhar-controlplane Harbor.
 #
 # kpack tags what it builds as
 # harbor-core.adhar-system.svc.cluster.local/library/<app>, and the kubelet

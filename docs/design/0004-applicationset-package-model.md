@@ -74,7 +74,7 @@ spec:
 Salient points:
 
 - **`selector` is a sibling of `list`, not nested inside it.** It filters the generated parameter set: elements whose `enabled` value isn't `"true"` never produce an Application. Wiring 77 packages but templating only the enabled subset is the whole mechanism.
-- **`repoURL` is the in-cluster Gitea** `adhar/packages` repo seeded during bootstrap ([ADR-0001 §6](0001-management-cluster-first.md)) — not an upstream chart repo. `path` is the element's `manifestPath`; `targetRevision: main`.
+- **`repoURL` is the adhar-controlplane Gitea** `adhar/packages` repo seeded during bootstrap ([ADR-0001 §6](0001-management-cluster-first.md)) — not an upstream chart repo. `path` is the element's `manifestPath`; `targetRevision: main`.
 - **`namespace` is templated per-element**, so nearly everything lands in the shared `adhar-system` ([ADR-0011](../adr/0011-shared-platform-namespace.md)) while an incompatible package opts out — `open-function` uses `namespace: "openfunction"` because it vendors Knative/Tekton objects whose fixed upstream names collide with the core `tekton` package (see [`packages/CONFLICTS.md`](../../platform/stack/packages/CONFLICTS.md)).
 - **`selfHeal: true` + `prune: true`** — kubectl edits to a synced package are reverted; toggling must go through Git (that is the operational rule in [ADR-0014](../adr/0014-package-lifecycle-operations.md)).
 - **`ServerSideApply=true` + `CreateNamespace=true`** on every Application. The retry budget (`limit: 15`, 5s×2 backoff capped at 1m ≈ 12 min) covers cold-bootstrap dependency races — e.g. `adhar-console`'s OIDC `ExternalSecret` waiting on Keycloak's realm client.
@@ -89,7 +89,7 @@ helm template --namespace adhar-system cert-manager jetstack/cert-manager \
   -f values.yaml --version v1.20.2 --set crds.enabled=true >> manifests/install.yaml
 ```
 
-71 of the packages carry a `generate-manifests.sh`. The consequence chain from ADR-0004: ArgoCD syncs **plain YAML** (no in-cluster Helm evaluation, no chart-repo network dependency at sync time), Git diffs are the literal cluster diff (reviewable), and installs are reproducible. Version bumps mean re-running the script and committing the regenerated `manifests/` — a `⚠️` the ADR accepts as automatable in CI. Per-environment values are handled by per-env manifest sub-paths, e.g. `argo-workflows` ships `manifests/base` and `manifests/dev`, and the element points at `application/argo-workflows/manifests/dev`.
+71 of the packages carry a `generate-manifests.sh`. The consequence chain from ADR-0004: ArgoCD syncs **plain YAML** (no adhar-controlplane Helm evaluation, no chart-repo network dependency at sync time), Git diffs are the literal cluster diff (reviewable), and installs are reproducible. Version bumps mean re-running the script and committing the regenerated `manifests/` — a `⚠️` the ADR accepts as automatable in CI. Per-environment values are handled by per-env manifest sub-paths, e.g. `argo-workflows` ships `manifests/base` and `manifests/dev`, and the element points at `application/argo-workflows/manifests/dev`.
 
 ## 4. The appset family (as-built: four files, ADR describes one)
 
@@ -138,7 +138,7 @@ if workloadBytes, err := os.ReadFile(workloadAppSetPath); err == nil {
 } else if !os.IsNotExist(err) { return fmt.Errorf(...) }
 ```
 
-`r.StackDir` is the absolute path to `platform/stack/` on the bootstrapping CLI host; this is a CLI-bootstrap capability (the in-cluster manager runs with an empty `StackDir`). Once applied, the controller stops writing workloads — ArgoCD reconciles the 21/72 enabled Applications from the seeded Gitea repo. This is the imperative→declarative boundary.
+`r.StackDir` is the absolute path to `platform/stack/` on the bootstrapping CLI host; this is a CLI-bootstrap capability (the adhar-controlplane manager runs with an empty `StackDir`). Once applied, the controller stops writing workloads — ArgoCD reconciles the 21/72 enabled Applications from the seeded Gitea repo. This is the imperative→declarative boundary.
 
 ## 6. Day-2 toggling & the environment configs
 

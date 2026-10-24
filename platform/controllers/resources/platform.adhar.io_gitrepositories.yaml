@@ -153,11 +153,11 @@ spec:
                     type: string
                 type: object
               externalGitRepositoryUrl:
-                description: ExternalGitRepositoryUrl is the url for the in-cluster
+                description: ExternalGitRepositoryUrl is the url for the adhar-controlplane
                   repository accessible from local machine.
                 type: string
               internalGitRepositoryUrl:
-                description: InternalGitRepositoryUrl is the url for the in-cluster
+                description: InternalGitRepositoryUrl is the url for the adhar-controlplane
                   repository accessible within the cluster.
                 type: string
               path:

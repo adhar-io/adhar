@@ -62,7 +62,7 @@ spec:
               nodes: 1
               replicas: {{ $replicas }}
               tls: false
-              # Simple in-cluster caching by default; front with auth/TLS for a
+              # Simple adhar-controlplane caching by default; front with auth/TLS for a
               # real deployment by setting servicePassword + tls: true.
               anonymousAuth: true
               # Operator-managed exporter + ServiceMonitor -> kube-prometheus.

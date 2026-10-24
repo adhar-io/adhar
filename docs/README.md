@@ -2,7 +2,7 @@
 
 Adhar is an open Internal Developer Platform: one command provisions a complete, production-grade, customizable platform of **100+ open-source packages**, on six clouds or your laptop. This is the index — find the right page in one screen.
 
-**In one paragraph**: `adhar up` bootstraps a strictly ordered foundation — Cilium (CNI + Gateway API) → ArgoCD → Gitea — then seeds the in-cluster Git repos and hands control to GitOps. A single ApplicationSet deploys every enabled package from Git, a Crossplane v2 control plane provides namespaced self-service infrastructure APIs, and from that moment every platform change is a reviewable Git commit. The same architecture runs on a laptop (Kind), on one production cluster, or on a control plane governing a fleet of data planes.
+**In one paragraph**: `adhar up` bootstraps a strictly ordered foundation — Cilium (CNI + Gateway API) → ArgoCD → Gitea — then seeds the adhar-controlplane Git repos and hands control to GitOps. A single ApplicationSet deploys every enabled package from Git, a Crossplane v2 control plane provides namespaced self-service infrastructure APIs, and from that moment every platform change is a reviewable Git commit. The same architecture runs on a laptop (Kind), on one production cluster, or on a control plane governing a fleet of data planes.
 
 ---
 
@@ -58,7 +58,7 @@ Decisions with lasting consequences are [ADRs](adr/README.md); each has a matchi
 |---|---|---|
 | [0001](adr/0001-management-cluster-first.md) | Management-cluster-first with a two-phase bootstrap | [design](design/0001-management-cluster-first.md) |
 | [0002](adr/0002-cilium-cni-and-gateway.md) | Cilium as CNI, kube-proxy replacement and Gateway API implementation | [design](design/0002-cilium-cni-and-gateway.md) |
-| [0003](adr/0003-in-cluster-gitea.md) | Self-hosted in-cluster Gitea as the platform's source of truth | [design](design/0003-in-cluster-gitea.md) |
+| [0003](adr/0003-adhar-controlplane-gitea.md) | Self-hosted adhar-controlplane Gitea as the platform's source of truth | [design](design/0003-adhar-controlplane-gitea.md) |
 | [0004](adr/0004-applicationset-package-model.md) | One ApplicationSet with an enabled-gated package list | [design](design/0004-applicationset-package-model.md) |
 | [0005](adr/0005-crossplane-v2-namespaced.md) | Crossplane v2 namespaced XRs for self-service infrastructure | [design](design/0005-crossplane-v2-namespaced.md) |
 | [0006](adr/0006-embedded-bootstrap-manifests.md) | Embedded, pre-rendered manifests for bootstrap — no network dependency | [design](design/0006-embedded-bootstrap-manifests.md) |
@@ -68,7 +68,7 @@ Decisions with lasting consequences are [ADRs](adr/README.md); each has a matchi
 | [0010](adr/0010-observability-lgtm-otel.md) | Observability: OTel collection, Grafana LGTM storage, hub-and-spoke | [design](design/0010-observability-lgtm-otel.md) |
 | [0011](adr/0011-shared-platform-namespace.md) | One shared namespace (`adhar-system`) for platform packages — one exception, `buildpack` | [design](design/0011-shared-platform-namespace.md) |
 | [0012](adr/0012-single-node-resilience-tuning.md) | Resilience tuning for single-node local clusters | [design](design/0012-single-node-resilience-tuning.md) |
-| [0013](adr/0013-sso-bootstrap-config-job.md) | SSO bootstrap via an idempotent in-cluster config job | [design](design/0013-sso-bootstrap-config-job.md) |
+| [0013](adr/0013-sso-bootstrap-config-job.md) | SSO bootstrap via an idempotent adhar-controlplane config job | [design](design/0013-sso-bootstrap-config-job.md) |
 | [0014](adr/0014-package-lifecycle-operations.md) | Package lifecycle: toggling, verification, clean removal | [design](design/0014-package-lifecycle-operations.md) |
 | [0015](adr/0015-idp-critical-pillars.md) | The critical pillars of the IDP — the tests every addition must pass | [design](design/0015-idp-critical-pillars.md) |
 | [0016](adr/0016-vcluster-local-first-development.md) | vcluster as the virtual-cluster primitive for local-first development and tenancy | [design](design/0016-vcluster-local-first-development.md) |

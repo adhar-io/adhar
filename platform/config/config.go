@@ -116,7 +116,7 @@ type EnvironmentConfig struct {
 	Addons        []AddonConfig            `mapstructure:"addons" json:"addons,omitempty"`
 	// Autoscaling turns the environment's worker count into a range instead of
 	// a fixed `nodeCount`: the cluster is created with nodeCount workers and
-	// the in-cluster node autoscaler grows/shrinks it between min and max.
+	// the adhar-controlplane node autoscaler grows/shrinks it between min and max.
 	Autoscaling *AutoscalingConfig `mapstructure:"autoscaling" json:"autoscaling,omitempty"`
 	// NodeGroups adds node groups BESIDES the primary `workers` group (which
 	// clusterConfig `machineType`/`nodeSize` and `nodeCount` describe) — a GPU

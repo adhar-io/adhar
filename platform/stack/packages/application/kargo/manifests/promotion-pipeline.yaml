@@ -19,6 +19,8 @@ metadata:
   name: adhar-environments
   labels:
     kargo.akuity.io/project: "true"
+    # The promotion pipeline is the platform's, not a team's (namespace-governance).
+    adhar.io/plane: control
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 ---

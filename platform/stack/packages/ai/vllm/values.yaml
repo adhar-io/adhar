@@ -174,7 +174,7 @@ storage:
   hfHome: /data/hf
 
 # ---------------------------------------------------------------------------
-# The in-cluster contract — manifests/service.yaml. DO NOT RENAME.
+# The adhar-controlplane contract — manifests/service.yaml. DO NOT RENAME.
 # ---------------------------------------------------------------------------
 service:
   # agentgateway fronts vLLM as one of its LLM backends at exactly

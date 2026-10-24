@@ -1,7 +1,7 @@
 # Observability hub endpoints (roadmap P2.3) consumed by Alloy's shipping
 # pipelines (config.alloy, envFrom on the alloy container).
 #
-# Defaults are the hub's own in-cluster services — correct when Alloy runs ON
+# Defaults are the hub's own adhar-controlplane services — correct when Alloy runs ON
 # the management/hub cluster. On workload-cluster spokes, override this
 # ConfigMap with the hub's external Gateway URLs, e.g.:
 #   HUB_MIMIR_URL:    https://mimir.<host>/api/v1/push

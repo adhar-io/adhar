@@ -119,8 +119,8 @@ Each provider has dedicated `ProviderConfig` resources that reference credential
 - **GCP**: Separate configs for Container, Compute, SQL, Storage (all using `gcp-credentials`)
 - **DigitalOcean**: `ClusterProviderConfig` named `default` (`digitalocean.m.crossplane.io/v1beta1`) plus a legacy `ProviderConfig` for the cluster-scoped kinds, both reading the `credentials` key (JSON `{"token": "..."}`) of `digitalocean-credentials` (provider `crossplane-contrib/provider-upjet-digitalocean` v1.0.2; namespaced MRs under `*.digitalocean.m.crossplane.io`)
 - **Civo**: Single config using `civo-credentials` with default region
-- **Kubernetes**: Two configs (in-cluster and external)
-- **Helm**: Two configs (in-cluster and external)
+- **Kubernetes**: Two configs (adhar-controlplane and external)
+- **Helm**: Two configs (adhar-controlplane and external)
 
 ### Automatic Credential Discovery
 

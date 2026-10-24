@@ -24,7 +24,7 @@ import (
 // This exists because the same credential was resolved in two places with two
 // different sets of rules. `adhar up` built an Azure cluster from the secret
 // FILE while edgeDNSSecretData, which knew only about AZURE_CLIENT_SECRET, wrote
-// a stale environment value into the in-cluster `adhar-dns-provider` Secret. The
+// a stale environment value into the adhar-controlplane `adhar-dns-provider` Secret. The
 // cluster came up perfectly and then external-dns crash-looped on
 // AADSTS7000215, so every platform hostname kept resolving to the previous
 // cluster's dead load-balancer IP and every URL was unreachable (2026-10-04).

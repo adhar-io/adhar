@@ -75,7 +75,7 @@ server:
     enabled: true
     path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
   # Chart default (false). Kept explicit: routing is handled by
-  # manifests/httproute.yaml (Gateway API), never an nginx Ingress.
+  # manifests/httproute.yaml.tmpl (Gateway API), never an nginx Ingress.
   ingress:
     enabled: false
   # Chart default (true): binds system:auth-delegator to the server

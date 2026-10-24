@@ -38,7 +38,7 @@ data:
     ingresses\" {\n\trole = \"ingress\"\n}\n\n// ---------------------------------------------------------------\n\
     // Hub shipping (roadmap P2.3): everything collected here is written\n// to the\
     \ observability hub. Endpoints come from the observability-hub\n// ConfigMap (envFrom)\
-    \ \u2014 in-cluster service URLs on the hub itself,\n// external Gateway URLs on\
+    \ \u2014 adhar-controlplane service URLs on the hub itself,\n// external Gateway URLs on\
     \ workload-cluster spokes. Every sample and\n// stream carries the cluster label\
     \ for hub-side separation.\n// ---------------------------------------------------------------\n\
     prometheus.scrape \"annotated_pods\" {\n\ttargets    = discovery.relabel.scrape_pods.output\n\

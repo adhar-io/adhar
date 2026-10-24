@@ -84,7 +84,7 @@ unit-tested where it is pure; **live** means it ran on that cloud:
 | Default StorageClass `adhar-local` (node-local, no attach limit) | ✅ | ✅ built | ✅ live-verified | ✅ built | ✅ built |
 | CSI startup taint (`node.adhar.io/csi-not-ready`, lifted by the autoscaler; CSI node DaemonSet tolerates it) | ✅ live | ✅ built | ✅ built | ✅ built | ⛔ **not requested in compute mode** — with no CSI driver to register a CSINode, the only way out is the autoscaler's 10-minute `startupTaintMaxWait`, so asking for it cost every bring-up a flat ten minutes of unschedulable workers (fixed 2026-10-06) |
 | Node autoscaler (needs the two rows above) | ✅ live | built, unverified | built, unverified | built, unverified | built, unverified |
-| Nodes pull kpack-built images from the in-cluster Harbor (containerd certs.d) | ✅ live | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep |
+| Nodes pull kpack-built images from the adhar-controlplane Harbor (containerd certs.d) | ✅ live | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep |
 | Upgrade (`adhar upgrade`, control plane then workers — shared `KubeadmUpgradeCluster`) | ✅ live | ✅ built | ✅ built | ✅ built | ✅ built |
 | Managed-service mode (`clusterMode: managed`), same operations | ✅ DOKS live (via `Cluster`) | ✅ EKS built | ✅ AKS built (BYO CNI) | ✅ GKE built | ✅ k3s built |
 | Platform edge (Gateway address) | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ⚙️ **host-network Gateway** — no CCM in compute mode, so Envoy binds :80/:443 on every node, the firewall opens both, external-dns publishes the instances' public IPs and CoreDNS points `*.<host>` at a node-backed shim Service. Built 2026-10-07, not yet live-verified; `clusterMode: managed` uses the ordinary LoadBalancer path |
@@ -155,7 +155,7 @@ watch on that run:
 - **Civo**: compute mode installs NEITHER the CCM nor the CSI driver — see the
   two rows above and `civoComputeHasExternalCCM` in `platform/providers/civo/compute.go`.
   It writes kube-system/`civo-api-access` (API key, region, cluster id) for
-  anything in-cluster that wants to call Civo, and makes node-local `adhar-local`
+  anything adhar-controlplane that wants to call Civo, and makes node-local `adhar-local`
   the default StorageClass. The pinned CCM/CSI manifest URLs were removed on
   2026-10-06: nothing applied them, and their presence read as "this provider
   installs a CCM" to both humans and
@@ -165,7 +165,7 @@ The teardown and quota rows above came out of the GCP bring-up, where each was a
 real bill or a real half-built cluster before it was code: a load balancer and 41
 CSI disks survived the first `adhar down`, and an exhausted regional vCPU quota
 failed a create ten minutes in. AWS, Azure and Civo now carry the same three
-protections — an in-cluster-resource sweep ordered before the network teardown, an
+protections — an adhar-controlplane-resource sweep ordered before the network teardown, an
 opt-in orphan-volume purge, and a preflight that refuses a create the account
 cannot hold. The selection rules are unit-tested (`*/teardown_test.go`); the cloud
 calls still await a live run.
@@ -382,7 +382,7 @@ When Cilium is already there it is **left exactly as configured** — the
 reconciler skips its own Cilium manifests rather than overwriting your version,
 IPAM mode, kubeProxyReplacement setting or Hubble configuration. The mode is
 recorded in the `adhar-cluster-spec` ConfigMap at bootstrap, which is how the
-in-cluster controllers know: from the inside, a provided cluster looks like any
+adhar-controlplane controllers know: from the inside, a provided cluster looks like any
 other.
 
 ### Bring-your-own hosts (`custom` provider)

@@ -125,7 +125,7 @@ The other 16 Compositions **compute their own XR status in KCL** (returning a
 
 ### Two composition idioms ([CONVENTIONS §2](../../platform/controlplane/CONVENTIONS.md))
 
-1. **Native Kubernetes objects** (in-cluster resources): emit the object directly with `metadata.namespace`
+1. **Native Kubernetes objects** (adhar-controlplane resources): emit the object directly with `metadata.namespace`
    omitted — Crossplane v2 manages natives and stamps the XR's namespace. `env/kubernetes-namespace.yaml`
    emits a `v1/Namespace`, `v1/ResourceQuota`, `v1/LimitRange`, and (conditionally) a
    `networking.k8s.io/v1/NetworkPolicy` straight from KCL.
@@ -146,7 +146,7 @@ Namespaced MRs add **`.m`** to the domain and reset to **`v1beta1`** (provider-k
 | AWS / Azure / GCP | `<svc>.{aws,azure,gcp}.m.upbound.io/v1beta1` → config **`default`** per cloud family |
 
 - `providers/provider-packages.yaml` — `pkg.crossplane.io/v1` `Provider` for `provider-kubernetes:v1.2.1`
-  and `provider-helm:v1.2.0` (the only providers needed for local/in-cluster compositions).
+  and `provider-helm:v1.2.0` (the only providers needed for local/adhar-controlplane compositions).
 - `providers/config/{kubernetes,helm}-providerconfig.yaml` — the `kubernetes-provider`
   (`credentials.source: InjectedIdentity`) and `helm-provider` `ClusterProviderConfig`s, plus a
   `kubernetes-external` variant reading a kubeconfig Secret.
@@ -164,7 +164,7 @@ the credential Secret templates are the fallback.
 
 The control plane is embedded, not fetched: `platform/controlplane/embed.go` exposes
 `ConfigurationFS` via `//go:embed all:configuration`, so the controller applies the same tree whether
-it runs in-process during `adhar up` or in-cluster — no registry, `kubectl`, or on-disk source needed
+it runs in-process during `adhar up` or adhar-controlplane — no registry, `kubectl`, or on-disk source needed
 (same philosophy as [ADR-0006](../adr/0006-embedded-bootstrap-manifests.md)).
 
 `ReconcileCrossplane` is the last entry in the foundation installer list in `controller.go`

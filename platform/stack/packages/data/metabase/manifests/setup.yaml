@@ -9,8 +9,9 @@
 #
 # Auth model: Metabase OSS has NO OIDC (SSO is a paid feature), so the platform
 # gate is the Keycloak oauth2-proxy in front (manifests/sso.yaml) — you reach
-# the UI only after a Keycloak login — and Metabase's own account is this
-# generated admin.
+# the UI only after a Keycloak login — and the sso-bridge behind it
+# (manifests/sso-bridge.yaml) signs each Keycloak user into their own Metabase
+# account, using this generated admin to create it.
 #
 # Idempotent: /api/session/properties only carries a `setup-token` while setup
 # is still pending. No token => already set up => exit 0.

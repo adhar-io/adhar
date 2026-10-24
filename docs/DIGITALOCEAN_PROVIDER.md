@@ -517,7 +517,7 @@ curl -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
 |---|---|
 | `claude-*`, `anthropic/*` | hosted Anthropic (`API_KEY`) |
 | `gpt-*`, `o1-*`, `openai/*` | hosted OpenAI (`OPENAI_API_KEY`) |
-| `local/*`, `vllm/*` | the in-cluster `vllm` package, if enabled |
+| `local/*`, `vllm/*` | the adhar-controlplane `vllm` package, if enabled |
 
 The agent itself answers on `https://agent.<your-domain>`, and the federated MCP
 endpoint for external agents (Claude Code, IDEs) is `https://mcp.<your-domain>`.
@@ -566,7 +566,7 @@ Everything below was run against the verified cluster; use it as the acceptance
 checklist for a new environment.
 
 ```bash
-# in-cluster controller + fleet
+# adhar-controlplane controller + fleet
 kubectl -n adhar-system get deploy adhar-controller-manager            # 1/1
 adhar get dataplanes                                                   # planes + readiness
 adhar get status                                                       # conditions, packages, Data Planes roll-up
@@ -633,7 +633,7 @@ products; the Keycloak front is what enforces platform SSO there. Plane CE
 v1.4.1 ships no OIDC or SAML provider either (`grep -ril oidc /code` in
 `plane-backend:v1.4.1` returns nothing; the only providers in the image are
 email, magic-link, Gitea, GitHub, GitLab and Google), so the platform wires its
-**Gitea** provider to the in-cluster Gitea, whose own sign-in is the Keycloak
+**Gitea** provider to the adhar-controlplane Gitea, whose own sign-in is the Keycloak
 auth source — a Keycloak login inside Plane without a paid edition.
 
 **Plane showing "No authentication methods available"** is the sign-in screen
@@ -714,7 +714,7 @@ upgrade), then diffs and pushes the stack.
 manifest and a stack package (Crossplane is one) are owned by the *stack
 package* once ArgoCD runs: `selfHeal` re-applies the package's rendering over
 anything else, so tune them in `platform/stack/packages/<pkg>/values.yaml`,
-not in the embedded manifest. The in-cluster controller
+not in the embedded manifest. The adhar-controlplane controller
 (`adhar-controller-manager`) runs the **released** image matching the CLI
 version (`ghcr.io/adhar-io/adhar:<version>`; development builds track
 `:latest`) and keeps reconciling the platform with *that* release's manifests
@@ -801,7 +801,7 @@ created but never joined (`adhar-dev-workers-4` on 2026-09-15) makes
 against `kubectl get nodes` when the counts disagree.
 
 **Pulling kpack-built images on a kubeadm node.** kpack tags images with the
-in-cluster Service name `harbor-core.adhar-system.svc.cluster.local`, which a
+adhar-controlplane Service name `harbor-core.adhar-system.svc.cluster.local`, which a
 node can neither resolve nor trust. The harbor package's
 `harbor-node-registry-trust` DaemonSet writes a containerd certs.d host config
 on every node (dial Harbor's pinned ClusterIP `10.96.222.222` over TLS, verified
@@ -847,7 +847,7 @@ written by `adhar up`: the `adhar-cluster-spec` ConfigMap (provider, region,
 cluster name, node group, instance size — no credentials) and the
 `adhar-cluster-ssh` Secret, a copy of `~/.adhar/clusters/<env>/id_ed25519`.
 Joining a worker means running `kubeadm token create` on the control plane
-over SSH, so the in-cluster controller needs that key; the cloud API token is
+over SSH, so the adhar-controlplane controller needs that key; the cloud API token is
 the `digitalocean-credentials` Secret that already exists for Crossplane. A
 cluster bootstrapped before those objects existed (or from another machine)
 reports the reason in `status.autoscaling.lastReason` and keeps a fixed size —

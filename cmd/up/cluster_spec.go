@@ -37,7 +37,7 @@ import (
 	pfactory "adhar-io/adhar/platform/providers"
 )
 
-// Cloud facts for the in-cluster controllers.
+// Cloud facts for the adhar-controlplane controllers.
 //
 // Once `adhar up` exits, nothing inside the cluster knows which cloud, region,
 // instance size or cluster name it came from — that lives in config.yaml on
@@ -64,12 +64,12 @@ var credentialProviderKeys = map[string]bool{
 	"credentials_file":  true,
 	// PATHS to credential files are stripped as well, and not because they are
 	// secret — because they name a file on the machine that ran `adhar up`. They
-	// used to survive into the in-cluster provider map, and a provider that
+	// used to survive into the adhar-controlplane provider map, and a provider that
 	// prefers a key file over an inline key then chose the laptop path over the
 	// credential it had been given: every autoscaling action failed with
 	// "credentials file not found: /Users/.../key.json", so a cluster scaled down
 	// and could never scale back up. The inline value from
-	// `<provider>-credentials` is the only form that means anything in-cluster.
+	// `<provider>-credentials` is the only form that means anything adhar-controlplane.
 	"serviceAccountKeyFile": true,
 	"serviceAccountKeyPath": true,
 	"credentialsFile":       true,
@@ -79,7 +79,7 @@ var credentialProviderKeys = map[string]bool{
 }
 
 // nodeShapeKeys are the clusterConfig keys (normalised) that describe a node's
-// disk and image, recorded for the in-cluster autoscaler.
+// disk and image, recorded for the adhar-controlplane autoscaler.
 var nodeShapeKeys = map[string]bool{
 	"disksizegb": true, "disksize": true, "rootvolumesize": true,
 	"disktype": true, "volumetype": true, "rootvolumetype": true,
@@ -142,7 +142,7 @@ func providerConfigValue(envConfig *config.ResolvedEnvironmentConfig, keys ...st
 	return ""
 }
 
-// ensureClusterSpecConfigMap records the provider facts the in-cluster
+// ensureClusterSpecConfigMap records the provider facts the adhar-controlplane
 // controllers need. It is idempotent and carries no credentials.
 func ensureClusterSpecConfigMap(
 	ctx context.Context,
@@ -160,7 +160,7 @@ func ensureClusterSpecConfigMap(
 		canonical = strings.ToLower(strings.TrimSpace(providerName))
 	}
 
-	// The cluster mode, recorded for the in-cluster controllers. It is the one
+	// The cluster mode, recorded for the adhar-controlplane controllers. It is the one
 	// fact they CANNOT work out for themselves: a provided cluster looks exactly
 	// like a cluster the platform built, and getting it wrong means reapplying
 	// the platform's Cilium over the operator's own, or an autoscaler creating
@@ -229,7 +229,7 @@ func ensureClusterSpecConfigMap(
 			sanitized[k] = v
 		}
 		// The environment's disk settings, which the CLI's provider map carries
-		// at the top level (buildProviderConfig) and the in-cluster one did not:
+		// at the top level (buildProviderConfig) and the adhar-controlplane one did not:
 		// an autoscaled AWS worker got the built-in disk instead of the
 		// configured one. Only the keys that shape a NODE — not the cluster name
 		// or counts, which the controller has its own fields for.
@@ -265,7 +265,7 @@ func ensureClusterSpecConfigMap(
 
 // ensureClusterSSHSecret mirrors the cluster's kubeadm SSH key into the
 // platform namespace. Adding a worker to a self-managed cluster means running
-// kubeadm on the control plane over SSH, so the in-cluster autoscaler needs
+// kubeadm on the control plane over SSH, so the adhar-controlplane autoscaler needs
 // the same key the CLI uses; on managed Kubernetes there is no key and this is
 // a no-op. Not finding the key is not an error: the cluster may have been
 // created from another machine, in which case autoscaling reports why it

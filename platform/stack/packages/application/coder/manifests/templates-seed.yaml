@@ -7,7 +7,7 @@
 # workspace in adhar-system, code-server + terminal via the agent, a PVC for
 # /home/coder. The chart's `coder` ServiceAccount already holds the
 # pods/PVC RBAC for its own namespace (Role coder-workspace-perms), so the
-# template runs with in-cluster auth (use_kubeconfig=false).
+# template runs with adhar-controlplane auth (use_kubeconfig=false).
 #
 # Idempotent: exits 0 when a template named `kubernetes` already exists, so
 # operators can edit / version it from the Coder UI without the hook clobbering

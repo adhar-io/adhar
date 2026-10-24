@@ -32,9 +32,17 @@ func TestSeedingCommitsTheProfilesApplicationSet(t *testing.T) {
 			t.Fatalf("%s: %s was not staged: %v", provider, PlatformAppSetRepoFile, err)
 		}
 		want, _ := os.ReadFile(filepath.Join(stack, file))
-		if string(got) != string(want) {
-			t.Errorf("%s: the staged ApplicationSet is not a verbatim copy of %s; the CLI applies that file directly, "+
-				"so any difference makes Argo CD and the CLI fight over the live object", provider, file)
+		// On a fresh repo the staged file is the profile file plus the merge
+		// base annotation (SeededEnabledAnnotation) and nothing else.
+		var kept []string
+		for _, line := range strings.Split(string(got), "\n") {
+			if line == "  annotations:" || strings.Contains(line, SeededEnabledAnnotation+":") {
+				continue
+			}
+			kept = append(kept, line)
+		}
+		if strings.Join(kept, "\n") != string(want) {
+			t.Errorf("%s: the staged ApplicationSet differs from %s beyond the %s annotation", provider, file, SeededEnabledAnnotation)
 		}
 	}
 }
@@ -106,7 +114,22 @@ func TestTheStackApplyInstallsTheApplicationSetSource(t *testing.T) {
 	if !strings.Contains(s, `filepath.Join(r.StackDir, "adhar-appset-source.yaml")`) {
 		t.Error("applyPlatformStack no longer applies adhar-appset-source.yaml; Marketplace commits would never reach the cluster")
 	}
-	if !strings.Contains(s, "if repoName == globals.GitOpsRepoPackages {\n\t\tif err := InjectPlatformAppSet(") {
-		t.Error("seeding no longer commits the ApplicationSet into the packages repo")
+	if !strings.Contains(s, "kept, err := InjectMergedPlatformAppSet(stagedSrc, r.StackDir, provider, head, fallbackBase)") {
+		t.Error("seeding no longer commits the ApplicationSet, merged with Gitea's copy, into the packages repo")
+	}
+}
+
+// Once the ApplicationSet exists, the packages repo is its source. Re-applying
+// the CLI's file on every pass force-set each `enabled` flag back to the
+// checkout and re-created packages the Marketplace had disabled.
+func TestTheStackApplyOnlyCreatesTheApplicationSet(t *testing.T) {
+	src, err := os.ReadFile("controller.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	if !strings.Contains(s, "exists, err := r.platformAppSetExists(ctx, appSetBytes)") ||
+		!strings.Contains(s, "if !exists {\n\t\tif err := r.applyManifestNoOwner(ctx, appSetBytes, resource, \"Platform stack ApplicationSet\")") {
+		t.Error("the platform ApplicationSet is applied over an existing one again; Marketplace toggles would be reverted on every reconcile")
 	}
 }

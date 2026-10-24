@@ -3,7 +3,7 @@
 # =============================================================================
 # The platform's DEFAULT log collector is Grafana Alloy
 # (platform/stack/packages/observability/alloy), which already tails container
-# logs and ships them to the in-cluster Loki. Fluent Bit is provided here as a
+# logs and ships them to the adhar-controlplane Loki. Fluent Bit is provided here as a
 # lightweight ALTERNATIVE for teams that prefer the Fluent ecosystem, or as an
 # ADDITIONAL collector for specific workloads.
 #
@@ -124,7 +124,7 @@ config:
         Match *
 
     # ------------------------------------------------------------------------
-    # READY-TO-WIRE: forward to the in-cluster Loki (loki-stack package).
+    # READY-TO-WIRE: forward to the adhar-controlplane Loki (loki-stack package).
     # Uncomment and remove the stdout output above to ship logs to Loki. The
     # loki output plugin pushes to <host>/loki/api/v1/push. Use the Loki
     # gateway (single binary) or the distributed write path.

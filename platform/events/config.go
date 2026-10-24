@@ -24,7 +24,7 @@ import (
 
 // EnvBridgeURL names the KafkaBridge the platform publishes through.
 //
-// Opt-IN, deliberately. Deriving the in-cluster bridge address automatically
+// Opt-IN, deliberately. Deriving the adhar-controlplane bridge address automatically
 // would turn every local `adhar up` — where Kafka is not enabled — into a
 // controller retrying HTTP against a Service that does not exist, once per
 // reconcile, forever. A platform with no bus must be silent about not having
@@ -36,7 +36,7 @@ const EnvBridgeURL = "ADHAR_EVENTS_BRIDGE_URL"
 // derived from the cluster and component names instead.
 const EnvSource = "ADHAR_EVENTS_SOURCE"
 
-// DefaultBridgeURL is the in-cluster address of the bridge the kafka-operator
+// DefaultBridgeURL is the adhar-controlplane address of the bridge the kafka-operator
 // package declares (`KafkaBridge/adhar-events`). Strimzi names the Service
 // `<bridge>-bridge-service`, which is not a name anyone would guess, so it is
 // written down once here for the manifest that sets EnvBridgeURL to copy.

@@ -79,7 +79,7 @@ providers:
     # Uses the signed-in `az login` session. No secret in this file, and nothing to
     # rotate later.
     #
-    # NOTE for the in-cluster half: external-dns and the cert-manager DNS-01 solver
+    # NOTE for the adhar-controlplane half: external-dns and the cert-manager DNS-01 solver
     # run inside the cluster and cannot use your CLI session. They need a service
     # principal with "DNS Zone Contributor" on the platform.example.com zone. Create one
     # when you want trusted certificates:
@@ -87,7 +87,7 @@ providers:
     #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/platform.example.com
     useAzureCLI: true
 
-    # The in-cluster DNS components cannot use a CLI session, so they need a service
+    # The adhar-controlplane DNS components cannot use a CLI session, so they need a service
     # principal. Its id and tenant are safe to record; the SECRET never belongs in
     # this file. Point `clientSecretFile` at a file holding it instead:
     #
@@ -127,7 +127,7 @@ providers:
     # kubeadm-joins it, which a managed node pool does not let it do. It also
     # keeps the node ours, which two things the platform needs depend on: the
     # kubelet flags, and the containerd certs.d trust that lets nodes pull
-    # kpack-built images from the in-cluster Harbor.
+    # kpack-built images from the adhar-controlplane Harbor.
     #
     # Nothing is given up at the edge on THIS cloud. Compute mode installs the
     # cloud-controller-manager (platform/providers/cloudintegration.go), so the
@@ -326,7 +326,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   test:
     isolation: namespace
@@ -346,7 +346,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   prod:
     isolation: namespace
@@ -371,4 +371,4 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 3
-      maxWorkers: 8
+      maxWorkers: 10

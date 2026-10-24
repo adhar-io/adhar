@@ -24,6 +24,7 @@ from dash_data_core import cloudnativepg, kafka_cluster, kafka_topics, rabbitmq,
 def postgres():
     d = cloudnativepg()
     d.title = "Data / PostgreSQL (CloudNativePG)"
+    d.links = links("Data")
     d.collapse = 1
     return d
 
@@ -31,6 +32,7 @@ def postgres():
 def cache():
     d = valkey()
     d.title = "Data / Valkey Cache"
+    d.links = links("Data")
     d.description += " Replaces the Redis Overview and Redis HA community dashboards."
     d.collapse = 1
     return d
@@ -39,6 +41,7 @@ def cache():
 def kafka():
     d = kafka_cluster()
     d.title = "Data / Kafka (Strimzi)"
+    d.links = links("Data")
     d.description = ("Strimzi Kafka (KRaft): the platform's shared adhar-kafka and every composed application "
                      "cluster. Brokers and controller health, throughput, requests, replication, storage and JVM; then "
                      "topics, production and consumer lag per group from the kafka-exporter (formerly 'Kafka / Topics "
@@ -51,6 +54,7 @@ def kafka():
 def rabbit():
     d = rabbitmq()
     d.title = "Data / RabbitMQ"
+    d.links = links("Data")
     d.collapse = 1
     return d
 

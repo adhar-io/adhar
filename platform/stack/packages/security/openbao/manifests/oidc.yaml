@@ -12,6 +12,10 @@
 #      NOTE: the vault package declares its own `vault` client inside
 #      keycloak-config.yaml; openbao declares its own here, so the two never
 #      collide even though only one of them is ever enabled.
+#      Redirect URIs: the UI's popup callback, the click-free start page
+#      (/adhar-sso/openbao.html — security/keycloak/manifests/sso-start.yaml),
+#      the API callback and the CLI loopback; the OpenBao role
+#      (bootstrap.yaml, configure-oidc.sh) allows the same set.
 #   2. `openbao-oidc` — republishes OPENBAO_CLIENT_SECRET as a local Secret.
 #   3. `openbao-ca` — the self-signed platform CA, needed because OpenBao has no
 #      TLS-skip for OIDC discovery.
@@ -54,6 +58,7 @@ data:
       },
       "redirectUris": [
         "https://openbao.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback",
+        "https://openbao.adhar.localtest.me:8443/adhar-sso/openbao.html",
         "https://openbao.adhar.localtest.me:8443/v1/auth/oidc/oidc/callback",
         "http://localhost:8250/oidc/callback"
       ],

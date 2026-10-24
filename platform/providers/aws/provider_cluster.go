@@ -398,7 +398,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		log.Printf("● Network Interfaces cleaned up\n")
 	}
 
-	// The in-cluster controllers created resources no tracker knows about: a load
+	// The adhar-controlplane controllers created resources no tracker knows about: a load
 	// balancer per LoadBalancer Service (in either AWS flavour), the `k8s-elb-*`
 	// security group that goes with it, and an EBS volume per PersistentVolume.
 	// They are swept HERE, before the security groups, subnets and VPC below: an

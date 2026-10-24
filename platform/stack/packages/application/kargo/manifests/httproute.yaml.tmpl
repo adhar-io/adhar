@@ -1,0 +1,68 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kargo-api
+  namespace: adhar-system
+spec:
+  parentRefs:
+  - name: adhar-gateway
+    namespace: adhar-system
+  hostnames:
+  - kargo.adhar.localtest.me
+  # Click-free sign-in (security/keycloak/manifests/sso-start.yaml). Kargo's UI
+  # signs in with PKCE in the browser and keeps its token in localStorage, so a
+  # bare page load is sent to /adhar-sso/kargo.html on this host, which starts
+  # Kargo's own Keycloak login. Rule precedence (Gateway API): an Exact path
+  # beats a prefix, and among equal paths more header/query matches win.
+  rules:
+  # The start page itself.
+  - matches:
+    - path: {type: PathPrefix, value: /adhar-sso/}
+    backendRefs:
+    - name: adhar-sso-start
+      port: 80
+  # The OIDC return (code + state) and the manual fallback reach Kargo's UI.
+  - matches:
+    - path: {type: Exact, value: /login}
+      queryParams:
+      - {type: RegularExpression, name: code, value: ".+"}
+    - path: {type: Exact, value: /login}
+      queryParams:
+      - {type: RegularExpression, name: manual, value: ".+"}
+    backendRefs:
+    - name: kargo-api
+      port: 80
+  # Any other full load of the login page starts SSO (the query string, with
+  # redirectTo, is kept by the redirect).
+  - matches:
+    - path: {type: Exact, value: /login}
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        path: {type: ReplaceFullPath, replaceFullPath: /adhar-sso/kargo.html}
+        port: {{ .Port }}
+        statusCode: 302
+  # The home page: straight through once the start page has run (marker cookie,
+  # 8 h), otherwise start SSO — Kargo has no server-visible session to test.
+  - matches:
+    - path: {type: Exact, value: /}
+      headers:
+      - {type: RegularExpression, name: Cookie, value: '.*adhar_sso_kargo=[^;]+.*'}
+    backendRefs:
+    - name: kargo-api
+      port: 80
+  - matches:
+    - path: {type: Exact, value: /}
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        path: {type: ReplaceFullPath, replaceFullPath: /adhar-sso/kargo.html}
+        port: {{ .Port }}
+        statusCode: 302
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: kargo-api
+      port: 80

@@ -1,5 +1,5 @@
 ---
-# Local secret-rotation composition — rotates the values of in-cluster
+# Local secret-rotation composition — rotates the values of adhar-controlplane
 # Kubernetes Secrets on demand, without an external secret-manager backend. It is
 # the local counterpart of the cloud `secretrotation-*` compositions, so
 # a SecretRotation request written for local runs unchanged on a cloud

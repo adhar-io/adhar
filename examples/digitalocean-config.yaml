@@ -45,7 +45,7 @@ providers:
     # kubeadm-joins it, which a managed node pool does not let it do. It also
     # keeps the node ours, which two things the platform needs depend on: the
     # kubelet flags, and the containerd certs.d trust that lets nodes pull
-    # kpack-built images from the in-cluster Harbor.
+    # kpack-built images from the adhar-controlplane Harbor.
     #
     # Nothing is given up at the edge on THIS cloud. Compute mode installs the
     # cloud-controller-manager (platform/providers/cloudintegration.go), so the
@@ -157,7 +157,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   test:
     isolation: namespace
@@ -174,7 +174,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   prod:
     isolation: namespace
@@ -197,7 +197,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 3
-      maxWorkers: 5
+      maxWorkers: 10
 
 # ---------------------------------------------------------------------------
 # Agentic capabilities (Adhar AI)

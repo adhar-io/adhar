@@ -1,0 +1,791 @@
+# The platform's Strapi extension (2026-10-24): server-side code the boot
+# script (install.yaml, step 2c) copies into the scaffolded project on every
+# start, because Strapi loads lifecycle hooks only from src/index.js inside the
+# project tree.
+#
+#   index.js            -> src/index.js         managed entry point; runs the
+#                                                platform hooks, then an
+#                                                operator's src/index.local.js
+#   platform-index.js   -> src/adhar/index.js   wires the three pieces below
+#   bootstrap-admin.js  -> src/adhar/           the unattended first Super Admin
+#                                                (no /admin/auth/register-admin)
+#   console-token.js    -> src/adhar/           the Adhar Console's API token
+#   sso.js              -> src/adhar/           Keycloak sign-in at /admin-sso,
+#                                                group -> role sync, login-page
+#                                                skip, logout, break-glass
+#
+# Plain CommonJS against Strapi's own services (admin::user, admin::role,
+# admin::api-token, strapi.sessionManager), so no npm install and no admin
+# rebuild. Verified end to end against Strapi 5.57.0 (SQLite and Postgres 16)
+# behind oauth2-proxy v7.7.1 and Keycloak 26 — see README.md.
+#
+# CHANGING THIS FILE: bump adhar.io/extension-revision on the strapi
+# Deployment's pod template (install.yaml), or the running pod keeps the old
+# copy until something else restarts it.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: strapi-platform-extension
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: strapi, app.kubernetes.io/part-of: strapi}
+  # Before the wave-7 Deployment that mounts it.
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  index.js: |
+    'use strict';
+    // Managed by the Adhar platform (packages/application/strapi, ConfigMap
+    // strapi-platform-extension) and rewritten on every start.
+    //
+    // Strapi runs exactly one src/index.js, and the platform needs its register/
+    // bootstrap hooks for the Keycloak bridge and the unattended first admin
+    // (2026-10-24). Your own lifecycle code belongs in src/index.local.js, which
+    // this file runs after the platform's: the boot script moved any pre-existing
+    // src/index.js there once, so nothing written before this change was lost.
+    const platform = require('./adhar');
+
+    let local = {};
+    try {
+      local = require('./index.local');
+    } catch (err) {
+      // Only "there is no index.local.js" is fine; a broken one must fail loudly.
+      if (!(err && err.code === 'MODULE_NOT_FOUND' && String(err.message).includes('index.local'))) throw err;
+    }
+
+    module.exports = {
+      async register(ctx) {
+        await platform.register(ctx);
+        if (typeof local.register === 'function') await local.register(ctx);
+      },
+      async bootstrap(ctx) {
+        await platform.bootstrap(ctx);
+        if (typeof local.bootstrap === 'function') await local.bootstrap(ctx);
+      },
+      async destroy(ctx) {
+        if (typeof local.destroy === 'function') await local.destroy(ctx);
+      },
+    };
+  platform-index.js: |
+    'use strict';
+    // Managed by the Adhar platform (packages/application/strapi, ConfigMap
+    // strapi-platform-extension) and rewritten on every start.
+    //
+    // The platform's Strapi hooks (2026-10-24):
+    //   - bootstrap-admin: the first super admin is created unattended, so
+    //     /admin/auth/register-admin never appears to whoever opens Strapi first;
+    //   - console-token: the Adhar Console's Content API token;
+    //   - sso: Keycloak sign-in for the admin panel, through the oauth2-proxy in
+    //     front of Strapi — no second login, roles from Keycloak groups.
+    // Each step logs and carries on when it fails: a CMS that is up without
+    // SSO is recoverable (break-glass login), a CMS that will not boot is not.
+    const bootstrapAdmin = require('./bootstrap-admin');
+    const consoleToken = require('./console-token');
+    const sso = require('./sso');
+
+    const step = async (strapi, name, fn) => {
+      try {
+        await fn();
+      } catch (err) {
+        strapi.log.error(`[adhar] ${name} failed: ${err && err.stack ? err.stack : err}`);
+      }
+    };
+
+    module.exports = {
+      register({ strapi }) {
+        sso.register(strapi);
+      },
+      async bootstrap({ strapi }) {
+        await step(strapi, 'bootstrap admin', () => bootstrapAdmin(strapi));
+        await step(strapi, 'console token', () => consoleToken(strapi));
+        await step(strapi, 'sso', () => sso.bootstrap(strapi));
+      },
+    };
+  bootstrap-admin.js: |
+    'use strict';
+    // Managed by the Adhar platform (packages/application/strapi, ConfigMap
+    // strapi-platform-extension) and rewritten on every start.
+    //
+    // THE UNATTENDED FIRST ADMIN (2026-10-24)
+    // Strapi shows /admin/auth/register-admin until an admin user exists, and
+    // whoever reaches it first becomes Super Admin. On a platform where people
+    // sign in with Keycloak that page is both a trap (a second, unrelated
+    // password) and a race. So the platform owns the first admin: a service
+    // identity whose password lives only in Secret `strapi-bootstrap-admin`
+    // (generated once by ESO, platform-postgres.yaml). Nobody needs it day to
+    // day; it is the break-glass account (README.md, "Break-glass").
+    //
+    // Idempotent and authoritative, on every start:
+    //   - no admin at all      -> created through Strapi's own createFirstAdmin
+    //                             (the same race-safe path the register page uses);
+    //   - admins, but not this -> created as an extra Super Admin;
+    //   - exists               -> kept active, Super Admin, and on the Secret's
+    //                             password (so rotating the Secret rotates it).
+    // The SSO bridge refuses to sign anyone in AS this email (sso.js), so a
+    // Keycloak account registered with the same address cannot inherit it.
+
+    const SUPER_ADMIN = 'strapi-super-admin';
+
+    const bootstrapEmail = () =>
+      (process.env.STRAPI_BOOTSTRAP_ADMIN_EMAIL || 'strapi-bootstrap@adhar.internal').trim().toLowerCase();
+
+    module.exports = async function ensureBootstrapAdmin(strapi) {
+      const email = bootstrapEmail();
+      const password = process.env.STRAPI_BOOTSTRAP_ADMIN_PASSWORD || '';
+      if (!password) {
+        strapi.log.warn('[adhar] bootstrap admin: STRAPI_BOOTSTRAP_ADMIN_PASSWORD is empty; skipping (register-admin stays reachable)');
+        return;
+      }
+      const users = strapi.service('admin::user');
+      const superAdmin = await strapi.service('admin::role').getSuperAdmin();
+      if (!superAdmin) {
+        strapi.log.warn('[adhar] bootstrap admin: no Super Admin role yet; skipping');
+        return;
+      }
+      const attrs = { email, firstname: 'Platform', lastname: 'Bootstrap', username: 'strapi-bootstrap', password };
+
+      const existing = await users.findOneByEmail(email, ['roles']);
+      if (!existing) {
+        if (!(await users.exists())) {
+          await users.createFirstAdmin(attrs);
+          strapi.log.info(`[adhar] bootstrap admin: created the first Super Admin (${email})`);
+        } else {
+          await users.create({ ...attrs, isActive: true, registrationToken: null, roles: [superAdmin.id] });
+          strapi.log.info(`[adhar] bootstrap admin: created ${email} as an additional Super Admin`);
+        }
+        return;
+      }
+
+      const patch = {};
+      if (existing.isActive !== true) patch.isActive = true;
+      if (existing.blocked) patch.blocked = false;
+      const roleIds = (existing.roles || []).map((r) => r.id);
+      if (!(existing.roles || []).some((r) => r.code === SUPER_ADMIN)) patch.roles = [...roleIds, superAdmin.id];
+      const same = existing.password
+        ? await strapi.service('admin::auth').validatePassword(password, existing.password)
+        : false;
+      if (!same) patch.password = password;
+      if (Object.keys(patch).length === 0) {
+        strapi.log.info(`[adhar] bootstrap admin: ${email} already in place`);
+        return;
+      }
+      await users.updateById(existing.id, patch);
+      strapi.log.info(`[adhar] bootstrap admin: repaired ${email} (${Object.keys(patch).join(', ')})`);
+    };
+
+    module.exports.bootstrapEmail = bootstrapEmail;
+  console-token.js: |
+    'use strict';
+    // Managed by the Adhar platform (packages/application/strapi, ConfigMap
+    // strapi-platform-extension) and rewritten on every start.
+    //
+    // THE ADHAR CONSOLE'S API TOKEN
+    // Strapi stores an API token only as HMAC-SHA512(API_TOKEN_SALT, key), so the
+    // hash of the platform-generated key (console-token.yaml, Secret
+    // strapi-api-token) IS the token. This upserts one full-access, non-expiring
+    // "Adhar Console" token and repairs it if it was edited or deleted.
+    //
+    // Through Strapi's own query layer, not raw SQL (2026-10-24): the previous
+    // boot-script version wrote the table with `pg` and failed on 5.57 with
+    // `column "expires_at" is of type timestamp without time zone but expression
+    // is of type integer` — and it never set `kind`, a column 5.57 added. The
+    // query layer knows every column's type and default on whatever minor this is.
+
+    const NAME = 'Adhar Console';
+    const DESCRIPTION =
+      'Used by the Adhar Console (Develop → Content). Managed by the platform; deleting it is undone on the next Strapi start.';
+
+    module.exports = async function ensureConsoleToken(strapi) {
+      const key = process.env.ADHAR_CONSOLE_TOKEN || '';
+      if (!key) {
+        strapi.log.info('[adhar] console token: no ADHAR_CONSOLE_TOKEN yet; skipping');
+        return;
+      }
+      const svc = strapi.service('admin::api-token');
+      const accessKey = svc.hash(key);
+      const attrs = strapi.getModel('admin::api-token').attributes;
+      const want = { type: 'full-access', accessKey, lifespan: null, expiresAt: null };
+      if (attrs.kind) want.kind = 'content-api';
+      if (attrs.encryptedKey) {
+        try {
+          // Lets an admin reveal the key in Settings → API Tokens, as for any
+          // token Strapi minted itself. Optional: needs admin.secrets.encryptionKey.
+          want.encryptedKey = strapi.service('admin::encryption').encrypt(key);
+        } catch (_) {
+          /* no encryption key configured: the token still works */
+        }
+      }
+
+      const q = strapi.db.query('admin::api-token');
+      const row = await q.findOne({ where: { name: NAME } });
+      if (!row) {
+        await q.create({ data: { name: NAME, description: DESCRIPTION, ...want } });
+        strapi.log.info('[adhar] console token: registered');
+        return;
+      }
+      const drift =
+        row.accessKey !== accessKey ||
+        row.type !== 'full-access' ||
+        row.expiresAt != null ||
+        row.lifespan != null ||
+        (attrs.kind && row.kind !== 'content-api');
+      if (!drift) {
+        strapi.log.info('[adhar] console token: already registered');
+        return;
+      }
+      // encryptedKey is only rewritten together with a key change: encryption is
+      // randomized, so comparing ciphertexts would "repair" on every boot.
+      if (row.accessKey === accessKey) delete want.encryptedKey;
+      await q.update({ where: { id: row.id }, data: want });
+      strapi.log.info('[adhar] console token: repaired');
+    };
+  sso.js: |
+    'use strict';
+    // Managed by the Adhar platform (packages/application/strapi, ConfigMap
+    // strapi-platform-extension) and rewritten on every start.
+    //
+    // KEYCLOAK SIGN-IN FOR THE STRAPI ADMIN PANEL (2026-10-24)
+    // =========================================================
+    // Strapi Community Edition has no admin SSO (it is an Enterprise feature), and
+    // everybody reaching strapi.<host> has ALREADY signed in to Keycloak at the
+    // strapi-oauth2-proxy in front of it. Asking them for a second, Strapi-only
+    // password is what this file removes. GET /admin-sso turns the proxy's
+    // Keycloak session into a Strapi admin session:
+    //
+    //   1. identity: the Keycloak ACCESS TOKEN the proxy forwards
+    //      (X-Forwarded-Access-Token, oauth2-proxy --pass-access-token), verified
+    //      HERE — signature against the realm's JWKS, `iss` = the realm, `azp` =
+    //      the proxy's own client (`strapi`), not expired;
+    //   2. user: found by email, created if new, activated, names synced;
+    //   3. roles: Keycloak groups -> Strapi admin roles (ADHAR_SSO_ROLE_MAP),
+    //      re-synced on EVERY sign-in. Only the roles in the map are managed;
+    //      custom roles granted inside Strapi are left alone. Nobody in a mapped
+    //      group -> no access, and an existing account is deactivated (which also
+    //      kills its open sessions: Strapi's admin auth checks isActive per request);
+    //   4. session: minted with Strapi's own session manager
+    //      (strapi.sessionManager('admin') — the same calls Strapi's login and its
+    //      Enterprise SSO callback make), handed over the way the Enterprise SSO
+    //      callback does: the httpOnly refresh cookie plus the access-token cookie
+    //      the admin panel reads on load. Then back to /admin.
+    //
+    // TRUST BOUNDARY — why a forged request cannot become an admin
+    // -------------------------------------------------------------
+    // Strapi's Service is reachable in-cluster without the proxy (the console BFF
+    // and tenant apps use the Content API at strapi.adhar-system:1337 with API
+    // tokens, which is why there is no NetworkPolicy here: it would break exactly
+    // those callers). So NO plain header is trusted. Not X-Forwarded-Email, not
+    // X-Forwarded-User, not X-Forwarded-Groups — anyone can send those to the
+    // Service directly. The only input is a token Keycloak SIGNED for the
+    // `strapi` client; without the realm's private key it cannot be forged, and
+    // a token for another client (another app's audience) is rejected on `azp`.
+    // At the edge, oauth2-proxy v7 additionally deletes any client-sent
+    // X-Forwarded-Access-Token / X-Forwarded-{User,Email,Groups,Preferred-Username}
+    // before injecting its own (skip-auth-strip-headers, default true), so a
+    // browser cannot smuggle someone else's token through the proxy either.
+    //
+    // The login page is skipped two ways: a full page load of /admin/** without
+    // a Strapi session for THIS Keycloak user is redirected here server-side, and
+    // a tiny script (/admin-sso/guard.js, injected into the admin HTML) catches
+    // the panel's client-side navigations to /auth/login and /auth/register-admin.
+    // Break-glass: /admin/auth/login?local=1 shows the local password form (the
+    // platform bootstrap admin, bootstrap-admin.js) and keeps it for that browser
+    // session. Logout: Strapi's own logout runs, then the guard ends the proxy's
+    // session too (/oauth2/sign_out) and lands on /admin-sso/signed-out instead of
+    // silently signing the user straight back in.
+
+    const crypto = require('crypto');
+    const { bootstrapEmail } = require('./bootstrap-admin');
+
+    const SSO_PATH = '/admin-sso';
+    const LOCAL_COOKIE = 'adhar_sso_local';
+    const BIND_COOKIE = 'adhar_sso_sub';
+    const REFRESH_COOKIE = 'strapi_admin_refresh';
+    const GUARD_TAG = '<script src="/admin-sso/guard.js"></script>';
+    const CLOCK_SKEW_S = 30;
+
+    // Platform groups (security/keycloak keycloak-config.yaml) -> Strapi's three
+    // built-in roles. platform-viewer is deliberately absent: Strapi's lowest
+    // role, Author, can still create and publish its own entries, which is not
+    // "viewer". Unlisted groups (base-user, security-*, self-registered accounts
+    // with no group at all) get no access — the realm allows self-registration,
+    // so "everyone else -> Author" would hand the CMS to anyone with an email.
+    const DEFAULT_ROLE_MAP =
+      'platform-admin=strapi-super-admin,' +
+      'platform-engineer=strapi-editor,application-admin=strapi-editor,' +
+      'platform-developer=strapi-author';
+
+    const trimSlash = (v) => String(v || '').trim().replace(/\/+$/, '');
+
+    const config = () => {
+      const issuer = trimSlash(process.env.KEYCLOAK_ISSUER_URL);
+      return {
+        issuer,
+        // JWKS is fetched in-cluster so the server never trusts the public
+        // ingress certificate (self-signed on some clusters).
+        internal: trimSlash(process.env.KEYCLOAK_INTERNAL_ISSUER_URL) || issuer,
+        clientId: (process.env.ADHAR_SSO_CLIENT_ID || 'strapi').trim(),
+        roleMap: parseRoleMap(process.env.ADHAR_SSO_ROLE_MAP || DEFAULT_ROLE_MAP),
+      };
+    };
+
+    // "group=role-code,group=role-code" -> [{group, code}]
+    function parseRoleMap(spec) {
+      return String(spec)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((pair) => {
+          const i = pair.lastIndexOf('=');
+          return i > 0 ? { group: pair.slice(0, i).trim().replace(/^\/+/, ''), code: pair.slice(i + 1).trim() } : null;
+        })
+        .filter((e) => e && e.group && e.code);
+    }
+
+    // Keycloak groups arrive as "platform-admin" (full.path=false, the realm's
+    // mapper) or "/org/team" (full path); match either the path or its leaf.
+    function desiredRoleCodes(groups, roleMap) {
+      const names = new Set();
+      for (const g of groups) {
+        const path = String(g).replace(/^\/+/, '');
+        names.add(path);
+        names.add(path.split('/').pop());
+      }
+      return [...new Set(roleMap.filter((e) => names.has(e.group)).map((e) => e.code))];
+    }
+
+    // ── Keycloak access-token verification ──────────────────────────────────────
+    const b64urlJson = (s) => JSON.parse(Buffer.from(s, 'base64url').toString('utf8'));
+
+    const ALGS = {
+      RS256: { hash: 'sha256' }, RS384: { hash: 'sha384' }, RS512: { hash: 'sha512' },
+      PS256: { hash: 'sha256', pss: true }, PS384: { hash: 'sha384', pss: true }, PS512: { hash: 'sha512', pss: true },
+      ES256: { hash: 'sha256', ec: true }, ES384: { hash: 'sha384', ec: true }, ES512: { hash: 'sha512', ec: true },
+      EdDSA: { hash: null },
+    };
+
+    const jwks = { keys: new Map(), fetchedAt: 0, inflight: null };
+
+    async function loadJwks(internal) {
+      if (jwks.inflight) return jwks.inflight;
+      jwks.inflight = (async () => {
+        const res = await fetch(`${internal}/protocol/openid-connect/certs`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error(`JWKS ${res.status}`);
+        const body = await res.json();
+        const keys = new Map();
+        for (const jwk of body.keys || []) {
+          if (!jwk.kid || jwk.use === 'enc') continue;
+          try {
+            keys.set(jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' }));
+          } catch (_) {
+            /* a key type Node cannot import is simply not usable */
+          }
+        }
+        jwks.keys = keys;
+        jwks.fetchedAt = Date.now();
+      })();
+      try {
+        await jwks.inflight;
+      } finally {
+        jwks.inflight = null;
+      }
+    }
+
+    async function signingKey(kid, internal) {
+      const age = Date.now() - jwks.fetchedAt;
+      // Cached for 10 minutes; an unknown kid (Keycloak key rotation) refetches,
+      // at most every 30 s so a garbage kid cannot hammer Keycloak.
+      if (!jwks.keys.has(kid) || age > 10 * 60 * 1000) {
+        if (age > 30 * 1000 || jwks.keys.size === 0) await loadJwks(internal);
+      }
+      return jwks.keys.get(kid);
+    }
+
+    async function verifyAccessToken(token, cfg) {
+      const parts = String(token).split('.');
+      if (parts.length !== 3) throw new Error('not a JWT');
+      let header;
+      let claims;
+      try {
+        header = b64urlJson(parts[0]);
+        claims = b64urlJson(parts[1]);
+      } catch (_) {
+        throw new Error('malformed JWT');
+      }
+      const alg = ALGS[header.alg];
+      if (!alg) throw new Error(`unsupported alg ${header.alg}`); // never "none" or HS*
+      const key = await signingKey(header.kid, cfg.internal);
+      if (!key) throw new Error(`unknown signing key ${header.kid}`);
+      const data = Buffer.from(`${parts[0]}.${parts[1]}`);
+      const sig = Buffer.from(parts[2], 'base64url');
+      const keyArg = alg.pss
+        ? { key, padding: crypto.constants.RSA_PKCS1_PSS_PADDING, saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST }
+        : alg.ec
+          ? { key, dsaEncoding: 'ieee-p1363' }
+          : key;
+      if (!crypto.verify(alg.hash, data, keyArg, sig)) throw new Error('bad signature');
+
+      const now = Math.floor(Date.now() / 1000);
+      if (claims.iss !== cfg.issuer) throw new Error(`issuer ${claims.iss} is not ${cfg.issuer}`);
+      if (claims.azp !== cfg.clientId) throw new Error(`token was issued to ${claims.azp}, not ${cfg.clientId}`);
+      if (claims.typ && claims.typ !== 'Bearer') throw new Error(`token type ${claims.typ}`);
+      if (typeof claims.exp !== 'number' || claims.exp + CLOCK_SKEW_S < now) throw new Error('token expired');
+      if (typeof claims.nbf === 'number' && claims.nbf - CLOCK_SKEW_S > now) throw new Error('token not yet valid');
+      if (!claims.email) throw new Error('token carries no email (is the "email" scope on the strapi client?)');
+      return claims;
+    }
+
+    // Returns {ok, identity} or {ok:false, reason}. Never throws.
+    async function identify(ctx, cfg) {
+      if (!cfg.issuer) return { ok: false, reason: 'KEYCLOAK_ISSUER_URL is not configured' };
+      const raw = ctx.get('x-forwarded-access-token');
+      if (!raw) {
+        return { ok: false, reason: 'no Keycloak token on the request — it did not come through strapi-oauth2-proxy' };
+      }
+      try {
+        const c = await verifyAccessToken(raw, cfg);
+        const email = String(c.email).trim().toLowerCase();
+        const username = c.preferred_username && c.preferred_username !== email ? c.preferred_username : null;
+        return {
+          ok: true,
+          identity: {
+            email,
+            username,
+            firstname: c.given_name || (c.name ? String(c.name).split(' ')[0] : null) || email.split('@')[0],
+            lastname: c.family_name || null,
+            groups: Array.isArray(c.groups) ? c.groups.map(String) : [],
+          },
+        };
+      } catch (err) {
+        return { ok: false, reason: `the Keycloak token was rejected: ${err.message}` };
+      }
+    }
+
+    // ── cookies ─────────────────────────────────────────────────────────────────
+    // Mirrors @strapi/admin shared/utils/session-auth (getRefreshCookieOptions,
+    // buildCookieOptionsWithExpiry, getAccessCookie*): those helpers are not
+    // exported, and the admin panel reads the cookie under exactly these names,
+    // paths and domains (inlined into its bundle at build time).
+    function strapiCookieBase(strapi, ctx) {
+      const configuredSecure = strapi.config.get('admin.auth.cookie.secure');
+      const secure =
+        typeof configuredSecure === 'boolean' ? configuredSecure : process.env.NODE_ENV === 'production' && ctx.request.secure;
+      return {
+        secure: Boolean(secure) && ctx.request.secure, // koa refuses a Secure cookie on a request it thinks is plain HTTP
+        path: strapi.config.get('admin.auth.cookie.path') || '/admin',
+        domain: strapi.config.get('admin.auth.cookie.domain') || strapi.config.get('admin.auth.domain') || undefined,
+        sameSite: strapi.config.get('admin.auth.cookie.sameSite') || 'lax',
+        overwrite: true,
+      };
+    }
+
+    const accessCookieName = (strapi) => (strapi.config.get('admin.auth.cookie.name') || '').trim() || 'jwtToken';
+
+    const bindSecret = () => process.env.ADMIN_JWT_SECRET || process.env.APP_KEYS || 'adhar';
+    const bindValue = (email) =>
+      `${Buffer.from(email).toString('base64url')}.${crypto.createHmac('sha256', bindSecret()).update(`bind:${email}`).digest('base64url')}`;
+    function boundEmail(ctx) {
+      const v = ctx.cookies.get(BIND_COOKIE);
+      if (!v || !v.includes('.')) return null;
+      const email = Buffer.from(v.split('.')[0], 'base64url').toString('utf8');
+      const want = Buffer.from(bindValue(email));
+      const got = Buffer.from(v);
+      return want.length === got.length && crypto.timingSafeEqual(want, got) ? email : null;
+    }
+    const siteCookie = (ctx, extra = {}) => ({ path: '/', sameSite: 'lax', secure: ctx.request.secure, overwrite: true, ...extra });
+
+    // ── pages ───────────────────────────────────────────────────────────────────
+    const esc = (s) =>
+      String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+    function page(ctx, status, title, body, script) {
+      const nonce = crypto.randomBytes(16).toString('base64');
+      ctx.status = status;
+      ctx.set('Cache-Control', 'no-store');
+      ctx.set(
+        'Content-Security-Policy',
+        `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+      );
+      ctx.type = 'html';
+      ctx.body =
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+        `<title>${esc(title)} · Strapi</title><style>body{font:15px/1.5 system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f6f6f9;color:#32324d}` +
+        `main{max-width:34rem;padding:2rem}h1{font-size:1.25rem}a{color:#4945ff}code{background:#eaeaef;padding:0 .25rem;border-radius:3px}` +
+        `@media (prefers-color-scheme:dark){body{background:#181826;color:#eaeaef}code{background:#32324d}a{color:#7b79ff}}</style></head>` +
+        `<body><main><h1>${esc(title)}</h1>${body}</main>${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
+    }
+
+    const BREAK_GLASS = (admin) =>
+      `<p>Operators can still use the <a href="${esc(admin)}/auth/login?local=1">local administrator login</a> (break-glass).</p>`;
+
+    // Only a path inside the admin panel; never another origin ("//evil", "/\\evil").
+    function safeNext(raw, admin) {
+      const v = typeof raw === 'string' ? raw : '';
+      if (!v.startsWith(admin) || /^\/[\\/]/.test(v) || /[\r\n]/.test(v)) return admin;
+      const rest = v.slice(admin.length);
+      if (!(rest === '' || rest[0] === '/' || rest[0] === '?')) return admin;
+      // Never "back" to the login or register page: signed in, that is a dead end.
+      return /^\/auth(\/|\?|$)/.test(rest) ? admin : v;
+    }
+
+    // ── the sign-in itself ──────────────────────────────────────────────────────
+    async function signIn(ctx, strapi, admin) {
+      const cfg = config();
+      const who = await identify(ctx, cfg);
+      if (!who.ok) {
+        strapi.log.warn(`[adhar] sso: refused /admin-sso: ${who.reason}`);
+        return page(ctx, 401, 'Single sign-on unavailable', `<p>${esc(who.reason)}.</p>${BREAK_GLASS(admin)}`);
+      }
+      const id = who.identity;
+      if (id.email === bootstrapEmail()) {
+        // The platform's break-glass identity can only be used with its password.
+        strapi.log.warn(`[adhar] sso: refused ${id.email}: reserved for the bootstrap admin`);
+        return page(ctx, 403, 'Reserved account', `<p><code>${esc(id.email)}</code> is reserved for the platform's bootstrap administrator and cannot sign in through Keycloak.</p>`);
+      }
+
+      const users = strapi.service('admin::user');
+      const managed = new Set(cfg.roleMap.map((e) => e.code));
+      const codes = desiredRoleCodes(id.groups, cfg.roleMap);
+      let user = await users.findOneByEmail(id.email, ['roles']);
+
+      if (codes.length === 0) {
+        if (user && user.isActive) {
+          try {
+            await users.updateById(user.id, { isActive: false });
+            if (typeof strapi.sessionManager === 'function') {
+              await strapi.sessionManager('admin').invalidateRefreshToken(String(user.id));
+            }
+            strapi.log.info(`[adhar] sso: ${id.email} is in no mapped group; deactivated`);
+          } catch (err) {
+            strapi.log.warn(`[adhar] sso: could not deactivate ${id.email}: ${err.message}`);
+          }
+        }
+        strapi.log.info(`[adhar] sso: refused ${id.email}: groups [${id.groups.join(', ')}] grant no Strapi role`);
+        const groups = [...new Set(cfg.roleMap.map((e) => e.group))].map((g) => `<code>${esc(g)}</code>`).join(', ');
+        return page(
+          ctx,
+          403,
+          'No access to Strapi',
+          `<p>You are signed in as <code>${esc(id.email)}</code>, but none of your Keycloak groups grants a Strapi role.</p>` +
+            `<p>Access comes from membership in one of: ${groups}. Ask a platform administrator to add you, then <a href="${SSO_PATH}">try again</a>.</p>`
+        );
+      }
+
+      const roleRows = await strapi.db.query('admin::role').findMany({ where: { code: { $in: codes } } });
+      const wantIds = roleRows.map((r) => r.id);
+      if (wantIds.length === 0) {
+        strapi.log.error(`[adhar] sso: none of the roles [${codes.join(', ')}] exist in Strapi`);
+        return page(ctx, 500, 'Strapi roles missing', `<p>The roles <code>${esc(codes.join(', '))}</code> do not exist in this Strapi.</p>${BREAK_GLASS(admin)}`);
+      }
+
+      const profile = { firstname: id.firstname, lastname: id.lastname, username: id.username };
+      if (!user) {
+        user = await users.create({ email: id.email, ...profile, roles: wantIds, isActive: true, registrationToken: null });
+        strapi.log.info(`[adhar] sso: created ${id.email} as [${codes.join(', ')}]`);
+      } else {
+        const keep = (user.roles || []).filter((r) => !managed.has(r.code)).map((r) => r.id);
+        const roles = [...new Set([...keep, ...wantIds])];
+        const have = (user.roles || []).map((r) => r.id);
+        const patch = {};
+        const sameRoles = roles.length === have.length && roles.every((r) => have.includes(r));
+        if (!sameRoles) patch.roles = roles;
+        if (user.isActive !== true) patch.isActive = true;
+        if (user.blocked) patch.blocked = false;
+        for (const [k, v] of Object.entries(profile)) if (v && user[k] !== v) patch[k] = v;
+        if (Object.keys(patch).length) {
+          try {
+            await users.updateById(user.id, patch);
+          } catch (err) {
+            // "You must have at least one user with super admin role": cannot
+            // happen while the bootstrap admin exists, but never lock a user out
+            // over it — keep their current roles and say so.
+            strapi.log.warn(`[adhar] sso: role sync for ${id.email} rejected (${err.message}); keeping current roles`);
+            delete patch.roles;
+            if (Object.keys(patch).length) await users.updateById(user.id, patch);
+          }
+          strapi.log.info(`[adhar] sso: updated ${id.email} (${Object.keys(patch).join(', ')}) -> [${codes.join(', ')}]`);
+        }
+      }
+
+      const sm = strapi.sessionManager;
+      if (typeof sm !== 'function') {
+        return page(ctx, 500, 'Strapi session manager unavailable', `<p>This Strapi has no admin session manager.</p>${BREAK_GLASS(admin)}`);
+      }
+      let metadata;
+      try {
+        metadata = require('@strapi/utils').buildSessionMetadata?.({ userAgent: ctx.request.headers['user-agent'] });
+      } catch (_) {
+        metadata = undefined;
+      }
+      const { token: refreshToken, absoluteExpiresAt } = await sm('admin').generateRefreshToken(String(user.id), crypto.randomUUID(), {
+        type: 'refresh',
+        metadata,
+      });
+      const access = await sm('admin').generateAccessToken(refreshToken);
+      if (!access || 'error' in access) {
+        return page(ctx, 500, 'Could not start a Strapi session', `<p>Strapi refused to issue an access token.</p>${BREAK_GLASS(admin)}`);
+      }
+
+      const base = strapiCookieBase(strapi, ctx);
+      const idle = Number(strapi.config.get('admin.auth.sessions.idleRefreshTokenLifespan', 14 * 24 * 3600)) * 1000;
+      const expires = new Date(Math.min(Date.now() + idle, absoluteExpiresAt ? new Date(absoluteExpiresAt).getTime() : Infinity));
+      ctx.cookies.set(REFRESH_COOKIE, refreshToken, { ...base, httpOnly: true, expires });
+      ctx.cookies.set(accessCookieName(strapi), access.token, { ...base, httpOnly: false });
+      ctx.cookies.set(BIND_COOKIE, bindValue(id.email), siteCookie(ctx, { httpOnly: true, expires }));
+      ctx.cookies.set(LOCAL_COOKIE, '', siteCookie(ctx, { httpOnly: false, expires: new Date(0) }));
+      strapi.eventHub.emit('admin.auth.success', { user: users.sanitizeUser(user), provider: 'keycloak' });
+
+      const next = safeNext(ctx.query.next, admin);
+      // A page, not a 302: a token persisted in localStorage by an earlier
+      // "remember me" local login would otherwise win over the new cookie
+      // (the admin panel reads localStorage first).
+      return page(
+        ctx,
+        200,
+        'Signing you in…',
+        `<p>Signing you in to Strapi as <code>${esc(id.email)}</code>…</p><p><a href="${esc(next)}">Continue</a></p>`,
+        `try{localStorage.removeItem('jwtToken');localStorage.setItem('isLoggedIn','true')}catch(e){}location.replace(${JSON.stringify(next)});`
+      );
+    }
+
+    function signedOut(ctx, admin) {
+      const cfg = config();
+      ctx.cookies.set(BIND_COOKIE, '', siteCookie(ctx, { httpOnly: true, expires: new Date(0) }));
+      const platformLogout = cfg.issuer ? `${cfg.issuer}/protocol/openid-connect/logout` : null;
+      return page(
+        ctx,
+        200,
+        'Signed out of Strapi',
+        `<p>Your Strapi session has ended.</p><p><a href="${SSO_PATH}?next=${encodeURIComponent(admin)}">Open Strapi again</a>` +
+          (platformLogout ? ` · <a href="${esc(platformLogout)}">Sign out of the whole platform</a>` : '') +
+          `</p>`
+      );
+    }
+
+    function guardScript(admin) {
+      // Runs before the admin bundle (injected into <head>). ES5 on purpose.
+      const login = new RegExp(`^${admin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/auth/(login|register-admin)/?$`);
+      return `(function(){'use strict';
+    var ADMIN=${JSON.stringify(admin)},FLAG='adhar-sso-logged-out',LOGIN=new RegExp(${JSON.stringify(login.source)});
+    function local(){return /(?:^|;\\s*)${LOCAL_COOKIE}=1(?:;|$)/.test(document.cookie)||/[?&]local=1(?:&|$)/.test(location.search);}
+    var f=window.fetch;
+    if(f){window.fetch=function(input,init){var p=f.apply(this,arguments);try{
+    var url=typeof input==='string'?input:(input&&input.url)||String(input);
+    var m=String((init&&init.method)||(input&&input.method)||'GET').toUpperCase();
+    if(m==='POST'&&/\\/admin\\/logout(?:[?#]|$)/.test(url)){p.then(function(r){if(r&&r.ok){try{sessionStorage.setItem(FLAG,'1')}catch(e){}}},function(){});}
+    }catch(e){}return p;};}
+    function check(){if(!LOGIN.test(location.pathname)||local())return;
+    var out=false;try{out=sessionStorage.getItem(FLAG)==='1';sessionStorage.removeItem(FLAG)}catch(e){}
+    if(out){location.replace('/oauth2/sign_out?rd='+encodeURIComponent('${SSO_PATH}/signed-out'));}
+    else{location.replace('${SSO_PATH}?next='+encodeURIComponent(ADMIN));}}
+    ['pushState','replaceState'].forEach(function(k){var o=history[k];history[k]=function(){var r=o.apply(this,arguments);try{check()}catch(e){}return r;};});
+    window.addEventListener('popstate',check);check();})();`;
+    }
+
+    async function readBody(body) {
+      if (body == null) return null;
+      if (typeof body === 'string') return body;
+      if (Buffer.isBuffer(body)) return body.toString('utf8');
+      if (typeof body.pipe === 'function') {
+        const chunks = [];
+        for await (const c of body) chunks.push(Buffer.from(c));
+        return Buffer.concat(chunks).toString('utf8');
+      }
+      return null;
+    }
+
+    async function injectGuard(ctx) {
+      if (ctx.method !== 'GET' || ctx.status !== 200 || !ctx.response.is('html')) return;
+      if (ctx.response.get('Content-Encoding')) return; // never rewrite a compressed body
+      const html = await readBody(ctx.body);
+      if (html == null) return;
+      if (html.includes(GUARD_TAG)) {
+        ctx.body = html;
+        return;
+      }
+      const m = html.match(/<head[^>]*>/i);
+      ctx.body = m ? html.replace(m[0], `${m[0]}${GUARD_TAG}`) : GUARD_TAG + html;
+    }
+
+    const isAdminDocument = (ctx, admin) =>
+      (ctx.method === 'GET' || ctx.method === 'HEAD') &&
+      (ctx.path === admin || ctx.path.startsWith(`${admin}/`)) &&
+      !/\.[a-z0-9]+$/i.test(ctx.path) &&
+      (ctx.get('accept') || '').includes('text/html');
+
+    function middleware(strapi) {
+      return async (ctx, next) => {
+        const admin = trimSlash(strapi.config.get('admin.path', '/admin')) || '/admin';
+        if (ctx.path === SSO_PATH || ctx.path.startsWith(`${SSO_PATH}/`)) {
+          const sub = ctx.path.slice(SSO_PATH.length);
+          if (ctx.method !== 'GET' && ctx.method !== 'HEAD') {
+            ctx.status = 405;
+            return;
+          }
+          if (sub === '/guard.js') {
+            ctx.type = 'application/javascript';
+            ctx.set('Cache-Control', 'no-cache');
+            ctx.body = guardScript(admin);
+            return;
+          }
+          if (sub === '/signed-out') return signedOut(ctx, admin);
+          if (sub === '' || sub === '/') {
+            try {
+              return await signIn(ctx, strapi, admin);
+            } catch (err) {
+              // Ahead of strapi::errors, so say it here rather than as a bare 500.
+              strapi.log.error(`[adhar] sso: sign-in failed: ${err && err.stack ? err.stack : err}`);
+              return page(ctx, 500, 'Sign-in failed', `<p>Strapi could not complete the sign-in; the error is in the Strapi log.</p>${BREAK_GLASS(admin)}`);
+            }
+          }
+          ctx.status = 404;
+          return;
+        }
+
+        if (!isAdminDocument(ctx, admin)) return next();
+
+        if (ctx.query.local === '1') {
+          // Break-glass for this browser session: no redirects to SSO until the
+          // next /admin-sso sign-in clears it. Readable by the guard script.
+          ctx.cookies.set(LOCAL_COOKIE, '1', siteCookie(ctx, { httpOnly: false }));
+        } else if (ctx.cookies.get(LOCAL_COOKIE) !== '1') {
+          const who = await identify(ctx, config());
+          // Bound = this browser's Strapi session was minted for the SAME
+          // Keycloak user that the proxy says is here now. Otherwise (no session,
+          // or someone else signed in to Keycloak on this browser since) go
+          // through /admin-sso, which re-syncs roles and replaces the session.
+          // An unverifiable request is not redirected: it gets the stock panel
+          // (and the local login), exactly as without this extension.
+          if (who.ok && (boundEmail(ctx) !== who.identity.email || !ctx.cookies.get(REFRESH_COOKIE))) {
+            ctx.redirect(`${SSO_PATH}?next=${encodeURIComponent(safeNext(ctx.originalUrl, admin))}`);
+            return;
+          }
+        }
+        await next();
+        await injectGuard(ctx);
+      };
+    }
+
+    module.exports = {
+      register(strapi) {
+        // Mounted ahead of Strapi's own middleware stack (register runs before
+        // the server's initMiddlewares), so it sees every request first.
+        strapi.server.use(middleware(strapi));
+      },
+      async bootstrap(strapi) {
+        const cfg = config();
+        if (!cfg.issuer) {
+          strapi.log.warn('[adhar] sso: KEYCLOAK_ISSUER_URL is empty; the Keycloak bridge is off (local login only)');
+          return;
+        }
+        const codes = [...new Set(cfg.roleMap.map((e) => e.code))];
+        const found = await strapi.db.query('admin::role').findMany({ where: { code: { $in: codes } } });
+        const missing = codes.filter((c) => !found.some((r) => r.code === c));
+        if (missing.length) strapi.log.warn(`[adhar] sso: ADHAR_SSO_ROLE_MAP names unknown roles: ${missing.join(', ')}`);
+        loadJwks(cfg.internal).catch((err) => strapi.log.warn(`[adhar] sso: JWKS not reachable yet (${err.message}); retried on first sign-in`));
+        strapi.log.info(
+          `[adhar] sso: Keycloak bridge on ${SSO_PATH} (client ${cfg.clientId}, issuer ${cfg.issuer}); ` +
+            cfg.roleMap.map((e) => `${e.group}->${e.code}`).join(', ')
+        );
+      },
+      // exported for tests
+      _internals: { parseRoleMap, desiredRoleCodes, safeNext, verifyAccessToken, guardScript, DEFAULT_ROLE_MAP },
+    };

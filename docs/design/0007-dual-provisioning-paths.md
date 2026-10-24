@@ -10,7 +10,7 @@ to manage everything after the management cluster exists. The two meet at a sing
 ## 0. Context recap
 
 Adhar provisions in two irreconcilable situations: **day-0** (no cluster exists — something outside
-Kubernetes must create the management cluster; a chicken-and-egg no in-cluster controller can solve)
+Kubernetes must create the management cluster; a chicken-and-egg no adhar-controlplane controller can solve)
 and **day-1+** (the management cluster exists and should manage all further infrastructure
 declaratively with reconciliation/drift correction). ADR-0007 keeps **two paths with a defined
 hand-off**: the imperative `Provider` interface owns bootstrap + CLI-driven day-2 cluster ops; the
@@ -129,7 +129,7 @@ used for local Kind:
 
 Creating that CR is the hand-off: the `AdharPlatform` controller
 (`platform/controllers/adharplatform/`) drives **Cilium → Gateway → ArgoCD → Gitea → Crossplane** and
-seeds the GitOps repos, then the in-cluster manager keeps reconciling after the CLI exits. From this
+seeds the GitOps repos, then the adhar-controlplane manager keeps reconciling after the CLI exits. From this
 point **the imperative path is done** — nothing it created is continuously reconciled by it; the
 management cluster and everything downstream is owned declaratively.
 
@@ -142,7 +142,7 @@ CreateCluster (EC2+kubeadm / DOKS…)   Scale/Upgrade/Delete/Investigate
    ▼
 bootstrapPlatformOnCluster ── GetKubeconfig ──▶ create AdharPlatform CR   ◀── HAND-OFF
                                                      │
-                    Cilium → Gateway → ArgoCD → Gitea → Crossplane  (in-cluster, reconciled)
+                    Cilium → Gateway → ArgoCD → Gitea → Crossplane  (adhar-controlplane, reconciled)
                                                      │
                                             ┌────────┴─────────┐
                                     ApplicationSet stack   Crossplane control plane

@@ -13,13 +13,14 @@
 #   3. Unseals using the stored key (skips if already unsealed).
 #   4. Logs in with the root token and idempotently configures:
 #        - KV v2 secrets engine at path "secret/"
-#        - kubernetes auth method (mount "kubernetes/") using the in-cluster
+#        - kubernetes auth method (mount "kubernetes/") using the adhar-controlplane
 #          SA token / CA / API host (OpenBao's own pod SA acts as token reviewer
 #          via its system:auth-delegator binding)
 #        - policy "external-secrets" (read on secret/data/* + secret/metadata/*)
 #        - kubernetes auth role "external-secrets" bound to the external-secrets
 #          controller ServiceAccount (external-secrets / adhar-system)
-#        - OIDC auth (Keycloak) + group->policy mappings, best effort
+#        - OIDC auth (Keycloak) + group->policy mappings (configure-oidc.sh,
+#          also re-applied every 10 min by the openbao-oidc-reconcile CronJob)
 #
 # The root token and the unseal key are only ever moved between the OpenBao API
 # and the Kubernetes Secret; they are never echoed, and every command that could
@@ -108,7 +109,7 @@ data:
     # ---------------------------------------------------------------------
     # 0. The openbao image has the `bao` CLI but no kubectl, so fetch a static
     #    kubectl once (busybox wget supports HTTPS). kubectl picks up the
-    #    in-cluster SA token + CA automatically.
+    #    adhar-controlplane SA token + CA automatically.
     # ---------------------------------------------------------------------
     if ! command -v kubectl >/dev/null 2>&1; then
       log "downloading kubectl"
@@ -210,7 +211,7 @@ data:
       bao auth enable kubernetes || true
     fi
 
-    # Configure kubernetes auth from the in-cluster environment. Leaving
+    # Configure kubernetes auth from the adhar-controlplane environment. Leaving
     # token_reviewer_jwt unset makes OpenBao use its own pod SA (which carries
     # the system:auth-delegator binding) to review login JWTs.
     log "configuring kubernetes auth"
@@ -318,90 +319,14 @@ data:
       done
     fi
     if [ -n "${OIDC_SECRET}" ]; then
-      log "configuring OIDC auth method (Keycloak)"
-      if ! bao auth list -format=json | grep -q '"oidc/"'; then
-        bao auth enable oidc || true
-      fi
-      # System CAs FIRST, the platform CA only as a fallback.
-      #
-      # `oidc_discovery_ca_pem` does not ADD a trust root, it REPLACES the whole
-      # set — so handing OpenBao the self-signed platform CA makes a publicly
-      # trusted Keycloak fail to verify. Live on 2026-10-11 the edge served a
-      # Let's Encrypt certificate (issuer CN=YR1) that curl validated against
-      # the system roots on the first try, and the pinned platform CA turned
-      # that into `Code: 400 … error checking oidc discovery URL` — an error
-      # that names the URL and says nothing about trust, so it reads like the
-      # realm being unreachable when the realm was answering 200 the whole time.
-      #
-      # Which certificate the edge serves depends on the cluster (cert-manager
-      # issues a real one wherever DNS-01 works, self-signed otherwise), so this
-      # is decided by TRYING rather than configured: no CA, then the CA.
-      oidc_config() {
-        bao write auth/oidc/config \
-          oidc_discovery_url="https://keycloak.adhar.localtest.me:8443/realms/adhar" \
-          oidc_client_id="openbao" \
-          oidc_client_secret="${OIDC_SECRET}" \
-          default_role="default" "$@"
-      }
-      if oidc_config >/dev/null 2>&1; then
-        log "oidc config written (Keycloak verified against the system CAs)"
-      elif [ -n "${OIDC_CA}" ] && oidc_config oidc_discovery_ca_pem="${OIDC_CA}" >/dev/null 2>&1; then
-        log "oidc config written (Keycloak verified against the platform CA)"
-      else
-        log "ERROR: could not write auth/oidc/config — the OpenBao UI will offer NO Keycloak sign-in."
-        log "ERROR: the discovery URL must be fetchable from this pod AND its certificate must verify"
-        log "ERROR: either against the system roots or against the openbao-ca Secret. Re-run by"
-        log "ERROR: syncing the openbao app; the failing call is shown below."
-        oidc_config ${OIDC_CA:+oidc_discovery_ca_pem="${OIDC_CA}"} || true
-      fi
-      bao write auth/oidc/role/default \
-        bound_audiences="openbao" \
-        allowed_redirect_uris="https://openbao.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback,https://openbao.adhar.localtest.me:8443/v1/auth/oidc/oidc/callback" \
-        user_claim="sub" \
-        oidc_scopes="openid,profile,email,groups" \
-        groups_claim="groups" \
-        token_policies="default" \
-        ttl="1h" >/dev/null || log "ERROR: oidc role write failed — the OIDC method exists but has no usable role; re-run by syncing the openbao app"
-      # List the OIDC method on the UI's sign-in page. Without it the page opens
-      # on the Token method and Keycloak hides behind an "Other" dropdown, so a
-      # person already signed in to Keycloak had to know to pick OIDC first. With
-      # it, OIDC is the first tab and the route (httproute.yaml.tmpl) opens it.
-      bao auth tune -listing-visibility=unauth oidc/ >/dev/null \
-        || log "ERROR: could not list the oidc method on the sign-in page; re-run by syncing the openbao app"
-
-      # Map Keycloak groups -> OpenBao policies so an OIDC login is actually
-      # USEFUL. Without this a signed-in user only gets the `default` policy
-      # (grants nothing). OpenBao matches the ID token's `groups` claim
-      # (groups_claim above) against EXTERNAL identity groups by alias name;
-      # each carries a policy. Mirrors the k8s RBAC the keycloak package ships.
-      # Policies are piped via printf (NOT a heredoc) so the HCL stays inside
-      # this YAML block scalar.
-      log "mapping Keycloak groups to OpenBao policies"
-      printf 'path "*" { capabilities = ["create","read","update","delete","list","patch","sudo"] }\n' \
-        | bao policy write platform-admin - >/dev/null 2>&1 || true
-      # Platform-owned paths (bootstrap break-glass credentials, the AI
-      # layer's LLM key, the Hugging Face token) are DENIED to developers and
-      # viewers; an explicit deny overrides the broad secret/* grant. Without
-      # this a platform-viewer, whose Kubernetes role cannot read Secrets,
-      # could read the bootstrap admin passwords here.
-      PLATFORM_DENY='path "secret/data/adhar/*" { capabilities = ["deny"] }\npath "secret/metadata/adhar/*" { capabilities = ["deny"] }\npath "secret/data/adhar-ai/*" { capabilities = ["deny"] }\npath "secret/metadata/adhar-ai/*" { capabilities = ["deny"] }\npath "secret/data/vllm/*" { capabilities = ["deny"] }\npath "secret/metadata/vllm/*" { capabilities = ["deny"] }\n'
-      printf "path \"secret/*\" { capabilities = [\"create\",\"read\",\"update\",\"delete\",\"list\",\"patch\"] }\npath \"sys/mounts\" { capabilities = [\"read\",\"list\"] }\npath \"auth/token/lookup-self\" { capabilities = [\"read\"] }\n${PLATFORM_DENY}" \
-        | bao policy write platform-developer - >/dev/null 2>&1 || true
-      printf "path \"secret/*\" { capabilities = [\"read\",\"list\"] }\npath \"sys/mounts\" { capabilities = [\"read\",\"list\"] }\n${PLATFORM_DENY}" \
-        | bao policy write platform-viewer - >/dev/null 2>&1 || true
-      OIDC_ACCESSOR="$(bao auth list 2>/dev/null | awk '/^oidc\//{print $3; exit}')"
-      for g in platform-admin platform-developer platform-viewer; do
-        bao write identity/group name="$g" type="external" policies="$g" >/dev/null 2>&1 || true
-        GID="$(bao read -field=id identity/group/name/$g 2>/dev/null)"
-        if [ -n "$GID" ] && [ -n "$OIDC_ACCESSOR" ]; then
-          bao write identity/group-alias name="$g" mount_accessor="$OIDC_ACCESSOR" canonical_id="$GID" >/dev/null 2>&1 \
-            || log "group-alias $g already present (ok)"
-        fi
-      done
+      # The method, role, policies and group mappings live in configure-oidc.sh
+      # (below), which the openbao-oidc-reconcile CronJob also runs.
+      OIDC_SECRET="${OIDC_SECRET}" OIDC_CA="${OIDC_CA}" sh /scripts/configure-oidc.sh \
+        || log "ERROR: OIDC configuration incomplete; the openbao-oidc-reconcile CronJob retries it every 10 minutes"
     else
       log "ERROR: OIDC prerequisites (openbao-oidc / openbao-ca) never arrived — the OpenBao UI will"
-      log "ERROR: offer NO Keycloak sign-in. Nothing retries this: re-run by syncing the openbao app."
-      log "ERROR: openbao-oidc comes from keycloak-clients (OPENBAO_CLIENT_SECRET); check that Secret."
+      log "ERROR: offer NO Keycloak sign-in until they do. The openbao-oidc-reconcile CronJob checks again"
+      log "ERROR: every 10 minutes; openbao-oidc comes from keycloak-clients (OPENBAO_CLIENT_SECRET)."
     fi
 
     # ---------------------------------------------------------------------
@@ -442,6 +367,167 @@ data:
     fi
 
     log "bootstrap complete"
+  configure-oidc.sh: |
+    #!/bin/sh
+    # Idempotent OIDC (Keycloak) configuration of OpenBao, shared by the
+    # bootstrap Job (bootstrap.sh, step 5) and the openbao-oidc-reconcile CronJob
+    # (oidc-reconcile.sh). Inputs, all from the caller's environment:
+    #   BAO_ADDR, BAO_TOKEN  the OpenBao API and the root token (never printed)
+    #   OIDC_SECRET          the Keycloak `openbao` client secret (required)
+    #   OIDC_CA              the platform CA, only for a self-signed edge (optional)
+    # Exits non-zero when the method could not be made usable (config or role),
+    # so the CronJob's history shows a failed run instead of a quiet success.
+    set -u
+    log() { echo "[openbao-oidc] $*"; }
+    : "${BAO_ADDR:?}" "${BAO_TOKEN:?}" "${OIDC_SECRET:?}"
+    OIDC_CA="${OIDC_CA:-}"
+    export BAO_ADDR BAO_TOKEN
+    OPENBAO_URL="https://openbao.adhar.localtest.me:8443"
+    rc=0
+
+    log "configuring OIDC auth method (Keycloak)"
+    if ! bao auth list -format=json | grep -q '"oidc/"'; then
+      bao auth enable oidc || true
+    fi
+    # System CAs FIRST, the platform CA only as a fallback.
+    #
+    # `oidc_discovery_ca_pem` does not ADD a trust root, it REPLACES the whole
+    # set — so handing OpenBao the self-signed platform CA makes a publicly
+    # trusted Keycloak fail to verify. Live on 2026-10-11 the edge served a
+    # Let's Encrypt certificate (issuer CN=YR1) that curl validated against
+    # the system roots on the first try, and the pinned platform CA turned
+    # that into `Code: 400 … error checking oidc discovery URL` — an error
+    # that names the URL and says nothing about trust, so it reads like the
+    # realm being unreachable when the realm was answering 200 the whole time.
+    #
+    # Which certificate the edge serves depends on the cluster (cert-manager
+    # issues a real one wherever DNS-01 works, self-signed otherwise), so this
+    # is decided by TRYING rather than configured: no CA, then the CA.
+    oidc_config() {
+      bao write auth/oidc/config \
+        oidc_discovery_url="https://keycloak.adhar.localtest.me:8443/realms/adhar" \
+        oidc_client_id="openbao" \
+        oidc_client_secret="${OIDC_SECRET}" \
+        default_role="default" "$@"
+    }
+    if oidc_config >/dev/null 2>&1; then
+      log "oidc config written (Keycloak verified against the system CAs)"
+    elif [ -n "${OIDC_CA}" ] && oidc_config oidc_discovery_ca_pem="${OIDC_CA}" >/dev/null 2>&1; then
+      log "oidc config written (Keycloak verified against the platform CA)"
+    else
+      rc=1
+      log "ERROR: could not write auth/oidc/config — the OpenBao UI will offer NO Keycloak sign-in."
+      log "ERROR: the discovery URL must be fetchable from this pod AND its certificate must verify"
+      log "ERROR: either against the system roots or against the openbao-ca Secret. The"
+      log "ERROR: openbao-oidc-reconcile CronJob tries again every 10 minutes; the failing call:"
+      oidc_config ${OIDC_CA:+oidc_discovery_ca_pem="${OIDC_CA}"} || true
+    fi
+    # Redirect URIs: the UI's own popup callback; the click-free start page,
+    # which is also where Keycloak returns (security/keycloak/manifests/
+    # sso-start.yaml, openbao.html; httproute.yaml.tmpl sends a bare `/` there);
+    # the API callback; and the CLI's loopback listener (`bao login -method=oidc`).
+    # Every one of them is also registered on the Keycloak client (oidc.yaml).
+    # Tokens: 1 h, renewable by the UI while in use, hard-capped at a working day.
+    if ! bao write auth/oidc/role/default \
+      role_type="oidc" \
+      bound_audiences="openbao" \
+      allowed_redirect_uris="${OPENBAO_URL}/ui/vault/auth/oidc/oidc/callback,${OPENBAO_URL}/adhar-sso/openbao.html,${OPENBAO_URL}/v1/auth/oidc/oidc/callback,http://localhost:8250/oidc/callback" \
+      user_claim="sub" \
+      claim_mappings="preferred_username=username" \
+      claim_mappings="email=email" \
+      oidc_scopes="openid,profile,email,groups" \
+      groups_claim="groups" \
+      token_policies="default" \
+      token_ttl="1h" \
+      token_max_ttl="8h" >/dev/null; then
+      rc=1
+      log "ERROR: oidc role write failed — the OIDC method exists but has no usable role"
+    fi
+    # List the OIDC method on the UI's sign-in page. Without it the page opens
+    # on the Token method and Keycloak hides behind an "Other" dropdown, so a
+    # person already signed in to Keycloak had to know to pick OIDC first. With
+    # it, OIDC is the first tab — which is also where the click-free start page
+    # falls back to when Keycloak is unavailable.
+    bao auth tune -listing-visibility=unauth oidc/ >/dev/null \
+      || log "ERROR: could not list the oidc method on the sign-in page"
+
+    # Map Keycloak groups -> OpenBao policies so an OIDC login is actually
+    # USEFUL. Without this a signed-in user only gets the `default` policy
+    # (grants nothing). OpenBao matches the ID token's `groups` claim
+    # (groups_claim above, Keycloak `full.path: false`) against EXTERNAL identity
+    # groups by alias name; each carries a policy. Mirrors the k8s RBAC the
+    # keycloak package ships. Policies are piped via printf (NOT a heredoc) so the
+    # HCL stays inside this YAML block scalar.
+    log "mapping Keycloak groups to OpenBao policies"
+    printf 'path "*" { capabilities = ["create","read","update","delete","list","patch","sudo"] }\n' \
+      | bao policy write platform-admin - >/dev/null 2>&1 || log "ERROR: policy platform-admin write failed"
+    # Platform-owned paths (bootstrap break-glass credentials, the AI
+    # layer's LLM key, the Hugging Face token) are DENIED to developers and
+    # viewers; an explicit deny overrides the broad secret/* grant. Without
+    # this a platform-viewer, whose Kubernetes role cannot read Secrets,
+    # could read the bootstrap admin passwords here.
+    PLATFORM_DENY='path "secret/data/adhar/*" { capabilities = ["deny"] }\npath "secret/metadata/adhar/*" { capabilities = ["deny"] }\npath "secret/data/adhar-ai/*" { capabilities = ["deny"] }\npath "secret/metadata/adhar-ai/*" { capabilities = ["deny"] }\npath "secret/data/vllm/*" { capabilities = ["deny"] }\npath "secret/metadata/vllm/*" { capabilities = ["deny"] }\n'
+    printf "path \"secret/*\" { capabilities = [\"create\",\"read\",\"update\",\"delete\",\"list\",\"patch\"] }\npath \"sys/mounts\" { capabilities = [\"read\",\"list\"] }\npath \"auth/token/lookup-self\" { capabilities = [\"read\"] }\n${PLATFORM_DENY}" \
+      | bao policy write platform-developer - >/dev/null 2>&1 || log "ERROR: policy platform-developer write failed"
+    printf "path \"secret/*\" { capabilities = [\"read\",\"list\"] }\npath \"sys/mounts\" { capabilities = [\"read\",\"list\"] }\n${PLATFORM_DENY}" \
+      | bao policy write platform-viewer - >/dev/null 2>&1 || log "ERROR: policy platform-viewer write failed"
+    OIDC_ACCESSOR="$(bao auth list 2>/dev/null | awk '/^oidc\//{print $3; exit}')"
+    for g in platform-admin platform-developer platform-viewer; do
+      # identity/group/name/<n> is create-OR-update by name (identity/group with
+      # an existing name is not), so a re-run reconciles the policy instead of
+      # failing on it.
+      bao write identity/group/name/"$g" type="external" policies="$g" >/dev/null 2>&1 \
+        || log "ERROR: identity group $g write failed"
+      GID="$(bao read -field=id identity/group/name/"$g" 2>/dev/null || true)"
+      if [ -n "$GID" ] && [ -n "$OIDC_ACCESSOR" ]; then
+        if bao read -format=json identity/group/name/"$g" 2>/dev/null | tr -d ' \n' \
+            | grep -q "\"mount_accessor\":\"${OIDC_ACCESSOR}\""; then
+          :
+        else
+          bao write identity/group-alias name="$g" mount_accessor="$OIDC_ACCESSOR" canonical_id="$GID" >/dev/null \
+            || log "ERROR: group-alias $g write failed"
+        fi
+      fi
+    done
+    log "OIDC configuration done (rc=${rc})"
+    exit "${rc}"
+  oidc-reconcile.sh: |
+    #!/bin/sh
+    # openbao-oidc-reconcile CronJob entry point. The bootstrap Job is a Sync hook,
+    # and a hook runs only when Argo CD syncs — a Synced, Healthy app never syncs
+    # again on its own. Live on 2026-10-24 (AWS) the Job waited its 20 minutes,
+    # the Keycloak client secret landed two minutes later, and OpenBao was left
+    # with no OIDC method at all: the UI opened on ?with=token and nobody could
+    # sign in with Keycloak. This re-applies configure-oidc.sh every 10 minutes
+    # from mounted Secrets (no kubectl, no Kubernetes API access), so the method
+    # converges whenever its prerequisites arrive and config drift (a rotated
+    # client secret, a hand-edited role) is corrected.
+    set -u
+    BAO_ADDR="http://openbao.adhar-system.svc.cluster.local:8200"
+    export BAO_ADDR
+    log() { echo "[openbao-oidc-reconcile] $*"; }
+    KEYS=/var/run/openbao/keys/init.json
+    if [ ! -s "${KEYS}" ]; then
+      log "openbao-keys not present yet (OpenBao not initialised); the bootstrap Job does that"
+      exit 0
+    fi
+    if ! bao status -format=json 2>/dev/null | grep -q '"sealed"[[:space:]]*:[[:space:]]*false'; then
+      log "OpenBao is sealed or unreachable; nothing to do until the bootstrap Job unseals it"
+      exit 0
+    fi
+    BAO_TOKEN="$(tr -d '\n' < "${KEYS}" | sed -n 's/.*"root_token":[[:space:]]*"\([^"]*\)".*/\1/p')"
+    OIDC_SECRET="$(cat /var/run/openbao/oidc/OPENBAO_CLIENT_SECRET 2>/dev/null || true)"
+    OIDC_CA="$(cat /var/run/openbao/ca/tls.crt 2>/dev/null || true)"
+    if [ -z "${BAO_TOKEN}" ]; then
+      log "ERROR: could not parse the root token from openbao-keys"
+      exit 1
+    fi
+    if [ -z "${OIDC_SECRET}" ]; then
+      log "ERROR: openbao-oidc (OPENBAO_CLIENT_SECRET from keycloak-clients) not present yet; no Keycloak sign-in until it is"
+      exit 0
+    fi
+    export BAO_TOKEN OIDC_SECRET OIDC_CA
+    exec sh /scripts/configure-oidc.sh
 ---
 apiVersion: batch/v1
 kind: Job
@@ -491,3 +577,84 @@ spec:
           secret:
             secretName: adhar-ai-llm-seed
             optional: true
+---
+# Keeps the OIDC (Keycloak) sign-in converged — see oidc-reconcile.sh above for
+# why a Sync hook alone cannot. Reads the root token, the Keycloak client
+# secret and the platform CA from mounted Secrets (all optional, so it exists
+# harmlessly before any of them do); it has no ServiceAccount token and no
+# Kubernetes API access.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openbao-oidc-reconcile
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/component: oidc-reconcile
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 1800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: openbao
+            app.kubernetes.io/component: oidc-reconcile
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: reconcile
+              # Same image as the server and the bootstrap Job (CLI == API).
+              image: quay.io/openbao/openbao:2.6.2
+              command: ["/bin/sh", "/scripts/oidc-reconcile.sh"]
+              env:
+                - {name: HOME, value: /tmp}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 96Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: script, mountPath: /scripts, readOnly: true}
+                - {name: keys, mountPath: /var/run/openbao/keys, readOnly: true}
+                - {name: oidc, mountPath: /var/run/openbao/oidc, readOnly: true}
+                - {name: ca, mountPath: /var/run/openbao/ca, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: script
+              configMap:
+                name: openbao-bootstrap
+                defaultMode: 0755
+            - name: keys
+              secret:
+                secretName: openbao-keys
+                optional: true
+                items: [{key: init.json, path: init.json}]
+            - name: oidc
+              secret:
+                secretName: openbao-oidc
+                optional: true
+            - name: ca
+              secret:
+                secretName: openbao-ca
+                optional: true
+            - name: tmp
+              emptyDir: {}

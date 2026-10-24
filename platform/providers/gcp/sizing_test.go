@@ -74,7 +74,7 @@ func TestGCPQuotaCountsEachRoleAtItsOwnSize(t *testing.T) {
 	}
 }
 
-// Rediscovery (the in-cluster autoscaler has no state file) must find the
+// Rediscovery (the adhar-controlplane autoscaler has no state file) must find the
 // workers this provider actually names, <cluster>-worker-<group>-<n>, with the
 // machine type each one RUNS — a scale-up copies it.
 func TestGCPRediscoveredWorkersCarryTheirMachineType(t *testing.T) {

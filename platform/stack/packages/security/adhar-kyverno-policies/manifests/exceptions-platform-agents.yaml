@@ -1,0 +1,274 @@
+# Node-level platform agents that need host access BY DESIGN (2026-10-24).
+#
+# These were the bulk of the platform's policy "failures": the Pod Security
+# baseline policies are right to flag host paths, host namespaces and privileged
+# containers in workloads, and these agents are exactly the components whose
+# job requires them. Each exception names the agent's pods and controllers and
+# ONLY the rules that agent was reported failing — not a blanket bypass. The
+# policies keep enforcing everything else for them and everything for
+# everyone else. Kyverno honours exceptions only from adhar-system
+# (security/kyverno values: features.policyExceptions.namespace).
+---
+# The CNI and its Envoy/operator: eBPF datapath, host networking, BPF and cgroup mounts, privileged init containers.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-cilium
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-capabilities
+    ruleNames:
+    - adding-capabilities
+    - autogen-adding-capabilities
+  - policyName: disallow-host-namespaces
+    ruleNames:
+    - host-namespaces
+    - autogen-host-namespaces
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  - policyName: disallow-host-ports
+    ruleNames:
+    - host-ports-none
+    - autogen-host-ports-none
+  - policyName: disallow-privileged-containers
+    ruleNames:
+    - privileged-containers
+    - autogen-privileged-containers
+  - policyName: disallow-selinux
+    ruleNames:
+    - selinux-type
+    - autogen-selinux-type
+    - selinux-user-role
+    - autogen-selinux-user-role
+  - policyName: restrict-apparmor-profiles
+    ruleNames:
+    - app-armor
+    - autogen-app-armor
+  - policyName: restrict-seccomp
+    ruleNames:
+    - check-seccomp
+    - autogen-check-seccomp
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - cilium
+        - "cilium-*"
+---
+# Runtime security: reads kernel events (privileged) and host paths (/proc, /etc, container runtime socket).
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-falco
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  - policyName: disallow-privileged-containers
+    ruleNames:
+    - privileged-containers
+    - autogen-privileged-containers
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - falco
+        - "falco-*"
+---
+# eBPF runtime enforcement: host PID namespace, BPF filesystem, privileged.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-tetragon
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-namespaces
+    ruleNames:
+    - host-namespaces
+    - autogen-host-namespaces
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  - policyName: disallow-privileged-containers
+    ruleNames:
+    - privileged-containers
+    - autogen-privileged-containers
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - tetragon
+        - "tetragon-*"
+---
+# Node metrics: reads /proc and /sys of the host and listens on the host network.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-node-exporter
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-namespaces
+    ruleNames:
+    - host-namespaces
+    - autogen-host-namespaces
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  - policyName: disallow-host-ports
+    ruleNames:
+    - host-ports-none
+    - autogen-host-ports-none
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - "prometheus-prometheus-node-exporter*"
+---
+# Kubescape node agent: inspects host paths for runtime and vulnerability data.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-kubescape-node-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - node-agent
+        - "node-agent-*"
+---
+# Writes the containerd certs.d host config so nodes can pull from the in-cluster Harbor.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-harbor-node-registry-trust
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - "harbor-node-registry-trust*"
+---
+# Host-network proxy that lets the kube-apiserver reach Keycloak's discovery on every control-plane node.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-oidc-loopback-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-namespaces
+    ruleNames:
+    - host-namespaces
+    - autogen-host-namespaces
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - "oidc-loopback-proxy*"
+---
+# The operator's init container sets vm.max_map_count (a node sysctl), which needs privilege.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-opensearch
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-privileged-containers
+    ruleNames:
+    - privileged-containers
+    - autogen-privileged-containers
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [adhar-system]
+        names:
+        - "opensearch-nodes*"
+        - "opensearch-bootstrap*"
+---
+# The cloud's CSI node driver (mounts block devices: privileged + host paths) and cloud-controller-manager (host network).
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: platform-agent-cloud-integration
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-kyverno-policies
+spec:
+  exceptions:
+  - policyName: disallow-host-namespaces
+    ruleNames:
+    - host-namespaces
+    - autogen-host-namespaces
+  - policyName: disallow-host-path
+    ruleNames:
+    - host-path
+    - autogen-host-path
+  - policyName: disallow-privileged-containers
+    ruleNames:
+    - privileged-containers
+    - autogen-privileged-containers
+  match:
+    any:
+    - resources:
+        kinds: [Pod, DaemonSet, Deployment, ReplicaSet, StatefulSet]
+        namespaces: [kube-system]
+        names:
+        - "*csi-node*"
+        - "*csi-controller*"
+        - "*cloud-controller-manager*"
+        - "csi-*"

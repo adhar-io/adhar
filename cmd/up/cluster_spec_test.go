@@ -101,10 +101,10 @@ func TestEnsureClusterSpecConfigMapExcludesCredentials(t *testing.T) {
 	}
 }
 
-// The provider map recorded for the in-cluster controllers must carry no path
+// The provider map recorded for the adhar-controlplane controllers must carry no path
 // that only exists on the machine that ran `adhar up`. serviceAccountKeyFile
 // survived this filter, and because the GCP provider prefers a key FILE over an
-// inline key, the in-cluster autoscaler chose the laptop path over the credential
+// inline key, the adhar-controlplane autoscaler chose the laptop path over the credential
 // it had been handed: every scale-up failed with "credentials file not found:
 // /Users/.../key.json". The cluster could be scaled down and never back up, which
 // makes "minimum resources plus autoscaling" impossible (2026-09-19).

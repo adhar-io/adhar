@@ -187,7 +187,7 @@ func TestIsPlatformAlreadyDeployed(t *testing.T) {
 	}
 }
 
-// The CLI supplies the build customization as flags; the in-cluster manager is
+// The CLI supplies the build customization as flags; the adhar-controlplane manager is
 // started with just ["controller","--leader-elect=true"] and so had an empty
 // host. Every manifest that builds a URL from it then rendered nonsense — the
 // Argo CD SSO proxy became "https://keycloak./realms/adhar" and crash-looped on
@@ -200,7 +200,7 @@ func TestReconcilerAdoptsBuildCustomizationFromTheResource(t *testing.T) {
 		Port:     "443",
 	}
 
-	// Empty in-process config: the in-cluster case.
+	// Empty in-process config: the adhar-controlplane case.
 	r := &AdharPlatformReconciler{}
 	if r.Config.Host != "" {
 		t.Fatalf("precondition: expected an empty host, got %q", r.Config.Host)

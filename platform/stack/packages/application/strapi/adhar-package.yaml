@@ -50,7 +50,8 @@ planeAffinity: control-plane
 # alpha: the whole path — scaffold, admin build, serve, CNPG schema — was
 # verified end to end on amd64 nodes (see README.md), but a CMS that builds
 # itself on first boot has more moving parts than a package that just starts a
-# container, and the first administrator is still created in the browser.
+# container. (The first administrator is no longer created in the browser:
+# the platform bootstraps it and people sign in with Keycloak, 2026-10-24.)
 stability: alpha
 resources:
   cpu: "250m"

@@ -67,7 +67,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	}
 
 	// Control-plane / worker split: top level first (environment
-	// clusterConfig values and the in-cluster autoscaler's recorded worker
+	// clusterConfig values and the adhar-controlplane autoscaler's recorded worker
 	// size land there), then the `config:` section. `size` below remains the
 	// legacy single size.
 	civoConfig.ControlPlaneSize = provider.ConfigString(config, provider.KeyControlPlaneMachineType)
@@ -167,7 +167,7 @@ type Provider struct {
 	config           *Config
 	clusters         map[string]*types.Cluster
 	resourceTrackers map[string]*ResourceTracker
-	// token is the RESOLVED API token, retained for the in-cluster cloud
+	// token is the RESOLVED API token, retained for the adhar-controlplane cloud
 	// integration (the kube-system/civo-api-access Secret the CCM and CSI read).
 	//
 	// It cannot be taken from config.Token at that point: the token legitimately

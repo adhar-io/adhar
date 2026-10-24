@@ -45,7 +45,7 @@ config:
       # bring-up when it will not be). On a self-signed platform — local Kind
       # always, cloud until the DNS-01 challenge passes — Penpot OIDC stays off by
       # design; password login remains, and the fix is to trust the platform CA in
-      # the JVM, not to reach for an in-cluster URL.
+      # the JVM, not to reach for an adhar-controlplane URL.
       #
       # Trailing slash matters: Penpot URI-joins ".well-known/openid-configuration"
       # onto this value, and without the slash RFC 3986 resolution drops the

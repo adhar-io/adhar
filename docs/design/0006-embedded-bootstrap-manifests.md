@@ -57,7 +57,7 @@ One `embed.FS` per component, declared beside its reconciler. Verified directive
 | `gatewayFS` | `//go:embed resources/gateway-api` + `//go:embed resources/gateway` | `gateway.go` | `gateway-api/crds.yaml` ~1.4 MB; `gateway/{gateway,gateway-cloud}.yaml` ~2.5 KB |
 | `giteaFS` | `//go:embed resources/gitea` | `gitea.go` | `install.yaml` ~46 KB, `install-ha.yaml` ~147 KB, `post-install.yaml` 6 KB |
 | `crdFS` | `//go:embed resources/*.yaml` | `controllers/crd.go` | the 3 platform CRDs (§7) |
-| `managerFS` | `//go:embed resources/manager/*.yaml` | `controllers/manager.go` | in-cluster manager Deployment + RBAC |
+| `managerFS` | `//go:embed resources/manager/*.yaml` | `controllers/manager.go` | adhar-controlplane manager Deployment + RBAC |
 | `ConfigurationFS` | `//go:embed all:configuration` | `platform/controlplane/embed.go` | Crossplane control-plane tree (ADR-0005) |
 
 The `argoCDFS`/`giteaFS` component FSes are consumed two ways: directly via `argoCDFS.ReadFile(path)` in the reconciler, and via exported `RawArgocdInstallResources`/`RawGiteaInstallResources` → `k8s.BuildCustomizedManifests(config.FilePath, "resources/<c>", <fs>, scheme, templateData)`, which renders the tree and layers any user override file on top (§6).
@@ -104,7 +104,7 @@ r.Patch(ctx, obj, client.Apply,
     client.ForceOwnership)
 ```
 
-Errors are accumulated per-doc and returned aggregated (`encountered N errors applying <name> manifest`), so one bad doc doesn't silently drop the rest, and the outer reconcile requeues. `FieldManager = "adhar"` (INV-3) is the field owner that makes re-runs idempotent and any post-apply drift attributable. `EnsureControllerManager` (`manager.go`) uses the identical `client.Apply`/`FieldOwner`/`ForceOwnership` pattern for the in-cluster manager Deployment.
+Errors are accumulated per-doc and returned aggregated (`encountered N errors applying <name> manifest`), so one bad doc doesn't silently drop the rest, and the outer reconcile requeues. `FieldManager = "adhar"` (INV-3) is the field owner that makes re-runs idempotent and any post-apply drift attributable. `EnsureControllerManager` (`manager.go`) uses the identical `client.Apply`/`FieldOwner`/`ForceOwnership` pattern for the adhar-controlplane manager Deployment.
 
 ### Templating layer (`fs.ConvertFSToBytes` / `k8s.BuildCustomizedManifests`)
 
@@ -152,7 +152,7 @@ The platform's own API group is embedded the same way — `//go:embed resources/
 | `platform/controllers/adharplatform/resources/{argocd,cilium,cnpg,crossplane,gateway,gateway-api,gitea}/` | the embedded pre-rendered foundation YAML |
 | `platform/controllers/adharplatform/helpers.go` | `applyManifest` — SSA (`client.Apply`, `FieldOwner("adhar")`, `ForceOwnership`), scope resolution, owner-ref rules |
 | `platform/controllers/crd.go` | `//go:embed resources/*.yaml` (`crdFS`); `EnsureCRDs`/`EnsureCRD` — install platform CRDs, wait for `Established` |
-| `platform/controllers/manager.go` | `//go:embed resources/manager/*.yaml` (`managerFS`); `EnsureControllerManager` — same SSA pattern for the in-cluster Deployment |
+| `platform/controllers/manager.go` | `//go:embed resources/manager/*.yaml` (`managerFS`); `EnsureControllerManager` — same SSA pattern for the adhar-controlplane Deployment |
 | `platform/controllers/resources/{*.yaml,manager/manager.yaml}` | embedded platform CRDs + controller-manager manifests |
 | `platform/k8s/util.go` | `BuildCustomizedManifests`/`BuildCustomizedObjects` — render embedded FS + layer user override file |
 | `platform/utils/fs/fs.go` | `ConvertFSToBytes` — read an embedded dir, `ApplyTemplate` per file |

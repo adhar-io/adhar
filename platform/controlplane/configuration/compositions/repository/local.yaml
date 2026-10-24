@@ -13,7 +13,7 @@
 # each API is treated as success — so this converges on re-apply and on systems
 # that were set up by hand.
 #
-# Harbor is HTTPS-only in-cluster (internalTLS), so curl needs its CA; the Secret
+# Harbor is HTTPS-only adhar-controlplane (internalTLS), so curl needs its CA; the Secret
 # is mounted `optional` and the Job fails loudly if the CA is not there yet,
 # which the backoff turns into a retry rather than a wrong answer.
 apiVersion: apiextensions.crossplane.io/v1

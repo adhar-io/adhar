@@ -1,6 +1,6 @@
 # CA trust for the HTTPS-everywhere build path.
 #
-# Harbor now serves its in-cluster registry over TLS signed by the platform
+# Harbor now serves its adhar-controlplane registry over TLS signed by the platform
 # `adhar` CA (application/harbor). Every actor that pushes/pulls those images must
 # trust that CA:
 #   * the kpack controller (resolves + pushes the ClusterBuilder image) — trusts

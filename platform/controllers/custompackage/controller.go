@@ -103,7 +103,7 @@ func (r *CustomPackageReconciler) postProcessReconcile(ctx context.Context, req 
 	}
 }
 
-// create an in-cluster repository CR, update the application spec, then apply
+// create an adhar-controlplane repository CR, update the application spec, then apply
 func (r *CustomPackageReconciler) reconcileCustomPackage(ctx context.Context, resource *v1alpha1.CustomPackage) (ctrl.Result, error) {
 	b, err := r.getArgoCDAppFile(ctx, resource)
 	if err != nil {

@@ -156,8 +156,8 @@ spec:
                   name: oidc
                   optional: true
           args:
-            - "-in-cluster"
-            - "-in-cluster-context-name=main"
+            - "-adhar-controlplane"
+            - "-adhar-controlplane-context-name=main"
             - "-enable-helm"
             - "-watch-plugins-changes"
             - "-plugins-dir=/headlamp/plugins"

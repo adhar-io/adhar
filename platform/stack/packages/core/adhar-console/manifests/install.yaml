@@ -395,6 +395,14 @@ spec:
   # only has to be longer than a cold start on a busy cluster.
   progressDeadlineSeconds: 600
   replicas: 1
+  # Replace in place: one replica gains nothing from a surge pod except a
+  # few seconds of overlap, and on a fully requested cluster the surge pod
+  # can never schedule, so the rollout would wait forever on the old one.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: console
@@ -420,8 +428,13 @@ spec:
           readOnly: true
       containers:
       - name: adhar-console
-        image: ghcr.io/adhar-io/adhar-console:latest
-        imagePullPolicy: Always
+        # Pinned to a released version (2026-10-24, was :latest + Always). A
+        # floating tag made the running console unknowable from the manifest,
+        # upgraded it on any pod restart, and the console's own status card
+        # reported "latest" against its build version. Bump this line to ship
+        # a new console; the tag carries no `v` prefix.
+        image: ghcr.io/adhar-io/adhar-console:0.1.157
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
           name: http
@@ -585,24 +598,16 @@ spec:
           value: http://coder.adhar-system.svc.cluster.local:80
         - name: AIRBYTE_URL
           value: http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001
-        # Airbyte 2.x serves its API only to a Bearer minted from an
-        # application's client credentials (API_AUTHORIZATION_ENABLED=true);
-        # with just the URL the console got 401 on every call (2026-10-16).
-        # The instance-admin application the airbyte package provisions
-        # (data/airbyte manifests/auth.yaml) is the console's identity there;
-        # the BFF mints and re-mints the short-lived token itself.
-        - name: AIRBYTE_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: airbyte-auth-secrets
-              key: instance-admin-client-id
-              optional: true
-        - name: AIRBYTE_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: airbyte-auth-secrets
-              key: instance-admin-client-secret
-              optional: true
+        # No AIRBYTE_CLIENT_ID / AIRBYTE_CLIENT_SECRET (2026-10-24). Airbyte
+        # now runs with its built-in auth OFF (Keycloak via oauth2-proxy is the
+        # only login; data/airbyte values.yaml), and in auth mode NONE the
+        # token endpoint the BFF used to mint from
+        # (/api/v1/applications/token) has no backing service. Without the two
+        # vars the console's tool registry picks `none` auth for Airbyte; what
+        # keeps the API private is the airbyte package's NetworkPolicy, which
+        # admits this pod (app=console). If Airbyte's auth is ever turned back
+        # on, restore both vars from Secret airbyte-auth-secrets keys
+        # instance-admin-client-id / instance-admin-client-secret.
         - name: FALCO_URL
           value: http://falco-falcosidekick-ui.adhar-system.svc.cluster.local:2802
         # Analytics: PostHog over the cluster network, authenticated with the
@@ -630,7 +635,7 @@ spec:
         - secretRef:
             name: plane-api-token
             optional: true
-        # Strapi's Content API: STRAPI_URL (in-cluster) + STRAPI_TOKEN, generated
+        # Strapi's Content API: STRAPI_URL (adhar-controlplane) + STRAPI_TOKEN, generated
         # and registered by the strapi package (application/strapi
         # manifests/console-token.yaml), which also restarts the console once
         # when the Secret lands after it started.

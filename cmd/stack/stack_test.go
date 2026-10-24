@@ -28,7 +28,7 @@ spec:
   generators:
     - list:
         elements:
-          # Harbor is the in-cluster registry. Heavy: a database, Redis, four
+          # Harbor is the adhar-controlplane registry. Heavy: a database, Redis, four
           # services. Off locally for that reason.
           - name: "harbor"
             enabled: "false"
@@ -86,7 +86,7 @@ func TestSetEnabledChangesOneLineAndKeepsEveryComment(t *testing.T) {
 	// The comments are the file's documentation — round-tripping through a YAML
 	// marshaller would delete all of them and make a one-line change unreviewable.
 	for _, comment := range []string{
-		"# Harbor is the in-cluster registry.",
+		"# Harbor is the adhar-controlplane registry.",
 		"# services. Off locally for that reason.",
 		"# The AI data plane. Hard-depends on adhar-ai.",
 		"# vault is superseded by openbao; exactly one of the two.",

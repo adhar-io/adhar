@@ -234,7 +234,7 @@ func parseTemplateParams(raw []string) (map[string]string, error) {
 }
 
 // newGiteaClient builds an authenticated Gitea SDK client against the platform's
-// in-cluster Gitea (resolved from the active idp config), reachable from the CLI
+// adhar-controlplane Gitea (resolved from the active idp config), reachable from the CLI
 // via the platform host.
 func newGiteaClient(ctx context.Context) (*gitea.Client, error) {
 	baseURL, err := utils.GiteaBaseUrl(ctx)

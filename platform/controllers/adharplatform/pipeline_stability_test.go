@@ -267,7 +267,7 @@ func TestBuildpacksBuildRoutesPlatformScopesToTheClusterRegistry(t *testing.T) {
 //     holds nothing (an empty package list, a 404 for the POM), while the
 //     release pipeline deploys to NEXUS, where that exact POM answers 200;
 //   - Maven 3.8 ships a global mirror, `maven-default-http-blocker`, matching
-//     `external:http:*`. Every in-cluster registry is plain HTTP on a cluster-DNS
+//     `external:http:*`. Every adhar-controlplane registry is plain HTTP on a cluster-DNS
 //     name, so Maven refuses to contact it no matter where the URL points.
 //
 // Both have to be handled, and the settings path has to be overridden AFTER the
@@ -291,7 +291,7 @@ func TestBuildpacksBuildRoutesMavenAtTheClusterRegistry(t *testing.T) {
 	// Maven's default HTTP blocker must be lifted by redeclaring its id.
 	if !strings.Contains(s, "<id>maven-default-http-blocker</id>") {
 		t.Error("the generated Maven settings do not redeclare maven-default-http-blocker; Maven 3.8+ " +
-			"blocks every plain-HTTP repository, which is every in-cluster registry, so the build " +
+			"blocks every plain-HTTP repository, which is every adhar-controlplane registry, so the build " +
 			"cannot reach Nexus however correct the URL is")
 	}
 	if !strings.Contains(s, "<mirrorOf>dummy</mirrorOf>") {

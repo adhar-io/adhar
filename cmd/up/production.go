@@ -132,7 +132,7 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 			environment, envConfig.ResolvedProvider, err)
 	}
 
-	// Bootstrap the platform (foundation + GitOps stack + in-cluster controller
+	// Bootstrap the platform (foundation + GitOps stack + adhar-controlplane controller
 	// manager) on the freshly provisioned cluster — same flow as local, sized
 	// by enableHAMode.
 	if result != nil {

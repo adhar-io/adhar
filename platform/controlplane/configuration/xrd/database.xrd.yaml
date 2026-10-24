@@ -8,7 +8,7 @@ spec:
   names:
     kind: Database
     plural: databases
-  # Local-safe default: an unqualified Database provisions an in-cluster
+  # Local-safe default: an unqualified Database provisions an adhar-controlplane
   # CloudNativePG Postgres (no cloud credentials needed). Pick a cloud provider by
   # setting spec.compositionSelector.matchLabels.provider to aws|gcp|azure.
   defaultCompositionRef:
@@ -39,7 +39,7 @@ spec:
                   default:
                     matchLabels:
                       feature: database
-                      # Default to the in-cluster provider so a bare request
+                      # Default to the adhar-controlplane provider so a bare request
                       # never selects a cloud composition that has no credentials.
                       provider: local
                 providerConfigRef:
@@ -58,7 +58,7 @@ spec:
                       description: "Human-friendly name shown in the console (defaults to the resource name)."
                     engine:
                       type: string
-                      description: "Database engine. The local (in-cluster) provider supports postgresql; mysql/mariadb/mongodb/redis/valkey require a cloud provider."
+                      description: "Database engine. The local (adhar-controlplane) provider supports postgresql; mysql/mariadb/mongodb/redis/valkey require a cloud provider."
                       default: postgresql
                       enum:
                         - postgresql
@@ -86,7 +86,7 @@ spec:
                     instanceClass:
                       type: string
                       description: "Cloud only: compute size (e.g. db.t3.micro on AWS). Ignored by the local provider, which runs a single small CNPG instance."
-                    # ── the in-cluster (CNPG) shape ──
+                    # ── the adhar-controlplane (CNPG) shape ──
                     # Added 2026-10-11, when the platform's own ten databases stopped
                     # declaring CNPG Clusters of their own and started asking for a
                     # Database. Everything here is additive and defaults to what the

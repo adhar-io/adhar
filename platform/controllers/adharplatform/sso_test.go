@@ -231,7 +231,7 @@ func TestEveryBootstrapManifestRenders(t *testing.T) {
 // Keycloak issuer, the OAuth callback and the cookie domain. Rendered without a
 // host it yields "https://keycloak./realms/adhar" — a name ending in a bare dot —
 // and the proxy crash-loops on OIDC discovery with "lookup keycloak. no such
-// host". The in-cluster controller-manager reconciles the same manifest and,
+// host". The adhar-controlplane controller-manager reconciles the same manifest and,
 // running without a configured host, REPLACED a working proxy with a broken one
 // (2026-09-20).
 func TestSSOProxyManifestDependsOnTheHost(t *testing.T) {

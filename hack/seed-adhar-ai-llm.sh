@@ -31,7 +31,7 @@
 set -euo pipefail
 
 PROVIDER="${ADHAR_AI_LLM_PROVIDER:-anthropic}"
-# `local` needs no key: the model is served in-cluster (ai/llm-d) and reached
+# `local` needs no key: the model is served adhar-controlplane (ai/llm-d) and reached
 # through agentgateway's `local/*` route. Every other provider must have one.
 if [[ "${PROVIDER}" != "local" ]]; then
   : "${ADHAR_AI_LLM_API_KEY:?set ADHAR_AI_LLM_API_KEY to your provider API key}"

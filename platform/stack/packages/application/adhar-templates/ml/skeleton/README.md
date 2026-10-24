@@ -62,7 +62,7 @@ pip install -r pipelines/requirements.txt -r serving/requirements.txt
 # 1. Compile the training pipeline
 python pipelines/pipeline.py            # → pipelines/pipeline.yaml
 
-# 2. Submit it to the platform (port-forward or in-cluster DNS)
+# 2. Submit it to the platform (port-forward or adhar-controlplane DNS)
 export KFP_ENDPOINT=http://ml-pipeline.adhar-system.svc:8888
 kfp --endpoint "$KFP_ENDPOINT" run create \
     --experiment-name ${{values.modelName}} \

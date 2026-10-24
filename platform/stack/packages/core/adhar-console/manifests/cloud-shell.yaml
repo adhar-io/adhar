@@ -364,7 +364,7 @@ spec:
                 chmod 600 /root/.kube/config
                 echo "kubeconfig written (context adhar, namespace ${POD_NAMESPACE})"
               else
-                echo "no service-account token; leaving kubectl on in-cluster defaults"
+                echo "no service-account token; leaving kubectl on adhar-controlplane defaults"
               fi
 
               # Per-session kubeconfig copies from a previous container life.

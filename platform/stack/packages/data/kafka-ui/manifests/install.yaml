@@ -1,5 +1,5 @@
 # Kafka UI — a web console for browsing topics/consumers/messages. Points at the
-# in-cluster Kafka bootstrap (the `kafka` package's broker Service). Dynamic
+# adhar-controlplane Kafka bootstrap (the `kafka` package's broker Service). Dynamic
 # config is enabled so clusters can also be added from the UI at runtime — so the
 # UI is useful even before/without the `kafka` package being enabled.
 #

@@ -243,7 +243,7 @@ func (p *Provider) preflightInstanceType(ctx context.Context, spec *types.Cluste
 	}, true
 }
 
-// preflightLoadBalancer checks the ELB access teardown needs. The in-cluster cloud
+// preflightLoadBalancer checks the ELB access teardown needs. The adhar-controlplane cloud
 // controller manager creates the platform's load balancer, so `adhar up` never calls
 // ELB — but `adhar down` must, and discovering that at teardown means the load
 // balancer survives and keeps billing.
@@ -259,7 +259,7 @@ func (p *Provider) preflightLoadBalancer(ctx context.Context) (provider.Check, b
 			Status: provider.CheckWarn,
 			Detail: err.Error(),
 			Fix: "Without this, `adhar down` cannot remove the load balancer the " +
-				"in-cluster controller creates, and it keeps billing after teardown. " +
+				"adhar-controlplane controller creates, and it keeps billing after teardown. " +
 				provider.ExplainAccessError(err),
 		}, true
 	}

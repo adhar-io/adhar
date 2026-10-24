@@ -1,0 +1,437 @@
+# Valkey Admin comes up with every Adhar cache already in its connection list
+# (2026-10-24).
+#
+# WHY IT IS DONE IN THE BROWSER: valkey-admin 1.2.0 keeps its connection list
+# ONLY in the browser — localStorage key `VALKEY_CONNECTIONS`, a map of
+# connectionId -> {connectionDetails, status, connectionHistory, ...}
+# (apps/frontend/src/state/valkey-features/connection/connectionSlice.ts). The
+# server has no connections file, no API to add one, and exactly ONE
+# preconfigured connection via VALKEY_HOST/VALKEY_PORT, which in Web mode feeds
+# the metrics collector and never appears on the Connect page. In Web mode the
+# browser also sends the password with every connect; the server keeps no
+# credential store to reference instead.
+#
+# So the list is seeded where the app reads it:
+#
+#   1. The `valkey-admin-connections-sync` CronJob below (every minute, plus a
+#      PostSync run) lists the Valkey instances the platform composed — the
+#      `Cache` XR (compositions/cache/local-valkey.yaml) and `Database
+#      engine=valkey` both compose a hyperspike `Valkey` CR labelled
+#      app.kubernetes.io/managed-by=crossplane and platform.adhar.io/cache (or
+#      platform.adhar.io/database) — and writes them as `connections.js` into
+#      the Secret `valkey-admin-connections` (adhar-system). It writes only when
+#      the list changed (content hash annotation), so the Secret's
+#      resourceVersion does not churn every minute.
+#   2. valkey-admin.yaml mounts that Secret, plus `bootstrap.js` from the
+#      ConfigMap below, into the app's static dir at /adhar/, and its init
+#      container adds two same-origin <script> tags to index.html (the app's CSP
+#      is script-src 'self', so a same-origin file is the only thing allowed).
+#   3. bootstrap.js runs before the app's module script and merges the list into
+#      localStorage: Adhar-managed entries are added/updated, ones whose cache is
+#      gone are removed, anything a user added by hand is left alone.
+#
+# The mounted Secret refreshes in place (kubelet resyncs volume contents, no
+# subPath), so a new cache shows up on the next page load with NO pod restart.
+#
+# SECURITY TRADE-OFF (read before changing): a cache created with
+# `password: true` is only "ready to use" if the browser has its password,
+# because that is the only way valkey-admin Web mode can authenticate. The
+# password therefore travels to the browser of whoever passes the Keycloak gate
+# in front of this app (sso.yaml) and sits in that browser's localStorage until
+# the app's first successful connect strips it. That gate is already what stands
+# between a user and FLUSHALL on every passwordless cache, so the exposure is
+# the same audience. To keep passwords out of browsers, delete the
+# `valkey-admin-connections-cache-passwords` ClusterRoleBinding (or set
+# INCLUDE_PASSWORDS=false): the connections are still pre-added and the UI asks
+# for the password on connect.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: valkey-admin-connections-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: valkey-admin-connections-sync
+    app.kubernetes.io/part-of: valkey-admin
+automountServiceAccountToken: false
+---
+# Discovery: read-only, Valkey CRs only. Cluster-wide because a team's cache lives
+# in the team's namespace, which is not known when this package renders.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: valkey-admin-connections-discover
+  labels:
+    app.kubernetes.io/part-of: valkey-admin
+rules:
+  - apiGroups: ["hyperspike.io"]
+    resources: ["valkeys"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: valkey-admin-connections-discover
+  labels:
+    app.kubernetes.io/part-of: valkey-admin
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: valkey-admin-connections-discover}
+subjects: [{kind: ServiceAccount, name: valkey-admin-connections-sync, namespace: adhar-system}]
+---
+# Passwords: `get` on Secrets, deliberately WITHOUT list/watch — the job can only
+# read a Secret whose name it already derived from a Valkey CR (the composition's
+# connection Secret `<name>-cache` / `<name>-app` for the passwordSecret it names,
+# then that Secret). RBAC cannot narrow this further: resourceNames needs exact
+# names and these are created per cache at runtime. It is only used for caches
+# with anonymousAuth: false. Kept as its own ClusterRole so an operator can drop
+# this one binding and keep passwords out of browsers entirely (see header).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: valkey-admin-connections-cache-passwords
+  labels:
+    app.kubernetes.io/part-of: valkey-admin
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: valkey-admin-connections-cache-passwords
+  labels:
+    app.kubernetes.io/part-of: valkey-admin
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: valkey-admin-connections-cache-passwords}
+subjects: [{kind: ServiceAccount, name: valkey-admin-connections-sync, namespace: adhar-system}]
+---
+# Writing the list: only the one Secret, in this namespace. `create` cannot be
+# narrowed by resourceNames, so it is the only unnamed verb.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: valkey-admin-connections-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: valkey-admin
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["valkey-admin-connections"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: valkey-admin-connections-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: valkey-admin
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: valkey-admin-connections-sync}
+subjects: [{kind: ServiceAccount, name: valkey-admin-connections-sync, namespace: adhar-system}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valkey-admin-connections
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: valkey-admin-connections
+    app.kubernetes.io/part-of: valkey-admin
+  # Before the Deployment (wave 5) that mounts bootstrap.js and the jobs that
+  # run sync.sh.
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+data:
+  # Discovers the platform's Valkey instances and writes the Secret the app's
+  # bootstrap.js reads. Needs bash, kubectl, jq, base64, sha256sum (alpine/k8s).
+  sync.sh: |
+    set -uo pipefail
+    export HOME=/tmp
+    NS=adhar-system
+    TARGET=valkey-admin-connections
+    INCLUDE_PASSWORDS="${INCLUDE_PASSWORDS:-true}"
+    W=$(mktemp -d)
+
+    # A failed LIST must not publish an empty list: the browser would then drop
+    # every managed connection. Exit non-zero and keep what is there.
+    if ! kubectl get valkeys.hyperspike.io -A -l app.kubernetes.io/managed-by=crossplane -o json > "$W/valkeys.json"; then
+      echo "ERROR: cannot list Valkey instances; leaving $TARGET unchanged" >&2
+      exit 1
+    fi
+
+    # One row per Adhar-composed instance. The Service is named after the CR
+    # (operator contract, and the composition's status.host), port 6379.
+    jq -c '[.items[]
+        | select(.metadata.deletionTimestamp == null)
+        | (.metadata.labels // {}) as $l
+        | select($l["platform.adhar.io/cache"] or $l["platform.adhar.io/database"])
+        | {
+            name: .metadata.name,
+            namespace: .metadata.namespace,
+            kind: (if $l["platform.adhar.io/cache"] then "cache" else "database" end),
+            team: ($l["adhar.io/team"] // null),
+            environment: ($l["adhar.io/environment"] // null),
+            tls: (.spec.tls == true),
+            # Compare explicitly: the jq alternative operator treats false as
+            # missing, which read every password cache as passwordless.
+            auth: (.spec.anonymousAuth == false)
+          }]
+        | sort_by(.namespace, .name) | .[]' "$W/valkeys.json" > "$W/rows" \
+      || { echo "ERROR: unreadable Valkey list; leaving $TARGET unchanged" >&2; exit 1; }
+
+    secret_value() { # <namespace> <secret> <key> -> decoded value, or nothing
+      kubectl get secret "$2" -n "$1" -o json 2>/dev/null | jq -r --arg k "$3" '.data[$k] // empty' | base64 -d 2>/dev/null
+    }
+
+    : > "$W/conns"
+    while IFS= read -r row; do
+      [ -n "$row" ] || continue
+      name=$(jq -r .name <<<"$row"); ns=$(jq -r .namespace <<<"$row")
+      kind=$(jq -r .kind <<<"$row"); auth=$(jq -r .auth <<<"$row")
+      # "" = no password (the app connects without prompting); null = the app
+      # prompts for it on connect.
+      pw_json='""'
+      if [ "$auth" = "true" ]; then
+        pw_json=null
+        if [ "$INCLUDE_PASSWORDS" = "true" ]; then
+          # The composition's connection Secret NAMES the credential
+          # (passwordSecret/passwordKey); fall back to the operator default.
+          conn="$name-cache"; [ "$kind" = "database" ] && conn="$name-app"
+          ps=$(secret_value "$ns" "$conn" passwordSecret); ps=${ps:-$name}
+          pk=$(secret_value "$ns" "$conn" passwordKey); pk=${pk:-password}
+          pw=$(secret_value "$ns" "$ps" "$pk")
+          if [ -n "$pw" ]; then
+            pw_json=$(jq -Rn --arg p "$pw" '$p')
+          else
+            echo "note: no readable password for $ns/$name ($ps/$pk); the UI will ask for it" >&2
+          fi
+          unset pw
+        fi
+      fi
+      jq -c --argjson pw "$pw_json" '{
+          alias: (.name + " (" + .namespace + ")"),
+          name, namespace, kind, team, environment,
+          host: (.name + "." + .namespace + ".svc.cluster.local"),
+          port: "6379",
+          tls,
+          # In-cluster TLS is signed by the platform ClusterIssuer
+          # adhar-selfsigned, and valkey-admin 1.2.0 cannot be given a CA
+          # (caCertPath is an unimplemented TODO upstream), so verification is
+          # off for these in-cluster addresses only.
+          verifyTlsCertificate: false,
+          password: $pw
+        }' <<<"$row" >> "$W/conns"
+    done < "$W/rows"
+
+    jq -s '{version: 1, connections: .}' "$W/conns" > "$W/list.json" || exit 1
+    count=$(jq '.connections | length' "$W/list.json")
+    want=$(sha256sum "$W/list.json" | cut -d' ' -f1)
+    { printf '/* Generated by valkey-admin-connections-sync. Do not edit. */\n'
+      printf 'window.__ADHAR_VALKEY_CONNECTIONS__ = '; cat "$W/list.json"; printf ';\n'; } > "$W/connections.js"
+
+    have=$(kubectl get secret "$TARGET" -n "$NS" -o jsonpath='{.metadata.annotations.adhar\.io/connections-hash}' 2>/dev/null || true)
+    if [ "$want" = "$have" ]; then
+      echo "valkey-admin connections up to date ($count instance(s))"
+      exit 0
+    fi
+    kubectl create secret generic "$TARGET" -n "$NS" \
+      --from-file=connections.js="$W/connections.js" --dry-run=client -o json \
+      | jq --arg h "$want" '.metadata.annotations = {"adhar.io/connections-hash": $h}
+          | .metadata.labels = {"app.kubernetes.io/name": "valkey-admin-connections", "app.kubernetes.io/part-of": "valkey-admin"}' \
+      > "$W/secret.json"
+    if kubectl get secret "$TARGET" -n "$NS" >/dev/null 2>&1; then
+      kubectl replace -f "$W/secret.json" >/dev/null || exit 1
+    else
+      kubectl create -f "$W/secret.json" >/dev/null || exit 1
+    fi
+    rm -rf "$W"
+    echo "valkey-admin connections updated ($count instance(s))"
+  # Runs in the browser before valkey-admin's own module script (classic
+  # <script> tags execute during parsing; module scripts are deferred), so the
+  # app's store initialises from the merged list.
+  bootstrap.js: |
+    (function () {
+      "use strict";
+      var KEY = "VALKEY_CONNECTIONS";             // valkey-admin 1.2.0 LOCAL_STORAGE.VALKEY_CONNECTIONS
+      var MANAGED = "ADHAR_MANAGED_VALKEY_CONNECTIONS"; // ids this script owns
+      var data = window.__ADHAR_VALKEY_CONNECTIONS__;
+      // No list (Secret not written yet, or not loadable): change nothing. An
+      // unknown list must never be read as an empty one.
+      if (!data || !Array.isArray(data.connections)) return;
+      // Same id the app derives: sanitizeUrl(host-port) + "-db<N>" (common/src/connection-id.ts).
+      var idOf = function (host, port, db) {
+        return (host + "-" + port).replace(/[^a-zA-Z0-9_-]/g, "-") + "-db" + db;
+      };
+      var read = function (k, fallback) {
+        try { var v = JSON.parse(window.localStorage.getItem(k)); return v || fallback; } catch (e) { return fallback; }
+      };
+      try {
+        var all = read(KEY, {});
+        if (typeof all !== "object" || Array.isArray(all)) all = {};
+        var before = read(MANAGED, []);
+        var now = [];
+        data.connections.forEach(function (c) {
+          var id = idOf(c.host, c.port, 0);
+          now.push(id);
+          var prev = all[id] || {};
+          var prevDetails = prev.connectionDetails || {};
+          var details = Object.assign({}, prevDetails, {
+            host: c.host,
+            port: String(c.port),
+            tls: !!c.tls,
+            verifyTlsCertificate: !!c.verifyTlsCertificate,
+            alias: c.alias,
+            endpointType: "node",
+            authType: "password",
+            db: 0
+          });
+          // "" = no password needed; a string = seeded; null = let the app ask.
+          if (c.password === null || c.password === undefined) delete details.password;
+          else details.password = c.password;
+          // The Connect page lists ONLY entries with a non-empty
+          // connectionHistory (Connection.tsx). A never-used cache gets one
+          // "Registered" entry: enough to be listed, and not a "Connected"
+          // event, so the UI shows no fake "Last connected" time.
+          var history = prev.connectionHistory && prev.connectionHistory.length
+            ? prev.connectionHistory
+            : [{ timestamp: Date.now(), event: "Registered" }];
+          var everConnected = history.some(function (h) { return h && h.event === "Connected"; });
+          var entry = {
+            connectionDetails: details,
+            status: prev.status || "Not Connected",
+            connectionHistory: history,
+            searchableText: [id, c.host, c.port, c.alias, c.namespace, c.team].filter(Boolean).join(" ").toLowerCase()
+          };
+          // With a history entry the app would auto-connect every listed cache
+          // on page load (isAutoResumeEligible). Only resume what the user has
+          // actually used; a fresh one waits for its Connect click.
+          if (!everConnected || prev.userDisconnected) entry.userDisconnected = true;
+          all[id] = entry;
+        });
+        // A cache that is gone leaves the list. Only ids this script added are
+        // ever removed; hand-added connections are not touched.
+        before.forEach(function (id) { if (now.indexOf(id) < 0) delete all[id]; });
+        window.localStorage.setItem(KEY, JSON.stringify(all));
+        window.localStorage.setItem(MANAGED, JSON.stringify(now));
+      } catch (e) {
+        if (window.console) console.warn("adhar: could not seed Valkey connections", e);
+      }
+    })();
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: valkey-admin-connections-sync
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: valkey-admin-connections-sync
+    app.kubernetes.io/part-of: valkey-admin
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+spec:
+  # Every minute: a cache created through the console should be in the list
+  # by the time its owner opens Valkey Admin.
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 300
+      # Under Forbid a hung apiserver call would block every later run.
+      activeDeadlineSeconds: 50
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: valkey-admin-connections-sync
+        spec:
+          serviceAccountName: valkey-admin-connections-sync
+          automountServiceAccountToken: true
+          enableServiceLinks: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: sync
+              image: docker.io/alpine/k8s:1.31.1
+              command: [bash, /scripts/sync.sh]
+              env:
+                - {name: INCLUDE_PASSWORDS, value: "true"}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              volumeMounts:
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: scripts
+              configMap:
+                name: valkey-admin-connections
+                items: [{key: sync.sh, path: sync.sh}]
+            - name: tmp
+              emptyDir: {sizeLimit: 16Mi}
+---
+# The same run once per sync, so a fresh install (or a change to this package)
+# has its list before the first cron tick.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: valkey-admin-connections-sync-now
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: valkey-admin-connections-sync
+    app.kubernetes.io/part-of: valkey-admin
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey-admin-connections-sync
+    spec:
+      serviceAccountName: valkey-admin-connections-sync
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: sync
+          image: docker.io/alpine/k8s:1.31.1
+          command: [bash, /scripts/sync.sh]
+          env:
+            - {name: INCLUDE_PASSWORDS, value: "true"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: scripts
+          configMap:
+            name: valkey-admin-connections
+            items: [{key: sync.sh, path: sync.sh}]
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}

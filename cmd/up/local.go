@@ -133,7 +133,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) (err e
 		{Label: "Networking", Detail: "CoreDNS rewrite · self-signed TLS"},
 		{Label: "Cilium & Gateway", Detail: "eBPF CNI + Cilium Gateway API"},
 		{Label: "ArgoCD", Detail: "GitOps engine"},
-		{Label: "Gitea", Detail: "in-cluster Git server"},
+		{Label: "Gitea", Detail: "adhar-controlplane Git server"},
 		{Label: "GitOps repos", Detail: "seed packages · environments · templates into Gitea"},
 		{Label: "Crossplane", Detail: "control plane + providers"},
 		{Label: "GitOps sync - platform stack", Detail: "curated platform apps via ArgoCD"},
@@ -234,7 +234,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) (err e
 		//
 		// The check exists solely to stop two controllers registering the same
 		// metric — and `Metrics.BindAddress: "0"` above means this manager serves
-		// no metrics at all, so there is nothing to collide. The in-cluster manager
+		// no metrics at all, so there is nothing to collide. The adhar-controlplane manager
 		// (cmd/controller) keeps the validation, where it does protect something.
 		Controller: ctrlcfg.Controller{SkipNameValidation: ptr.To(true)},
 		GracefulShutdownTimeout: func() *time.Duration {
@@ -696,10 +696,10 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		exitOnSync = !noExit
 	}
 
-	// The in-process (--no-exit) and in-cluster controller managers would both
+	// The in-process (--no-exit) and adhar-controlplane controller managers would both
 	// reconcile the same AdharPlatform without sharing leader election.
 	if inClusterController && !exitOnSync {
-		return fmt.Errorf("--in-cluster cannot be combined with --no-exit: only one controller manager may reconcile the platform")
+		return fmt.Errorf("--adhar-controlplane cannot be combined with --no-exit: only one controller manager may reconcile the platform")
 	}
 
 	// If registry-config is unset we pass nil
@@ -802,12 +802,12 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		return fmt.Errorf("failed to provision local development cluster: %w", err)
 	}
 
-	// Hand reconciliation over to an in-cluster manager so the platform keeps
+	// Hand reconciliation over to an adhar-controlplane manager so the platform keeps
 	// self-healing after this process exits. Runs on a fresh context: the
 	// provisioning context is already cancelled by the controller's shutdown.
 	if options.InClusterController {
 		if err := installInClusterController(provisioner); err != nil {
-			return fmt.Errorf("installing in-cluster controller manager: %w", err)
+			return fmt.Errorf("installing adhar-controlplane controller manager: %w", err)
 		}
 		logger.InfoWithFields("In-cluster controller manager installed", map[string]interface{}{
 			"deployment": "adhar-controller-manager",
@@ -892,7 +892,7 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 // a "ready" header, a bordered table of access URLs, and the key command hints.
 func printSuccessMsg() {
 	// Every UI is served on its own subdomain (<app>.<host>), covered by the
-	// platform wildcard cert and resolved in-cluster via CoreDNS.
+	// platform wildcard cert and resolved adhar-controlplane via CoreDNS.
 	sub := func(name string) string {
 		if behindProxy() {
 			return fmt.Sprintf("https://%s.%s", name, host)

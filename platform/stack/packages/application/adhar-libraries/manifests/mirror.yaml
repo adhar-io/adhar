@@ -1,5 +1,5 @@
 # Mirror the shared LIBRARIES from GitHub → Gitea at bootstrap, so teams build,
-# customise and maintain them in-cluster. Each Job (idempotent) creates the Gitea
+# customise and maintain them adhar-controlplane. Each Job (idempotent) creates the Gitea
 # repo and force-pushes the GitHub main branch.
 #
 # adhar-templates is NOT here any more (2026-09-30). The bootstrap controller now
@@ -13,7 +13,7 @@
 #      fail against the very repo bootstrap creates.
 #
 # adhar-ui and adhar-kit stay as force-pushed copies on purpose: they are meant to
-# be modified in-cluster, which a mirror forbids. Runs as a PostSync hook so it
+# be modified adhar-controlplane, which a mirror forbids. Runs as a PostSync hook so it
 # re-mirrors on every sync; the release pipelines (npm-release.yaml /
 # maven-release.yaml) then publish to the Nexus package registry
 # (npm-hosted / maven-hosted). This Job only mirrors git repos GitHub -> Gitea;

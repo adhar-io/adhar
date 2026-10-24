@@ -82,7 +82,7 @@ cluster:
       - repository-s3
     additionalConfig:
       # S3 client for the snapshot repository below. RustFS is the platform's
-      # primary S3 store (ADR: data/rustfs), reached in-cluster over plain HTTP
+      # primary S3 store (ADR: data/rustfs), reached adhar-controlplane over plain HTTP
       # on 9000, and it needs path-style addressing because there is no
       # per-bucket DNS.
       s3.client.default.endpoint: "rustfs.adhar-system.svc.cluster.local:9000"
@@ -161,9 +161,11 @@ cluster:
       diskSize: "20Gi"
       resources:
         requests:
-          # 250m -> 100m: measured max 52m on the AWS cluster (2026-10-24),
-          # the request was ~5x use; 100m is the floor kept for data stores.
-          cpu: 100m
+          # 250m -> 100m -> 50m: measured max 52m on the AWS cluster
+          # (2026-10-24). 50m is the measured peak, not headroom: chosen so the
+          # node holding this pool's node-local volume (a pod cannot move off
+          # it) can still fit it when the cluster is fully requested.
+          cpu: 50m
           # The operator derives the JVM heap from requests.memory / 2, so this
           # is -Xms1g -Xmx1g. Stating it through the request keeps the heap and
           # the cgroup in agreement.

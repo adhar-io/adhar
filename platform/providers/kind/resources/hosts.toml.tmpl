@@ -9,7 +9,7 @@ server = "https://{{ .Host }}:{{ .Port }}"
   capabilities = ["pull", "resolve"]
   ca = "/etc/adhar/pki/tls.crt"
 {{ else -}}
-# certs.d host config for the in-cluster Gitea registry, verified against the
+# certs.d host config for the adhar-controlplane Gitea registry, verified against the
 # platform CA mounted into the node (no skip_verify).
 server = "https://gitea.{{ .Host }}:{{ .Port }}"
 

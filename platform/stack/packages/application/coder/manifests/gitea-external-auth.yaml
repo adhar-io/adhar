@@ -54,7 +54,7 @@
 # TOKEN_URL / VALIDATE_URL are called by the Coder pod; pointing those at the
 # public host would send them out through the Gateway and back, depending on
 # split-horizon DNS and on the Gateway certificate being trusted by Coder's Go
-# HTTP client. The in-cluster Service has neither problem. Gitea validates the
+# HTTP client. The adhar-controlplane Service has neither problem. Gitea validates the
 # `redirect_uri` from the request body, not from the Host header, so the
 # internal endpoint accepts a code minted against the public one.
 #
@@ -234,14 +234,14 @@ spec:
               b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
 
               # TOKEN_URL / VALIDATE_URL are called by the Coder POD, so they use
-              # the in-cluster Service: the public host would leave the cluster
+              # the adhar-controlplane Service: the public host would leave the cluster
               # and come back through the Gateway, and would need Coder's Go HTTP
               # client to trust the Gateway certificate. Gitea validates
               # `redirect_uri` from the request body rather than the Host header,
               # so a code minted against the public AUTH_URL redeems here fine.
               #
               # REGEX is matched against the git remote URL and must cover BOTH
-              # spellings in use: workspaces clone over the in-cluster Service,
+              # spellings in use: workspaces clone over the adhar-controlplane Service,
               # while a desktop IDE or a pasted URL uses the public host. The
               # bare word `gitea` covers both and cannot go stale when the
               # platform domain changes.

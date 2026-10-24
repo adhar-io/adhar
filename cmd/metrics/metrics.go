@@ -58,8 +58,8 @@ var (
 	promQueryExpr string
 )
 
-// Default in-cluster endpoints for the kube-prometheus-stack. These assume a
-// port-forward (or in-cluster execution); override with the flags below.
+// Default adhar-controlplane endpoints for the kube-prometheus-stack. These assume a
+// port-forward (or adhar-controlplane execution); override with the flags below.
 const (
 	defaultPrometheusURL = "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
 	defaultGrafanaURL    = "http://kube-prometheus-stack-grafana.monitoring.svc"

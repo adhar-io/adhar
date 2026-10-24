@@ -141,7 +141,7 @@ func TestPlaneInstanceSetupEnablesTheForksKeycloakLogin(t *testing.T) {
 
 	values, refs := containerEnv(t, setup, "Job", "setup")
 	if got := values["KEYCLOAK_INTERNAL_ISSUER_URL"]; !strings.HasPrefix(got, "http://keycloak.adhar-system.svc.cluster.local:8080/realms/") {
-		t.Errorf("KEYCLOAK_INTERNAL_ISSUER_URL = %q; the backchannel must stay in-cluster", got)
+		t.Errorf("KEYCLOAK_INTERNAL_ISSUER_URL = %q; the backchannel must stay adhar-controlplane", got)
 	}
 	if got := values["KEYCLOAK_ISSUER_URL"]; !strings.HasPrefix(got, "https://keycloak.adhar.localtest.me:8443/realms/") {
 		t.Errorf("KEYCLOAK_ISSUER_URL = %q; must be the seed-time-rewritten public issuer", got)
@@ -169,65 +169,108 @@ func TestPlaneInstanceSetupEnablesTheForksKeycloakLogin(t *testing.T) {
 	}
 }
 
-// Strapi: admin SSO is an Enterprise feature that the Adhar build of
-// @strapi/core enables. The boot script swaps that build in through an npm
-// override, config/admin.js registers a Keycloak strategy answering to the
-// provider uid, and the versions must move in lockstep.
-func TestStrapiBootWiresTheKeycloakAdminLogin(t *testing.T) {
+// Strapi: admin SSO is an Enterprise feature, so the platform signs people in
+// itself (2026-10-24). The edge proxy forwards the user's Keycloak ACCESS
+// TOKEN, and the platform extension (platform-extension.yaml, sso.js) verifies
+// it and mints a Strapi session at /admin-sso; the first Super Admin is
+// bootstrapped from a Secret so /admin/auth/register-admin never appears. What
+// keeps that safe is pinned here: the bridge must trust a signed token and
+// never a plain header (Strapi's Service is reachable adhar-controlplane without the
+// proxy), the token must be for the proxy's own client, and the proxy must
+// not overwrite Authorization (Strapi's own admin/API tokens ride on it).
+func TestStrapiAdminSignsInThroughTheProxysKeycloakToken(t *testing.T) {
 	install := readStackFile(t, "application/strapi/manifests/install.yaml")
 	code := withoutComments(install)
-
 	for _, want := range []string{
-		`npm pkg set "overrides.@strapi/core=$want_override"`,
-		`grep -q ADHAR_BUNDLED_FEATURES node_modules/@strapi/core/dist/index.js`,
 		`create-strapi@"$STRAPI_VERSION"`,
-		`uid: 'keycloak',`,
-		`strategy.name = 'keycloak';`,
-		`getStrategyCallbackURL('keycloak')`,
-		`providers: keycloakProviders(env),`,
-		`autoRegister: true, defaultRole: role.id`,
-		`proxy: true,`,
+		`cp "$EXT/index.js" src/index.js`,
+		`cp "$EXT/platform-index.js" src/adhar/index.js`,
+		`proxy: { koa: true },`,
+		`idleRefreshTokenLifespan: env.int('ADMIN_SESSION_IDLE_SECONDS'`,
 	} {
 		if !strings.Contains(code, want) {
 			t.Errorf("strapi install.yaml lost %q", want)
 		}
 	}
+	for _, gone := range []string{"STRAPI_CORE_OVERRIDE", "keycloakProviders", "STRAPI_APP_CLIENT_SECRET"} {
+		if strings.Contains(code, gone) {
+			t.Errorf("strapi install.yaml still carries %q from the retired @strapi/core fork", gone)
+		}
+	}
 
 	values, refs := containerEnv(t, install, "Deployment", "strapi")
-	version := values["STRAPI_VERSION"]
-	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(version) {
-		t.Fatalf("STRAPI_VERSION = %q; the scaffold must be pinned", version)
-	}
-	override := values["STRAPI_CORE_OVERRIDE"]
-	wantTag := "/adhar-core-v" + version + "-"
-	wantFile := "/strapi-core-" + version + ".tgz"
-	if !strings.Contains(override, wantTag) || !strings.HasSuffix(override, wantFile) {
-		t.Errorf("STRAPI_CORE_OVERRIDE = %q; Strapi's packages move in lockstep, so the tarball must be "+
-			"tagged %s* and named %s to match STRAPI_VERSION", override, wantTag, wantFile)
-	}
-	if !strings.HasPrefix(override, "https://github.com/adhar-io/strapi/releases/download/") {
-		t.Errorf("STRAPI_CORE_OVERRIDE = %q; must be a release asset of the adhar-io/strapi fork", override)
-	}
-	if ref := refs["KEYCLOAK_CLIENT_SECRET"]; ref["name"] != "keycloak-clients" || ref["key"] != "STRAPI_APP_CLIENT_SECRET" {
-		t.Errorf("KEYCLOAK_CLIENT_SECRET must come from keycloak-clients/STRAPI_APP_CLIENT_SECRET, got %v", ref)
-	} else if ref["optional"] == "true" {
-		t.Error("KEYCLOAK_CLIENT_SECRET must be required: an optional ref starts Strapi without the login " +
-			"and nothing restarts it when the client reconciler exports the key")
-	}
-	if values["KEYCLOAK_CLIENT_ID"] != "strapi-app" {
-		t.Errorf("KEYCLOAK_CLIENT_ID = %q; Strapi's own login uses the strapi-app client, not the proxy's", values["KEYCLOAK_CLIENT_ID"])
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(values["STRAPI_VERSION"]) {
+		t.Fatalf("STRAPI_VERSION = %q; the scaffold must be pinned", values["STRAPI_VERSION"])
 	}
 	if got := values["KEYCLOAK_INTERNAL_ISSUER_URL"]; !strings.HasPrefix(got, "http://keycloak.adhar-system.svc.cluster.local:8080/realms/") {
-		t.Errorf("KEYCLOAK_INTERNAL_ISSUER_URL = %q; the backchannel must stay in-cluster", got)
+		t.Errorf("KEYCLOAK_INTERNAL_ISSUER_URL = %q; the JWKS fetch must stay adhar-controlplane", got)
+	}
+	if got := values["KEYCLOAK_ISSUER_URL"]; !strings.HasPrefix(got, "https://keycloak.adhar.localtest.me:8443/realms/") {
+		t.Errorf("KEYCLOAK_ISSUER_URL = %q; tokens carry the PUBLIC issuer the proxy uses", got)
+	}
+	for _, key := range []string{"email", "password"} {
+		name := "STRAPI_BOOTSTRAP_ADMIN_" + strings.ToUpper(key)
+		ref := refs[name]
+		if ref["name"] != "strapi-bootstrap-admin" || ref["key"] != key {
+			t.Errorf("%s must come from Secret strapi-bootstrap-admin/%s, got %v", name, key, ref)
+		} else if ref["optional"] == "true" {
+			t.Errorf("%s must be required: without it Strapi boots straight into register-admin", name)
+		}
+	}
+	if !strings.Contains(readStackFile(t, "application/strapi/manifests/platform-postgres.yaml"), "name: strapi-bootstrap-admin") {
+		t.Error("nothing generates Secret strapi-bootstrap-admin")
 	}
 
 	sso := readStackFile(t, "application/strapi/manifests/sso.yaml")
-	if !strings.Contains(sso, `"clientId": "strapi-app"`) {
-		t.Error("the strapi-app client (Strapi's own login, separate audience from the proxy) is gone")
+	if !strings.Contains(sso, `"clientId": "strapi"`) {
+		t.Fatal("the proxy's strapi client is gone")
 	}
-	if !strings.Contains(sso, `"https://strapi.adhar.localtest.me:8443/admin/connect/keycloak"`) {
-		t.Error("strapi-app client lost the /admin/connect/keycloak redirect URI the EE SSO flow calls back on")
+	if values["ADHAR_SSO_CLIENT_ID"] != "strapi" {
+		t.Errorf("ADHAR_SSO_CLIENT_ID = %q; the bridge must only accept tokens issued to the proxy's client", values["ADHAR_SSO_CLIENT_ID"])
 	}
+	for _, want := range []string{"- --pass-access-token=true", "- --cookie-refresh="} {
+		if !strings.Contains(sso, want) {
+			t.Errorf("strapi-oauth2-proxy lost %q: /admin-sso has no (fresh) token to verify without it", want)
+		}
+	}
+	for _, bad := range []string{"--basic-auth-password", "--pass-authorization-header", "--skip-auth-strip-headers=false"} {
+		if strings.Contains(sso, bad) {
+			t.Errorf("strapi-oauth2-proxy must not set %s (overwrites Strapi's Authorization header, or lets clients forge identity headers)", bad)
+		}
+	}
+
+	ext := readStackFile(t, "application/strapi/manifests/platform-extension.yaml")
+	for _, want := range []string{
+		"ctx.get('x-forwarded-access-token')",
+		"crypto.verify(alg.hash, data, keyArg, sig)",
+		"claims.azp !== cfg.clientId",
+		"claims.iss !== cfg.issuer",
+		"sm('admin').generateRefreshToken(",
+		"users.createFirstAdmin(attrs)",
+		"id.email === bootstrapEmail()",
+	} {
+		if !strings.Contains(ext, want) {
+			t.Errorf("platform-extension.yaml lost %q", want)
+		}
+	}
+	// Plain identity headers are forgeable by anything in the cluster.
+	for _, forgeable := range []string{"x-forwarded-email", "x-forwarded-user", "x-forwarded-groups", "x-forwarded-preferred-username"} {
+		if strings.Contains(strings.ToLower(withoutJSComments(ext)), "'"+forgeable+"'") {
+			t.Errorf("the Strapi SSO bridge reads %s; only the signed access token may be trusted", forgeable)
+		}
+	}
+}
+
+// withoutJSComments drops `//` comment lines from embedded JavaScript.
+func withoutJSComments(src string) string {
+	var keep []string
+	for _, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		keep = append(keep, line)
+	}
+	return strings.Join(keep, "\n")
 }
 
 // The library releases publish to Nexus with a Secret the nexus package
@@ -703,7 +746,7 @@ func TestOpenBaoOIDCPrefersTheSystemTrustRoots(t *testing.T) {
 //     where the unsigned browser redirect is refused with
 //     `AccessDenied: Signature is required`.
 //   - RustFS 1.0 refuses outbound calls to private addresses as an SSRF guard,
-//     so the in-cluster Keycloak origin must be allow-listed or start-up
+//     so the adhar-controlplane Keycloak origin must be allow-listed or start-up
 //     discovery is blocked and the provider dropped.
 //   - the redirect URI the server sends must equal the one Keycloak has
 //     registered, or Keycloak answers `Invalid parameter: redirect_uri`.
@@ -741,11 +784,11 @@ func TestRustFSConsoleOffersTheKeycloakLogin(t *testing.T) {
 			"blocks outbound calls to private addresses, so discovery fails at start-up and the "+
 			"provider is dropped silently", allow, origin)
 	}
-	// A public issuer is required alongside the in-cluster discovery URL: the ID
+	// A public issuer is required alongside the adhar-controlplane discovery URL: the ID
 	// token's `iss` is the public one.
 	if iss := env["RUSTFS_IDENTITY_OPENID_ISSUER"]; !strings.HasPrefix(iss, "https://keycloak.") {
 		t.Errorf("RUSTFS_IDENTITY_OPENID_ISSUER = %q; it must be the PUBLIC issuer, which is what the "+
-			"ID token carries, while CONFIG_URL stays the in-cluster backchannel", iss)
+			"ID token carries, while CONFIG_URL stays the adhar-controlplane backchannel", iss)
 	}
 
 	// Keycloak must have registered exactly the callback the server sends.
@@ -925,7 +968,7 @@ func TestNexusEnablesTheHeaderRealmThatCarriesKeycloak(t *testing.T) {
 	}
 }
 
-// Plane's setup reaches Keycloak in-cluster. Through the public URL the Job
+// Plane's setup reaches Keycloak adhar-controlplane. Through the public URL the Job
 // depended on the edge certificate being trusted when the hook ran; on a fresh
 // cluster it is still the self-signed bootstrap one, discovery failed and Plane
 // was left without a login (the same failure the retired Gitea bridge hit,

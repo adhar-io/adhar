@@ -37,7 +37,7 @@ const (
 	bridgePort    = "8080"
 )
 
-// portForwardBridge reaches the in-cluster bridge.
+// portForwardBridge reaches the adhar-controlplane bridge.
 //
 // Through the API SERVER'S SERVICE PROXY, not an actual port-forward. The name
 // is kept because that is what a reader expects to find, but there is no local

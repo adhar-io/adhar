@@ -89,7 +89,7 @@ python3 - ${INSTALL_YAML} <<'PYEOF'
 import re, sys
 
 path = sys.argv[1]
-tag = "1.4.2-2"
+tag = "1.4.2-3"
 src = open(path).read()
 total = 0
 for name in ("backend", "frontend", "admin", "space", "live"):
@@ -168,4 +168,63 @@ src = open(path).read()
 src, n = re.subn(r'(?m)^([ ]*)timeoutSeconds: 1$', r'\g<1>timeoutSeconds: 5', src)
 open(path, 'w').write(src)
 print(f"raised {n} one-second probe timeout(s) to 5s")
+PYEOF
+
+# Start the Keycloak sign-in without a click when it is the only method.
+#
+# The fork's sign-in page always waits for a click on "Login with Keycloak".
+# The HTTPRoute covers a visitor with no cookie, but one holding an ANONYMOUS
+# Plane session (left by any abandoned or failed sign-in) lands on that page
+# and stays there. auto-sso.js (beside this script) is loaded first by the
+# SPA's index.html: an init container in the SAME image copies the image's own
+# index.html and adds the <script> tag, so the patch follows every image bump
+# instead of pinning one build's hashed asset names. If the tag cannot be
+# inserted the original page is served unchanged — a missing convenience, never
+# a broken sign-in. The durable fix is in the fork's frontend
+# (apps/web/components/account/auth-forms/auth-root.tsx); drop this once a
+# release carries it.
+python3 - ${INSTALL_YAML} "$(dirname "$0")/auto-sso.js" <<'PYEOF'
+import sys
+path, script = sys.argv[1], open(sys.argv[2]).read()
+src = open(path).read()
+anchor = ("      containers:\n"
+          "      - name: plane-web\n")
+if src.count(anchor) != 1:
+    raise SystemExit("plane-web container not found exactly once: the chart's web Deployment changed shape")
+init = r"""      initContainers:
+      - name: auto-sso-index
+        image: IMAGE
+        command:
+        - sh
+        - -c
+        - |
+          src=/usr/share/caddy/html/index.html
+          sed 's#<head\([^>]*\)>#<head\1><script src="/adhar-auto-sso.js"></script>#' "$src" > /patched/index.html
+          if grep -q adhar-auto-sso /patched/index.html; then echo "index.html: auto sign-in script added"
+          else cp "$src" /patched/index.html; echo "index.html: no <head> found, served unchanged"; fi
+        resources:
+          requests: {cpu: 5m, memory: 16Mi}
+          limits: {memory: 64Mi}
+        volumeMounts:
+        - {name: auto-sso-index, mountPath: /patched}
+"""
+i = src.index(anchor)
+img_line = src.index("        image: ", i)
+image = src[img_line:src.index("\n", img_line)].split("image: ", 1)[1].strip()
+src = src[:i] + init.replace("IMAGE", image) + src[i:]
+mounts = """        volumeMounts:
+        - {name: auto-sso-index, mountPath: /usr/share/caddy/html/index.html, subPath: index.html}
+        - {name: auto-sso-script, mountPath: /usr/share/caddy/html/adhar-auto-sso.js, subPath: auto-sso.js}
+"""
+end = src.index("      serviceAccount: plane-srv-account\n", i)
+vols = """      volumes:
+      - {name: auto-sso-index, emptyDir: {}}
+      - name: auto-sso-script
+        configMap: {name: plane-web-auto-sso}
+"""
+src = src[:end] + mounts + vols + src[end:]
+indented = "".join("    " + l + "\n" if l else "\n" for l in script.splitlines())
+src = src.rstrip("\n") + "\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: plane-web-auto-sso\n  namespace: adhar-system\ndata:\n  auto-sso.js: |\n" + indented
+open(path, "w").write(src)
+print("plane-web: Keycloak sign-in starts on its own when it is the only method")
 PYEOF

@@ -522,7 +522,7 @@ This is the one to read before debugging a pending LoadBalancer.
 3. **`KUBERNETES_SERVICE_HOST` is hardcoded to `127.0.0.1`**, a GKE assumption. A
    kubeadm apiserver listens on 6443, not 443.
 4. **Its serving certificate does not cover `127.0.0.1`** either, so pointing at
-   the right port then failed TLS. The in-cluster Service address (`10.96.0.1`) is
+   the right port then failed TLS. The adhar-controlplane Service address (`10.96.0.1`) is
    in the certificate by default and is what the manifest is rewritten to.
 5. **`--allocate-node-cidrs=false` is fatal.** The node-ipam controller refuses to
    start and takes the whole manager down with
@@ -552,7 +552,7 @@ applied and the wildcard certificate was never issued.
 
 ### Autoscaling that could scale down but never up
 
-The in-cluster controller inherited `serviceAccountKeyFile` — a path on the machine
+The adhar-controlplane controller inherited `serviceAccountKeyFile` — a path on the machine
 that ran `adhar up` — and preferred it over the inline credential it had been given.
 Every scale-up failed with `credentials file not found`, so a cluster could be
 scaled down and never recover. Credential *paths* are now stripped from the
@@ -564,7 +564,7 @@ cluster name: the SSH key was looked up in a directory that did not exist, a fre
 key was generated that no node had seen, and a scale *down* was computed as a scale
 *up*.
 
-### The in-cluster manager had no platform host
+### The adhar-controlplane manager had no platform host
 
 The manager reads the platform host from the AdharPlatform resource, but was
 deployed without `--platform-name`, which defaults to `adhar`. On a platform named

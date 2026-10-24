@@ -68,6 +68,13 @@ redis:
 # The chart ships no resources for OnCall's own processes, so both took the
 # namespace's 64Mi default request while the Django engine held ~310 MiB (peak
 # 335) and the Celery worker ~250 MiB (2026-10-22). Requests only.
+# OnCall's public address. It builds every absolute URL it hands out from it —
+# the inbound webhook URL of each alert integration, links in notifications —
+# and the chart default (http://example.com) made all of them point at a site
+# that does not exist. Rewritten to the platform host at seeding.
+base_url: oncall.adhar.localtest.me:8443
+base_url_protocol: https
+
 engine:
   resources:
     requests: {cpu: 20m, memory: 384Mi}

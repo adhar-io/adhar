@@ -476,8 +476,6 @@ spec:
         image: airbyte/server:2.0.1
         imagePullPolicy: IfNotPresent
         env:
-        - name: API_AUTHORIZATION_ENABLED
-          value: 'true'
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:
@@ -638,25 +636,6 @@ spec:
             secretKeyRef:
               name: airbyte-auth-secrets
               key: jwt-signature-secret
-        - name: AB_INSTANCE_ADMIN_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: airbyte-auth-secrets
-              key: instance-admin-password
-        - name: AB_INSTANCE_ADMIN_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: airbyte-auth-secrets
-              key: instance-admin-client-id
-        - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: airbyte-auth-secrets
-              key: instance-admin-client-secret
-        - name: AB_COOKIE_SECURE
-          value: 'true'
-        - name: AB_COOKIE_SAME_SITE
-          value: Strict
         - name: SECRET_PERSISTENCE
           value: null
         - name: S3_PATH_STYLE_ACCESS
@@ -1354,8 +1333,6 @@ spec:
             configMapKeyRef:
               name: airbyte-airbyte-env
               key: WORKERS_MICRONAUT_ENVIRONMENTS
-        - name: API_AUTHORIZATION_ENABLED
-          value: 'true'
         - name: DATABASE_HOST
           valueFrom:
             configMapKeyRef:
@@ -2183,26 +2160,6 @@ spec:
             configMapKeyRef:
               name: airbyte-airbyte-env
               key: CONNECTOR_REGISTRY_SEED_PROVIDER
-        - name: AB_AUTH_SECRET_CREATION_ENABLED
-          value: 'true'
-        - name: AB_KUBERNETES_SECRET_NAME
-          value: airbyte-auth-secrets
-        - name: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
-          value: instance-admin-password
-        - name: AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY
-          value: instance-admin-client-id
-        - name: AB_INSTANCE_ADMIN_CLIENT_SECRET_SECRET_KEY
-          value: instance-admin-client-secret
-        - name: AB_JWT_SIGNATURE_SECRET_KEY
-          value: jwt-signature-secret
-        - name: AB_INSTANCE_ADMIN_PASSWORD
-          value: null
-        - name: AB_INSTANCE_ADMIN_CLIENT_ID
-          value: null
-        - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
-          value: null
-        - name: AB_JWT_SIGNATURE_SECRET
-          value: null
         - name: DATAPLANE_CLIENT_ID_SECRET_KEY
           value: dataplane-client-id
         - name: DATAPLANE_CLIENT_SECRET_SECRET_KEY

@@ -10,9 +10,35 @@ server:
   # a username/password form, so a person who had just signed in to Keycloak was
   # asked to sign in AGAIN. `fixed` serves the UI as one user with no form;
   # it grants nothing a typed username did not already grant.
+  #
+  # `alternate-header-name=Presto`: Metabase reaches Trino through its bundled
+  # `presto-jdbc` driver (it ships no Trino/Starburst driver), which speaks
+  # X-Presto-* headers. Trino accepts them only with this set; without it every
+  # Metabase query fails on a missing user header.
   coordinatorExtraConfig: |-
     web-ui.authentication.type=fixed
     web-ui.user=adhar-ui
+    protocol.v1.alternate-header-name=Presto
+
+# Access control: the `metabase` user is READ-ONLY on every catalog, everyone
+# else unchanged. Metabase is enrolled by metabase-database-sync and the
+# console's SQL Editor runs through Metabase's admin session, so whatever
+# Metabase may do, every console user may do — it must not be able to write or
+# drop lakehouse tables. With no authenticator the user name is a label, not a
+# credential; the boundary this enforces is "what Metabase does", which is the
+# path every console user takes.
+accessControl:
+  type: configmap
+  refreshPeriod: 60s
+  configFile: "rules.json"
+  rules:
+    rules.json: |-
+      {
+        "catalogs": [
+          {"user": "metabase", "catalog": ".*", "allow": "read-only"},
+          {"catalog": ".*", "allow": "all"}
+        ]
+      }
 
 # Heap and requests (2026-10-22). The chart default is an 8G heap per JVM with NO
 # request, so on this platform both pods took the namespace's 64Mi default
@@ -27,11 +53,35 @@ coordinator:
     maxHeapSize: "2G"
   resources:
     requests: {cpu: 100m, memory: 1Gi}
+  # 30s + 90 x 10s = a sixteen-minute boot budget, not two. The upstream
+  # chart's 10 + 60 x 2s gives the JVM 130 seconds, and on a node whose CPU is
+  # already committed Trino was still in "Loading configuration" three minutes
+  # in: every worker was SIGTERMed (exitCode 143) and CrashLoopBackOff'd, so the
+  # trino Application never went Healthy. timeoutSeconds is 10 rather than 2
+  # because health-check is a process launch. Set HERE, not in the rendered
+  # manifest: it was a hand-edit there and regenerating dropped it.
+  startupProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 90
 worker:
   jvm:
     maxHeapSize: "2G"
   resources:
     requests: {cpu: 100m, memory: 1Gi}
+  # 30s + 90 x 10s = a sixteen-minute boot budget, not two. The upstream
+  # chart's 10 + 60 x 2s gives the JVM 130 seconds, and on a node whose CPU is
+  # already committed Trino was still in "Loading configuration" three minutes
+  # in: every worker was SIGTERMed (exitCode 143) and CrashLoopBackOff'd, so the
+  # trino Application never went Healthy. timeoutSeconds is 10 rather than 2
+  # because health-check is a process launch. Set HERE, not in the rendered
+  # manifest: it was a hand-edit there and regenerating dropped it.
+  startupProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 90
 
 ingress:
   enabled: false

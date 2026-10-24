@@ -49,7 +49,7 @@ var tailCmd = &cobra.Command{
 	Short: "Follow the platform event stream",
 	Long: `Follow the platform event stream as it happens.
 
-Reads through the in-cluster Kafka bridge. With no --bridge it port-forwards to
+Reads through the adhar-controlplane Kafka bridge. With no --bridge it port-forwards to
 the bridge Service, so it works from a laptop with nothing but a kubeconfig.
 
 Examples:
@@ -115,7 +115,7 @@ var domainDescription = map[string]string{
 
 func init() {
 	for _, c := range []*cobra.Command{tailCmd, listCmd} {
-		c.Flags().StringVar(&flagBridge, "bridge", "", "Kafka bridge base URL (default: port-forward to the in-cluster bridge)")
+		c.Flags().StringVar(&flagBridge, "bridge", "", "Kafka bridge base URL (default: port-forward to the adhar-controlplane bridge)")
 		c.Flags().StringSliceVar(&flagDomains, "domain", nil, "Only these domains (platform, cluster, tenancy, delivery, ai)")
 		c.Flags().StringSliceVar(&flagTypes, "type", nil, "Only these exact CloudEvents types")
 		c.Flags().StringVar(&flagSubject, "subject", "", "Only events whose subject contains this string")

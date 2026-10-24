@@ -28,10 +28,10 @@
 #                        adhar-ai-gateway proxy Service :8080  (this file, ClusterIP)
 #                          │  AgentgatewayBackend / AgentgatewayPolicy
 #                          ▼
-#                        Anthropic · OpenAI · in-cluster vLLM · 7 MCP servers
+#                        Anthropic · OpenAI · adhar-controlplane vLLM · 7 MCP servers
 #
 # The listener below is plain HTTP on a ClusterIP: it is only ever reached from
-# inside the cluster, by the Cilium edge or by in-cluster agents. Cluster-internal
+# inside the cluster, by the Cilium edge or by adhar-controlplane agents. Cluster-internal
 # confidentiality is Cilium's job (WireGuard/mTLS at the CNI), not a second cert.
 ---
 # Proxy sizing/shape for the data-plane pods the agentgateway controller

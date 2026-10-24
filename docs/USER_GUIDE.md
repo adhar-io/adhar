@@ -332,14 +332,14 @@ The Console ships four golden paths. Each one creates a **real Gitea repository*
 
 Every skeleton also emits a Backstage `catalog-info.yaml` (Component + System, TechDocs, ArgoCD and Kubernetes annotations) and `mkdocs.yml` + `docs/`, and every scaffolded service is reachable at `https://<name>.<host>` once its image is built.
 
-The Console executes a scaffold through its own `POST /api/scaffold`, which creates the Gitea repo, commits the generated tree and opens the ArgoCD Application. That endpoint lives in the separate `adhar-io/adhar-console` image, so its request body is not documented here; the underlying mechanism in this repo is the Backstage scaffolder actions each template declares — `publish:gitea` (creates the repo, default branch `main`) and `adhar:create-argocd-app` (`argoInstance: in-cluster`, `projectName: default`, `path: manifests`).
+The Console executes a scaffold through its own `POST /api/scaffold`, which creates the Gitea repo, commits the generated tree and opens the ArgoCD Application. That endpoint lives in the separate `adhar-io/adhar-console` image, so its request body is not documented here; the underlying mechanism in this repo is the Backstage scaffolder actions each template declares — `publish:gitea` (creates the repo, default branch `main`) and `adhar:create-argocd-app` (`argoInstance: adhar-controlplane`, `projectName: default`, `path: manifests`).
 
 **The `ml` golden path in detail.** It is the one path that does *not* use `adhar:create-argocd-app`; instead the skeleton ships `.adhar/app.yaml`, a `Application`, and the platform's `adhar-services` ApplicationSet adopts any org repo carrying that descriptor. You get:
 
 - `pipelines/pipeline.py` — a KFP v2 pipeline (`kfp==2.11.0`) with two components: `load_data` (a scikit-learn sample dataset → parquet, **the placeholder you replace** with a real extract, e.g. the Iceberg table from the `data-pipeline` path) and `train_model` (RandomForest, logging `accuracy` / `f1` / `roc_auc`, `joblib.dump` to `Output[Model]`). Compile with `python pipelines/pipeline.py`; submit with `kfp --endpoint "$KFP_ENDPOINT" run create --experiment-name <modelName> --package-file pipelines/pipeline.yaml`.
 - **Artifacts on the platform object store (RustFS).** KFP v2's pipeline root is the shared `data/rustfs` store (`mlpipeline` bucket), so `Output[Model]` *is* the model registry entry — versioned per run, addressable as an `s3://` URI on the run's artifact page. MLflow is in the catalogue (`data/mlflow`) but off by default; to use it, `adhar stack enable mlflow`, then set `MLFLOW_TRACKING_URI` in the ConfigMap and uncomment the `mlflow.log_*` calls.
 - `serving/main.py` — FastAPI model server on :8080 with `/healthz`, `/readyz` and `POST /predict` taking `{"features": [...]}`. It downloads the model from `MODEL_URI` via boto3 at first use. **With `MODEL_URI` unset it serves a deterministic stub and still reports ready**, so the Deployment and every PR preview are green from the first commit.
-- `manifests/cronjob.yaml` — the retraining job, default `0 3 * * 0` (weekly, Sunday 03:00 UTC), `concurrencyPolicy: Forbid`. It does **not** train in-cluster: it submits the compiled pipeline to Kubeflow Pipelines so runs are tracked and artifacts land in the platform store.
+- `manifests/cronjob.yaml` — the retraining job, default `0 3 * * 0` (weekly, Sunday 03:00 UTC), `concurrencyPolicy: Forbid`. It does **not** train adhar-controlplane: it submits the compiled pipeline to Kubeflow Pipelines so runs are tracked and artifacts land in the platform store.
 - ConfigMap `<name>-model` carrying `MODEL_NAME`, `MODEL_VERSION`, `MODEL_URI`, `S3_ENDPOINT`, `KFP_ENDPOINT`, `KFP_EXPERIMENT`, `TRAINING_FRAMEWORK`.
 
 What **you** must supply: a real `load_data`, object-store credentials as an ExternalSecret named `<name>-object-store` (keys `accesskey` / `secretkey`; the reference is `optional: true`, so the server starts without it), and a first image build. KServe is shipped as an opt-in swap at `serving/kserve-inferenceservice.yaml` — it is deliberately outside `manifests/` because the platform ships no KServe package.
@@ -459,7 +459,7 @@ here by an operator that handles failover, scaling and metrics — and publishes
 `uri`, `host`, `port` and `engine` in a `<name>-app` Secret. Every standard Redis
 client works unchanged (`valkey://` and `redis://` are interchangeable). Replicas
 are read replicas of one primary, not shards. Unlike `adhar database`, it pins the
-**in-cluster** composition: there is no managed-cache composition yet, so a request
+**adhar-controlplane** composition: there is no managed-cache composition yet, so a request
 that inherited a cloud provider would match nothing — `--provider` is the hook for
 when one exists.
 
@@ -529,7 +529,7 @@ The AI stack is **opt-in and disabled in every profile**. Nothing in the platfor
 | --- | --- |
 | `claude-*`, `anthropic/*` | Anthropic |
 | `gpt-*`, `o1-*`…`o9-*`, `chatgpt-*`, `openai/*` | OpenAI |
-| `local/*`, `vllm/*` | the in-cluster vLLM |
+| `local/*`, `vllm/*` | the adhar-controlplane vLLM |
 | anything else | Anthropic (the platform default posture) |
 
 Neither hosted backend pins a model, so a new Claude or GPT model works the day it ships. Provider keys are read server-side from the `adhar-ai-llm` Secret and never reach a caller or a model context. In-cluster callers use `http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1`.
@@ -698,7 +698,7 @@ Other provider layouts are documented in the package: `PROVIDER=openai` + `MODEL
 | `vllm-cpu` | `vllm/vllm-openai-cpu:v0.29.0` | `Qwen/Qwen2.5-0.5B-Instruct` (`--max-model-len 4096`) | 2 CPU / 6Gi (limits 4 / 8Gi) |
 | `vllm-gpu` | `vllm/vllm-openai:v0.29.0` | `Qwen/Qwen2.5-7B-Instruct` (`--max-model-len 32768`) | 4 CPU / 16Gi / 1 `nvidia.com/gpu` |
 
-Any OpenAI SDK works against the in-cluster URL; pass any non-empty key, since the engine itself has no auth:
+Any OpenAI SDK works against the adhar-controlplane URL; pass any non-empty key, since the engine itself has no auth:
 
 ```python
 from openai import OpenAI
@@ -763,7 +763,7 @@ The developer writes an ordinary Deployment with `nvidia.com/gpu: 1`; the type d
 
 ## 9. Check production readiness
 
-The `application/scorecards` package grades every service 0–100 (A–F) from real in-cluster signals and surfaces it in the Console — a platform grade, a per-category breakdown and the full signal ledger. It is **enabled in production and gitops, off in the local core** (turn it on to see per-package readiness locally).
+The `application/scorecards` package grades every service 0–100 (A–F) from real adhar-controlplane signals and surfaces it in the Console — a platform grade, a per-category breakdown and the full signal ledger. It is **enabled in production and gitops, off in the local core** (turn it on to see per-package readiness locally).
 
 A CronJob runs every 30 minutes and writes ConfigMap `adhar-system/adhar-scorecards`.
 
@@ -860,7 +860,7 @@ The Kind node maps host ports to the Gateway's pinned NodePorts; the Cilium Gate
 
 ### `adhar up` flags
 
-With no config file `adhar up` creates a **local Kind** platform and runs the controllers in-process, exiting when the platform converges. With `-f config.yaml` it provisions a **production** cluster through the provider factory and installs the in-cluster controller manager for continuous reconciliation.
+With no config file `adhar up` creates a **local Kind** platform and runs the controllers in-process, exiting when the platform converges. With `-f config.yaml` it provisions a **production** cluster through the provider factory and installs the adhar-controlplane controller manager for continuous reconciliation.
 
 | Flag | Effect |
 | --- | --- |
@@ -871,7 +871,7 @@ With no config file `adhar up` creates a **local Kind** platform and runs the co
 | `--host <name>` | Platform host name (default `adhar.localtest.me`) |
 | `--kube-version <v>` | Kubernetes version for **any** provider (default `v1.37.0`) |
 | `--ha` | Render foundation components in HA mode (replicas, PDBs, HA redis, CNPG for Gitea) |
-| `--in-cluster` | Also install the `adhar-controller-manager` Deployment (always done in production mode) |
+| `--adhar-controlplane` | Also install the `adhar-controller-manager` Deployment (always done in production mode) |
 | `-d, --dry-run` | Preview without applying |
 | `--dev-password` | Set ArgoCD and Gitea admin passwords to `developer` |
 | `--kind-config <path>` | Custom Kind configuration file or URL |
@@ -922,7 +922,7 @@ adhar upgrade -y              # non-interactive (CI)
 adhar upgrade --skip-foundation   # only diff and sync the stack
 ```
 
-Phase 1 re-applies this binary's embedded foundation manifests (unchanged ones are no-ops). Phase 2 diffs the local platform stack against the in-cluster Gitea repos, and on confirmation force-pushes, re-applies the ApplicationSet and requests an ArgoCD refresh. Run it from the repository root, or pass `--stack-dir`.
+Phase 1 re-applies this binary's embedded foundation manifests (unchanged ones are no-ops). Phase 2 diffs the local platform stack against the adhar-controlplane Gitea repos, and on confirmation force-pushes, re-applies the ApplicationSet and requests an ArgoCD refresh. Run it from the repository root, or pass `--stack-dir`.
 
 ### Teardown
 
@@ -944,7 +944,7 @@ The same CRDs, reconcile pipeline and embedded manifests drive both. They differ
 | Gateway edge | NodePort pinned 30080/30443/8443 | LoadBalancer + cert-manager listener cert |
 | Packages enabled | the curated local profile (a small core) | the production profile (most of the 100+ packages); `adhar stack list` for live numbers |
 | Secrets backend | none (kubernetes-provider stores) | OpenBao |
-| Recovery | **re-run `adhar up`** | the in-cluster controller self-heals every 15s |
+| Recovery | **re-run `adhar up`** | the adhar-controlplane controller self-heals every 15s |
 
 Production HA and DR posture: [Production Guide](PRODUCTION.md).
 

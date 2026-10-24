@@ -26,7 +26,7 @@ spec:
         generators:
           # Every ArgoCD-registered workload cluster (P2.1 registration
           # secrets). The local/management cluster is not matched: its
-          # in-cluster destination has no adhar.io/cluster label.
+          # adhar-controlplane destination has no adhar.io/cluster label.
           - clusters:
               selector:
                 matchExpressions:
@@ -93,7 +93,7 @@ spec:
         generators:
           # Every ArgoCD-registered workload cluster (P2.1 registration
           # secrets). The local/management cluster is not matched: its
-          # in-cluster destination has no adhar.io/cluster label.
+          # adhar-controlplane destination has no adhar.io/cluster label.
           - clusters:
               selector:
                 matchExpressions:
@@ -176,7 +176,7 @@ spec:
         namespace: "{{ .namespace }}"
       # The DataPlane controller (field manager "adhar") writes the hub
       # endpoints into observability-hub on each data plane — the same
-      # ConfigMap the alloy package ships with in-cluster defaults. Leave the
+      # ConfigMap the alloy package ships with adhar-controlplane defaults. Leave the
       # controller-owned fields alone instead of fighting over them.
       ignoreDifferences:
         - kind: ConfigMap

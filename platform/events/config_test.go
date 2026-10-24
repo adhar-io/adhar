@@ -18,7 +18,7 @@ func TestTheManagerDeploymentEnablesTheBusAtTheDocumentedAddress(t *testing.T) {
 	}
 	s := string(b)
 	if !strings.Contains(s, EnvBridgeURL) {
-		t.Errorf("the manager Deployment does not set %s, so the in-cluster controller publishes nothing", EnvBridgeURL)
+		t.Errorf("the manager Deployment does not set %s, so the adhar-controlplane controller publishes nothing", EnvBridgeURL)
 	}
 	if !strings.Contains(s, DefaultBridgeURL) {
 		t.Errorf("the manager Deployment does not point %s at %s; Strimzi's `-bridge-service` "+

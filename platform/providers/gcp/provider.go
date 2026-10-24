@@ -1362,7 +1362,7 @@ func instanceBelongsToCluster(cluster, instance string, tags []string) bool {
 
 // mergeTracker adds to dst whatever src found that dst does not list. The
 // local tracker is what `adhar up` recorded; the cloud is what exists. They
-// drift whenever something other than this CLI adds a node — the in-cluster
+// drift whenever something other than this CLI adds a node — the adhar-controlplane
 // autoscaler, or a second `adhar up` against the same cluster — and teardown
 // must delete what exists, or the leftover instance holds the subnet and the
 // VPC and the whole delete fails on "resource in use" (2026-10-21).
@@ -2016,7 +2016,7 @@ func (p *Provider) sweepOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 	return errs
 }
 
-// findOrphanedResources lists billable resources the in-cluster controllers
+// findOrphanedResources lists billable resources the adhar-controlplane controllers
 // created, which no tracker records: load balancer forwarding rules from the
 // cloud controller manager, and unattached persistent disks from the CSI driver.
 // It only reports; deleting a disk that still holds data is the user's call.
@@ -2358,7 +2358,7 @@ func (p *Provider) createComputeInstance(ctx context.Context, clusterName, insta
 			Tags: &computepb.Tags{
 				Items: []string{instanceTag(clusterName)},
 			},
-			// Nodes carried NO service account, so the in-cluster GCP controllers
+			// Nodes carried NO service account, so the adhar-controlplane GCP controllers
 			// had no identity: the cloud-controller-manager crash-looped and the
 			// Gateway's LoadBalancer Service never received an address, and the
 			// PD CSI driver could not create disks. cloud-platform is the scope
@@ -2534,7 +2534,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// the cluster looks like from the cloud instead.
 	//
 	// A tracker that DOES exist is not trusted to be complete either: nodes the
-	// in-cluster autoscaler adds are never written to it, so the project is
+	// adhar-controlplane autoscaler adds are never written to it, so the project is
 	// asked every time and anything it holds for this cluster is merged in.
 	tracker, exists := p.resourceTrackers[clusterID]
 	discovered, discoverErr := p.discoverClusterResources(ctx, clusterID)
@@ -2622,7 +2622,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		}
 	}
 
-	// Anything the in-cluster controllers created is invisible to the tracker: the
+	// Anything the adhar-controlplane controllers created is invisible to the tracker: the
 	// cloud controller manager provisions a load balancer for the Gateway Service,
 	// and the PD CSI driver provisions a disk per PersistentVolume. Neither is
 	// recorded here, so both used to survive `adhar down` and keep billing.
@@ -3281,7 +3281,7 @@ func (p *Provider) workerPrefix(clusterName, nodeGroupName string) string {
 
 func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, machineType string, replicas int) error {
 	// Resolved from the CLOUD when local state has no record. p.clusters comes
-	// from ~/.adhar/state/gcp/clusters.json, which the CLI has and an in-cluster
+	// from ~/.adhar/state/gcp/clusters.json, which the CLI has and an adhar-controlplane
 	// pod never does — so the node autoscaler, this function's main caller,
 	// could never scale a GCP cluster: it decided ScaleUp correctly and failed
 	// every cooldown with "cluster not found" (the Azure provider had the same
@@ -3353,7 +3353,7 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 		// stays homogeneous. This passed "" (ScaleNodeGroup's argument), which
 		// createComputeInstance turned into the provider-wide machine type — the
 		// provider block's machine_type, NOT the environment's worker size, on
-		// both `adhar cluster scale` and the in-cluster autoscaler (neither sees
+		// both `adhar cluster scale` and the adhar-controlplane autoscaler (neither sees
 		// clusterConfig). A cluster built with e2-standard-8 workers grew
 		// e2-standard-4 ones.
 		machineType = p.config.workerSize(machineType, workersMachineType(infra.WorkerNodes, prefix), false)
@@ -3431,7 +3431,7 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 		return p.managedGetNodeGroup(ctx, clusterID, nodeGroupName)
 	}
 	// From the cloud, not the local state map: the autoscaler reads the node
-	// group before every decision, and in-cluster there is no state file.
+	// group before every decision, and adhar-controlplane there is no state file.
 	clusterName := extractClusterName(clusterID)
 	infra, err := p.getClusterInfrastructure(ctx, clusterName)
 	if err != nil {

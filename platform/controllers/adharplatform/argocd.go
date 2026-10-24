@@ -157,7 +157,7 @@ func (r *AdharPlatformReconciler) reconcileArgoCDSSOProxy(ctx context.Context, r
 	// issuer, the OAuth callback, the cookie domain). Rendering it without one
 	// produces "https://keycloak./realms/adhar" — a hostname ending in a bare dot
 	// — and the proxy crash-loops on OIDC discovery with "lookup keycloak. no
-	// such host". That is not hypothetical: the in-cluster controller-manager
+	// such host". That is not hypothetical: the adhar-controlplane controller-manager
 	// reconciles this same manifest, and when it runs without the host configured
 	// it REPLACED a working proxy with a broken one. Refusing to apply is the
 	// safe outcome: a platform with no configured host is not serving Argo CD on

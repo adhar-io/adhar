@@ -7,7 +7,7 @@
 #
 # Both reuse the supply-chain identity (adhar-pipeline SA + cosign-key from
 # 00-foundation.yaml) and the trivy-scan/cosign-verify tasks from 30. Harbor is
-# in-cluster HTTP, so registry access is --insecure/--allow-http throughout.
+# adhar-controlplane HTTP, so registry access is --insecure/--allow-http throughout.
 #
 # Run one (a shared workspace PVC is created per run):
 #   kubectl create -n adhar-system -f - <<'EOF'
@@ -59,8 +59,8 @@ spec:
     - name: clone
       image: alpine/git:2.45.2
       # Gitea requires sign-in for every read (REQUIRE_SIGNIN_VIEW), so the
-      # in-cluster repos are cloned with the CI credential. It is sent ONLY to
-      # the in-cluster Gitea hosts — never to GitHub or any other URL a
+      # adhar-controlplane repos are cloned with the CI credential. It is sent ONLY to
+      # the adhar-controlplane Gitea hosts — never to GitHub or any other URL a
       # pipeline is pointed at.
       env:
         - name: GIT_USER
@@ -267,7 +267,7 @@ spec:
         #     dead pointer, and the comment above records it.
         #  2. BLOCKED SCHEME. Maven 3.8 ships a mirror in its GLOBAL settings,
         #     `maven-default-http-blocker`, matching `external:http:*`. Every
-        #     in-cluster registry is plain HTTP on a cluster-DNS name, which is
+        #     adhar-controlplane registry is plain HTTP on a cluster-DNS name, which is
         #     "external" by that rule, so Maven refuses to contact it whatever
         #     the URL points at. The documented way to lift it is to redeclare
         #     the SAME id with a harmless mirrorOf, which is what the file below
@@ -470,7 +470,7 @@ spec:
       secret:
         secretName: harbor-dockercfg
         items: [{key: .dockerconfigjson, path: config.json}]
-    # Harbor's in-cluster registry serves HTTPS with its OWN internal CA
+    # Harbor's adhar-controlplane registry serves HTTPS with its OWN internal CA
     # (`harbor-core-internal-tls`, O=adhar.io, CA:TRUE) — NOT the public
     # `adhar-cert` leaf that 05-ca-trust.yaml distributes as `adhar-ca-bundle`.
     # The Go-based lifecycle reads every file under SSL_CERT_DIR, so mounting

@@ -133,7 +133,7 @@ During this phase, controllers act on CRs created by the CLI phase. Resources su
 
 `LocalbuildReconciler` bootstraps the cluster using embedded manifests. Embedded manifests are yaml files that are baked into the binary at compile time.
 1. Install core packages. They are essential services that are needed for the user experiences we want to enable:
-* Gitea. This is the in-cluster Git server that hosts Git repositories.
+* Gitea. This is the adhar-controlplane Git server that hosts Git repositories.
 * Ingress-nginx. This is necessary to expose services inside the cluster to the users.
 * ArgoCD. This is used as the packaging mechanism. Its primary purpose is to deploy manifests from gitea repositories.
 2. Once they are installed, it creates `GitRepository` CRs for core packages. This CR represents the git repository on the Gitea server.

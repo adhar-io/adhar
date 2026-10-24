@@ -185,7 +185,7 @@ func init() {
 	// (`adhar --help`, `adhar <cmd> --help`, and `adhar help <cmd>`).
 	rootCmd.SetHelpFunc(styledHelp)
 
-	// The controller publishes this release's CLI reference for the in-cluster
+	// The controller publishes this release's CLI reference for the adhar-controlplane
 	// AI knowledge base (platform/knowledge). It renders lazily, so commands
 	// added after this init (main.go's) are included.
 	knowledge.SetCommandTree(rootCmd)

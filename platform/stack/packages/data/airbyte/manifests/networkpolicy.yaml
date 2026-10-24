@@ -1,0 +1,105 @@
+# Trust boundary for Airbyte with its built-in auth turned off (2026-10-24).
+#
+# values.yaml sets global.auth.enabled=false so Keycloak is the only login (see
+# the comment there: Airbyte Core has no OIDC or trusted-header mode). With auth
+# mode NONE the server (:8001) AND the workload API server (:8007) answer any
+# caller as the instance admin, so the platform has to decide who may reach
+# them. Those are exactly:
+#
+#   airbyte-oauth2-proxy   the ONLY browser path: HTTPRoute airbyte -> proxy
+#                          (manifests/httproute.yaml) -> server. The proxy
+#                          demands a Keycloak session on every path before it
+#                          forwards; Airbyte reads no identity header, so a
+#                          client-sent X-Forwarded-User/Email cannot grant
+#                          anything (the proxy also overwrites those headers
+#                          with --pass-user-headers).
+#   the console BFF        app=console, /api/svc/airbyte (core/adhar-console);
+#                          calls the server unauthenticated now.
+#   Airbyte itself         every chart component carries
+#                          app.kubernetes.io/instance=airbyte (worker, cron,
+#                          workload-launcher, bootloader, temporal, the
+#                          manifests/setup.yaml Job, ...).
+#   Airbyte job pods       check/discover/spec/replication pods the
+#                          workload-launcher starts; all carry the sweeper label
+#                          airbyte=job-pod (airbyte-platform PodLabeler) and
+#                          talk to the workload API and server.
+#
+# Nothing else in the platform calls Airbyte's API (checked 2026-10-24:
+# Dagster/Airflow/Prefect integrations and the data-pipeline template do not).
+# Other namespaces get nothing: a pod in a tenant namespace could previously
+# only reach a 401, and must not now reach an admin API.
+#
+# The connector builder server is fenced the same way: the chart publishes it
+# as a NodePort and only the server calls it.
+#
+# Kubelet probes and `kubectl port-forward` (the break-glass path in README.md)
+# arrive from the node itself, which Cilium admits without a rule.
+# Ingress only -- egress (DB, MinIO, Temporal, connectors' sources and
+# destinations) is untouched.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airbyte-server-ingress
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: airbyte-server-ingress
+    app.kubernetes.io/part-of: airbyte
+  # Wave 0: in place before the wave-2 server starts answering without auth.
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: airbyte
+      app.kubernetes.io/name: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: airbyte-oauth2-proxy}}
+        - podSelector: {matchLabels: {app: console}}
+        - podSelector: {matchLabels: {app.kubernetes.io/instance: airbyte}}
+        - podSelector: {matchLabels: {airbyte: job-pod}}
+      ports:
+        - {protocol: TCP, port: 8001}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airbyte-workload-api-ingress
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: airbyte-workload-api-ingress
+    app.kubernetes.io/part-of: airbyte
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: airbyte
+      app.kubernetes.io/name: workload-api-server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/instance: airbyte}}
+        - podSelector: {matchLabels: {airbyte: job-pod}}
+      ports:
+        - {protocol: TCP, port: 8007}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airbyte-connector-builder-ingress
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: airbyte-connector-builder-ingress
+    app.kubernetes.io/part-of: airbyte
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: airbyte
+      app.kubernetes.io/name: connector-builder-server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/instance: airbyte}}
+      ports:
+        - {protocol: TCP, port: 8080}

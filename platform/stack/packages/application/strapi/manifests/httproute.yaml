@@ -33,5 +33,21 @@ spec:
         # keeps its OWN cookie name (see hack/gen-sso.sh): one shared cookie made
         # proxies reuse each other's sessions and Argo CD rejected a token minted
         # for another audience.
+        #
+        # The proxy also carries the admin panel's sign-in (2026-10-24): it is
+        # generated with two extra flags (sso.yaml's regenerate line)
+        #   --pass-access-token  forward the user's Keycloak access token as
+        #                        X-Forwarded-Access-Token; Strapi's /admin-sso
+        #                        verifies it against the realm's keys and signs
+        #                        the user in (platform-extension.yaml, sso.js).
+        #                        oauth2-proxy deletes any client-sent copy of
+        #                        that header before injecting its own.
+        #   --cookie-refresh=5m  refresh that token well inside its 30-minute
+        #                        lifetime, so a forwarded token is never stale,
+        #                        and a Keycloak logout or disabled account ends
+        #                        this proxy session within minutes.
+        # Never add --basic-auth-password or --pass-authorization-header here:
+        # both overwrite the Authorization header, which carries Strapi's own
+        # admin and API tokens.
         - name: strapi-oauth2-proxy
           port: 4180

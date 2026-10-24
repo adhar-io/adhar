@@ -37,7 +37,7 @@ spec:
 | `<app>-tolgee-ci` | `adhar-system` | `api-url`, `project-id`, `api-key` | `keys.view`, `keys.create`, `keys.edit`, `translations.view`, `translations.edit`, `translations.state-edit` |
 | `<app>-tolgee` | every environment namespace of the app (and a canonical copy in `adhar-system`) | `api-url`, `project-id`, `api-key` | `translations.view` |
 
-`api-url` is the in-cluster address, `http://tolgee.adhar-system.svc.cluster.local:8080`.
+`api-url` is the adhar-controlplane address, `http://tolgee.adhar-system.svc.cluster.local:8080`.
 A browser cannot reach it: a single-page app fetches its translations through
 its own server (or an nginx location that proxies to it), never by shipping the
 key to the browser.
@@ -71,7 +71,7 @@ Keycloak groups are not yet mapped to Tolgee organisations.
 * Secret `tolgee-admin` {`api-url`, `username`, `password`, `pat`} — written by the
   PostSync Job in `admin-bootstrap.yaml`; the PAT is the platform's admin token.
 * Telemetry to app.tolgee.io, the embedded Postgres and the demo project are off.
-* `/actuator` is not routed to the edge; Prometheus scrapes it in-cluster.
+* `/actuator` is not routed to the edge; Prometheus scrapes it adhar-controlplane.
 
 ## Rolling out
 

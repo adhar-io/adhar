@@ -3,7 +3,7 @@
 # scanning. Runs fully offline (no Kubescape Cloud account). No web UI / ingress.
 
 capabilities:
-  # Disable cloud-portal integrations; keep in-cluster scanning only.
+  # Disable cloud-portal integrations; keep adhar-controlplane scanning only.
   configurationScan: enable
   vulnerabilityScan: enable
   relevancy: disable

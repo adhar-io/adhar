@@ -1,33 +1,36 @@
-# Valkey Admin — Redis Commander (MIT) as the browser admin UI over the
-# platform's Valkey caches.
+# Valkey Admin — the Valkey project's own admin UI (Apache-2.0,
+# ghcr.io/valkey-io/valkey-admin) over the platform's Valkey caches.
 #
-# There is no Helm chart on a published index for Redis Commander (the chart in
-# its repository is not released anywhere a `helm repo add` can reach), and the
-# whole deployment is one container with a handful of environment variables,
-# so manifests/valkey-admin.yaml is written by hand and these values document
-# the choices it encodes. Keep the two in step.
-#
-# Why Redis Commander and not RedisInsight: RedisInsight is SSPL-licensed and
-# the platform ships only OSI licences (Apache-2.0 platform, BSD-3 Valkey).
-# Redis Commander is MIT, speaks plain RESP, and Valkey is RESP-compatible, so
-# every browse/edit/CLI feature works unchanged against it.
+# There is no published Helm chart, so manifests/valkey-admin.yaml is written
+# by hand and these values document the choices it encodes. Keep the two in
+# step. (This package ran Redis Commander until the Valkey project shipped its
+# own UI; see the header of manifests/valkey-admin.yaml.)
 
 image:
   repository: ghcr.io/valkey-io/valkey-admin
-  # Pinned to the upstream release tag (ghcr publishes 0.9.1, 0.9, 0 and
-  # latest; the full tag is the only one that does not move).
-  tag: "0.9.1"
+  # Pinned to the upstream release tag, no "v" prefix (ghcr publishes edge,
+  # latest and 1.0.0-1.2.0; the full tag is the only one that does not move).
+  tag: "1.2.0"
 
-# Connections the UI offers in its sidebar: label:host:port[:db[:password]].
-# The shared cache is unauthenticated inside the cluster (anonymousAuth in
-# data/valkey/manifests/valkey-cache.yaml), so no password travels here.
-# Caches a team composes through Database engine=valkey land in the
-# team's namespace and are added with the "Add server" button in the UI; they
-# are not pre-wired because their names are not known at render time.
+# Connections on the Connect page are PRE-ADDED, not configured here
+# (2026-10-24). valkey-admin keeps its list only in browser localStorage, so
+# manifests/connections-sync.yaml discovers every Valkey the platform composed
+# (Cache XRs and Database engine=valkey: hyperspike Valkey CRs labelled
+# app.kubernetes.io/managed-by=crossplane + platform.adhar.io/cache|database)
+# every minute and the page seeds them on load. See README.md.
 connections:
-  - label: adhar-cache
-    host: adhar-cache.adhar-system.svc.cluster.local
-    port: 6379
+  autoRegister: true
+  # Seed passwords of `password: true` caches into the (Keycloak-gated)
+  # browser so they connect with one click. false = listed, password prompted.
+  includePasswords: true
+  # In-cluster TLS is signed by the adhar-selfsigned ClusterIssuer and
+  # valkey-admin 1.2.0 cannot be given a CA, so verification is off.
+  verifyTlsCertificate: false
+# The shared cache also stays the server's one preconfigured instance
+# (VALKEY_HOST, used by the metrics collector):
+preconfigured:
+  host: adhar-cache.adhar-system.svc.cluster.local
+  port: 6379
 
 # The UI itself has no users. Keycloak SSO (manifests/sso.yaml, oauth2-proxy
 # in front) is the only way in; the Service is ClusterIP and the HTTPRoute

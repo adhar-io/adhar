@@ -1,0 +1,275 @@
+# adhar-sso-start — click-free sign-in for apps whose login has to be STARTED
+# by browser JavaScript.
+#
+# Most apps can be handed to Keycloak by the Gateway: a RequestRedirect of the
+# login page to the app's own OIDC entry point (Gitea, Plane, Grafana). Three
+# cannot:
+#
+#   - Kargo signs in with PKCE in the browser. The code verifier and state live
+#     in sessionStorage and its token in localStorage, so the edge can neither
+#     start the flow nor tell whether someone is signed in.
+#   - Penpot starts OIDC with a POST to /api/auth/oidc and follows the
+#     redirectUri it returns; a GET is 405, so a redirect cannot start it.
+#   - OpenBao's UI runs OIDC in a popup that it completes only through
+#     window.opener, and keeps its token in localStorage (see openbao.html).
+#
+# Each of those apps routes a bare page load to /adhar-sso/<app>.html on ITS OWN
+# host (same origin, so sessionStorage and cookies are the app's). The page
+# starts the app's own Keycloak login exactly as the app's button would, and
+# Keycloak — which already holds the user's session — returns immediately, so
+# the person lands signed in with no click and no password.
+#
+# Loop safety, which is the whole difficulty: the app routes only send a page
+# load here when it carries no sign of a session (the app's own cookie, or the
+# `adhar_sso_<app>` marker this page sets), and on ANY failure the page falls
+# back to the app's normal login screen with a marker that stops the edge from
+# sending it here again. A broken Keycloak therefore costs one click, never a
+# redirect loop.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-sso-start
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-sso-start
+    app.kubernetes.io/part-of: keycloak
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      server_tokens off;
+      location /adhar-sso/ {
+        alias /usr/share/nginx/html/;
+        add_header Cache-Control "no-store" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Content-Type-Options "nosniff" always;
+      }
+      location = /healthz { return 200 "ok\n"; }
+      location / { return 404; }
+    }
+  # Kargo: replicate the UI's own PKCE start (Kargo 1.x: sessionStorage keys
+  # PKCE_code_verifier / PKCE_state / platform_redirect, redirect_uri <origin>/login).
+  # On return the UI's login page exchanges the code itself and replaces the
+  # location with `redirectTo` — which must never be /login, or the next full
+  # page load comes straight back here.
+  kargo.html: |
+    <!doctype html><html><head><meta charset="utf-8"><title>Signing in to Kargo…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"></head>
+    <body style="font-family:system-ui,sans-serif;color:#64748b;display:grid;place-items:center;height:100vh;margin:0">
+    <p>Signing in to Kargo…</p>
+    <script>
+    (async () => {
+      const q = new URLSearchParams(location.search);
+      let to = q.get('redirectTo') || '/';
+      if (!to.startsWith('/') || to.startsWith('//') || to === '/login' || to.startsWith('/login?') || to.startsWith('/adhar-sso')) to = '/';
+      const mark = (age) => { document.cookie = 'adhar_sso_kargo=1; path=/; max-age=' + age + '; secure; samesite=lax'; };
+      const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const rand = (n) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return b64url(a); };
+      try {
+        const res = await fetch('/akuity.io.kargo.service.v1alpha1.KargoService/GetPublicConfig', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        const oc = (await res.json()).oidcConfig;
+        if (!oc || !oc.issuerUrl || !oc.clientId) throw new Error('kargo has no OIDC configured');
+        const disc = await (await fetch(oc.issuerUrl.replace(/\/+$/, '') + '/.well-known/openid-configuration')).json();
+        const verifier = rand(32), state = rand(16);
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+        const scopes = [...(oc.scopes && oc.scopes.length ? oc.scopes : ['openid'])];
+        if (!scopes.includes('offline_access') && (disc.scopes_supported || []).includes('offline_access')) scopes.push('offline_access');
+        sessionStorage.setItem('PKCE_code_verifier', verifier);
+        sessionStorage.setItem('PKCE_state', state);
+        sessionStorage.setItem('platform_redirect', '?redirectTo=' + encodeURIComponent(to));
+        const u = new URL(disc.authorization_endpoint);
+        u.searchParams.set('client_id', oc.clientId);
+        u.searchParams.set('code_challenge', b64url(new Uint8Array(digest)));
+        u.searchParams.set('code_challenge_method', 'S256');
+        u.searchParams.set('redirect_uri', location.origin + '/login');
+        u.searchParams.set('response_type', 'code');
+        u.searchParams.set('scope', scopes.join(' '));
+        u.searchParams.set('state', state);
+        mark(8 * 3600);
+        location.replace(u.toString());
+      } catch (e) {
+        mark(300);
+        location.replace('/login?manual=1&redirectTo=' + encodeURIComponent(to));
+      }
+    })();
+    </script></body></html>
+  # Penpot: the same POST its "OpenID" button makes. The backend sets its
+  # `auth-token` cookie on the callback, which is what lets `/` through after.
+  penpot.html: |
+    <!doctype html><html><head><meta charset="utf-8"><title>Signing in to Penpot…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"></head>
+    <body style="font-family:system-ui,sans-serif;color:#64748b;display:grid;place-items:center;height:100vh;margin:0">
+    <p>Signing in to Penpot…</p>
+    <script>
+    (async () => {
+      // Penpot returns from Keycloak to the page that STARTED the login — this
+      // one — with its next route in the fragment (#/auth/register/validate for
+      // a first sign-in, #/dashboard/… after). Starting another login here was
+      // an endless loop (2026-10-24). Hand the route to Penpot instead, with the
+      // marker that lets `/` through before Penpot has set its auth-token
+      // (registration completes on that page).
+      if (location.hash.length > 1) {
+        document.cookie = 'adhar_sso_penpot=1; path=/; max-age=600; secure; samesite=lax';
+        location.replace('/' + location.hash);
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/oidc', {
+          method: 'POST', credentials: 'include',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ provider: 'oidc' }) });
+        const d = await res.json();
+        const u = d.redirectUri || d['redirect-uri'];
+        if (!res.ok || !u) throw new Error('penpot OIDC unavailable');
+        location.replace(u);
+      } catch (e) {
+        document.cookie = 'adhar_sso_penpot=1; path=/; max-age=300; secure; samesite=lax';
+        location.replace('/#/auth/login');
+      }
+    })();
+    </script></body></html>
+  # OpenBao: its UI starts OIDC in a POPUP and completes it only through
+  # window.opener.postMessage (OpenBao 2.6 routes/vault/cluster/oidc-callback),
+  # so neither a redirect nor a full-page Keycloak return can sign it in. This
+  # page runs the same API flow the UI's button runs, as a full-page redirect:
+  #   1. POST /v1/auth/oidc/oidc/auth_url (role `default`, redirect_uri = this
+  #      page, a random client_nonce kept in sessionStorage) and go to Keycloak.
+  #   2. Keycloak — already holding the session — returns code+state here.
+  #      GET /v1/auth/oidc/oidc/callback with the same client_nonce; OpenBao
+  #      checks state AND nonce, and the X-Vault-Wrap-TTL header makes it
+  #      return the login as a single-use, 60-second response-wrapping token
+  #      instead of the client token itself.
+  #   3. Hand that to the UI's own `wrapped_token` sign-in (it unwraps it and
+  #      logs in with the token inside), so the real token never touches a URL.
+  # Every redirect target is fixed or comes from OpenBao itself (no open
+  # redirect: `redirect_to` must be a UI-internal path). Any failure falls back
+  # to the UI's own sign-in page with OIDC selected, and the 5-minute marker
+  # stops the route sending `/` back here — a broken Keycloak costs one click,
+  # never a loop. /ui/vault/auth?with=token stays the break-glass page.
+  openbao.html: |
+    <!doctype html><html><head><meta charset="utf-8"><title>Signing in to OpenBao…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"></head>
+    <body style="font-family:system-ui,sans-serif;color:#64748b;display:grid;place-items:center;height:100vh;margin:0">
+    <p>Signing in to OpenBao…</p>
+    <script>
+    (async () => {
+      const MOUNT = 'oidc', ROLE = 'default', NONCE = 'adhar_sso_openbao_nonce', TO = 'adhar_sso_openbao_to';
+      const q = new URLSearchParams(location.search);
+      const self = location.origin + location.pathname;
+      const mark = (age) => { document.cookie = 'adhar_sso_openbao=1; path=/; max-age=' + age + '; secure; samesite=lax'; };
+      const safe = (p) => (p && p.startsWith('/') && !p.startsWith('//') && !p.includes('\\')) ? p : '';
+      const fail = () => {
+        sessionStorage.removeItem(NONCE); sessionStorage.removeItem(TO);
+        mark(300);
+        location.replace('/ui/vault/auth?with=' + encodeURIComponent(MOUNT + '/'));
+      };
+      try {
+        if (q.has('code') || q.has('state') || q.has('error')) {
+          const nonce = sessionStorage.getItem(NONCE), to = safe(sessionStorage.getItem(TO));
+          sessionStorage.removeItem(NONCE); sessionStorage.removeItem(TO);
+          if (q.get('error') || !nonce || !q.get('code') || !q.get('state')) throw new Error('oidc return without a pending sign-in');
+          const cb = new URLSearchParams({ state: q.get('state'), code: q.get('code'), client_nonce: nonce });
+          const res = await fetch('/v1/auth/' + MOUNT + '/oidc/callback?' + cb, {
+            headers: { 'X-Vault-Wrap-TTL': '60s', 'X-Vault-Request': 'true' }, cache: 'no-store' });
+          const wt = res.ok && ((await res.json()).wrap_info || {}).token;
+          if (!wt) throw new Error('openbao refused the oidc callback');
+          mark(3600);
+          location.replace('/ui/vault/auth?with=token&wrapped_token=' + encodeURIComponent(wt) +
+            (to ? '&redirect_to=' + encodeURIComponent(to) : ''));
+          return;
+        }
+        const a = new Uint8Array(24); crypto.getRandomValues(a);
+        const nonce = Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+        sessionStorage.setItem(NONCE, nonce);
+        const to = safe(q.get('redirect_to'));
+        if (to) sessionStorage.setItem(TO, to); else sessionStorage.removeItem(TO);
+        const res = await fetch('/v1/auth/' + MOUNT + '/oidc/auth_url', {
+          method: 'POST', cache: 'no-store',
+          headers: { 'content-type': 'application/json', 'X-Vault-Request': 'true' },
+          body: JSON.stringify({ role: ROLE, redirect_uri: self, client_nonce: nonce }) });
+        const u = res.ok && ((await res.json()).data || {}).auth_url;
+        if (!u || !/^https?:$/.test(new URL(u).protocol)) throw new Error('openbao has no usable oidc auth_url');
+        location.replace(u);
+      } catch (e) {
+        fail();
+      }
+    })();
+    </script></body></html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-sso-start
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-sso-start
+    app.kubernetes.io/part-of: keycloak
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-sso-start
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-sso-start
+        app.kubernetes.io/part-of: keycloak
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged:1.29-alpine
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 48Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: pages, mountPath: /usr/share/nginx/html, readOnly: true}
+            - {name: conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: pages
+          configMap:
+            name: adhar-sso-start
+            items:
+              - {key: kargo.html, path: kargo.html}
+              - {key: penpot.html, path: penpot.html}
+              - {key: openbao.html, path: openbao.html}
+        - name: conf
+          configMap:
+            name: adhar-sso-start
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-sso-start
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-sso-start
+    app.kubernetes.io/part-of: keycloak
+spec:
+  selector:
+    app.kubernetes.io/name: adhar-sso-start
+  ports:
+    - {name: http, port: 80, targetPort: http}

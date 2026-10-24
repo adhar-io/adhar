@@ -59,18 +59,6 @@ data:
           "tooltip": "Logs of every custom application, by environment, application and component"
         },
         {
-          "title": "Data",
-          "type": "dashboards",
-          "tags": [
-            "adhar-data"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [
@@ -81,17 +69,6 @@ data:
           "keepTime": true,
           "targetBlank": false,
           "icon": "external link"
-        },
-        {
-          "title": "Kubernetes overview",
-          "type": "link",
-          "url": "/d/adhar-k8s-overview",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
         }
       ],
       "liveNow": false,
@@ -5518,7 +5495,7 @@ data:
       },
       "timepicker": {},
       "timezone": "browser",
-      "title": "Data / PostgreSQL (CloudNativePG)",
+      "title": "PostgreSQL (CloudNativePG)",
       "uid": "cloudnative-pg",
       "version": 1,
       "weekStart": ""

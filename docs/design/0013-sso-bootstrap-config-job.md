@@ -1,4 +1,4 @@
-# Low-Level Design — SSO bootstrap via idempotent in-cluster config job
+# Low-Level Design — SSO bootstrap via idempotent adhar-controlplane config job
 
 Detailed design for [ADR-0013](../adr/0013-sso-bootstrap-config-job.md). This is the as-built description of the Keycloak bootstrap `config` Job that provisions the `adhar` realm, groups, test users and OIDC clients on a fresh cluster, exports every confidential client secret into the `keycloak-clients` Secret, and reconciles that state on every ArgoCD sync — the first link in the SSO chain established by [ADR-0008](../adr/0008-keycloak-platform-identity.md) and [ADR-0009](../adr/0009-secrets-eso-vault.md).
 
@@ -69,7 +69,7 @@ The Job **must** run at wave 20 as a `Sync` hook rather than `PostSync`: as a `P
 
 ## 4. Script control flow
 
-`command: ["/bin/bash","-c"]`, `set -ex -o pipefail`, `restartPolicy: Never`. `KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080` (in-cluster plaintext; TLS is terminated at the Cilium Gateway).
+`command: ["/bin/bash","-c"]`, `set -ex -o pipefail`, `restartPolicy: Never`. `KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080` (adhar-controlplane plaintext; TLS is terminated at the Cilium Gateway).
 
 ### 4.1 Token acquisition & lifetime fix
 

@@ -44,7 +44,7 @@ func azureFunc(t *testing.T, name string) string {
 //
 // ScaleNodeGroup read p.clusters[clusterID] and p.resourceTrackers[clusterID]
 // directly. Those come from ~/.adhar/state/<cloud>/clusters.json — a file the
-// CLI has and an in-cluster pod never does (the controller runs with HOME=/tmp).
+// CLI has and an adhar-controlplane pod never does (the controller runs with HOME=/tmp).
 // So the node autoscaler, its main caller, could not scale a cloud cluster at
 // all: it decided correctly that a worker was needed and then failed every
 // three-minute cooldown with
@@ -58,7 +58,7 @@ func azureFunc(t *testing.T, name string) string {
 func TestScaleNodeGroupResolvesTheClusterFromTheCloud(t *testing.T) {
 	body := azureFunc(t, "ScaleNodeGroup")
 	if strings.Contains(body, "p.clusters[clusterID]") {
-		t.Error("ScaleNodeGroup must not read the local state map — an in-cluster caller has no " +
+		t.Error("ScaleNodeGroup must not read the local state map — an adhar-controlplane caller has no " +
 			"state file, so scaling would always fail with \"not found\"")
 	}
 	if strings.Contains(body, "p.resourceTrackers[clusterID]") {
@@ -202,7 +202,7 @@ func funcBody(t *testing.T, src, name string) string {
 //
 // ScaleNodeGroup builds a worker from tracker.VirtualNetworks[0], Subnets[0] and
 // NetworkSecurityGroups[0]. discoverClusterResources lists VMs only, so the
-// in-cluster autoscaler — which always rediscovers, having no state file —
+// adhar-controlplane autoscaler — which always rediscovers, having no state file —
 // decided ScaleUp every three minutes and failed every time with
 //
 //	cluster azure-adhar tracker lacks network resources; cannot add workers
@@ -232,14 +232,14 @@ func TestRediscoveredTrackerCarriesTheNetwork(t *testing.T) {
 
 // A VM is not a worker until it is a node.
 //
-// The in-cluster controller created adhar-worker-workers-3 at 15:05 on
+// The adhar-controlplane controller created adhar-worker-workers-3 at 15:05 on
 // 2026-10-10 and was restarted at 15:06, before the join. From then on every
 // three-minute tick planned from the VM list, found four VMs, logged "already at
 // 4 workers" and did nothing — the cluster had three workers, two pods stayed
 // Pending and the VM billed. The plan has to look at NODES as well as VMs, and
 // join (or discard) a VM the control plane does not know. The laptop's state
 // file has the same blind spot in reverse — it never hears about VMs the
-// in-cluster autoscaler added — so the tracker is reconciled with Azure first.
+// adhar-controlplane autoscaler added — so the tracker is reconciled with Azure first.
 func TestScaleJoinsWorkerVMsTheClusterDoesNotKnow(t *testing.T) {
 	body := azureFunc(t, "ScaleNodeGroup")
 	for _, want := range []string{

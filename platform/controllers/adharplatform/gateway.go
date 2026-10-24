@@ -39,7 +39,7 @@ const (
 	// Fixed node ports so the Kind static host port-mapping (8080/8443 ->
 	// 30080/30443) keeps working. CiliumGatewayClassConfig can select NodePort
 	// service type but cannot pin port numbers, so the controller patches them.
-	// The in-cluster name of the Gateway Service, used by the CoreDNS rewrite.
+	// The adhar-controlplane name of the Gateway Service, used by the CoreDNS rewrite.
 	gatewayServiceFQDN   = "cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local"
 	gatewayHTTPNodePort  = 30080
 	gatewayHTTPSNodePort = 30443
@@ -195,7 +195,7 @@ func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl
 	// themselves (Cilium Gateway host-network mode, turned on in ReconcileCilium).
 	// Cilium creates no Service in that mode, so the two things a Service
 	// normally provides have to be supplied here: a public DNS target for
-	// external-dns, and an in-cluster endpoint for CoreDNS to point at. Both are
+	// external-dns, and an adhar-controlplane endpoint for CoreDNS to point at. Both are
 	// non-fatal — they are reachability, not a prerequisite for the core install.
 	hostNetwork := !isKind && r.gatewayHostNetworkRequired(ctx)
 	if hostNetwork {
@@ -203,13 +203,13 @@ func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl
 			logger.Info("Platform hostnames will have no public DNS record", "error", err)
 		}
 		if err := r.ensureGatewayHostNetworkShim(ctx, resource); err != nil {
-			logger.Info("No in-cluster endpoint for the host-network gateway; platform hostnames will not resolve from pods", "error", err)
+			logger.Info("No adhar-controlplane endpoint for the host-network gateway; platform hostnames will not resolve from pods", "error", err)
 		}
 	}
 
 	if !isKind {
 		if err := r.ensureGatewayHostResolves(ctx, hostNetwork); err != nil {
-			logger.Info("Could not point CoreDNS at the gateway; platform hostnames may not resolve in-cluster", "error", err)
+			logger.Info("Could not point CoreDNS at the gateway; platform hostnames may not resolve adhar-controlplane", "error", err)
 		}
 	}
 
@@ -347,7 +347,7 @@ func setGatewayNodePorts(svc *corev1.Service) {
 }
 
 // insertGatewayRewrite adds a CoreDNS `rewrite` that resolves `*.<host>` to an
-// in-cluster Service name, returning the new Corefile and whether it changed.
+// adhar-controlplane Service name, returning the new Corefile and whether it changed.
 //
 // `target` differs by how the edge is exposed: the Cilium Gateway Service
 // normally, and the host-network shim Service (which points at the nodes' own

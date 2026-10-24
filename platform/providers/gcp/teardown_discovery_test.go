@@ -11,7 +11,7 @@ import (
 )
 
 // The 2026-10-21 GCP teardown failed on "subnet … is already being used by
-// adhar-worker-workers-4": a worker the in-cluster autoscaler added was never in
+// adhar-worker-workers-4": a worker the adhar-controlplane autoscaler added was never in
 // the local tracker, and discovery only ran when there was NO tracker.
 func TestTeardownMergesInstancesTheLocalStateNeverSaw(t *testing.T) {
 	local := &ResourceTracker{

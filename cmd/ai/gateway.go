@@ -159,7 +159,7 @@ func (c *gwClient) Close() {
 // Resolution order, most explicit first:
 //  1. --endpoint / $ADHAR_AI_ENDPOINT — an operator pointing at the public route
 //     (https://ai.<host>) or at a gateway outside this cluster.
-//  2. a port-forward to the in-cluster Service. This is the default because it
+//  2. a port-forward to the adhar-controlplane Service. This is the default because it
 //     needs no DNS, no ingress and no certificate: the gateway is a ClusterIP by
 //     design (it is not a second public edge), and every developer who can run
 //     kubectl can reach it this way.

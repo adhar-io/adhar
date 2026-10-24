@@ -20,6 +20,8 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      # Through faro-cors (cors.yaml): it answers the browser's CORS preflight
+      # for headers Alloy's receiver does not allow, and forwards to faro-alloy.
       backendRefs:
-        - name: faro-alloy
-          port: 12347
+        - name: faro-cors
+          port: 80

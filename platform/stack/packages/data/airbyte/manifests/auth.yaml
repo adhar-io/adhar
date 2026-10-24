@@ -1,5 +1,13 @@
 # Airbyte credential material.
 #
+# Since 2026-10-24 Airbyte's built-in login is OFF (values.yaml
+# global.auth.enabled=false; Keycloak via oauth2-proxy is the only login), so
+# the server no longer reads the instance-admin password or client. Everything
+# here is kept anyway: the bootloader still needs airbyte-auth-secrets (JWT
+# key, dataplane credentials for the workload-launcher), manifests/setup.yaml
+# takes the admin email from airbyte-config-secrets, and the stable password is
+# what the break-glass "turn SIMPLE auth back on" path in README.md logs in with.
+#
 # Airbyte splits its credentials over two Secrets:
 #   * airbyte-config-secrets -- the instance-admin login the chart consumes via
 #     global.auth.instanceAdmin, and what `adhar get secrets -p airbyte` prints.

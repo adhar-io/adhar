@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
@@ -71,6 +73,10 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 
 	manifestBytes = r.rewriteCiliumAPIEndpoint(ctx, manifestBytes, resource)
 	manifestBytes = rewriteCiliumClusterIdentity(ctx, manifestBytes, resource)
+	// Hubble's certificates are issued per cluster (reconcileHubbleTLS, below);
+	// the manifest's copies are the management cluster's and must never be
+	// applied over them.
+	manifestBytes = stripHubbleCertSecrets(manifestBytes)
 
 	// A cluster with no cloud load balancer reaches the platform edge on the
 	// nodes themselves. Reported either way: "the platform's URLs do not answer"
@@ -105,6 +111,14 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 	if err := r.applyManifest(ctx, postInstallBytes, resource, "Cilium post-install"); err != nil {
 		logger.Error(err, "Failed to apply Cilium post-install manifest")
 		return ctrl.Result{}, err
+	}
+
+	// Hubble is observability, not the data path: a failure here is reported
+	// and retried by the steady-state reconcile, never allowed to fail the CNI.
+	// (On a fresh install the relay waits for its client certificate Secret,
+	// and the agents start Hubble once theirs appears.)
+	if err := r.reconcileHubbleTLS(ctx, resource); err != nil {
+		logger.Info("Could not issue Hubble TLS certificates yet; will retry", "error", err.Error())
 	}
 
 	if err := r.reconcileClusterMeshAPIServer(ctx, resource); err != nil {
@@ -144,34 +158,31 @@ func rewriteCiliumClusterIdentity(ctx context.Context, manifest []byte, resource
 	if name == v1alpha1.DefaultClusterMeshName && id == v1alpha1.DefaultClusterMeshID {
 		return manifest
 	}
-	// The QUOTED form, and only the quoted form: that is cilium-config, where
-	// the agent reads its mesh identity from.
+	// The QUOTED form is cilium-config, where the agent reads its mesh
+	// identity from.
 	manifest = bytes.ReplaceAll(manifest,
 		[]byte(`cluster-name: "`+v1alpha1.DefaultClusterMeshName+`"`),
 		[]byte(`cluster-name: "`+name+`"`))
 
-	// The UNQUOTED form is `hubble-relay-config`, and rewriting it broke Hubble
-	// on every cluster not called adhar-mgmt.
+	// The UNQUOTED form is hubble-relay-config, and it must carry the SAME
+	// name. The relay dials the hubble-peer service expecting
+	// `hubble-peer.<its cluster-name>.hubble-grpc.cilium.io`, and since Cilium
+	// 1.20 it dials each agent as `<node>.<agent's cluster-name>.hubble-grpc.
+	// cilium.io` (the name the peer service hands out). Both must match the
+	// agents' certificate, `*.<cluster>.hubble-grpc.cilium.io`.
 	//
-	// hubble-relay derives the name it expects on the agent's TLS certificate
-	// from this value — `hubble-peer.<cluster-name>.hubble-grpc.cilium.io` — but
-	// the certificate is PRE-GENERATED in this manifest (`hubble-server-certs`,
-	// SAN `*.adhar-mgmt.hubble-grpc.cilium.io`) and a string replace cannot
-	// reissue it. So renaming the cluster made the relay ask for a name the
-	// agent could never present:
-	//
-	//   tls: failed to verify certificate: x509: certificate is valid for
-	//   *.adhar-mgmt.hubble-grpc.cilium.io, not
-	//   hubble-peer.adhar-prod.hubble-grpc.cilium.io
-	//
-	// — measured on a live AWS cluster named `adhar-prod` (2026-10-08), where
-	// hubble-relay had crash-looped six times in ten minutes.
-	//
-	// Hubble's TLS identity is fixed by the baked PKI; the MESH identity is the
-	// thing that varies. Keeping them separate is what makes both work. (The
-	// fuller fix is to reissue the Hubble certificates from the `cilium-ca`
-	// secret — its key ships in this manifest — so the flow labels carry the
-	// real cluster name too; that is a bigger change than this one deserves.)
+	// History: until 2026-10 the certificate was PRE-GENERATED in this manifest
+	// for adhar-mgmt, so this line was deliberately left alone (renaming it
+	// crash-looped the relay on `adhar-prod`, 2026-10-08). That stopped working
+	// with 1.20, where the per-agent name comes from the agent and not from
+	// here: every peer failed verification ("No connection to peer"). The
+	// certificates are now issued per cluster from `cilium-ca` by
+	// ensureHubbleCerts and the baked copies are stripped from the manifest
+	// (stripHubbleCertSecrets), so every name agrees again — and flows carry
+	// the real cluster name.
+	manifest = bytes.ReplaceAll(manifest,
+		[]byte("\n    cluster-name: "+v1alpha1.DefaultClusterMeshName+"\n"),
+		[]byte("\n    cluster-name: "+name+"\n"))
 	manifest = bytes.ReplaceAll(manifest,
 		[]byte(`cluster-id: "1"`),
 		[]byte(`cluster-id: "`+strconv.Itoa(int(id))+`"`))
@@ -234,19 +245,30 @@ func (r *AdharPlatformReconciler) reconcileClusterMeshAPIServer(ctx context.Cont
 // clustermesh manifest so the per-cluster certificates issued by
 // ensureClusterMeshCerts are not overwritten on every reconcile.
 func stripClusterMeshCertSecrets(manifest []byte) []byte {
+	return stripSecretDocs(manifest, clusterMeshCertSecrets)
+}
+
+// stripSecretDocs drops the documents that ARE one of the named Secrets.
+//
+// It decides by each document's own kind and metadata.name, never by a
+// substring: the workloads that mount these Secrets name them too
+// (`secret: {secretName: ...}` / projected `name: ...`), and a substring match
+// silently dropped the clustermesh-apiserver Deployment along with its certs.
+func stripSecretDocs(manifest []byte, names []string) []byte {
 	docs := bytes.Split(manifest, []byte("\n---\n"))
 	kept := make([][]byte, 0, len(docs))
 	for _, doc := range docs {
-		drop := false
-		for _, name := range clusterMeshCertSecrets {
-			if bytes.Contains(doc, []byte("name: "+name+"\n")) {
-				drop = true
-				break
-			}
+		var head struct {
+			Kind     string `json:"kind"`
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
 		}
-		if !drop {
-			kept = append(kept, doc)
+		if err := yaml.Unmarshal(doc, &head); err == nil &&
+			head.Kind == "Secret" && slices.Contains(names, head.Metadata.Name) {
+			continue
 		}
+		kept = append(kept, doc)
 	}
 	return bytes.Join(kept, []byte("\n---\n"))
 }
@@ -270,7 +292,7 @@ func RawCiliumInstallResources(templateData any, config v1alpha1.PackageCustomiz
 // endpoint baked into the generated Cilium manifest
 // (KUBERNETES_SERVICE_HOST: adhar-control-plane) with the real API endpoint
 // of the cluster being reconciled. Cilium agents run with kube-proxy
-// replacement and host networking, so they cannot use the in-cluster service
+// replacement and host networking, so they cannot use the adhar-controlplane service
 // VIP and need a directly reachable endpoint. On Kind the baked-in node name
 // is correct and is left untouched.
 func (r *AdharPlatformReconciler) rewriteCiliumAPIEndpoint(ctx context.Context, manifest []byte, resource *v1alpha1.AdharPlatform) []byte {

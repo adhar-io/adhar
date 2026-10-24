@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/yaml"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
@@ -287,6 +288,15 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 
+	// Hubble's certificates are issued for this cluster's name and renewed
+	// before they expire. Like the clustermesh-apiserver above it must run on
+	// every pass, not only while the foundation is being installed: a running
+	// platform is exactly where a certificate expires. Observability only, so
+	// a failure is logged and retried, never allowed to block the platform.
+	if err := r.reconcileHubbleTLS(ctx, &localBuild); err != nil {
+		logger.Info("Could not reconcile Hubble TLS certificates; will retry", "error", err.Error())
+	}
+
 	// Apply the platform stack (GitOps repo seeding + ArgoCD auth + the
 	// ApplicationSet) on EVERY reconcile that has a local stack directory — i.e.
 	// the CLI bootstrap. This is deliberate: repo seeding is self-guarded inside
@@ -296,7 +306,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// original design flaw — a re-run of `adhar up` (or any reconcile after the
 	// ApplicationSet was removed) would find the repos present and skip the apply
 	// entirely, leaving ArgoCD empty. Re-applying every pass makes an empty
-	// ArgoCD self-correcting. The in-cluster manager runs with an empty StackDir
+	// ArgoCD self-correcting. The adhar-controlplane manager runs with an empty StackDir
 	// and only maintains an already-seeded platform, so it skips this block.
 	// Start the Crossplane core Deployment now, before the repo seeding below,
 	// so its image pull and startup overlap the seeding instead of following
@@ -357,7 +367,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	// Watch mode (the in-cluster manager, or `adhar up --no-exit`): keep
+	// Watch mode (the adhar-controlplane manager, or `adhar up --no-exit`): keep
 	// nudging Applications that ArgoCD left on a comparison error — after a
 	// stack push, a Gitea restart or a DNS blip they would otherwise wait for
 	// the periodic resync.
@@ -487,7 +497,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	logger := log.FromContext(ctx)
 
 	// Seeding reads the stack from the local filesystem, which only the CLI
-	// bootstrap has (the in-cluster manager runs without a stack directory and
+	// bootstrap has (the adhar-controlplane manager runs without a stack directory and
 	// only ever reconciles an already-seeded platform).
 	if r.StackDir == "" {
 		return fmt.Errorf("platform stack is not seeded and no stack directory is configured: GitOps repository seeding requires the CLI bootstrap (adhar up)")
@@ -533,12 +543,25 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		return fmt.Errorf("reading platform stack ApplicationSet %s: %w", appSetPath, err)
 	}
 
-	if err := r.applyManifestNoOwner(ctx, appSetBytes, resource, "Platform stack ApplicationSet"); err != nil {
-		logger.Error(err, "Failed to apply platform stack ApplicationSet")
+	// Created here only when it does not exist yet, so Argo CD has something
+	// to deploy before it has synced adhar-platform-applicationset. Once it
+	// exists, the packages repo is its source: re-applying the local file on
+	// every pass force-set each `enabled` flag back to the CLI's checkout,
+	// re-creating packages the Marketplace had disabled until Argo CD's next
+	// self-heal removed them again.
+	exists, err := r.platformAppSetExists(ctx, appSetBytes)
+	if err != nil {
 		return err
 	}
-
-	logger.Info("● Successfully applied platform stack ApplicationSet")
+	if !exists {
+		if err := r.applyManifestNoOwner(ctx, appSetBytes, resource, "Platform stack ApplicationSet"); err != nil {
+			logger.Error(err, "Failed to apply platform stack ApplicationSet")
+			return err
+		}
+		logger.Info("● Successfully applied platform stack ApplicationSet")
+	} else {
+		logger.Info("● Platform stack ApplicationSet exists; Argo CD keeps it equal to the packages repo")
+	}
 
 	// The Application that keeps the live ApplicationSet equal to the copy in
 	// the packages repo, which is what the Marketplace commits to.
@@ -604,17 +627,97 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 const PlatformAppSetRepoFile = "applicationset.yaml"
 
 // InjectPlatformAppSet copies the profile's ApplicationSet into a staged
-// packages tree as PlatformAppSetRepoFile. Verbatim, not rendered: it must be
-// byte-identical to what the CLI applies directly, or Argo CD and the CLI would
-// fight over the live object. Used by seeding AND by `adhar upgrade`'s diff, so
-// the two agree on what the packages repo should contain.
+// packages tree as PlatformAppSetRepoFile, not rendered, plus the
+// SeededEnabledAnnotation merge base. The CLI applies the profile file
+// directly only to CREATE a missing ApplicationSet; after that Argo CD keeps
+// the live object equal to this copy. Used by seeding AND by `adhar upgrade`'s
+// diff, so the two agree on what the packages repo should contain.
 func InjectPlatformAppSet(stagedPackagesDir, stackDir string, provider v1alpha1.EnvironmentProvider) error {
+	_, err := InjectMergedPlatformAppSet(stagedPackagesDir, stackDir, provider, nil, nil)
+	return err
+}
+
+// InjectMergedPlatformAppSet is InjectPlatformAppSet with the packages repo's
+// current applicationset.yaml (head) merged in, so a push keeps the flags the
+// Marketplace changed there (see MergeMarketplaceToggles). It returns the
+// packages whose Gitea flag was kept.
+func InjectMergedPlatformAppSet(stagedPackagesDir, stackDir string, provider v1alpha1.EnvironmentProvider, head, fallbackBase []byte) ([]string, error) {
 	src := filepath.Join(stackDir, appSetFileForProvider(provider))
 	b, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("reading platform ApplicationSet %s: %w", src, err)
+		return nil, fmt.Errorf("reading platform ApplicationSet %s: %w", src, err)
 	}
-	return os.WriteFile(filepath.Join(stagedPackagesDir, PlatformAppSetRepoFile), b, 0o644)
+	merged, kept := MergeMarketplaceToggles(b, head, fallbackBase)
+	return kept, os.WriteFile(filepath.Join(stagedPackagesDir, PlatformAppSetRepoFile), merged, 0o644)
+}
+
+// marketplaceCommitPrefix is the subject the console's Marketplace gives every
+// toggle it commits (apps/console/app/server/appset.ts).
+const marketplaceCommitPrefix = "chore(marketplace):"
+
+// giteaPlatformAppSet reads the packages repo's applicationset.yaml at main,
+// and the same file at the newest commit that was not a Marketplace toggle
+// (the merge base for repos pushed before SeededEnabledAnnotation existed).
+// Either is nil when it cannot be read — a fresh repo has neither — and the
+// merge then lets the local file win, as seeding always did.
+func (r *AdharPlatformReconciler) giteaPlatformAppSet(ctx context.Context, podName string) (head, fallbackBase []byte) {
+	repo := "repos/" + globals.GiteaPlatformOrg + "/" + globals.GitOpsRepoPackages
+	get := func(path string) []byte {
+		cmd := fmt.Sprintf(`curl -sf -u %s "http://localhost:3000/api/v1/%s"`, r.giteaAdminCurlCred(ctx), path)
+		c := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", cmd)
+		var stdout bytes.Buffer
+		c.Stdout = &stdout
+		if err := c.Run(); err != nil {
+			return nil
+		}
+		return stdout.Bytes()
+	}
+	head = get(repo + "/raw/" + PlatformAppSetRepoFile + "?ref=main")
+	if head == nil {
+		return nil, nil
+	}
+	var commits []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	}
+	if err := json.Unmarshal(get(repo+"/commits?path="+PlatformAppSetRepoFile+"&limit=50&stat=false&files=false"), &commits); err != nil {
+		return head, nil
+	}
+	for _, c := range commits {
+		if !strings.HasPrefix(c.Commit.Message, marketplaceCommitPrefix) {
+			return head, get(repo + "/raw/" + PlatformAppSetRepoFile + "?ref=" + c.SHA)
+		}
+	}
+	return head, nil
+}
+
+// platformAppSetExists reports whether the ApplicationSet the manifest declares
+// is already in the cluster.
+func (r *AdharPlatformReconciler) platformAppSetExists(ctx context.Context, manifest []byte) (bool, error) {
+	var meta struct {
+		Metadata struct {
+			Name      string `json:"name"`
+			Namespace string `json:"namespace"`
+		} `json:"metadata"`
+	}
+	if err := yaml.Unmarshal(manifest, &meta); err != nil || meta.Metadata.Name == "" {
+		return false, fmt.Errorf("reading the platform ApplicationSet's name: %v", err)
+	}
+	ns := meta.Metadata.Namespace
+	if ns == "" {
+		ns = globals.AdharSystemNamespace
+	}
+	err := r.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: meta.Metadata.Name}, &argov1alpha1.ApplicationSet{})
+	switch {
+	case err == nil:
+		return true, nil
+	case k8serrors.IsNotFound(err):
+		return false, nil
+	default:
+		return false, fmt.Errorf("checking for the platform ApplicationSet: %w", err)
+	}
 }
 
 // appSetFileForProvider selects the platform ApplicationSet for the target
@@ -1253,8 +1356,13 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 	}
 	defer cleanupStage()
 	if repoName == globals.GitOpsRepoPackages {
-		if err := InjectPlatformAppSet(stagedSrc, r.StackDir, provider); err != nil {
+		head, fallbackBase := r.giteaPlatformAppSet(ctx, podName)
+		kept, err := InjectMergedPlatformAppSet(stagedSrc, r.StackDir, provider, head, fallbackBase)
+		if err != nil {
 			return err
+		}
+		if len(kept) > 0 {
+			logger.Info("Keeping package enablement changed in the Marketplace", "packages", strings.Join(kept, ","))
 		}
 	}
 

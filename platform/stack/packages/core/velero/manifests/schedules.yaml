@@ -9,7 +9,7 @@
 # Databases are covered by CNPG's own scheduled barman backups (see the
 # keycloak/cnpg packages), and Git content is also recoverable from the
 # reconstructability model (Git is the source of truth, ADR-0001/0021).
-# Storage: the `default` BackupStorageLocation (in-cluster RustFS bucket
+# Storage: the `default` BackupStorageLocation (adhar-controlplane RustFS bucket
 # adhar-backups; point it at real object storage in cloud environments).
 apiVersion: velero.io/v1
 kind: Schedule

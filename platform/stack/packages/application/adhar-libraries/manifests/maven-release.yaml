@@ -4,7 +4,7 @@
 # separate stages with their own logs and status):
 #   clone   → shallow clone of adhar/adhar-kit from Gitea at the requested revision
 #   build   → mvn package (tests skipped here; they get their own stage)
-#   test    → mvn test (unit tests; failsafe ITs are not run in-cluster)
+#   test    → mvn test (unit tests; failsafe ITs are not run adhar-controlplane)
 #   scan    → trivy filesystem scan (vulnerabilities, secrets, misconfig) — reports;
 #             set failOnCritical=true to block the publish on CRITICAL findings
 #   publish → mvn deploy to the Nexus `maven-hosted` repository
@@ -21,7 +21,7 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
-  description: Clone an adhar/<repo> repository from the in-cluster Gitea into the workspace.
+  description: Clone an adhar/<repo> repository from the adhar-controlplane Gitea into the workspace.
   params:
     - {name: repo, type: string}
     - {name: revision, type: string, default: main}
@@ -260,7 +260,7 @@ spec:
           </mirrors>
         </settings>
         EOF
-        # The in-cluster Nexus proxy can be slow or briefly unavailable on a
+        # The adhar-controlplane Nexus proxy can be slow or briefly unavailable on a
         # busy node: retry transfers, allow long requests, limit parallelism.
         mvn -B -s /tmp/settings.xml \
           -Daether.connector.http.retryHandler.count=5 \

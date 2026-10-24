@@ -139,7 +139,7 @@ func TestSetPackageLabels(t *testing.T) {
 
 // Every GetHttpClient call must share one connection pool that closes idle
 // connections: a Transport per call, with no idle timeout, leaked keep-alive
-// connections for the life of the in-cluster manager.
+// connections for the life of the adhar-controlplane manager.
 func TestGetHttpClientSharesOneBoundedConnectionPool(t *testing.T) {
 	a, b := GetHttpClient(), GetHttpClient()
 	if a.Transport != b.Transport {

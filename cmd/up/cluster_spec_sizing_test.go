@@ -14,7 +14,7 @@ import (
 	"adhar-io/adhar/platform/config"
 )
 
-// The in-cluster autoscaler builds its provider from what this ConfigMap
+// The adhar-controlplane autoscaler builds its provider from what this ConfigMap
 // records, so it must record the worker size the cluster was BUILT with —
 // resolved as the provider resolved it — and the environment's disk settings,
 // which the CLI's provider map carried and the recorded one did not.

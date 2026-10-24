@@ -368,7 +368,7 @@ spec:
       containers:
       - name: plane-admin
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-admin:1.4.2-2
+        image: ghcr.io/adhar-io/plane-admin:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -414,7 +414,7 @@ spec:
       containers:
       - name: plane-api
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -484,7 +484,7 @@ spec:
       containers:
       - name: plane-beat-worker
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -545,7 +545,7 @@ spec:
       containers:
       - name: plane-live
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-live:1.4.2-2
+        image: ghcr.io/adhar-io/plane-live:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -598,7 +598,7 @@ spec:
       containers:
       - name: plane-space
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-space:1.4.2-2
+        image: ghcr.io/adhar-io/plane-space:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -641,10 +641,26 @@ spec:
       annotations:
         timestamp: "pinned-by-generate-manifests"
     spec:
+      initContainers:
+      - name: auto-sso-index
+        image: ghcr.io/adhar-io/plane-frontend:1.4.2-3
+        command:
+        - sh
+        - -c
+        - |
+          src=/usr/share/caddy/html/index.html
+          sed 's#<head\([^>]*\)>#<head\1><script src="/adhar-auto-sso.js"></script>#' "$src" > /patched/index.html
+          if grep -q adhar-auto-sso /patched/index.html; then echo "index.html: auto sign-in script added"
+          else cp "$src" /patched/index.html; echo "index.html: no <head> found, served unchanged"; fi
+        resources:
+          requests: {cpu: 5m, memory: 16Mi}
+          limits: {memory: 64Mi}
+        volumeMounts:
+        - {name: auto-sso-index, mountPath: /patched}
       containers:
       - name: plane-web
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-frontend:1.4.2-2
+        image: ghcr.io/adhar-io/plane-frontend:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -654,6 +670,13 @@ spec:
           limits:
             memory: "1000Mi"
             cpu: "500m"
+        volumeMounts:
+        - {name: auto-sso-index, mountPath: /usr/share/caddy/html/index.html, subPath: index.html}
+        - {name: auto-sso-script, mountPath: /usr/share/caddy/html/adhar-auto-sso.js, subPath: auto-sso.js}
+      volumes:
+      - {name: auto-sso-index, emptyDir: {}}
+      - name: auto-sso-script
+        configMap: {name: plane-web-auto-sso}
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
 ---
@@ -690,7 +713,7 @@ spec:
       containers:
       - name: plane-worker
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
         stdin: true
         tty: true
         resources:
@@ -926,7 +949,7 @@ spec:
     spec:
       containers:
       - name: plane-api-migrate
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-2
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
         command: 
           - ./bin/docker-entrypoint-migrator.sh
         imagePullPolicy: Always
@@ -946,3 +969,43 @@ spec:
       restartPolicy: OnFailure
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plane-web-auto-sso
+  namespace: adhar-system
+data:
+  auto-sso.js: |
+    // Adhar: start the Keycloak sign-in on its own when it is the ONLY way in.
+    //
+    // Plane's sign-in page (served at "/") always draws a "Login with Keycloak"
+    // button and waits for a click, even when Keycloak is the only method enabled.
+    // The HTTPRoute sends a cookie-less visitor straight to /auth/keycloak/, but a
+    // visitor holding an ANONYMOUS `session-id` (Plane stores the OIDC state in a
+    // session before sign-in completes, so any abandoned or failed attempt leaves
+    // one) reaches this page and stops there. This runs before the app, only on
+    // "/", and only when: the API says there is no signed-in user, Keycloak is
+    // enabled, and no other method is. It never fires after an auth error (the
+    // error is shown instead of looping) or twice within 30 seconds.
+    (function () {
+      try {
+        if (location.pathname !== "/") return;
+        var q = new URLSearchParams(location.search);
+        if (q.has("error_code") || q.has("error_message")) return;
+        var KEY = "adhar-auto-sso-at", last = Number(sessionStorage.getItem(KEY) || 0);
+        if (Date.now() - last < 30000) return;
+        fetch("/api/users/me/", { credentials: "include" }).then(function (me) {
+          if (me.status !== 401 && me.status !== 403) return;
+          return fetch("/api/instances/", { credentials: "include" }).then(function (r) { return r.json(); }).then(function (body) {
+            var c = (body && body.config) || {};
+            var others = ["is_email_password_enabled", "is_magic_login_enabled", "is_google_enabled",
+                          "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled"];
+            if (!c.is_keycloak_enabled || others.some(function (k) { return c[k]; })) return;
+            sessionStorage.setItem(KEY, String(Date.now()));
+            var next = q.get("next_path");
+            location.replace("/auth/keycloak/" + (next ? "?next_path=" + encodeURIComponent(next) : ""));
+          });
+        }).catch(function () {});
+      } catch (e) {}
+    })();

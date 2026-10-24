@@ -33,10 +33,10 @@ import (
 // same gate the controller waits for (adharplatform.ConsoleGate).
 //
 // Before this, a spent budget and an unreadable API both fell through to
-// "install the in-cluster manager and return nil", so the checklist printed
+// "install the adhar-controlplane manager and return nil", so the checklist printed
 // every stage ticked over a console that was not up (DigitalOcean and Civo,
 // 2026-10-15). An honest failure here is resumable: ArgoCD keeps converging,
-// the in-cluster manager is already installed, and a re-run of `adhar up`
+// the adhar-controlplane manager is already installed, and a re-run of `adhar up`
 // picks the wait back up.
 func verifyConsoleReady(ctx context.Context, c client.Client) error {
 	return verifyConsoleReadyWithin(ctx, c, consoleVerdictGrace, consoleVerdictPoll)
@@ -46,7 +46,7 @@ func verifyConsoleReady(ctx context.Context, c client.Client) error {
 // settle after the wait ended, and consoleVerdictPoll how often it re-reads.
 //
 // The verdict used to be ONE read. The bootstrap controller hands over when the
-// console first reads Healthy and serving, the in-cluster manager install takes
+// console first reads Healthy and serving, the adhar-controlplane manager install takes
 // up to two minutes, and in that window the console's PostSync hook restarts
 // the console Deployment (it reloads the OIDC client it has just been given) —
 // so the single read landed on Progressing and failed a run whose console was
@@ -79,6 +79,6 @@ func verifyConsoleReadyWithin(ctx context.Context, c client.Client, grace, poll 
 		}
 	}
 	return fmt.Errorf("adhar up did not complete: %s. The run completes only once the console is Healthy and serving; "+
-		"ArgoCD keeps converging in the background and the in-cluster manager is installed — re-run `adhar up` to resume "+
+		"ArgoCD keeps converging in the background and the adhar-controlplane manager is installed — re-run `adhar up` to resume "+
 		"the wait, or inspect `adhar get status`", detail)
 }

@@ -48,7 +48,7 @@ import (
 // the least reversible code in the provider and it cannot be exercised in CI.
 
 const (
-	// clusterTagPrefix is what every in-cluster AWS controller writes:
+	// clusterTagPrefix is what every adhar-controlplane AWS controller writes:
 	// `kubernetes.io/cluster/<cluster-name>` = owned | shared.
 	clusterTagPrefix = "kubernetes.io/cluster/"
 
@@ -167,7 +167,7 @@ func (p *Provider) sweepOrphanedVolumes(ctx context.Context, clusterName string)
 	return problems
 }
 
-// sweepLoadBalancers deletes the load balancers the in-cluster
+// sweepLoadBalancers deletes the load balancers the adhar-controlplane
 // cloud-controller-manager created, in both flavours AWS offers.
 //
 // Both APIs are needed and neither is optional: the in-tree AWS provider creates a
@@ -318,7 +318,7 @@ func ownsExclusively(tags map[string]string, clusterName string) bool {
 
 // sweepCCMSecurityGroups removes the security groups the load-balancer controller
 // created (`k8s-elb-*`), which the tag-based discovery misses because they carry
-// the in-cluster tag rather than the provider's own `Cluster` tag — and which hold
+// the adhar-controlplane tag rather than the provider's own `Cluster` tag — and which hold
 // a reference to the VPC, so the VPC deletion fails while they exist.
 func (p *Provider) sweepCCMSecurityGroups(ctx context.Context, clusterName, vpcID string) []string {
 	if vpcID == "" {

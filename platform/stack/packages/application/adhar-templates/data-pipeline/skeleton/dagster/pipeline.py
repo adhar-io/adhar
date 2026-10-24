@@ -32,7 +32,7 @@ from dagster import (
 from pyiceberg.catalog import load_catalog
 
 # --- Platform Iceberg REST catalog -----------------------------------------
-# Endpoint + warehouse come from manifests/configmap.yaml in-cluster; the
+# Endpoint + warehouse come from manifests/configmap.yaml adhar-controlplane; the
 # defaults here let `dagster dev` run against a port-forwarded catalog locally.
 CATALOG_NAME = "adhar"
 ICEBERG_REST_URI = os.environ.get(

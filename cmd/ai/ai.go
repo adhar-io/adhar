@@ -20,7 +20,7 @@ limitations under the License.
 // completion goes to the platform's own AI data plane — agentgateway, Service
 // `adhar-ai-gateway` on :8080, publicly `https://ai.<host>/v1` — which picks the
 // provider from the MODEL NAME (`claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` →
-// OpenAI, `local/*` → the in-cluster vLLM behind llm-d), holds the one key
+// OpenAI, `local/*` → the adhar-controlplane vLLM behind llm-d), holds the one key
 // server-side, meters tokens against the platform budget and applies the prompt
 // guardrails. That is the whole point of routing the CLI through the cluster
 // instead of straight to a vendor: one key, one audit trail, one budget, and a
@@ -61,7 +61,7 @@ var AICmd = &cobra.Command{
 	Use:     "ai",
 	Aliases: []string{"agent"},
 	Short:   "⎔ Ask, investigate and act through the platform's own AI data plane",
-	Long: `Adhar AI turns the platform into something you can ask questions of. Completions run through the cluster's AI data plane (agentgateway), which holds the single provider key server-side, routes to Anthropic, OpenAI or the in-cluster vLLM by model name, and meters every request against the platform budget — so your laptop never holds a credential and every call is audited.
+	Long: `Adhar AI turns the platform into something you can ask questions of. Completions run through the cluster's AI data plane (agentgateway), which holds the single provider key server-side, routes to Anthropic, OpenAI or the adhar-controlplane vLLM by model name, and meters every request against the platform budget — so your laptop never holds a credential and every call is audited.
 
 Beyond chat, ` + "`adhar ai agent`" + ` runs a tool-calling loop over read-only
 platform tools: it reads resources, pods, logs, events, Argo CD app health and
@@ -92,7 +92,7 @@ Getting started:
   # What can the agent actually call?
   adhar ai tools
 
-  # Route to a specific model (in-cluster inference needs no external key)
+  # Route to a specific model (adhar-controlplane inference needs no external key)
   adhar ai ask "summarise the platform" --model local/Qwen/Qwen2.5-0.5B-Instruct`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// A bare `adhar ai` is a question about the AI stack itself, not a chat
@@ -106,7 +106,7 @@ Getting started:
 func init() {
 	p := AICmd.PersistentFlags()
 	p.StringVarP(&flagNamespace, "namespace", "n", "adhar-system", "Namespace the AI data plane runs in")
-	p.StringVar(&flagEndpoint, "endpoint", "", "Base URL of the AI data plane (default: port-forward to the in-cluster gateway)")
+	p.StringVar(&flagEndpoint, "endpoint", "", "Base URL of the AI data plane (default: port-forward to the adhar-controlplane gateway)")
 	p.StringVar(&flagModel, "model", "", "Model to route to (default: the platform's configured model)")
 	p.BoolVar(&flagInsecure, "insecure", false, "Skip TLS verification (for the platform's self-signed development certificate)")
 	p.DurationVar(&flagTimeout, "timeout", 3*time.Minute, "Timeout for a single model call")

@@ -39,7 +39,7 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Pod
     policies.kyverno.io/description: >-
-      Images built by the platform pipelines (pushed to the in-cluster Harbor)
+      Images built by the platform pipelines (pushed to the adhar-controlplane Harbor)
       or released by the Adhar project (ghcr.io/adhar-io) must carry a valid
       cosign signature — from the platform signing key (Secret cosign-key) or
       from the project's GitHub Actions keyless identity. AUDIT stage: failures
@@ -92,7 +92,7 @@ spec:
             # The Adhar project's own release images.
             - "ghcr.io/adhar-io/*"
           imageRegistryCredentials:
-            # Harbor serves the in-cluster registry over TLS signed by the
+            # Harbor serves the adhar-controlplane registry over TLS signed by the
             # per-cluster `adhar` CA, which Kyverno does not trust; the library
             # project is anonymous-pull, so no credential is needed.
             allowInsecureRegistry: true

@@ -1,4 +1,4 @@
-# ADR-0013: SSO bootstrap via idempotent in-cluster config job
+# ADR-0013: SSO bootstrap via idempotent adhar-controlplane config job
 
 **Status**: Accepted · **Date**: 2026-07
 

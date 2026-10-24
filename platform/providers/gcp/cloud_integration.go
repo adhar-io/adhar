@@ -19,7 +19,7 @@ import (
 // kustomizations (git is installed on the control plane for the latter).
 const (
 	gcpCCMManifestURL = "https://raw.githubusercontent.com/kubernetes/cloud-provider-gcp/master/deploy/packages/default/manifest.yaml"
-	// kubernetesServiceIP is the in-cluster address of the API server: the first
+	// kubernetesServiceIP is the adhar-controlplane address of the API server: the first
 	// address of kubeadm's default service CIDR (10.96.0.0/12), and one the
 	// apiserver's serving certificate always covers.
 	kubernetesServiceIP = "10.96.0.1"
@@ -187,7 +187,7 @@ func (p *Provider) ccmStep() provider.IntegrationStep {
 	// fails twice over: the apiserver listens on 6443 rather than 443, and its
 	// serving certificate does not include 127.0.0.1 at all ("certificate is
 	// valid for 10.96.0.1, <node IP>, <public IP>, not 127.0.0.1"). Pointing at
-	// the in-cluster Service address satisfies both, since the ClusterIP is in
+	// the adhar-controlplane Service address satisfies both, since the ClusterIP is in
 	// the cert by default.
 	//
 	// Raw string: the sed expressions are full of backslashes that Go would

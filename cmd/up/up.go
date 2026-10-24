@@ -55,9 +55,9 @@ const (
 	extraPackagesUsage             = "▣ Paths to custom package locations"
 	packageCustomizationFilesUsage = "⎔ Package customization files (e.g., argocd:/tmp/argocd.yaml)"
 	noExitUsage                    = "◌ Keep running to continuously sync directories"
-	inClusterUsage                 = "⎔ Install the controller manager in-cluster for continuous reconciliation after the CLI exits"
+	inClusterUsage                 = "⎔ Install the controller manager adhar-controlplane for continuous reconciliation after the CLI exits"
 	haModeUsage                    = "⎔ Render foundation components in HA mode (replicas, PDBs); default for production configs with enableHAMode"
-	controllerImageUsage           = "▣ Container image for the in-cluster controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
+	controllerImageUsage           = "▣ Container image for the adhar-controlplane controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
 )
 
 var (
@@ -159,7 +159,7 @@ func init() {
 	UpCmd.PersistentFlags().StringSliceVar(&registryConfig, "registry-config", []string{}, registryConfigUsage)
 	UpCmd.PersistentFlags().Lookup("registry-config").NoOptDefVal = "$XDG_RUNTIME_DIR/containers/auth.json,$HOME/.docker/config.json"
 
-	// in-cluster resources related flags
+	// adhar-controlplane resources related flags
 	UpCmd.PersistentFlags().StringVar(&host, "host", "adhar.localtest.me", hostUsage)
 	UpCmd.PersistentFlags().StringVar(&ingressHost, "ingress-host-name", "", ingressHostUsage)
 	UpCmd.PersistentFlags().StringVar(&protocol, "protocol", "https", protocolUsage)
@@ -169,7 +169,7 @@ func init() {
 	UpCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
 	UpCmd.Flags().Bool("no-exit", false, "Keep running after initial sync (don't exit)")
 	UpCmd.Flags().DurationVar(&appsTimeout, "apps-timeout", 15*time.Minute, "◌ How long to keep driving the platform apps to Synced + Healthy before exiting (0 exits as soon as the foundation is ready)")
-	UpCmd.Flags().BoolVar(&inClusterController, "in-cluster", false, inClusterUsage)
+	UpCmd.Flags().BoolVar(&inClusterController, "adhar-controlplane", false, inClusterUsage)
 	UpCmd.Flags().StringVar(&controllerImage, "controller-image", "", controllerImageUsage)
 	UpCmd.Flags().BoolVar(&haMode, "ha", false, haModeUsage)
 

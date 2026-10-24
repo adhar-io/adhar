@@ -41,7 +41,7 @@
 # (PLANE_URL / PLANE_TOKEN / PLANE_WORKSPACE). The console's ExternalSecret
 # (core/adhar-console) copies that into its pod env — Plane only speaks
 # X-API-Key on /api/v1, and the public route sits behind oauth2-proxy, so
-# the console needs the in-cluster URL + a real key, not the user's session.
+# the console needs the adhar-controlplane URL + a real key, not the user's session.
 # (Plain .yaml on purpose: the ESO template directives must survive seeding.)
 ---
 apiVersion: v1
@@ -135,7 +135,7 @@ spec:
       serviceAccountName: plane-instance-setup
       containers:
         - name: setup
-          image: ghcr.io/adhar-io/plane-backend:1.4.2-2
+          image: ghcr.io/adhar-io/plane-backend:1.4.2-3
           envFrom:
             - configMapRef: {name: plane-app-vars}
             - secretRef: {name: plane-app-secrets}
@@ -165,7 +165,7 @@ spec:
             - name: KEYCLOAK_ISSUER_URL
               value: https://keycloak.adhar.localtest.me:8443/realms/adhar
             # Backchannel — discovery, the code-for-token exchange and userinfo
-            # — stays in-cluster; the fork re-bases those endpoints onto this
+            # — stays adhar-controlplane; the fork re-bases those endpoints onto this
             # URL whatever issuer the discovery document reports.
             - name: KEYCLOAK_INTERNAL_ISSUER_URL
               value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar
@@ -384,7 +384,7 @@ spec:
               else:
                   print("console API key present", flush=True)
 
-              # ── 5. hand it to the console through a Secret (kube API, in-cluster SA) ──
+              # ── 5. hand it to the console through a Secret (kube API, adhar-controlplane SA) ──
               name = os.environ["TOKEN_SECRET_NAME"]
               b64 = lambda s: base64.b64encode(s.encode()).decode()
               body = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",

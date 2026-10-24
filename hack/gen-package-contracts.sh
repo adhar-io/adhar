@@ -170,7 +170,7 @@ CURATED = {
    license="Apache-2.0", homepage=ADHAR_REPO, version="0.1.0",
    keywords="preview ephemeral quota kyverno"),
  "application/scorecards": dict(
-   description="Production-readiness scorer: a CronJob grades every service 0-100 from in-cluster signals and publishes the adhar-scorecards ConfigMap the Console reads.",
+   description="Production-readiness scorer: a CronJob grades every service 0-100 from adhar-controlplane signals and publishes the adhar-scorecards ConfigMap the Console reads.",
    license="Apache-2.0", homepage=ADHAR_REPO, version="0.1.0",
    keywords="scorecards readiness governance console"),
  "application/supply-chain": dict(

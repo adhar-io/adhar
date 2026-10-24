@@ -45,7 +45,7 @@ func clusterSpecCM(mode string) *corev1.ConfigMap {
 	}
 }
 
-// The cluster mode has to reach the in-cluster controller, and an absent or
+// The cluster mode has to reach the adhar-controlplane controller, and an absent or
 // unreadable record must mean the mode the platform has always had — not the one
 // that skips installing the CNI.
 func TestClusterModeIsReadFromTheClusterSpecConfigMap(t *testing.T) {

@@ -78,7 +78,7 @@ func (p *Provider) trackerFor(ctx context.Context, clusterID string) (*ResourceT
 	}
 	// The VMs alone are not a tracker. ScaleNodeGroup builds a new worker from
 	// tracker.VirtualNetworks[0] / Subnets[0] / NetworkSecurityGroups[0], and a
-	// rediscovered tracker had none of them: the in-cluster autoscaler decided
+	// rediscovered tracker had none of them: the adhar-controlplane autoscaler decided
 	// ScaleUp correctly every three minutes and failed every time with "tracker
 	// lacks network resources; cannot add workers" while three workers sat at
 	// 100% CPU and 19 pods stayed Pending (Azure, 2026-10-10). The network is in
@@ -352,7 +352,7 @@ func (p *Provider) mergeDiscoveredResources(ctx context.Context, rg, clusterName
 	}
 }
 
-// sweepLoadBalancers deletes the load balancers the in-cluster CCM created for
+// sweepLoadBalancers deletes the load balancers the adhar-controlplane CCM created for
 // Services of type LoadBalancer. They are the resource most likely to hold the
 // subnet and to keep billing after everything visible is gone.
 func (p *Provider) sweepLoadBalancers(ctx context.Context, rg, clusterName string) []string {

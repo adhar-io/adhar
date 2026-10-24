@@ -245,7 +245,7 @@ spec:
             # retired adhar-ai-llm-gateway. /v1 is part of the base URL and the
             # loop POSTs an OpenAI-shaped body that NAMES A MODEL; the gateway
             # routes on that name (`claude-*` -> Anthropic, `gpt-*` -> OpenAI,
-            # `local/*` -> the in-cluster vLLM) and holds the key server-side.
+            # `local/*` -> the adhar-controlplane vLLM) and holds the key server-side.
             # The platform's own repositories, read for the knowledge base:
             # `packages` and `environments`. (The platform's docs and CLI
             # reference come from the knowledge bundle below, not Gitea.) Gitea

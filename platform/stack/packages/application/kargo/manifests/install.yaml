@@ -7,6 +7,7 @@ kind: Namespace
 metadata:
   name: "kargo-cluster-secrets"
   labels:
+    adhar.io/plane: control
     helm.sh/chart: kargo-1.11.4
     app.kubernetes.io/name: kargo
     app.kubernetes.io/instance: kargo
@@ -19,6 +20,7 @@ kind: Namespace
 metadata:
   name: "kargo-shared-resources"
   labels:
+    adhar.io/plane: control
     helm.sh/chart: kargo-1.11.4
     app.kubernetes.io/name: kargo
     app.kubernetes.io/instance: kargo
@@ -31,6 +33,7 @@ kind: Namespace
 metadata:
   name: "kargo-system-resources"
   labels:
+    adhar.io/plane: control
     helm.sh/chart: kargo-1.11.4
     app.kubernetes.io/name: kargo
     app.kubernetes.io/instance: kargo

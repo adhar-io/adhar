@@ -1,4 +1,4 @@
-# Scheduled retraining. The CronJob does NOT train in-cluster itself — it submits
+# Scheduled retraining. The CronJob does NOT train adhar-controlplane itself — it submits
 # the compiled KFP pipeline to the platform's Kubeflow Pipelines API, so the run
 # is tracked, its artifacts land in the platform object store, and its steps get
 # KFP's retries and caching. The Job is just the trigger.

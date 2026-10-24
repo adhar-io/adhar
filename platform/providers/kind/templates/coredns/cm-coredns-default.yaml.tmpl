@@ -5,7 +5,7 @@ metadata:
   namespace: kube-system
 data:
   default.conf: |
-    # Goal: rewrite the platform host (and its subdomains) so that in-cluster
+    # Goal: rewrite the platform host (and its subdomains) so that adhar-controlplane
     # clients reach services via the SAME FQDN as external access. The platform
     # uses the Cilium Gateway (it replaced ingress-nginx), so the host resolves
     # to the generated cilium-gateway-adhar-gateway Service in adhar-system.

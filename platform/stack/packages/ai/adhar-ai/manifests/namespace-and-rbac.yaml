@@ -238,7 +238,7 @@ subjects:
     name: adhar-ai
     namespace: adhar-system
 ---
-# Namespaced Role — the ONLY things the agent may mutate in-cluster are its own
+# Namespaced Role — the ONLY things the agent may mutate adhar-controlplane are its own
 # runtime artefacts (session/state ConfigMaps, audit checkpoints) inside
 # adhar-system. Crucially: this grants NO power over other packages' workloads,
 # and the actual "write" to the platform is always a Gitea PR opened over HTTP

@@ -7683,7 +7683,7 @@ spec:
                         static:
                           description: |-
                             Static MCP destination. When connecting to
-                            in-cluster `Service` resources, it is recommended to use `selector`
+                            adhar-controlplane `Service` resources, it is recommended to use `selector`
                             instead.
                           properties:
                             backendRef:

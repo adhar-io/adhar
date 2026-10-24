@@ -3143,9 +3143,9 @@ spec:
                       podName:
                         description: |-
                           PodName is the name of the driver pod that the user creates. This is used for the
-                          in-cluster client mode in which the user creates a client pod where the driver of
+                          adhar-controlplane client mode in which the user creates a client pod where the driver of
                           the user application runs. It's an error to set this field if Mode is not
-                          in-cluster-client.
+                          adhar-controlplane-client.
                         pattern: '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
                         type: string
                       podSecurityContext:
@@ -15571,9 +15571,9 @@ spec:
                   podName:
                     description: |-
                       PodName is the name of the driver pod that the user creates. This is used for the
-                      in-cluster client mode in which the user creates a client pod where the driver of
+                      adhar-controlplane client mode in which the user creates a client pod where the driver of
                       the user application runs. It's an error to set this field if Mode is not
-                      in-cluster-client.
+                      adhar-controlplane-client.
                     pattern: '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
                     type: string
                   podSecurityContext:

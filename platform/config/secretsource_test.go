@@ -11,7 +11,7 @@ import (
 //
 // `adhar up` built an Azure cluster from a secret FILE while edgeDNSSecretData —
 // which knew only about AZURE_CLIENT_SECRET — wrote a stale environment value
-// into the in-cluster `adhar-dns-provider` Secret. The cluster came up perfectly
+// into the adhar-controlplane `adhar-dns-provider` Secret. The cluster came up perfectly
 // and then external-dns crash-looped on AADSTS7000215, so every platform
 // hostname kept resolving to the previous cluster's dead load-balancer IP and
 // every URL was unreachable (2026-10-04). Two resolvers for one credential was
@@ -74,7 +74,7 @@ func TestResolveSecretErrorsOnAnUnreadableFile(t *testing.T) {
 }
 
 // An empty file is a misconfiguration that otherwise presents as a credential
-// failure much later, in-cluster.
+// failure much later, adhar-controlplane.
 func TestResolveSecretErrorsOnAnEmptyFile(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "empty")
 	if err := os.WriteFile(p, []byte("   \n"), 0o600); err != nil {

@@ -56,7 +56,7 @@ spec:
             - --workers=2
             # MLflow ≥3.5 rejects any Host header outside localhost/private IPs
             # ("Invalid Host header - possible DNS rebinding attack"). Every
-            # in-cluster client (golden-path ML jobs, notebooks, the verify Job)
+            # adhar-controlplane client (golden-path ML jobs, notebooks, the verify Job)
             # and the SSO proxy (which passes the browser's Host through) must
             # be listed. The localtest.me entry is rewritten to the platform
             # domain at seed time like every other host reference.

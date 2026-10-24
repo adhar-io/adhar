@@ -764,7 +764,7 @@
     "type": "prometheus",
     "uid": "${datasource}"
    },
-   "description": "Realized spend per model. Models served by the in-cluster vLLM are absent or zero — the visible gap between a claude-* line and a local/* line is the saving from routing a task to the local model.",
+   "description": "Realized spend per model. Models served by the adhar-controlplane vLLM are absent or zero — the visible gap between a claude-* line and a local/* line is the saving from routing a task to the local model.",
    "fieldConfig": {
     "defaults": {
      "color": {

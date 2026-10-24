@@ -1,7 +1,7 @@
-apiVersion: kyverno.io/v2beta1
+apiVersion: kyverno.io/v2
 kind: PolicyException
 metadata:
-  name: argocd-adhar-operation
+  name: console-adhar-operation
   namespace: adhar-system
 spec:
   exceptions:
@@ -29,7 +29,7 @@ spec:
         - Deployment
         - ReplicaSet
         namespaces:
-        - argocd
+        - adhar-system
         names:
-        # TODO: this should be more targeted than blanket *
-        - argocd-*
+        - adhar-console*
+        - console-db*

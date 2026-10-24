@@ -90981,7 +90981,8 @@ spec:
             - --loggingFormat=text
             - --v=2
             - --omitEvents=PolicyApplied,PolicySkipped
-            - --enablePolicyException=false
+            - --enablePolicyException=true
+            - --exceptionNamespace=adhar-system
             - --protectManagedResources=false
             - --allowInsecureRegistry=false
             - --registryCredentialHelpers=default,google,amazon,azure,github
@@ -91172,7 +91173,8 @@ spec:
             - --loggingFormat=text
             - --v=2
             - --omitEvents=PolicyApplied,PolicySkipped
-            - --enablePolicyException=false
+            - --enablePolicyException=true
+            - --exceptionNamespace=adhar-system
             - --enableReporting=validate,mutate,mutateExisting,imageVerify,generate
             
           env:
@@ -91491,7 +91493,8 @@ spec:
             - --loggingFormat=text
             - --v=2
             - --omitEvents=PolicyApplied,PolicySkipped
-            - --enablePolicyException=false
+            - --enablePolicyException=true
+            - --exceptionNamespace=adhar-system
             - --allowInsecureRegistry=false
             - --registryCredentialHelpers=default,google,amazon,azure,github
             - --enableReporting=validate,mutate,mutateExisting,imageVerify,generate

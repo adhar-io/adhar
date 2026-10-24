@@ -140,7 +140,7 @@ func (s LLMSeed) Describe() string {
 		slots = append(slots, "openai")
 	}
 	if len(slots) == 0 {
-		slots = append(slots, "none (in-cluster inference)")
+		slots = append(slots, "none (adhar-controlplane inference)")
 	}
 	return fmt.Sprintf("provider=%s model=%s slots=[%s]", s.Provider, s.Model, strings.Join(slots, ", "))
 }

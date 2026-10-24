@@ -247,7 +247,7 @@ func providerMapFor(spec *clusterSpec) map[string]interface{} {
 // Growing a self-managed cluster means running `kubeadm token create` on the
 // control plane and `kubeadm join` on the new machine, both over SSH — the key
 // normally only exists on the laptop that ran `adhar up`, so the CLI mirrors
-// it into a Secret for the in-cluster manager. Managed-Kubernetes clusters
+// it into a Secret for the adhar-controlplane manager. Managed-Kubernetes clusters
 // have no such Secret and need none.
 func (r *Reconciler) ensureClusterSSHKey(ctx context.Context, clusterName string) error {
 	secret := &corev1.Secret{}

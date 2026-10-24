@@ -59,18 +59,6 @@ data:
           "tooltip": "Logs of every custom application, by environment, application and component"
         },
         {
-          "title": "Delivery",
-          "type": "dashboards",
-          "tags": [
-            "adhar-delivery"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [
@@ -81,28 +69,6 @@ data:
           "keepTime": true,
           "targetBlank": false,
           "icon": "external link"
-        },
-        {
-          "title": "GitOps & promotion",
-          "type": "link",
-          "url": "/d/adhar-gitops",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
-        },
-        {
-          "title": "Developer platform",
-          "type": "link",
-          "url": "/d/adhar-dev-platform",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
         }
       ],
       "liveNow": false,
@@ -4496,7 +4462,7 @@ data:
       },
       "timepicker": {},
       "timezone": "browser",
-      "title": "Delivery / CI & Artifacts",
+      "title": "CI & Artifacts",
       "uid": "adhar-ci",
       "version": 1,
       "weekStart": ""

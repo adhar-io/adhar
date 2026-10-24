@@ -585,7 +585,7 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterID string) e
 	// can be attributed at all.
 	identity := p.clusterIdentityFor(name, instances)
 
-	// The in-cluster controllers created resources no tracker knows about. Sweep
+	// The adhar-controlplane controllers created resources no tracker knows about. Sweep
 	// them first: a load balancer holds a reference to the network, so leaving one
 	// behind makes the network deletion below fail and the next run inherit it.
 	var sweepProblems []string

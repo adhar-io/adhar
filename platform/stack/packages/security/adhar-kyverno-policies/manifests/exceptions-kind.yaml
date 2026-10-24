@@ -1,4 +1,4 @@
-apiVersion: kyverno.io/v2beta1
+apiVersion: kyverno.io/v2
 kind: PolicyException
 metadata:
   name: system-adhar-operation
@@ -45,6 +45,12 @@ spec:
     ruleNames:
     - host-namespaces
     - autogen-host-namespaces
+  # The control-plane static pods (kube-apiserver, etcd, controller-manager,
+  # scheduler) bind host ports by design.
+  - policyName: disallow-host-ports
+    ruleNames:
+    - host-ports-none
+    - autogen-host-ports-none
   match:
     any:
     - resources:

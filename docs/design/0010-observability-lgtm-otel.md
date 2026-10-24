@@ -4,7 +4,7 @@ Detailed design for [ADR-0010](../adr/0010-observability-lgtm-otel.md). This doc
 
 ## 0. Context recap
 
-ADR-0010 standardises on **OpenTelemetry as the collection contract** and the **Grafana stack as storage/UX**. Grafana **Alloy** is the single shipping agent (metrics/logs/traces); Prometheus + **Mimir/Loki/Tempo** (plus **Pyroscope** for profiles) are the stores; **Grafana** is the one pane; eBPF (**Beyla/Pixie/Hubble**) gives value before instrumentation. Everything ships as ordinary ApplicationSet packages (ADR-0004) so components are swap/disable-able per environment. Topology is single-cluster in-cluster (T1/T2) and **hub-and-spoke** at T3 — spokes run only Alloy, the management cluster hosts storage and query.
+ADR-0010 standardises on **OpenTelemetry as the collection contract** and the **Grafana stack as storage/UX**. Grafana **Alloy** is the single shipping agent (metrics/logs/traces); Prometheus + **Mimir/Loki/Tempo** (plus **Pyroscope** for profiles) are the stores; **Grafana** is the one pane; eBPF (**Beyla/Pixie/Hubble**) gives value before instrumentation. Everything ships as ordinary ApplicationSet packages (ADR-0004) so components are swap/disable-able per environment. Topology is single-cluster adhar-controlplane (T1/T2) and **hub-and-spoke** at T3 — spokes run only Alloy, the management cluster hosts storage and query.
 
 ## 1. Signal → tool map (as built)
 
@@ -35,7 +35,7 @@ traces:   otelcol.receiver.otlp "workloads"   (grpc 0.0.0.0:4317, http 0.0.0.0:4
             → otelcol.exporter.otlphttp "hub"  → sys.env("HUB_TEMPO_URL")  [tls insecure_skip_verify]
 ```
 
-The pipeline endpoints come from the **`observability-hub` ConfigMap** (`alloy/manifests/hub-endpoints.yaml`), mounted onto the Alloy container via `envFrom.configMapRef: observability-hub` (kept on regeneration — see the comment in `install.yaml`). Defaults are the hub's own in-cluster services (correct when Alloy runs on the management cluster):
+The pipeline endpoints come from the **`observability-hub` ConfigMap** (`alloy/manifests/hub-endpoints.yaml`), mounted onto the Alloy container via `envFrom.configMapRef: observability-hub` (kept on regeneration — see the comment in `install.yaml`). Defaults are the hub's own adhar-controlplane services (correct when Alloy runs on the management cluster):
 
 ```yaml
 # observability-hub ConfigMap (adhar-system)
@@ -83,8 +83,8 @@ Grafana ships inside the kube-prometheus-stack chart (`prometheus-grafana` Servi
 ## 6. SSO & gateway exposure
 
 - **Grafana OIDC** — `grafana.ini.auth.generic_oauth` points at Keycloak realm `adhar`; `role_attribute_path` maps realm groups (`platform-admin`→Admin, `platform-developer`→Editor, else Viewer). Client id/secret arrive out-of-band in the `grafana-oidc` Secret (an ExternalSecret in the keycloak package, ADR-0009), consumed via `envFromSecrets` with `optional: true` so Grafana boots before Keycloak exists (local `admin`/`prom-operator` is break-glass). `tls_skip_verify_insecure: true` because the Gateway serves the self-signed platform cert. Because env vars are read once at start, `manifests/grafana-oidc-reload.yaml` is a **PostSync hook Job** that restarts Grafana only if the running pod lacks the OAuth secret env — idempotent, converges login once Keycloak syncs (ADR-0013 pattern).
-- **Prometheus SSO** — Prometheus has no native OIDC, so `manifests/prometheus-oauth2-proxy.yaml` puts an oauth2-proxy in front on its own host (`prometheus.adhar.localtest.me`), keeping Prometheus at root for in-cluster datasource/scrape.
-- **Gateway routes** — HTTPRoutes attach to `adhar-gateway` (ADR-0002): `grafana-httproute.yaml` (`grafana.adhar.localtest.me` + `localhost` → `prometheus-grafana:80`), plus `loki/mimir/tempo/pyroscope` routes in their packages. The Mimir/Loki/Tempo routes double as **spoke ingestion endpoints** (comment: "roadmap P2.3"): Alloy on a workload cluster ships to these hostnames; in-cluster consumers keep using the Services directly.
+- **Prometheus SSO** — Prometheus has no native OIDC, so `manifests/prometheus-oauth2-proxy.yaml` puts an oauth2-proxy in front on its own host (`prometheus.adhar.localtest.me`), keeping Prometheus at root for adhar-controlplane datasource/scrape.
+- **Gateway routes** — HTTPRoutes attach to `adhar-gateway` (ADR-0002): `grafana-httproute.yaml` (`grafana.adhar.localtest.me` + `localhost` → `prometheus-grafana:80`), plus `loki/mimir/tempo/pyroscope` routes in their packages. The Mimir/Loki/Tempo routes double as **spoke ingestion endpoints** (comment: "roadmap P2.3"): Alloy on a workload cluster ships to these hostnames; adhar-controlplane consumers keep using the Services directly.
 
 ## 7. Package model & enabled-gating (ADR-0004)
 
@@ -100,7 +100,7 @@ Every component is a list element in `platform/stack/adhar-appset-local.yaml`, g
 
 The spoke path is already built (ahead of the ADR's "hub lands in Phase 2" status):
 
-- `platform/stack/adhar-appset-workload.yaml` (`adhar-workload-clusters`) targets every ArgoCD-registered workload cluster (`clusters` generator, selector `adhar.io/cluster Exists`) and ships a **thin agent set**: `metrics-server`, `kyverno(+policies)`, and **`alloy`** only. The management/local cluster is not matched (its in-cluster destination has no `adhar.io/cluster` label), so storage stays on the hub.
+- `platform/stack/adhar-appset-workload.yaml` (`adhar-workload-clusters`) targets every ArgoCD-registered workload cluster (`clusters` generator, selector `adhar.io/cluster Exists`) and ships a **thin agent set**: `metrics-server`, `kyverno(+policies)`, and **`alloy`** only. The management/local cluster is not matched (its adhar-controlplane destination has no `adhar.io/cluster` label), so storage stays on the hub.
 - Each spoke's `observability-hub` ConfigMap is overridden with the hub's external Gateway URLs; Alloy `remote_write`/`loki.write`/`otlphttp` to `mimir/loki/tempo.<host>` through the platform Gateway, tagging every sample/stream with `cluster = HUB_CLUSTER_NAME`.
 - Hub-side, a single Mimir/Loki/Tempo separates clusters by the `cluster` label; Grafana queries all clusters from one pane. This is the observability leg of the control/data-plane split (see [design 0023 §8, §2.2 `ensureObservability`](0023-control-dataplane-separation.md)).
 

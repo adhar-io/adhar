@@ -27,7 +27,7 @@ import (
 	"time"
 )
 
-// Default in-cluster Tempo query-frontend endpoint. Tempo exposes a
+// Default adhar-controlplane Tempo query-frontend endpoint. Tempo exposes a
 // Jaeger-compatible/native HTTP API on this service. Override with --tempo-url.
 const defaultTempoURL = "http://tempo.monitoring.svc:3100"
 

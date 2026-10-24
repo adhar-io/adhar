@@ -6,7 +6,7 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 |---|-------|--------|
 | [0001](0001-management-cluster-first.md) | Management-cluster-first with two-phase bootstrap | Accepted |
 | [0002](0002-cilium-cni-and-gateway.md) | Cilium as CNI, kube-proxy replacement, and Gateway API implementation | Accepted |
-| [0003](0003-in-cluster-gitea.md) | Self-hosted in-cluster Gitea as the platform source of truth | Accepted |
+| [0003](0003-adhar-controlplane-gitea.md) | Self-hosted adhar-controlplane Gitea as the platform source of truth | Accepted |
 | [0004](0004-applicationset-package-model.md) | Single ApplicationSet with enabled-gated package list | Accepted |
 | [0005](0005-crossplane-v2-namespaced.md) | Crossplane v2 namespaced XRs for self-service infrastructure | Accepted |
 | [0006](0006-embedded-bootstrap-manifests.md) | Embedded, pre-rendered manifests for bootstrap | Accepted |
@@ -16,7 +16,7 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0010](0010-observability-lgtm-otel.md) | Observability: OTel collection, Grafana LGTM storage, hub-and-spoke | Accepted |
 | [0011](0011-shared-platform-namespace.md) | Single shared namespace (`adhar-system`) for platform packages | Accepted |
 | [0012](0012-single-node-resilience-tuning.md) | Resilience tuning for single-node local clusters | Accepted |
-| [0013](0013-sso-bootstrap-config-job.md) | SSO bootstrap via idempotent in-cluster config job | Accepted |
+| [0013](0013-sso-bootstrap-config-job.md) | SSO bootstrap via idempotent adhar-controlplane config job | Accepted |
 | [0014](0014-package-lifecycle-operations.md) | Package lifecycle operations: toggling, verification, clean removal | Accepted |
 | [0015](0015-idp-critical-pillars.md) | Critical pillars of the IDP — the tests every addition must pass | Accepted |
 | [0016](0016-vcluster-local-first-development.md) | vCluster as the virtual-cluster primitive for local-first development and tenancy | Accepted |

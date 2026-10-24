@@ -112,7 +112,7 @@ spec:
                   {{- end }}
                   exportKubeConfig:
                     # The Secret the console and CLI read. The server address
-                    # is the in-cluster Service so a kubeconfig exported here
+                    # is the adhar-controlplane Service so a kubeconfig exported here
                     # works from any pod on the host without an ingress.
                     server: https://{{ $svc }}:443
                     secret:

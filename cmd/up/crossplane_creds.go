@@ -97,7 +97,7 @@ func crossplaneCredentialData(ctx context.Context, provider string, pc *config.C
 			// Same fallback as the edge DNS secret: resolve the AWS default
 			// credential chain rather than insisting the keys be restated as
 			// environment variables. Crossplane's AWS provider reads this Secret
-			// in-cluster, so it needs real key material — but the operator has
+			// adhar-controlplane, so it needs real key material — but the operator has
 			// usually already configured the AWS CLI, and the platform's own
 			// provider authenticates from that same chain.
 			resolvedID, resolvedSecret, resolvedToken, err := awsStaticCredentials(ctx)
@@ -134,7 +134,7 @@ func crossplaneCredentialData(ctx context.Context, provider string, pc *config.C
 	case dnsAzure:
 		// The client secret comes from the SHARED resolver, not a local rule.
 		//
-		// This Secret is what the in-cluster controllers authenticate with — the
+		// This Secret is what the adhar-controlplane controllers authenticate with — the
 		// node autoscaler among them. While this read only AZURE_CLIENT_SECRET it
 		// could not see clientSecretFile, so `adhar up` built the cluster from the
 		// file and then wrote a STALE environment value here. The autoscaler then

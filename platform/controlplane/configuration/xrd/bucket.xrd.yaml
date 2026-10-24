@@ -76,7 +76,7 @@ spec:
                       type: boolean
                       default: false
                       description: >-
-                        Anonymous read access. The store is reachable in-cluster
+                        Anonymous read access. The store is reachable adhar-controlplane
                         only, so this is "anyone in the cluster", not "the
                         internet" — but it is still a deliberate choice.
                     organisation: { type: string, default: adhar }

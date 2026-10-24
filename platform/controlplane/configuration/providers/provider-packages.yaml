@@ -1,7 +1,7 @@
 # Crossplane Provider packages required by the Kubernetes-native compositions
 # (provider-kubernetes serves namespaced Objects under kubernetes.m.crossplane.io;
 # provider-helm serves namespaced Releases under helm.m.crossplane.io). These are
-# the only providers needed for local/in-cluster compositions; cloud provider
+# the only providers needed for local/adhar-controlplane compositions; cloud provider
 # packages live under providers/cloud/ and are installed only in cloud mode.
 #
 # Versions are kept in sync with the dependsOn block in ../crossplane.yaml.

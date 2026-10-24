@@ -1,4 +1,4 @@
-# `platform` — the in-cluster ClusterSecretStore that reads adhar-system.
+# `platform` — the adhar-controlplane ClusterSecretStore that reads adhar-system.
 #
 # Compositions must never copy a password into a manifest, yet the objects
 # they create often need one: a Project's Kargo namespace needs the

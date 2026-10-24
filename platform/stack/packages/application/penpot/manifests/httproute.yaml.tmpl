@@ -26,7 +26,36 @@ spec:
       namespace: adhar-system
   hostnames:
     - penpot.adhar.localtest.me
+  # Click-free sign-in (security/keycloak/manifests/sso-start.yaml). Penpot
+  # starts OIDC with a POST, which no redirect can make, so a bare load of `/`
+  # with no session goes to /adhar-sso/penpot.html on this host, which makes
+  # that POST and follows Keycloak's URL. The SPA's own routes are fragments
+  # (#/auth/login), so `/` is the only path a page load ever requests.
   rules:
+    - matches:
+        - path: {type: PathPrefix, value: /adhar-sso/}
+      backendRefs:
+        - name: adhar-sso-start
+          port: 80
+    # Signed in (Penpot's `auth-token`), or the start page fell back to the
+    # login screen (`adhar_sso_penpot`, 5 min): straight to Penpot.
+    - matches:
+        - path: {type: Exact, value: /}
+          headers:
+            - type: RegularExpression
+              name: Cookie
+              value: '.*(auth-token|adhar_sso_penpot)=[^;]+.*'
+      backendRefs:
+        - name: penpot
+          port: 8080
+    - matches:
+        - path: {type: Exact, value: /}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path: {type: ReplaceFullPath, replaceFullPath: /adhar-sso/penpot.html}
+            port: {{ .Port }}
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

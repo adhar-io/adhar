@@ -180,7 +180,7 @@ func TestExtractClusterNameHandlesRealClusterIDs(t *testing.T) {
 	}
 }
 
-// Teardown must remove what the in-cluster controllers created, because nothing
+// Teardown must remove what the adhar-controlplane controllers created, because nothing
 // records it. On the first GCP teardown the cloud controller manager's load
 // balancer and 59 CSI disks survived and kept billing, and a leftover k8s-fw-*
 // rule held a reference to the VPC so the network could not be deleted either —

@@ -36,7 +36,7 @@ func gcpFunc(t *testing.T, name string) string {
 // Scaling must not depend on the CLI's local state file.
 //
 // p.clusters is populated from ~/.adhar/state/gcp/clusters.json — a file the
-// CLI has and an in-cluster pod never does. Reading it directly meant the node
+// CLI has and an adhar-controlplane pod never does. Reading it directly meant the node
 // autoscaler, which runs in the cluster, could never add a worker: it decided
 // ScaleUp correctly and then failed every cooldown with "cluster not found".
 // getClusterInfrastructure already falls back to discovering the instances by
@@ -45,7 +45,7 @@ func TestScalingResolvesTheClusterFromTheCloud(t *testing.T) {
 	for _, name := range []string{"scaleWorkers", "GetNodeGroup"} {
 		body := gcpFunc(t, name)
 		if strings.Contains(body, "p.clusters[clusterID]") {
-			t.Errorf("%s reads the local state map; an in-cluster caller has no state file, so scaling always fails with \"not found\"", name)
+			t.Errorf("%s reads the local state map; an adhar-controlplane caller has no state file, so scaling always fails with \"not found\"", name)
 		}
 		if !strings.Contains(body, "p.getClusterInfrastructure(ctx, ") {
 			t.Errorf("%s must resolve the cluster through getClusterInfrastructure, which rediscovers from GCP", name)

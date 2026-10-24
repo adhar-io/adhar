@@ -272,7 +272,7 @@ func addAllAndCommit(path string, gitRepo *git.Repository) (plumbing.Hash, bool,
 }
 
 // targetAuth is the credential for reading the TARGET repository (the
-// in-cluster Gitea, which requires sign-in for every read), or nil when there
+// adhar-controlplane Gitea, which requires sign-in for every read), or nil when there
 // is none to send.
 func targetAuth(creds gitProviderCredentials) transport.AuthMethod {
 	auth, err := getBasicAuth(creds)

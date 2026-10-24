@@ -93,10 +93,10 @@ type GitRepositoryStatus struct {
 	// LatestCommit is the most recent commit known to the controller
 	// +kubebuilder:validation:Optional
 	LatestCommit Commit `json:"commit"`
-	// ExternalGitRepositoryUrl is the url for the in-cluster repository accessible from local machine.
+	// ExternalGitRepositoryUrl is the url for the adhar-controlplane repository accessible from local machine.
 	// +kubebuilder:validation:Optional
 	ExternalGitRepositoryUrl string `json:"externalGitRepositoryUrl"`
-	// InternalGitRepositoryUrl is the url for the in-cluster repository accessible within the cluster.
+	// InternalGitRepositoryUrl is the url for the adhar-controlplane repository accessible within the cluster.
 	// +kubebuilder:validation:Optional
 	InternalGitRepositoryUrl string `json:"internalGitRepositoryUrl"`
 	// Path is the path within the repository that contains the files.

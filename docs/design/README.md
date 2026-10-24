@@ -8,7 +8,7 @@ Each doc verifies its cited paths/symbols against the tree and closes with a **d
 |---|-----------|-----|
 | 0001 | [Management-cluster-first & two-phase bootstrap](0001-management-cluster-first.md) | [ADR-0001](../adr/0001-management-cluster-first.md) |
 | 0002 | [Cilium CNI, kube-proxy replacement, Gateway API](0002-cilium-cni-and-gateway.md) | [ADR-0002](../adr/0002-cilium-cni-and-gateway.md) |
-| 0003 | [In-cluster Gitea](0003-in-cluster-gitea.md) | [ADR-0003](../adr/0003-in-cluster-gitea.md) |
+| 0003 | [In-cluster Gitea](0003-adhar-controlplane-gitea.md) | [ADR-0003](../adr/0003-adhar-controlplane-gitea.md) |
 | 0004 | [ApplicationSet package model](0004-applicationset-package-model.md) | [ADR-0004](../adr/0004-applicationset-package-model.md) |
 | 0005 | [Crossplane v2 namespaced XRs](0005-crossplane-v2-namespaced.md) | [ADR-0005](../adr/0005-crossplane-v2-namespaced.md) |
 | 0006 | [Embedded bootstrap manifests](0006-embedded-bootstrap-manifests.md) | [ADR-0006](../adr/0006-embedded-bootstrap-manifests.md) |

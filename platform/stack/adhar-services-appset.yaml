@@ -46,10 +46,14 @@ spec:
         path: ".adhar"
       destination:
         server: https://kubernetes.default.svc
-        # The Application XR (namespaced, Crossplane v2) lands in a
-        # per-service namespace; the composition fans out from there.
-        namespace: "{{ .repository }}"
+        # The control-plane namespace, where every Application XR lives (the
+        # console scaffolder and the composition both use adhar-system). It
+        # used to be a per-service namespace named after the repo, created with
+        # CreateNamespace=true — that minted an empty `reactapp` namespace for
+        # every adopted app (2026-10-24), while the app itself correctly runs
+        # only in its project's environment namespaces (dev/test/prod), which
+        # the composition targets. A custom application never gets a namespace
+        # of its own, so this Application must not create one.
+        namespace: adhar-system
       syncPolicy:
         automated: {prune: true, selfHeal: true}
-        syncOptions:
-          - CreateNamespace=true

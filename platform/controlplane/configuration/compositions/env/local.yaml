@@ -18,7 +18,7 @@
 # A Environment is a *namespaced* Crossplane v2 XR, so it cannot compose
 # a cluster-scoped Namespace directly. Instead it emits provider-kubernetes
 # `Object` managed resources (themselves namespaced) that create the targets via
-# the in-cluster kubernetes-provider ClusterProviderConfig.
+# the adhar-controlplane kubernetes-provider ClusterProviderConfig.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:

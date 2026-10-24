@@ -40,6 +40,7 @@ render() {
   # ChaosExperiments in experiments.yaml are instances of them.
   helm template --namespace adhar-system litmus "litmuschaos/${chart}" \
     --version "${version}" --include-crds "$@" >>"${out}"
+
   python3 - "${out}" "${wave}" <<'PYEOF'
 import sys, yaml
 path, wave = sys.argv[1], sys.argv[2]
@@ -85,3 +86,6 @@ render manifests/core.yaml         litmus-core      "${CORE_VERSION}"        0
 render manifests/experiments.yaml  kubernetes-chaos "${EXPERIMENTS_VERSION}" 2
 # Wave 3: ChaosCenter, after manifests/platform-mongodb.yaml (waves 0-1).
 render manifests/install.yaml      litmus           "${CHART_VERSION}"       3 -f values.yaml
+
+# Edits the chart cannot express (the auth server reads litmus-oidc). Keep last.
+python3 post-render.py manifests/install.yaml

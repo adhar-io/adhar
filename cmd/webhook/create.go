@@ -19,7 +19,7 @@ var createCmd = &cobra.Command{
 	Long: `Create a ValidatingWebhookConfiguration backed by an external URL.
 
 This registers a URL-backed validating admission webhook (the simplest form that
-requires no in-cluster Service or CA bundle, relying on the endpoint's own TLS).
+requires no adhar-controlplane Service or CA bundle, relying on the endpoint's own TLS).
 It scopes to CREATE of the given --resource so it is easy to remove afterwards.
 
 Examples:

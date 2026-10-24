@@ -30,7 +30,7 @@ import (
 
 // XRGroupVersion is the API group/version every Adhar composite resource (XR)
 // belongs to. The control plane (Crossplane) reconciles these XRs into the real
-// backing resources — locally via in-cluster compositions, on a cloud via the
+// backing resources — locally via adhar-controlplane compositions, on a cloud via the
 // matching cloud composition. Both the CLI and the Adhar Console produce these
 // same XRs, so a resource request is identical regardless of the entry point.
 const (
@@ -44,7 +44,7 @@ const (
 )
 
 // ActiveProvider reports which composition family the control plane should use
-// to satisfy resource requests. Local Kind clusters use in-cluster compositions
+// to satisfy resource requests. Local Kind clusters use adhar-controlplane compositions
 // (provider "local"); cloud platforms set ADHAR_PROVIDER to their cloud so the
 // identical XR resolves to e.g. AWS RDS instead of CloudNativePG.
 func ActiveProvider() string {

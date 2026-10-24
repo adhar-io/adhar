@@ -134,7 +134,7 @@ info "kyverno-admission-controller: ${READY_KYVERNO} ready replica(s)"
 # and every URL below became https://https://harbor…/ — which fails as an
 # unreachable-registry error that points nowhere near the actual cause.
 # Default to the platform edge name Harbor publishes itself at
-# (EXT_ENDPOINT), which the Gateway also serves on an in-cluster :8443 listener
+# (EXT_ENDPOINT), which the Gateway also serves on an adhar-controlplane :8443 listener
 # — so the SAME reference string works from this laptop and from Kyverno.
 if [[ -z "${HARBOR_HOST:-}" ]]; then
   HARBOR_HOST="$("${KUBECTL[@]}" get cm -n "${PLATFORM_NS}" harbor-core \

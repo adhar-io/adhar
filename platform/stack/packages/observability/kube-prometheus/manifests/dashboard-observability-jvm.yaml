@@ -59,18 +59,6 @@ data:
           "tooltip": "Logs of every custom application, by environment, application and component"
         },
         {
-          "title": "Observability",
-          "type": "dashboards",
-          "tags": [
-            "adhar-observability"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [
@@ -81,17 +69,6 @@ data:
           "keepTime": true,
           "targetBlank": false,
           "icon": "external link"
-        },
-        {
-          "title": "Telemetry pipeline",
-          "type": "link",
-          "url": "/d/adhar-telemetry",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
         }
       ],
       "liveNow": false,
@@ -2930,7 +2907,7 @@ data:
       },
       "timepicker": {},
       "timezone": "browser",
-      "title": "Observability / JVM Services",
+      "title": "JVM Services",
       "uid": "adhar-runtimes",
       "version": 1,
       "weekStart": ""

@@ -16,7 +16,7 @@ different slice of the truth:
 | Concept | Where it lived | What was missing |
 |---|---|---|
 | Organisation | Console `tenant-provisioner.ts`: Keycloak group `org-<slug>`, a namespace, a Grafana folder, a Gitea org, a Harbor project — all created imperatively by the Console, none visible as a Kubernetes object | nothing declarative; `adhar get` and Argo CD cannot see an organisation exists |
-| Team | Console: Keycloak group `ws-team-<slug>`; templates: a Backstage `Group` descriptor | nothing in-cluster; the project composition *assumes* the group name |
+| Team | Console: Keycloak group `ws-team-<slug>`; templates: a Backstage `Group` descriptor | nothing adhar-controlplane; the project composition *assumes* the group name |
 | Project | `Project`: one namespace, quota, team RBAC, NetworkPolicy, AppProject, Gitea repo | one namespace is not a project — a project's applications run in **environments**, and the AppProject only allowed deployments into the project namespace, so no application could actually deploy under it |
 | Application | `Application` (per-env Argo CD Applications into `<app>-<env>`) **and** the Tekton Task `app-env-register`, which created the same Applications plus the Kargo Project/Warehouse/Stages with `kubectl` | two writers for one object graph; the declarative half knew nothing about Kargo, the imperative half nothing about projects |
 | Environment | `Environment`: a namespace with a `tier` — and `platform/stack/environments/<env>` — and the three namespaces `adhar up` creates | three unrelated things called "environment"; `tier` still enumerated `staging`, which [ADR-0021](0021-day2-operations-first-class.md)'s one-environment-model had removed everywhere else |

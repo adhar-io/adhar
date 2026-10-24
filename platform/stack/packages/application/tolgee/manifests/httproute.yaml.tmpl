@@ -58,7 +58,7 @@ spec:
             port: {{ .Port }}
             statusCode: 302
     # Spring Boot's actuator (health, metrics) is for the kubelet and
-    # Prometheus, which reach it in-cluster; it has no business on the edge.
+    # Prometheus, which reach it adhar-controlplane; it has no business on the edge.
     - matches:
         - path:
             type: PathPrefix

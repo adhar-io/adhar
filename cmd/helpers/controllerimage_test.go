@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The in-cluster manager is what reconciles the platform after `adhar up`
+// The adhar-controlplane manager is what reconciles the platform after `adhar up`
 // exits. Handing it an image that does not exist does not fail the bring-up —
 // it leaves the cluster with nothing driving it, and the symptom appears a long
 // way from the cause.

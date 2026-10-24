@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package knowledge builds the platform knowledge bundle: the documentation,
 // examples, changelog and CLI reference of THIS release, packed for the
-// in-cluster AI knowledge base.
+// adhar-controlplane AI knowledge base.
 //
 // Until 2026-10-23 bootstrap mirrored github.com/adhar-io/adhar into the
 // cluster's Gitea so the indexer could read docs/ and parse cmd/. That needed

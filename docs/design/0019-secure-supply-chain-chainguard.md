@@ -16,7 +16,7 @@ An IDP is a supply-chain amplifier: the base images, signing posture, and admiss
 | `security/supply-chain-policies` → `manifests/enforce` | in-repo, the same 3 policies | `enabled: "false"` | `enabled: "false"` | **Stage 2** — the same rules, `failureAction: Enforce`. **The knob** |
 | `security/kyverno-policies` | `kyverno/kyverno-policies` 3.9.0 (+ `namespace-governance.yaml`) | `enabled: "true"` | `enabled: "true"` | Baseline PSS `restricted`, plane-governance (Audit) |
 | `application/supply-chain` | in-repo Tekton | `enabled: "true"` | `enabled: "true"` | Build identity + `cosign-key` + the `cosign-sign` Task; also a narrow always-Enforce policy (§2.3) |
-| `security/trivy` | `aqua/trivy-operator` 0.33.1 | `enabled: "false"` | `enabled: "false"` | Continuous in-cluster scan → CRD reports |
+| `security/trivy` | `aqua/trivy-operator` 0.33.1 | `enabled: "false"` | `enabled: "false"` | Continuous adhar-controlplane scan → CRD reports |
 | `application/harbor` | Harbor chart | `enabled: "true"` | `enabled: "true"` | Registry choke point; Trivy scan-on-push |
 | `security/cosign` | `sigstore/policy-controller` 0.10.7 | `enabled: "true"` | `enabled: "true"` | Sigstore `ClusterImagePolicy` admission in `adhar-system` (no live CIP defined) |
 | `security/policy-packs` | in-repo `cis.yaml`+`soc2.yaml` | `enabled: "false"` | `enabled: "false"` | Opt-in CIS/SOC2 profiles, all Audit |
@@ -43,7 +43,7 @@ This is the fact every other section depends on, and it is **not** what a casual
 | In-cluster builds (Tekton `app-ci` → Harbor) | **Key-based** | `cosign-key` Secret, `adhar-system` | **None** (`--tlog-upload=false`) |
 | Project releases (`ghcr.io/adhar-io/*`) | **Keyless** | GitHub Actions OIDC, `release.yaml` workflow | Rekor (public) |
 
-The in-cluster signer is the `cosign-sign` Task in `application/supply-chain/manifests/60-build-pipelines.yaml`:
+The adhar-controlplane signer is the `cosign-sign` Task in `application/supply-chain/manifests/60-build-pipelines.yaml`:
 
 ```yaml
         - sign
@@ -71,7 +71,7 @@ The keypair is therefore generated **once at install** by a hook Job — the sam
 
 Kyverno runs in `adhar-system` and its `kyverno:admission-controller` Role already grants `get` on Secrets there, so the policy reads the public half **live** from the Secret — nothing to copy, nothing to drift.
 
-ADR-0019 also specifies SBOM (SPDX) and SLSA-L2+ provenance attestations. Those are produced for **releases** (`.goreleaser.yaml` `sboms` + `signs`); the in-cluster pipelines do not yet attach attestations, so no `attestations:` block appears in the admission policy. 🔜
+ADR-0019 also specifies SBOM (SPDX) and SLSA-L2+ provenance attestations. Those are produced for **releases** (`.goreleaser.yaml` `sboms` + `signs`); the adhar-controlplane pipelines do not yet attach attestations, so no `attestations:` block appears in the admission policy. 🔜
 
 ### 2.1 Verification path that ships — Kyverno `verifyImages`
 
@@ -117,7 +117,7 @@ spec:
 Three things changed relative to the policy that shipped before, and all three were latent bugs that only Audit mode hid:
 
 1. **`rekor: {url: https://rekor.sigstore.dev}` on the key attestor → `rekor: {ignoreTlog: true}`.** The pipeline signs with `--tlog-upload=false`. Demanding a transparency-log entry that is never written means **every platform-built image would have failed verification the moment the policy enforced**.
-2. **`imageReferences: ["harbor.*/library/*"]` matched nothing.** The pipeline pushes to `harbor-core.adhar-system.svc.cluster.local/library/<repo>` — `harbor.` requires a literal dot, `harbor-core` has a hyphen. The rule silently matched zero images. It now lists the in-cluster service name explicitly and templates the platform-edge name (`harbor.{{ .Host }}*`) at seed time, so it is correct on every topology.
+2. **`imageReferences: ["harbor.*/library/*"]` matched nothing.** The pipeline pushes to `harbor-core.adhar-system.svc.cluster.local/library/<repo>` — `harbor.` requires a literal dot, `harbor-core` has a hyphen. The rule silently matched zero images. It now lists the adhar-controlplane service name explicitly and templates the platform-edge name (`harbor.{{ .Host }}*`) at seed time, so it is correct on every topology.
 3. **`required: false` → `required: true`.** Audit is only useful if it reports what Enforce would block; with `required: false` an unsigned image was not even a finding.
 
 `count: 1` makes the two attestor entries **alternatives** — the platform key OR the GitHub Actions keyless identity. `mutateDigest`/`verifyDigest` stay false in Audit because Kyverno rejects digest mutation on a non-enforcing rule; the enforce variant turns both on, so what runs is exactly what was verified.
@@ -140,7 +140,7 @@ It is `enabled: "true"` in production and `enabled: "false"` in the local core. 
 
 ### 3.1 In-cluster: `security/trivy`
 
-`aqua/trivy-operator` 0.33.1 in `adhar-system`. It continuously scans running workloads and writes findings to CRDs rather than a UI — `vulnerabilityreports`, `sbomreports` / `clustersbomreports`, `exposedsecretreports`, `configauditreports`, `clustercompliancereports`, `rbacassessmentreports`, `infraassessmentreports` (`*.aquasecurity.github.io`, 12 CRDs total). `values.yaml` pins `trivyOperator.scanJobsConcurrentLimit: 5`, `operator.scannerReportTTL: 24h`, and `operator.namespace: adhar-system` explicitly (a stale `trivy-system` env value once crashlooped the operator on the leader-election lease). The `sbomreports` CRD is the in-cluster half of ADR-0019's "SBOM inventory is queryable" requirement.
+`aqua/trivy-operator` 0.33.1 in `adhar-system`. It continuously scans running workloads and writes findings to CRDs rather than a UI — `vulnerabilityreports`, `sbomreports` / `clustersbomreports`, `exposedsecretreports`, `configauditreports`, `clustercompliancereports`, `rbacassessmentreports`, `infraassessmentreports` (`*.aquasecurity.github.io`, 12 CRDs total). `values.yaml` pins `trivyOperator.scanJobsConcurrentLimit: 5`, `operator.scannerReportTTL: 24h`, and `operator.namespace: adhar-system` explicitly (a stale `trivy-system` env value once crashlooped the operator on the leader-election lease). The `sbomreports` CRD is the adhar-controlplane half of ADR-0019's "SBOM inventory is queryable" requirement.
 
 Enabled in production; disabled locally (extra scan-job churn on a single Kind node).
 
@@ -323,15 +323,15 @@ What it proves: **signature enforcement works on this cluster, for a signature o
 - **M1 — Audit everywhere (done)**: the pack ships, is enabled in every appset, and its rules are now *correct* (§2.1) rather than vacuous — so the reports mean something.
 - **M2 — Enforce is a switch, not a rewrite (done)**: `manifests/enforce/` ships alongside `manifests/audit/`, wired disabled; `hack/verify-supply-chain.sh` proves enforcement works on a cluster before anyone flips it.
 - **M3 — Flip an environment**: turn `supply-chain-policies-enforce` on (signatures first, narrowed by `namespaceSelector`), after tightening the registry allowlist and adding chainsaw policy tests as a gate.
-- **M4 — Golden-path base images + attestations**: `adhar-templates` + Buildpacks run images base on `cgr.dev`; in-cluster pipelines emit SBOM/provenance attestations so the policy can add an `attestations:` block (ADR-0018).
-- **M5 — Keyless in-cluster**: a private Sigstore (Fulcio/Rekor) or policy-controller `TrustRoot`, retiring the long-lived `cosign-key`.
+- **M4 — Golden-path base images + attestations**: `adhar-templates` + Buildpacks run images base on `cgr.dev`; adhar-controlplane pipelines emit SBOM/provenance attestations so the policy can add an `attestations:` block (ADR-0018).
+- **M5 — Keyless adhar-controlplane**: a private Sigstore (Fulcio/Rekor) or policy-controller `TrustRoot`, retiring the long-lived `cosign-key`.
 - **M6 — Runtime**: enable Falco/Tetragon and wire runtime findings alongside the SBOM inventory.
 
 ## 12. Risks
 
 - **Two verifiers, one enabled**: Kyverno `verifyImages` and Sigstore policy-controller both exist; policy-controller defines no live `ClusterImagePolicy`, so Kyverno is the de-facto verifier. Drift risk remains until one is retired.
 - **Enforce without signing pipelines**: `app-ci` signs by default, so platform-built images are covered — but anything deployed from an image the pipelines did **not** build is not signed, and `required: true` denies it. Narrow with a `namespaceSelector` first (§7.2) rather than flipping an environment wide.
-- **Long-lived signing key**: `cosign-key` is a durable in-cluster secret with a static password (`adhar`) baked into the manifests. Fine for local; on a real cluster it should come from Vault/ESO, and rotating it invalidates every existing signature.
+- **Long-lived signing key**: `cosign-key` is a durable adhar-controlplane secret with a static password (`adhar`) baked into the manifests. Fine for local; on a real cluster it should come from Vault/ESO, and rotating it invalidates every existing signature.
 - **Fail-open vs security**: `failurePolicy: Ignore` trades enforcement guarantees for cluster availability on constrained nodes; revisit for HA production (ADR-0012).
 - **Sigstore dependency**: keyless verification needs Fulcio/Rekor; air-gap requires a private Sigstore (`TrustRoot`) or key-based fallback.
 - **Allowlist breadth**: `restrict-image-registries` currently permits `docker.io/*`/`ghcr.io/*`/`quay.io/*` — appropriate for Audit, must tighten before Enforce or it verifies nothing meaningful.

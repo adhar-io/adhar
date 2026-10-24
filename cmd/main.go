@@ -179,7 +179,7 @@ func init() {
 		up.UpCmd,                    // Up command for platform creation
 		stack.StackCmd,              // Stack command: the platform's own packages (list/enable/disable/sync)
 		down.DownCmd,                // Down command for platform teardown
-		controllercmd.ControllerCmd, // Controller command for in-cluster manager mode
+		controllercmd.ControllerCmd, // Controller command for adhar-controlplane manager mode
 		upgrade.UpgradeCmd,          // Upgrade command: converge foundation + stack diff/sync
 		get.GetCmd,                  // Get command for resource information
 		events.EventsCmd,            // Events command: read the platform CloudEvents stream on Kafka

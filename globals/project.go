@@ -95,7 +95,7 @@ const (
 	// platform-viewer -> viewers (read). Membership syncs on every SSO login.
 	GiteaPlatformOrg = "adhar"
 
-	// Gitea bootstrap admin credentials. Day-0 values; rotated in-cluster by
+	// Gitea bootstrap admin credentials. Day-0 values; rotated adhar-controlplane by
 	// the credential-rotation package. Also present in the embedded gitea
 	// manifest and platform/stack/argocd-auth.yaml — keep in sync.
 	GiteaAdminUser     = "gitea_admin"
@@ -104,7 +104,7 @@ const (
 	// Platform GitOps repository names created under GiteaPlatformOrg.
 	GitOpsRepoPackages     = "packages"
 	GitOpsRepoEnvironments = "environments"
-	// ClusterSpecConfigMapName holds the provider facts the in-cluster
+	// ClusterSpecConfigMapName holds the provider facts the adhar-controlplane
 	// controllers need to talk back to the cloud the cluster was created on
 	// (provider, region, cluster name, node group, instance size, Kubernetes
 	// version, plus the sanitized provider config as JSON). The CLI writes it
@@ -114,7 +114,7 @@ const (
 	ClusterSpecConfigMapName = "adhar-cluster-spec"
 
 	// ClusterSpecClusterModeKey is the key in ClusterSpecConfigMapName holding
-	// the cluster mode — "compute", "managed" or "provided". The in-cluster
+	// the cluster mode — "compute", "managed" or "provided". The adhar-controlplane
 	// controllers cannot infer it: a provided cluster looks like any other from
 	// the inside, and it is the difference between installing the platform's own
 	// CNI and leaving the operator's networking alone.
@@ -130,7 +130,7 @@ const (
 	// ClusterSSHSecretName holds the cluster's kubeadm SSH private key (key
 	// "id_ed25519"), mirrored from ~/.adhar/clusters/<name>/ at bootstrap.
 	// Joining a new worker means running kubeadm on the control plane over
-	// SSH, so an in-cluster autoscaler cannot work without it. Only created
+	// SSH, so an adhar-controlplane autoscaler cannot work without it. Only created
 	// for self-managed (kubeadm) clusters.
 	ClusterSSHSecretName = "adhar-cluster-ssh"
 	// ClusterSSHSecretKey is the key inside ClusterSSHSecretName.

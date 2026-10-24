@@ -14,7 +14,7 @@ exactly what the Enforce stage would block**.
 ## What the platform actually signs with
 
 Read this before touching the attestor: the platform does **not** sign keylessly
-in-cluster (a Kind/kubeadm cluster has no ambient OIDC identity Fulcio would
+adhar-controlplane (a Kind/kubeadm cluster has no ambient OIDC identity Fulcio would
 accept). The Tekton `cosign-sign` Task
 (`platform/stack/packages/application/adhar-supply-chain/manifests/60-build-pipelines.yaml`)
 runs:

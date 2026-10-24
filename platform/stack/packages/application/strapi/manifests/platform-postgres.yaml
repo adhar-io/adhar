@@ -118,6 +118,56 @@ spec:
     - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
       rewrite: [{transform: {template: k9}}]
 ---
+# The platform-owned first Super Admin (2026-10-24; src/adhar/bootstrap-admin.js
+# in platform-extension.yaml). Strapi shows /admin/auth/register-admin until an
+# admin exists, and whoever reaches it first becomes Super Admin; people sign in
+# with Keycloak instead, so the platform creates this one unattended at boot.
+#
+# Nobody needs the password day to day — it is the break-glass login at
+# /admin/auth/login?local=1 when Keycloak itself is down:
+#   adhar get secrets   (or: kubectl -n adhar-system get secret strapi-bootstrap-admin)
+# Generated once (refreshInterval 0). The Secret is authoritative: Strapi
+# re-applies it on every start, so rotating = delete this Secret, let ESO mint
+# a new one, restart Strapi. The email is a fixed non-routable identity, so a
+# platform domain change never creates a second bootstrap admin, and the SSO
+# bridge refuses to sign anyone in as it.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: strapi-bootstrap-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 32
+  digits: 6
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: strapi-bootstrap-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: strapi-bootstrap-admin
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          # Listed by `adhar get secrets`, like the other operator credentials.
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: strapi
+      data:
+        email: strapi-bootstrap@adhar.internal
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-bootstrap-admin}}
+      rewrite: [{transform: {template: PASSWORD}}]
+---
 # The database, asked for rather than built.
 #
 # This was a CloudNativePG `Cluster` plus a `ScheduledBackup` declared here,

@@ -18,7 +18,7 @@
 #                           proves what security/supply-chain-policies will
 #                           later enforce at admission.
 #
-# Registry note: Harbor is in-cluster HTTPS with the per-cluster `adhar` CA, so
+# Registry note: Harbor is adhar-controlplane HTTPS with the per-cluster `adhar` CA, so
 # these tasks mount the adhar-ca-bundle ConfigMap and extend SSL_CERT_DIR the
 # same way the kpack mutate policy in 05-ca-trust.yaml does. That keeps TLS
 # verification ON — no --insecure flag — which is the point of a supply-chain
@@ -140,7 +140,7 @@ spec:
       args:
         - attest
         - --key=k8s://adhar-system/cosign-key
-        # No public Rekor in-cluster (ADR-0019): the signature is the key, not
+        # No public Rekor adhar-controlplane (ADR-0019): the signature is the key, not
         # a transparency-log entry. The verify side ignores the tlog to match.
         - --tlog-upload=false
         - --type=$(params.type)

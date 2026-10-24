@@ -150,10 +150,10 @@ func IsYamlFile(input string) bool {
 // password check. A Transport keeps its idle keep-alive connections (two
 // goroutines and a socket each) until IdleConnTimeout, and that was unset, so
 // every discarded Transport leaked its connections for the life of the
-// in-cluster manager. One shared Transport reuses connections and closes idle
+// adhar-controlplane manager. One shared Transport reuses connections and closes idle
 // ones.
 var sharedInsecureTransport = &http.Transport{
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- in-cluster self-signed endpoints
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- adhar-controlplane self-signed endpoints
 	DialContext: (&net.Dialer{
 		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second, // from http.DefaultTransport

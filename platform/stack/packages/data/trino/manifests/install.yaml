@@ -1,6 +1,22 @@
 # TRINO INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/data/trino/generate-manifests.sh'
 ---
+# Source: trino/templates/configmap-access-control-coordinator.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-access-control-volume-coordinator
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: coordinator
+data:
+  rules.json: "{\n  \"catalogs\": [\n    {\"user\": \"metabase\", \"catalog\": \".*\", \"allow\": \"read-only\"},\n    {\"catalog\": \".*\", \"allow\": \"all\"}\n  ]\n}"
+---
 # Source: trino/templates/configmap-catalog.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -88,6 +104,11 @@ data:
     discovery.uri=http://localhost:8080
     web-ui.authentication.type=fixed
     web-ui.user=adhar-ui
+    protocol.v1.alternate-header-name=Presto
+  access-control.properties: |
+    access-control.name=file
+    security.refresh-period=60s
+    security.config-file=/etc/trino/access-control/rules.json
 
   log.properties: |
     io.trino=INFO
@@ -256,7 +277,7 @@ spec:
     metadata:
       annotations:
         checksum/catalog-config: 03591c7a519ba131f59c34349ac071649a610510e8ceaa96dd8cd858d705cfb5
-        checksum/coordinator-config: e21517f7a54e42c5fec960d057c00c962c60d8027583c1c978c9a225c695214b
+        checksum/coordinator-config: fda825e365022a2e9b7de30bdeb070fe8710fe91ca4ab2933cf4b653de5c873a
 
       labels:
         helm.sh/chart: trino-1.42.2
@@ -281,6 +302,9 @@ spec:
         - name: schemas-volume
           configMap:
             name: trino-schemas-volume-coordinator
+        - name: access-control-volume
+          configMap:
+            name: trino-access-control-volume-coordinator
       terminationGracePeriodSeconds: 30
       containers:
         - name: trino-coordinator
@@ -303,6 +327,8 @@ spec:
               name: catalog-volume
             - mountPath: /etc/trino/schemas
               name: schemas-volume
+            - mountPath: /etc/trino/access-control
+              name: access-control-volume
           ports:
             - name: http
               containerPort: 8080
@@ -327,15 +353,6 @@ spec:
           startupProbe:
             exec:
               command: [/usr/lib/trino/bin/health-check]
-            # 30s + 90 x 10s = a sixteen-minute boot budget, not two.
-            #
-            # The upstream chart's 10 + 60 x 2s gives the JVM 130 seconds, and
-            # on a node whose CPU is already committed Trino was still in
-            # "Loading configuration" three minutes in: every worker was
-            # SIGTERMed (exitCode 143) and CrashLoopBackOff'd nine times, so the
-            # trino Application never went Healthy. timeoutSeconds is 10 rather
-            # than 2 for the same reason — health-check is a process launch, and
-            # a 2-second deadline on a loaded node fails a healthy server.
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 10
@@ -447,15 +464,6 @@ spec:
           startupProbe:
             exec:
               command: [/usr/lib/trino/bin/health-check]
-            # 30s + 90 x 10s = a sixteen-minute boot budget, not two.
-            #
-            # The upstream chart's 10 + 60 x 2s gives the JVM 130 seconds, and
-            # on a node whose CPU is already committed Trino was still in
-            # "Loading configuration" three minutes in: every worker was
-            # SIGTERMed (exitCode 143) and CrashLoopBackOff'd nine times, so the
-            # trino Application never went Healthy. timeoutSeconds is 10 rather
-            # than 2 for the same reason — health-check is a process launch, and
-            # a 2-second deadline on a loaded node fails a healthy server.
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 10

@@ -74,7 +74,7 @@ func TestAdharUpDoesNotCompleteUntilTheConsoleIsHealthyAndServing(t *testing.T) 
 }
 
 // Every exit of the wait must pass through the verdict — on the cloud path
-// after the in-cluster manager is installed (so a failing run still leaves
+// after the adhar-controlplane manager is installed (so a failing run still leaves
 // the cluster converging) and on the local path.
 func TestEveryBringUpPathEndsWithTheConsoleVerdict(t *testing.T) {
 	for _, f := range []string{"bootstrap.go", "local.go"} {
@@ -91,7 +91,7 @@ func TestEveryBringUpPathEndsWithTheConsoleVerdict(t *testing.T) {
 	install := strings.Index(src, "controllers.EnsureControllerManager(")
 	verdict := strings.Index(src, "verifyConsoleReady(context.Background(), kubeClient)")
 	if install < 0 || verdict < install {
-		t.Error("on the cloud path the console verdict must come AFTER the in-cluster manager install, so a failed run still converges on its own")
+		t.Error("on the cloud path the console verdict must come AFTER the adhar-controlplane manager install, so a failed run still converges on its own")
 	}
 }
 

@@ -1,5 +1,5 @@
 # dbt-trino profile: transforms run in Trino, which reads/writes the platform
-# Iceberg catalog. Values default to the in-cluster Trino service; override per
+# Iceberg catalog. Values default to the adhar-controlplane Trino service; override per
 # environment via env vars.
 ${{values.name}}:
   target: platform

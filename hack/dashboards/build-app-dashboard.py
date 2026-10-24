@@ -1289,6 +1289,10 @@ def dashboard(kind):
     }
 
 
+# Five links at most (with the host known), so an application's controls stay
+# on one row beside its variables. Console and Adhar Platform were dropped: the
+# console is not about THIS application, and the platform front page is one
+# click away in Grafana's home and in the "Applications" dropdown's breadcrumb.
 LINKS_KNOWN_HOST = [
     {"title": "Argo CD", "type": "link", "icon": "external link", "targetBlank": True, "includeVars": False, "keepTime": False,
      "url": "https://argocd.__PUBLIC_HOST__/applications/adhar-system/__ARGO_APP__${env:text}", "tooltip": "This environment's Argo CD Application"},
@@ -1296,15 +1300,11 @@ LINKS_KNOWN_HOST = [
      "url": "https://kargo.__PUBLIC_HOST__/project/__PROJECT__", "tooltip": "Promotion pipeline (dev → test → prod)"},
     {"title": "Repository", "type": "link", "icon": "external link", "targetBlank": True, "includeVars": False, "keepTime": False,
      "url": "__REPO_WEB__", "tooltip": "Source repository in Gitea"},
-    {"title": "Console", "type": "link", "icon": "external link", "targetBlank": True, "includeVars": False, "keepTime": False,
-     "url": "https://console.__PUBLIC_HOST__/catalog", "tooltip": "Adhar Console catalog"},
 ]
 LINKS_ALWAYS = [
     {"title": "Application Logs", "type": "link", "icon": "doc", "targetBlank": False, "includeVars": False, "keepTime": False,
      "url": "/d/adhar-app-logs?var-application=__APP__&var-environment=${env:text}&${__url_time_range}",
      "tooltip": "This application's logs (app, db, cache, events) beside every other application's"},
-    {"title": "Adhar Platform", "type": "link", "icon": "dashboard", "targetBlank": False, "includeVars": False, "keepTime": True,
-     "url": "/d/adhar-platform-overview/adhar-platform", "tooltip": "The platform front page"},
     {"title": "Applications", "type": "dashboards", "asDropdown": True, "icon": "external link", "tags": ["application"],
      "targetBlank": False, "includeVars": False, "keepTime": True, "url": "", "tooltip": "Other application dashboards"},
 ]

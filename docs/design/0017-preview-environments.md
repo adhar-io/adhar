@@ -1,6 +1,6 @@
 # Low-Level Design — Ephemeral preview environments per pull request
 
-Detailed design for [ADR-0017](../adr/0017-preview-environments.md). Preview environments are built entirely from machinery the platform already runs — the **ArgoCD ApplicationSet Pull Request generator** (ADR-0004), the in-cluster **Gitea** forge (ADR-0003), the shared **Cilium Gateway** (ADR-0002), and the **Crossplane** guardrail/day-2 stack (ADR-0005) — with **no preview-specific controller**. This document maps the shipped namespace-scoped path (`examples/preview-environments-appset.yaml`) to the concrete Gitea/ArgoCD/Gateway wiring, then specifies the still-🔜 pieces (per-PR routing injection, vcluster-backed previews, the TTL reaper) as forward-looking design.
+Detailed design for [ADR-0017](../adr/0017-preview-environments.md). Preview environments are built entirely from machinery the platform already runs — the **ArgoCD ApplicationSet Pull Request generator** (ADR-0004), the adhar-controlplane **Gitea** forge (ADR-0003), the shared **Cilium Gateway** (ADR-0002), and the **Crossplane** guardrail/day-2 stack (ADR-0005) — with **no preview-specific controller**. This document maps the shipped namespace-scoped path (`examples/preview-environments-appset.yaml`) to the concrete Gitea/ArgoCD/Gateway wiring, then specifies the still-🔜 pieces (per-PR routing injection, vcluster-backed previews, the TTL reaper) as forward-looking design.
 
 ## 0. Context recap
 
@@ -63,7 +63,7 @@ Generator template variables (`{{ .number }}`, `{{ .head_sha }}`, `.branch`, `.t
 
 | Field | Reason |
 |---|---|
-| `api: http://gitea-http.adhar-system.svc.cluster.local:3000` | the in-cluster Gitea HTTP Service (ADR-0003) — no external forge dependency for local/self-hosted repos |
+| `api: http://gitea-http.adhar-system.svc.cluster.local:3000` | the adhar-controlplane Gitea HTTP Service (ADR-0003) — no external forge dependency for local/self-hosted repos |
 | `tokenRef.secretName: gitea-credential`, `key: token` | the platform's Gitea admin secret (`utils.GiteaAdminSecret = "gitea-credential"`, `adhar-system`) already carries an API token under `token`, populated idempotently by the `gitea-token-gen` Job in `resources/gitea/post-install.yaml` |
 | `labels: [preview]` | opt-in per PR (INV-3); drop it to preview every open PR |
 | `targetRevision: "{{ .head_sha }}"` | pins the deploy to the PR's head commit so every push re-renders the Application (ArgoCD picks up the new image tag CI pushed, ADR-0018) |

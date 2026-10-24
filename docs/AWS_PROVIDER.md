@@ -341,7 +341,7 @@ this page said:
 - **NAT gateways and elastic IPs are never created.** Nodes sit in the public
   subnet with `MapPublicIpOnLaunch`, so there is no NAT path to pay for. The
   `Delete`/`Describe` entries above exist only so teardown can clean up a NAT
-  gateway that an in-cluster controller created.
+  gateway that an adhar-controlplane controller created.
 - **Route 53 is not called by the provider at all.** DNS records are managed from
   inside the cluster by external-dns, and the DNS-01 certificate challenge by
   cert-manager. Those need their own credentials with

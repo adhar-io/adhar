@@ -1,7 +1,7 @@
 # Adhar overrides for grafana/beyla.
 # Beyla is an eBPF auto-instrumentation agent deployed as a DaemonSet. It has no
 # web UI, so no Gateway API HTTPRoute is required. Telemetry is exported to the
-# in-cluster Alloy OTLP endpoint.
+# adhar-controlplane Alloy OTLP endpoint.
 config:
   create: true
   data:

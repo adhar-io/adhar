@@ -59,18 +59,6 @@ data:
           "tooltip": "Logs of every custom application, by environment, application and component"
         },
         {
-          "title": "Networking",
-          "type": "dashboards",
-          "tags": [
-            "adhar-networking"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [
@@ -81,28 +69,6 @@ data:
           "keepTime": true,
           "targetBlank": false,
           "icon": "external link"
-        },
-        {
-          "title": "Gateway, DNS & edge",
-          "type": "link",
-          "url": "/d/adhar-net-edge",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
-        },
-        {
-          "title": "Traffic by namespace",
-          "type": "link",
-          "url": "/d/ff635a025bcfea7bc3dd4f508990a3e9",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
         }
       ],
       "liveNow": false,
@@ -4560,7 +4526,7 @@ data:
       },
       "timepicker": {},
       "timezone": "browser",
-      "title": "Networking / Cilium & Hubble",
+      "title": "Cilium & Hubble",
       "uid": "adhar-net-cilium",
       "version": 1,
       "weekStart": ""

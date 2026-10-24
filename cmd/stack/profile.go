@@ -95,7 +95,7 @@ func readElements(appsetFile string) ([]element, error) {
 
 // detectProfile works out which profile this cluster is running.
 //
-// The in-cluster ApplicationSet's name carries it (`helm-charts-production`), which
+// The adhar-controlplane ApplicationSet's name carries it (`helm-charts-production`), which
 // is better than guessing from the kube context: a developer with several contexts
 // would otherwise edit the wrong profile's files and only find out when the diff
 // looked nothing like what they asked for. With no cluster reachable it falls back

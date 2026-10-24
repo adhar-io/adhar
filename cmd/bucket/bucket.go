@@ -9,7 +9,7 @@ you may not use this file except in compliance with the License.
 //
 // A bucket is requested as a namespaced Crossplane Storage with
 // `type: object`, which is the same contract the Console uses. On this platform
-// that resolves to a bucket in RustFS, the primary in-cluster S3 store; on a cloud
+// that resolves to a bucket in RustFS, the primary adhar-controlplane S3 store; on a cloud
 // platform the same request resolves to the cloud's object store. The application
 // never learns which, because it reads the endpoint and credentials out of a
 // Secret either way.
@@ -62,7 +62,7 @@ A bucket is an ordinary Kubernetes resource in your namespace, so who may create
 one is decided by RBAC you already have. The platform provisions it and publishes
 the endpoint, bucket name and credentials as a Secret; bind that Secret to a
 workload and the application is done — it never needs to know whether the bytes
-land in the in-cluster store or a cloud one.
+land in the adhar-controlplane store or a cloud one.
 
 Examples:
   adhar bucket create uploads                     # a bucket named uploads

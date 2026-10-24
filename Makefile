@@ -189,7 +189,7 @@ preload-images: ## Pre-pull the Cilium critical-path images into the host cache 
 	@if [ -n "$(ADHAR_SKIP_PRELOAD)" ]; then \
 		echo "preload-images: skipped (ADHAR_SKIP_PRELOAD set)"; \
 	elif ! docker info >/dev/null 2>&1; then \
-		echo "preload-images: Docker not available — skipping cache warm (adhar up will pull images in-cluster)"; \
+		echo "preload-images: Docker not available — skipping cache warm (adhar up will pull images adhar-controlplane)"; \
 	else \
 		echo "preload-images: warming host Docker cache ($(words $(ADHAR_PRELOAD_IMAGES)) images, parallel)…"; \
 		echo "$(ADHAR_PRELOAD_IMAGES)" | tr ' ' '\n' | grep . | xargs -P 4 -n 1 sh -c 'docker pull "$$1" >/dev/null 2>&1 && echo "  ok  $$1" || echo "  skip $$1"' _; \

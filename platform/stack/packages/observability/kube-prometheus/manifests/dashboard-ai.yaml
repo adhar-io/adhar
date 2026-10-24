@@ -59,18 +59,6 @@ data:
           "tooltip": "Logs of every custom application, by environment, application and component"
         },
         {
-          "title": "AI",
-          "type": "dashboards",
-          "tags": [
-            "adhar-ai"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [
@@ -4239,7 +4227,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "description": "Realized spend per model. Models served by the in-cluster vLLM are absent or zero — the visible gap between a claude-* line and a local/* line is the saving from routing a task to the local model.",
+              "description": "Realized spend per model. Models served by the adhar-controlplane vLLM are absent or zero — the visible gap between a claude-* line and a local/* line is the saving from routing a task to the local model.",
               "fieldConfig": {
                 "defaults": {
                   "color": {
@@ -4769,7 +4757,7 @@ data:
       },
       "timepicker": {},
       "timezone": "browser",
-      "title": "AI / Gateway & Runtime",
+      "title": "Gateway & Runtime",
       "uid": "adhar-ai",
       "version": 1,
       "weekStart": ""

@@ -127,7 +127,7 @@ metadata:
       Vendor management requires software to come from approved sources.
       Images must be pulled from the platform's own registries or an approved
       allowlist. PLACEHOLDER ALLOWLIST — the list below contains the
-      platform's registries (in-cluster Gitea/Harbor) plus common public
+      platform's registries (adhar-controlplane Gitea/Harbor) plus common public
       registries; replace or extend it with your organization's approved
       registries before relying on the findings. Audit mode: violations are
       reported, not blocked.

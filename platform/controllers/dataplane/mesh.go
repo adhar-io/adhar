@@ -49,7 +49,7 @@ const (
 // joined. The join writes each cluster's coordinates into the other's
 // clustermesh Secrets; the proof is a Job running `cilium clustermesh status
 // --wait` against both sides through a two-context kubeconfig (context "mgmt" =
-// in-cluster ServiceAccount, context "<dp>" = the plane's kubeconfig).
+// adhar-controlplane ServiceAccount, context "<dp>" = the plane's kubeconfig).
 // MeshJoined is reported True only once that Job has succeeded — a failed Job
 // surfaces as an error carrying the Job's own failure — so the condition is a
 // statement about the mesh, not about a command having been issued.
@@ -191,7 +191,7 @@ func (r *DataPlaneReconciler) ensureMeshRBAC(ctx context.Context, dp *v1alpha1.D
 }
 
 // ensureMeshKubeconfig writes a two-context kubeconfig Secret: "mgmt" uses the
-// Job's projected ServiceAccount token against the in-cluster API server, and
+// Job's projected ServiceAccount token against the adhar-controlplane API server, and
 // "<dp>" is the data plane's own kubeconfig re-keyed under the plane's name.
 func (r *DataPlaneReconciler) ensureMeshKubeconfig(ctx context.Context, dp *v1alpha1.DataPlane) error {
 	name, ns := r.resolveKubeconfigRef(dp)

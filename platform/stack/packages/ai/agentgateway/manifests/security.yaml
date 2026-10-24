@@ -60,7 +60,7 @@ spec:
         - issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
           # The ISSUER is the public URL because that is the `iss` claim Keycloak
           # stamps into tokens, and the claim must match byte-for-byte. The JWKS
-          # FETCH, though, goes to the in-cluster Service — it must work before
+          # FETCH, though, goes to the adhar-controlplane Service — it must work before
           # DNS, the wildcard cert, and the Cilium edge have settled, and on a
           # fresh cluster none of those are ready when the first token arrives.
           # Fetching keys over the cluster network also means key rotation never

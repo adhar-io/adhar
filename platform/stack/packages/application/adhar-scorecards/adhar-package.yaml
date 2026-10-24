@@ -8,7 +8,7 @@ kind: AdharPackage
 name: adhar-scorecards
 category: application
 version: "0.1.0"
-description: 'Production-readiness scorer: grades every service 0-100 from in-cluster signals, and proves each application with an hourly automated k6 load test and Litmus pod-delete chaos experiment, publishing the adhar-scorecards ConfigMap the Console reads.'
+description: 'Production-readiness scorer: grades every service 0-100 from adhar-controlplane signals, and proves each application with an hourly automated k6 load test and Litmus pod-delete chaos experiment, publishing the adhar-scorecards ConfigMap the Console reads.'
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar

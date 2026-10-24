@@ -11,7 +11,7 @@
 #   3. Unseals using the stored key (skips if already unsealed).
 #   4. Logs in with the root token and idempotently configures:
 #        - KV v2 secrets engine at path "secret/"
-#        - kubernetes auth method (mount "kubernetes/") using the in-cluster
+#        - kubernetes auth method (mount "kubernetes/") using the adhar-controlplane
 #          SA token / CA / API host (Vault's own pod SA acts as token reviewer
 #          via its system:auth-delegator binding)
 #        - policy "external-secrets" (read on secret/data/* + secret/metadata/*)
@@ -99,7 +99,7 @@ data:
     # ---------------------------------------------------------------------
     # 0. The hashicorp/vault image has the vault CLI but no kubectl, so fetch
     #    a static kubectl once (busybox wget supports HTTPS). kubectl picks up
-    #    the in-cluster SA token + CA automatically.
+    #    the adhar-controlplane SA token + CA automatically.
     # ---------------------------------------------------------------------
     if ! command -v kubectl >/dev/null 2>&1; then
       log "downloading kubectl"
@@ -198,7 +198,7 @@ data:
       vault auth enable kubernetes || true
     fi
 
-    # Configure kubernetes auth from the in-cluster environment. Leaving
+    # Configure kubernetes auth from the adhar-controlplane environment. Leaving
     # token_reviewer_jwt unset makes Vault use its own pod SA (which carries the
     # system:auth-delegator binding) to review login JWTs.
     log "configuring kubernetes auth"

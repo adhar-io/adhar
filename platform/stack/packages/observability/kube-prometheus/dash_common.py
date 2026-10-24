@@ -101,29 +101,30 @@ def tags(folder, *extra):
 
 
 def links(folder, *extra):
-    """The link bar every dashboard carries: the platform front page, the other
-    dashboards of the same folder, every Adhar dashboard, plus direct links passed
-    in as (title, uid-key-or-uid)."""
+    """The link bar every dashboard carries.
+
+    Kept to THREE links so the controls stay on one row beside the variables.
+    It used to add the folder's dashboards as a dropdown plus every "related"
+    dashboard a module passed in; with four variables that wrapped the controls
+    onto a third row on a laptop screen. The folder is one click away in the
+    breadcrumb, and the "All dashboards" dropdown lists every Adhar dashboard,
+    so `extra` is accepted for the callers and no longer rendered.
+    """
+    del extra
     out = [
         {"title": "Adhar Platform", "type": "link", "url": f"/d/{UIDS['platform']}", "icon": "dashboard",
          "asDropdown": False, "includeVars": False, "keepTime": True, "targetBlank": False, "tags": []},
-    ]
-    # Pinned on every dashboard: the custom applications' logs are what most people
-    # who open Grafana came for (TestEveryBuiltDashboardPinsApplicationLogs).
-    if folder != "Applications":
-        out.append({"title": "Application Logs", "type": "link", "url": f"/d/{UIDS['app-logs']}", "icon": "doc",
-                    "asDropdown": False, "includeVars": False, "keepTime": True, "targetBlank": False, "tags": [],
-                    "tooltip": "Logs of every custom application, by environment, application and component"})
-    out += [
-        {"title": folder, "type": "dashboards", "tags": [FOLDER_TAG[folder]], "asDropdown": True,
-         "includeVars": False, "keepTime": True, "targetBlank": False, "icon": "external link"},
+        # Pinned on every dashboard: the custom applications' logs are what most people
+        # who open Grafana came for (TestEveryBuiltDashboardPinsApplicationLogs).
+        {"title": "Application Logs", "type": "link", "url": f"/d/{UIDS['app-logs']}", "icon": "doc",
+         "asDropdown": False, "includeVars": False, "keepTime": True, "targetBlank": False, "tags": [],
+         "tooltip": "Logs of every custom application, by environment, application and component"},
         {"title": "All dashboards", "type": "dashboards", "tags": ["adhar"], "asDropdown": True,
          "includeVars": False, "keepTime": True, "targetBlank": False, "icon": "external link"},
     ]
-    for title, uid in extra:
-        out.append({"title": title, "type": "link", "url": f"/d/{UIDS.get(uid, uid)}", "asDropdown": False,
-                    "includeVars": False, "keepTime": True, "targetBlank": False, "icon": "dashboard",
-                    "tags": []})
+    if folder == "Applications":
+        # The Application Logs dashboard itself: no link to where you already are.
+        out = [l for l in out if l["title"] != "Application Logs"]
     return out
 
 

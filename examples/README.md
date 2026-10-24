@@ -19,7 +19,7 @@ Two things are true of all of them:
 - **They are namespaced.** Create them in your team's namespace; the
   ResourceQuota/tenant-quota guardrails are enforced there.
 - **The provider is chosen by label**, under `spec.crossplane.compositionSelector`.
-  `provider: local` is the in-cluster implementation (CNPG, RustFS, Tekton,
+  `provider: local` is the adhar-controlplane implementation (CNPG, RustFS, Tekton,
   Argo CD); on a cloud cluster set it to `aws`/`azure`/`gcp` and the same request
   produces the managed service instead.
 

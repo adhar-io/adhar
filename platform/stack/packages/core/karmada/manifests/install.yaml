@@ -2465,7 +2465,7 @@ data:
     \n                        The `host` should not refer to a service running in\
     \ the cluster; use\n                        the `service` field instead. The host\
     \ might be resolved via external\n                        DNS in some apiservers\
-    \ (e.g., `kube-apiserver` cannot resolve\n                        in-cluster DNS\
+    \ (e.g., `kube-apiserver` cannot resolve\n                        adhar-controlplane DNS\
     \ as that would be a layering violation). `host` may\n                       \
     \ also be an IP address.\n\n                        Please note that using `localhost`\
     \ or `127.0.0.1` as a `host` is\n                        risky unless you take\

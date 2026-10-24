@@ -1,6 +1,6 @@
 // Package adhar carries the platform's own documentation inside the binary.
 //
-// It exists for one reason: the in-cluster AI knowledge base must be able to
+// It exists for one reason: the adhar-controlplane AI knowledge base must be able to
 // read the docs, the examples and the changelog of the release the cluster is
 // actually running, without network egress and without a Gitea mirror of this
 // repository (which bootstrap kept until 2026-10-23 for exactly this). The

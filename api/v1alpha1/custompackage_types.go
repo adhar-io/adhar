@@ -85,7 +85,7 @@ type ArgoCDPackageSpec struct {
 type CustomPackageStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	// A Custom package is considered synced when the in-cluster repository url is set as the repository URL
+	// A Custom package is considered synced when the adhar-controlplane repository url is set as the repository URL
 	// This only applies for a package that references local directories
 	Synced            bool        `json:"synced,omitempty"`
 	GitRepositoryRefs []ObjectRef `json:"gitRepositoryRefs,omitempty"`

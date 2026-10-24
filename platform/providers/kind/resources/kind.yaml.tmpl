@@ -31,7 +31,7 @@ nodes:
     containerPath: /etc/adhar/pki
     readOnly: true
   # certs.d tree (rendered by the kind provider) giving containerd CA-verified
-  # host config for the Gitea and Harbor in-cluster registries — see config.go
+  # host config for the Gitea and Harbor adhar-controlplane registries — see config.go
   # (renderRegistryCertsDir) and hosts.toml.tmpl.
 {{- if .RegistryCertsDir }}
   - hostPath: {{ .RegistryCertsDir }}
@@ -149,7 +149,7 @@ networking:
 # host config (inline registry.mirrors/registry.configs are rejected once
 # config_path is set). Point it at the certs.d tree mounted below, which carries
 # CA-verified host config for BOTH the platform Gitea registry and Harbor's
-# in-cluster core Service (no skip_verify anywhere).
+# adhar-controlplane core Service (no skip_verify anywhere).
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry]

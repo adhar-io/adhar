@@ -102,7 +102,7 @@ func (r *AdharPlatformReconciler) ReconcileCrossplane(ctx context.Context, req c
 // applyControlPlaneConfiguration installs the Crossplane v2 control plane from
 // the embedded configuration (platform/controlplane/configuration) using
 // server-side apply. It works identically whether the controller runs in-process
-// during `adhar up` or in-cluster — no on-disk source tree or `kubectl` binary
+// during `adhar up` or adhar-controlplane — no on-disk source tree or `kubectl` binary
 // is required.
 //
 // Order matters: XRDs define the API types Compositions reference; Functions,

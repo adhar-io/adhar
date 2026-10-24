@@ -1,0 +1,48 @@
+# ChaosCenter's own Keycloak sign-in (2026-10-24).
+#
+# The oauth2-proxy (sso.yaml) keeps unauthenticated browsers off ChaosCenter,
+# but behind it Litmus still drew its OWN username/password page: the proxy
+# authenticates the request, and ChaosCenter knows nothing about who passed it.
+# Litmus 3.33's auth server has native OIDC — enabled by the OAUTH_* / OIDC_*
+# variables below (renamed from DEX_* in 3.32; read from the binary, not the
+# docs) — so a person is signed in to ChaosCenter by Keycloak itself, and the
+# route (httproute.yaml.tmpl) starts that sign-in instead of showing the form.
+#
+# The auth server reads this Secret through an envFrom added after `helm
+# template` (../post-render.py). Not optional: an auth server that started
+# without it would serve password sign-in only until someone restarted it — the
+# same once-at-start trap Grafana and Penpot had. It waits instead.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: litmus-oidc
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+  labels:
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+spec:
+  # The retry cadence until Keycloak's config Job has published keycloak-clients.
+  refreshInterval: 10s
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: litmus-oidc
+    template:
+      engineVersion: v2
+      data:
+        OAUTH_ENABLED: "true"
+        OIDC_ISSUER: https://keycloak.adhar.localtest.me:8443/realms/adhar
+        OAUTH_CLIENT_ID: "{{ .LITMUS_CLIENT_ID }}"
+        OAUTH_CLIENT_SECRET: "{{ .LITMUS_CLIENT_SECRET }}"
+        # Where Keycloak returns the browser: the auth server's /oauth/callback,
+        # reached through the frontend's /auth/ proxy. Listed in the Keycloak
+        # client's redirectUris (sso.yaml).
+        OAUTH_CALLBACK_URL: https://litmus.adhar.localtest.me:8443/auth/oauth/callback
+        # Signs the auth server's OAuth state; derived so there is nothing else to
+        # rotate, and distinct from the client secret itself.
+        OAUTH_SECRET: "{{ .LITMUS_CLIENT_SECRET | sha256sum }}"
+  dataFrom:
+    - extract:
+        key: keycloak-clients

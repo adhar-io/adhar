@@ -220,7 +220,7 @@ func loadBalancerBelongsToCluster(lb civogo.LoadBalancer, id clusterIdentity) bo
 	return false
 }
 
-// sweepLoadBalancers removes the load balancers the in-cluster CCM created. They
+// sweepLoadBalancers removes the load balancers the adhar-controlplane CCM created. They
 // are invisible to the tracker, cost money on their own, and hold a reference to
 // the network that blocks its deletion.
 func (p *Provider) sweepLoadBalancers(id clusterIdentity) []string {
@@ -563,7 +563,7 @@ func (p *Provider) managedClusterIdentity(cluster *civogo.KubernetesCluster) clu
 	return id
 }
 
-// sweepManagedClusterResources removes what the cluster's own in-cluster
+// sweepManagedClusterResources removes what the cluster's own adhar-controlplane
 // controllers created and no tracker knows about: CSI block volumes and CCM
 // load balancers.
 //

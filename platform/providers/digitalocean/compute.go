@@ -1237,7 +1237,7 @@ func (p *Provider) doksClusterDroplets(ctx context.Context, clusterID string) ma
 	return droplets
 }
 
-// sweepDOKSClusterResources removes what a managed cluster's own in-cluster
+// sweepDOKSClusterResources removes what a managed cluster's own adhar-controlplane
 // controllers created and no tracker knows about: the CCM's load balancers and
 // the CSI driver's block volumes.
 //

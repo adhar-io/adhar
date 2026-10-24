@@ -58,7 +58,7 @@ spec:
 
 ### Composing resources — two idioms
 
-1. **Native Kubernetes objects** (preferred for in-cluster resources): emit the
+1. **Native Kubernetes objects** (preferred for adhar-controlplane resources): emit the
    object directly (e.g. `apiVersion: v1, kind: Service`). Crossplane v2 manages
    native objects directly. Omit `metadata.namespace` — Crossplane applies the
    XR's namespace automatically.

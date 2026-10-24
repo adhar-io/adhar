@@ -11,7 +11,7 @@ authentication:
 
   # Kubernetes Configuration
   kubernetes:
-    kubeconfig: "" # Leave empty to use in-cluster config
+    kubeconfig: "" # Leave empty to use adhar-controlplane config
     default_namespace: "default"
 
   # Default Roles

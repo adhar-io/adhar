@@ -318,7 +318,7 @@
     },
     "autoscalingConfig": {
       "type": "object",
-      "description": "Node autoscaling: the cluster is created with the configured worker count and the in-cluster node autoscaler moves it between minWorkers and maxWorkers on demand",
+      "description": "Node autoscaling: the cluster is created with the configured worker count and the adhar-controlplane node autoscaler moves it between minWorkers and maxWorkers on demand",
       "properties": {
         "enabled": {
           "type": "boolean",

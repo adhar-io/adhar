@@ -96,7 +96,7 @@ func providerNameToEnvironmentProvider(name string) v1alpha1.EnvironmentProvider
 // bootstrapPlatformOnCluster runs the same controller-driven bootstrap used for
 // local Kind clusters against a provisioned cloud or on-prem cluster: platform
 // CRDs, TLS secret, the AdharPlatform resource (which drives Cilium → Gateway →
-// ArgoCD → Gitea → Crossplane and the GitOps stack), and finally the in-cluster
+// ArgoCD → Gitea → Crossplane and the GitOps stack), and finally the adhar-controlplane
 // controller manager for continuous reconciliation once the CLI exits.
 // tracker is the caller's checklist. It owns stages 0-1 (preflight, cluster); this
 // function owns stage 2 (kubeconfig/TLS) and hands the rest to pollPlatformStages,
@@ -312,7 +312,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		// Say so NOW if a publicly trusted certificate cannot be issued. Without
 		// this the ACME order simply goes to "invalid", the Gateway keeps serving
 		// the self-signed fallback, and nothing in the bootstrap output mentions
-		// it — the first symptom is a browser warning, or an in-cluster client
+		// it — the first symptom is a browser warning, or an adhar-controlplane client
 		// rejecting the certificate hours later, with no obvious connection to
 		// DNS. The platform still comes up: the fallback covers the configured
 		// host, and cert-manager upgrades to Let's Encrypt on its own once the
@@ -363,7 +363,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		}
 	}
 
-	// Cloud facts + kubeadm SSH key for the in-cluster controllers: without
+	// Cloud facts + kubeadm SSH key for the adhar-controlplane controllers: without
 	// them nothing inside the cluster can call back to the provider (the node
 	// autoscaler is the first consumer).
 	// The addresses the platform edge will answer on, for a cluster whose
@@ -413,7 +413,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		//
 		// The check exists solely to stop two controllers registering the same
 		// metric — and `Metrics.BindAddress: "0"` above means this manager serves
-		// no metrics at all, so there is nothing to collide. The in-cluster manager
+		// no metrics at all, so there is nothing to collide. The adhar-controlplane manager
 		// (cmd/controller) keeps the validation, where it does protect something.
 		Controller: ctrlcfg.Controller{SkipNameValidation: ptr.To(true)},
 		GracefulShutdownTimeout: func() *time.Duration {
@@ -464,7 +464,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	}
 
 	// Node autoscaling (environments[].autoscaling): the cluster is created at
-	// the configured nodeCount and the in-cluster autoscaler moves it between
+	// the configured nodeCount and the adhar-controlplane autoscaler moves it between
 	// min and max from there.
 	var autoscaling *v1alpha1.AutoscalingSpec
 	if envConfig != nil {
@@ -559,7 +559,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			return mgrErr
 		}
 	}
-	// Production posture: continuous reconciliation via the in-cluster manager.
+	// Production posture: continuous reconciliation via the adhar-controlplane manager.
 	installCtx, installCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer installCancel()
 	// The image is CHECKED, not assumed: see helpers.ResolveControllerImage for
@@ -571,7 +571,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		Namespace:    globals.AdharSystemNamespace,
 		PlatformName: platformName,
 	}); err != nil {
-		return fmt.Errorf("installing in-cluster controller manager: %w", err)
+		return fmt.Errorf("installing adhar-controlplane controller manager: %w", err)
 	}
 
 	// Strict completion: whatever ended the wait, the run is a success only

@@ -92,7 +92,7 @@ spec:
             stringData:
               bootstrapServers: "{{ $bootstrap }}"
               topic: {{ $topic | quote }}
-              # The shared cluster's in-cluster listener is PLAINTEXT, reachable
+              # The shared cluster's adhar-controlplane listener is PLAINTEXT, reachable
               # only through the cluster network; TLS/SCRAM listeners are a
               # cluster-level decision, not a per-topic one.
               securityProtocol: "PLAINTEXT"

@@ -15,7 +15,7 @@
 #   - Both new values are written to the platform secrets backend (KV v2,
 #     secret/adhar/bootstrap-credentials) when one is installed -- openbao in
 #     production, or vault; the two are API-identical and mutually exclusive
-#     (CONFLICTS.md). The Kubernetes Secrets remain the in-cluster copy either way
+#     (CONFLICTS.md). The Kubernetes Secrets remain the adhar-controlplane copy either way
 #
 # Enablement is the gate (ADR-0004): this package ships disabled locally
 # (default credentials are documented for development) and enabled in the
@@ -212,7 +212,7 @@ spec:
 
               # Argo CD reads every Gitea repository with this same account
               # (platform/stack/argocd-auth.yaml). Only the CLI bootstrap
-              # writes those Secrets — the in-cluster manager has no stack
+              # writes those Secrets — the adhar-controlplane manager has no stack
               # directory — and it wrote them minutes BEFORE this Job runs, so
               # they must follow the new password here or Argo CD keeps the old
               # one. While Gitea allowed anonymous reads that went unnoticed;
@@ -277,7 +277,7 @@ spec:
 
               # ------------------------------------------------------------
               # 5. Break-glass copy to the secrets backend (best effort: the
-              #    Kubernetes Secrets above remain authoritative in-cluster).
+              #    Kubernetes Secrets above remain authoritative adhar-controlplane).
               #
               #    Exactly one backend is ever enabled (CONFLICTS.md): openbao
               #    (production) or vault. They are API-identical, so the only
@@ -298,7 +298,7 @@ spec:
                   -d "{\"data\": {\"gitea_admin\": \"${GITEA_NEW}\", \"argocd_admin\": \"${ARGOCD_NEW}\", \"rotated_at\": \"${NOW}\"}}" >/dev/null; then
                   echo "break-glass credentials written to the secrets backend (${KEYS_SECRET}, secret/adhar/bootstrap-credentials)"
                 else
-                  echo "WARNING: could not write break-glass credentials to the secrets backend; in-cluster Secrets remain the only copy"
+                  echo "WARNING: could not write break-glass credentials to the secrets backend; adhar-controlplane Secrets remain the only copy"
                 fi
               else
                 echo "neither openbao-keys nor vault-keys found; skipping break-glass copy"

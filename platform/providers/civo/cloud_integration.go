@@ -12,7 +12,7 @@ import (
 
 // Cloud integration for a self-managed (kubeadm on Civo instances) cluster.
 //
-// It is deliberately SHORT: a Civo API secret for anything in-cluster that wants
+// It is deliberately SHORT: a Civo API secret for anything adhar-controlplane that wants
 // it, and the node-local StorageClass. No cloud-controller-manager and no Civo
 // block-storage CSI — see civoComputeHasExternalCCM in compute.go for why
 // claiming an external cloud provider you cannot supply strands every node.

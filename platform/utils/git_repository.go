@@ -145,7 +145,7 @@ func CloneRemoteRepoToDir(ctx context.Context, remote v1alpha1.RemoteRepositoryS
 }
 
 // CloneRemoteRepoToDirWithAuth is CloneRemoteRepoToDir with credentials for the
-// clone itself. The in-cluster Gitea requires sign-in for every read
+// clone itself. The adhar-controlplane Gitea requires sign-in for every read
 // (REQUIRE_SIGNIN_VIEW), so cloning a target repository there anonymously
 // fails; auth may be nil for a public source.
 func CloneRemoteRepoToDirWithAuth(ctx context.Context, remote v1alpha1.RemoteRepositorySpec, depth int, insecureSkipTLS bool, dir, fallbackUrl string, auth transport.AuthMethod) (billy.Filesystem, *git.Repository, error) {

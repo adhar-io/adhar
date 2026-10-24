@@ -10,7 +10,7 @@ import (
 	"adhar-io/adhar/platform/config"
 )
 
-// The in-cluster DNS Secret must carry the SAME credential `adhar up` used.
+// The adhar-controlplane DNS Secret must carry the SAME credential `adhar up` used.
 //
 // edgeDNSSecretData resolved the Azure secret with a local rule,
 // `get(pcv.ClientSecret, "AZURE_CLIENT_SECRET")`, which knew nothing about
@@ -124,12 +124,12 @@ func TestEdgeDNSDoesNotReadTheAzureSecretDirectly(t *testing.T) {
 	src := code.String()
 	if !strings.Contains(src, "config.ResolveSecret(") {
 		t.Error("the Azure DNS credential must come from config.ResolveSecret, so that every " +
-			"source it supports reaches the in-cluster Secret too")
+			"source it supports reaches the adhar-controlplane Secret too")
 	}
 	if strings.Contains(src, `get(pcv.ClientSecret, "AZURE_CLIENT_SECRET")`) {
 		t.Error("the Azure client secret is being resolved with a local rule again — that rule " +
 			"cannot see clientSecretFile, which is how a stale environment value reached the " +
-			"in-cluster Secret while the cluster itself used the file")
+			"adhar-controlplane Secret while the cluster itself used the file")
 	}
 }
 
@@ -160,7 +160,7 @@ func TestCrossplaneCredentialsUseTheSharedResolver(t *testing.T) {
 	src := code.String()
 	if !strings.Contains(src, "config.ResolveSecret(") {
 		t.Error("the Azure client secret for azure-credentials must come from config.ResolveSecret, " +
-			"so clientSecretFile reaches the in-cluster controllers as well as the CLI")
+			"so clientSecretFile reaches the adhar-controlplane controllers as well as the CLI")
 	}
 	if strings.Contains(src, `get(pcv.ClientSecret, "AZURE_CLIENT_SECRET"`) {
 		t.Error("the Azure client secret is being resolved with a local rule again — that rule " +

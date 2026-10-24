@@ -30,7 +30,7 @@ at wave `1`). The Job:
 3. Unseals using the stored key (skips if already unsealed).
 4. Logs in with the root token and idempotently configures:
    - KV v2 secrets engine at `secret/`
-   - `kubernetes` auth method, configured from the in-cluster SA token / CA /
+   - `kubernetes` auth method, configured from the adhar-controlplane SA token / CA /
      API host (Vault's own pod SA is the token reviewer via its
      `system:auth-delegator` binding)
    - policy `external-secrets` (read on `secret/data/*` + `secret/metadata/*`)
@@ -68,6 +68,6 @@ On a cloud platform, **do not use the stored-keys Job**. Instead enable Vault
 **auto-unseal with a cloud KMS** in `values.yaml` `server.ha`/`server.standalone`
 `config` (a `seal "awskms" {}` / `seal "azurekeyvault" {}` / `seal "gcpckms" {}`
 stanza), so Vault unseals itself from the KMS and no unseal material is ever
-stored in-cluster. In that mode drop the init/unseal steps of `bootstrap.yaml`
+stored adhar-controlplane. In that mode drop the init/unseal steps of `bootstrap.yaml`
 (or restrict the Job to the post-init configuration steps only), and protect the
 root token (revoke it after creating scoped admin tokens).

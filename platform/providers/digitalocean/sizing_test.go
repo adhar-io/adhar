@@ -34,7 +34,7 @@ func TestDigitalOceanSizingFlowsFromTheProviderBlock(t *testing.T) {
 	if legacy.controlPlaneSize(nil) != "s-4vcpu-8gb" || legacy.workerSize("", "", false) != "s-4vcpu-8gb" {
 		t.Error("legacy droplet_size no longer sizes both roles")
 	}
-	// The in-cluster autoscaler's top-level worker size; members still win.
+	// The adhar-controlplane autoscaler's top-level worker size; members still win.
 	top, _ := parseProviderConfig(map[string]interface{}{"workerMachineType": "s-16vcpu-32gb"})
 	if top.workerSize("", "", false) != "s-16vcpu-32gb" || top.workerSize("", "s-8vcpu-16gb", false) != "s-8vcpu-16gb" {
 		t.Error("top-level workerMachineType / members precedence broken")

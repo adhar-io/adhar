@@ -58,7 +58,7 @@ func cloudStages(clusterName, providerName, region string) []helpers.StageDef {
 		// ── everything below is controller-driven; see cloudControllerStageBase ──
 		{Label: "Cilium & Gateway", Detail: "eBPF data path"},
 		{Label: "ArgoCD", Detail: "GitOps engine"},
-		{Label: "Gitea", Detail: "in-cluster Git server"},
+		{Label: "Gitea", Detail: "adhar-controlplane Git server"},
 		{Label: "GitOps repos", Detail: "packages, environments"},
 		{Label: "Crossplane", Detail: "control plane + providers"},
 		{Label: "GitOps sync - platform stack", Detail: "platform apps via ArgoCD"},

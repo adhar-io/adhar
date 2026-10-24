@@ -2,9 +2,56 @@
 # The management UI is exposed via the Cilium Gateway API HTTPRoute
 # (manifests/httproute.yaml) attached to adhar-gateway -- the chart Ingress is
 # left disabled (default) and must NOT be enabled (no nginx).
+# Bitnami stopped publishing docker.io/bitnami/rabbitmq; the same tags live on
+# under bitnamilegacy. Stated here so regenerating does not revert to the dead
+# repository (the chart refuses a non-bitnami repository without the flag).
+image:
+  repository: bitnamilegacy/rabbitmq
+global:
+  security:
+    allowInsecureImages: true
+
 auth:
   username: admin
   password: adhar-rabbitmq
+  # Pinned: the chart otherwise generates a new cookie per render, so every
+  # regeneration rolled the broker for nothing.
+  erlangCookie: cCPmg5OAkfmMv7pBMX6XjOR94zD6nBiz
+
+# Single sign-on WITHOUT a second login (2026-10-24). The Keycloak oauth2-proxy
+# in front (manifests/sso.yaml) authenticated the person and then the
+# management UI drew its own username/password form, which only the shared
+# `admin` password could pass. Now the proxy forwards the person's Keycloak ID
+# token as `Authorization: Bearer` (--pass-authorization-header) and the
+# broker's OAuth2 backend accepts it: `idp_initiated` makes the UI use the
+# token the proxy hands it instead of starting a login of its own.
+#   - audience: the ID token's `aud` is the client id, `rabbitmq` =
+#     resource_server_id.
+#   - permissions come from the `groups` claim through scope aliases; a group
+#     with no alias gets no access (internal users, e.g. `admin` for apps,
+#     still authenticate through the second backend).
+#   - jwks_url must be https (RabbitMQ refuses http at boot — verified on
+#     4.1.3); it is the same public issuer the proxy uses, rewritten per
+#     cluster at seed time, with peer verification off exactly as the proxy's
+#     --ssl-insecure-skip-verify (a kind cluster's edge cert is self-signed).
+extraPlugins: "rabbitmq_auth_backend_ldap rabbitmq_auth_backend_oauth2"
+extraConfiguration: |-
+  auth_backends.1 = rabbit_auth_backend_oauth2
+  auth_backends.2 = rabbit_auth_backend_internal
+  auth_oauth2.resource_server_id = rabbitmq
+  auth_oauth2.jwks_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/certs
+  auth_oauth2.https.peer_verification = verify_none
+  auth_oauth2.preferred_username_claims.1 = preferred_username
+  auth_oauth2.additional_scopes_key = groups
+  auth_oauth2.scope_aliases.platform-admin = rabbitmq.tag:administrator rabbitmq.configure:*/* rabbitmq.write:*/* rabbitmq.read:*/*
+  auth_oauth2.scope_aliases.admin = rabbitmq.tag:administrator rabbitmq.configure:*/* rabbitmq.write:*/* rabbitmq.read:*/*
+  auth_oauth2.scope_aliases.platform-engineer = rabbitmq.tag:administrator rabbitmq.configure:*/* rabbitmq.write:*/* rabbitmq.read:*/*
+  auth_oauth2.scope_aliases.platform-developer = rabbitmq.tag:management rabbitmq.configure:*/* rabbitmq.write:*/* rabbitmq.read:*/*
+  auth_oauth2.scope_aliases.platform-viewer = rabbitmq.tag:monitoring rabbitmq.read:*/*
+  management.oauth_enabled = true
+  management.oauth_client_id = rabbitmq
+  management.oauth_provider_url = https://keycloak.adhar.localtest.me:8443/realms/adhar
+  management.oauth_initiated_logon_type = idp_initiated
 
 replicaCount: 1
 

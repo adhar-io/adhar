@@ -388,7 +388,7 @@ data:
       }
   score.sh: |
     #!/usr/bin/env bash
-    # adhar production-readiness scorer. Gathers real in-cluster signals and
+    # adhar production-readiness scorer. Gathers real adhar-controlplane signals and
     # writes a 0-100 score + letter grade per service to a ConfigMap.
     set -euo pipefail
 

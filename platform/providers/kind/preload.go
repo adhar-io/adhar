@@ -39,7 +39,7 @@ func preloadImages() []string {
 //
 // It is deliberately:
 //   - NON-FATAL: any error is logged and skipped; it can never fail cluster
-//     creation (worst case: the image is pulled in-cluster as before).
+//     creation (worst case: the image is pulled adhar-controlplane as before).
 //   - COLD-SAFE: images absent from the host are skipped (no pull here).
 //   - BATCHED: all present images are saved to a single archive and loaded once
 //     per node, which is far faster than a save+load per image.

@@ -26,9 +26,9 @@ expose:
 # external port. Portal + core generate absolute links against this.
 externalURL: "https://harbor.adhar.localtest.me:8443"
 
-# --- HTTPS everywhere: in-cluster TLS on the component Services -------------------
+# --- HTTPS everywhere: adhar-controlplane TLS on the component Services -------------------
 # The kind node's containerd (and kpack) must PULL/PUSH the images kpack builds,
-# whose tag host is the in-cluster Service DNS
+# whose tag host is the adhar-controlplane Service DNS
 # `harbor-core.adhar-system.svc.cluster.local`. Serving that endpoint as plain
 # http forces containerd into insecure/skip_verify hacks; instead we enable
 # Harbor's internalTLS so every component (core, jobservice, registry, portal)

@@ -127,7 +127,7 @@ type Provider struct {
 	client   *godo.Client
 	config   *Config
 	clusters map[string]*types.Cluster
-	// token is retained for in-cluster cloud integration (CCM/CSI secret).
+	// token is retained for adhar-controlplane cloud integration (CCM/CSI secret).
 	token string
 }
 
@@ -301,7 +301,7 @@ func parseProviderConfig(configMap map[string]interface{}) (*Config, error) {
 		doConfig.Region = region
 	}
 	// Control-plane / worker split: top level first (environment clusterConfig
-	// values and the in-cluster autoscaler's recorded worker size land there),
+	// values and the adhar-controlplane autoscaler's recorded worker size land there),
 	// then the provider block's `config:` section.
 	doConfig.ControlPlaneSize = provider.ConfigString(configMap, provider.KeyControlPlaneMachineType)
 	doConfig.WorkerSize = provider.ConfigString(configMap, provider.KeyWorkerMachineType)

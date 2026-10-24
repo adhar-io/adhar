@@ -15,7 +15,7 @@
 #
 #     "model": "claude-opus-4-5-20251101"   -> Anthropic  (hosted)
 #     "model": "gpt-4o"                     -> OpenAI     (hosted)
-#     "model": "local/<served-model>"       -> in-cluster vLLM (self-hosted, free)
+#     "model": "local/<served-model>"       -> adhar-controlplane vLLM (self-hosted, free)
 #
 # ---------------------------------------------------------------------------
 # HOW MODEL-NAME ROUTING WORKS WITHOUT AN EXPERIMENTAL API
@@ -282,7 +282,7 @@ spec:
     # --- Self-hosted vLLM: local/* -------------------------------------------
     # An explicit `local/` prefix, not a catch-all, so "which model am I paying
     # for" is answerable from the request alone. Callers that want the free
-    # in-cluster model must say so.
+    # adhar-controlplane model must say so.
     - matches:
         - path:
             type: PathPrefix

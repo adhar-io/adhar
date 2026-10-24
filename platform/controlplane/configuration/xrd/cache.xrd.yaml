@@ -72,7 +72,7 @@ spec:
                       default: false
                       description: >-
                         Generate a password and require it. Off by default
-                        because an in-cluster cache is reachable only through a
+                        because an adhar-controlplane cache is reachable only through a
                         NetworkPolicy-gated Service, and every client then has to
                         be given the credential.
                     tls:

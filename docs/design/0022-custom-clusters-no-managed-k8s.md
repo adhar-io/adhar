@@ -31,7 +31,7 @@ makes cloud clusters bit-for-bit identical to the local Kind flow: containerd + 
   re-runs without duplicating infrastructure (guards keyed on `/etc/kubernetes/*.conf`, droplet/instance
   tags, and the cloud-init marker).
 - **INV-4** The per-cluster SSH key is generated once and persisted under `~/.adhar/clusters/<name>/`; all
-  kubeadm orchestration is SSH from the CLI host, never an in-cluster agent.
+  kubeadm orchestration is SSH from the CLI host, never an adhar-controlplane agent.
 - **INV-5** The Kubernetes minor is pinned from `spec.Version` (falling back to `KubeadmDefaultK8sMinor`,
   currently `1.36`), and the same pin drives node prep, join, and upgrade.
 

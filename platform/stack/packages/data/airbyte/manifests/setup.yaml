@@ -1,0 +1,149 @@
+# First-run setup for Airbyte, done for you (2026-10-24).
+#
+# A fresh Airbyte sends every visitor to /setup ("Specify your preferences":
+# email, organization name, anonymised usage data) and refuses to show anything
+# else until someone submits it. This Job submits that form, so after
+# `adhar up` the Keycloak login lands straight in the workspace.
+#
+# API: the exact call the /setup page makes (airbyte-webapp SetupForm.tsx in
+# airbyte-platform v2.0.x):
+#   POST /api/v1/instance_configuration/setup
+#     {email, organizationName, userName, anonymousDataCollection,
+#      initialSetupComplete: true, displaySetupWizard: false}
+# InstanceConfigurationApiController serves it as IS_ANONYMOUS in every auth
+# mode, so no credential is needed (and none is sent).
+#
+# Values are the platform's own, not invented here:
+#   email             instance-admin-email of airbyte-config-secrets, the
+#                     platform-defined Airbyte admin (manifests/auth.yaml). In
+#                     SIMPLE auth this is also the login email, so the
+#                     break-glass login in README.md keeps working.
+#   organizationName  "Adhar", the same site name the metabase setup uses.
+#   userName          "Adhar Admin", values.yaml global.auth.instanceAdmin.
+#   anonymousDataCollection: true -- Airbyte's switch "Anonymize usage data
+#                     collection"; true is the privacy-preserving value (no
+#                     identifying data in what telemetry the chart still sends).
+#
+# Idempotent: GET /api/v1/instance_configuration reports initialSetupComplete;
+# true => exit 0 without writing anything. PostSync + BeforeHookCreation (the
+# metabase-setup pattern) re-checks on every sync, so a reset Airbyte database
+# is set up again by the next sync.
+#
+# Reaches the server over the in-cluster Service, never the external host:
+# that path goes through the oauth2-proxy, which would answer with a Keycloak
+# redirect. The pod carries app.kubernetes.io/instance=airbyte, which is what
+# manifests/networkpolicy.yaml admits.
+# Never logs the email or any response field that carries it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airbyte-setup
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: airbyte-setup
+    app.kubernetes.io/instance: airbyte
+    app.kubernetes.io/part-of: airbyte
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: airbyte-setup
+        app.kubernetes.io/instance: airbyte
+        app.kubernetes.io/part-of: airbyte
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # Numeric: the image's user is the NAME curl_user, which kubelet
+        # cannot verify as non-root (CreateContainerConfigError).
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: setup
+          image: docker.io/curlimages/curl:8.11.1
+          env:
+            - name: AIRBYTE_URL
+              value: http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: airbyte-config-secrets, key: instance-admin-email}}
+            - name: ORG_NAME
+              value: Adhar
+            - name: USER_NAME
+              value: Adhar Admin
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+              CFG="${AIRBYTE_URL}/api/v1/instance_configuration"
+
+              # 1. Wait for the server. A cold Airbyte JVM plus its Flyway
+              #    migrations takes minutes; 180 x 10s = 30 min, then fail so
+              #    the Job's backoff retries.
+              ready=""
+              for i in $(seq 1 180); do
+                if curl -sf --max-time 10 "${AIRBYTE_URL}/api/v1/health" 2>/dev/null | grep -q '"available":true'; then
+                  ready=1; break
+                fi
+                echo "waiting for the Airbyte server (${i})"
+                sleep 10
+              done
+              if [ -z "${ready}" ]; then
+                echo "Airbyte server did not become available; failing so the Job retries"
+                exit 1
+              fi
+
+              # 2. Already set up? Then there is nothing to do.
+              STATE=$(curl -sf --max-time 10 "${CFG}")
+              if echo "${STATE}" | grep -q '"initialSetupComplete":true'; then
+                echo "initialSetupComplete=true: Airbyte is already set up; nothing to do"
+                exit 0
+              fi
+              if ! echo "${STATE}" | grep -q '"initialSetupComplete":false'; then
+                echo "unexpected instance_configuration answer; failing so the Job retries"
+                exit 1
+              fi
+
+              # 3. Submit the /setup form. ESO generates the email from a
+              #    literal (manifests/auth.yaml), so it needs no JSON escaping.
+              cat >/tmp/setup.json <<JSON
+              {
+                "email": "${ADMIN_EMAIL}",
+                "organizationName": "${ORG_NAME}",
+                "userName": "${USER_NAME}",
+                "anonymousDataCollection": true,
+                "initialSetupComplete": true,
+                "displaySetupWizard": false
+              }
+              JSON
+              CODE=$(curl -s -o /tmp/resp.json -w '%{http_code}' --max-time 60 \
+                       -X POST -H 'Content-Type: application/json' \
+                       --data @/tmp/setup.json "${CFG}/setup")
+              if [ "${CODE}" = "200" ] && grep -q '"initialSetupComplete":true' /tmp/resp.json; then
+                echo "Airbyte setup complete (organization ${ORG_NAME})"
+                exit 0
+              fi
+              # Strip the email-bearing field before echoing the error.
+              echo "POST instance_configuration/setup returned ${CODE}:"
+              sed 's/"defaultOrganizationEmail":"[^"]*"/"defaultOrganizationEmail":"<redacted>"/' /tmp/resp.json | head -c 500 || true
+              echo
+              exit 1
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 1Mi}

@@ -18,7 +18,7 @@ hub:
       # external issuer (https://keycloak.adhar.localtest.me:8443/realms/adhar).
       # The server-side token + userinfo calls must therefore ALSO go to that
       # same external host: a previous attempt pointed token_url/userdata_url at
-      # the in-cluster Service and Keycloak rejected the userinfo call with
+      # the adhar-controlplane Service and Keycloak rejected the userinfo call with
       # HTTP 401 (token issuer != endpoint host). Connectivity to the external
       # gateway from the hub works now that the chart NetworkPolicy is disabled
       # (see below); the self-signed gateway cert is handled by disabling TLS
@@ -39,7 +39,7 @@ hub:
     JupyterHub:
       authenticator_class: generic-oauth
   # Disable the chart's NetworkPolicies. Their egress rules (Cilium-enforced on
-  # this platform) block the hub pod from reaching in-cluster Services — the
+  # this platform) block the hub pod from reaching adhar-controlplane Services — the
   # server-side OAuth call to Keycloak timed out / 403'd, so login 500'd on the
   # callback. These policies are hostile-multitenant hardening JupyterHub does
   # not need here; Cilium + platform policies govern network security.

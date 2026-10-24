@@ -215,7 +215,7 @@ func TestNewCredentialManager(t *testing.T) {
 	// Test with nil config (will fail in non-cluster environment)
 	_, err := NewCredentialManager(nil)
 	if err == nil {
-		t.Skip("Skipping in-cluster config test - not running in cluster")
+		t.Skip("Skipping adhar-controlplane config test - not running in cluster")
 	}
 
 	// Test with fake config

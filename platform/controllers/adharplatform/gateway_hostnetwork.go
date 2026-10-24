@@ -114,11 +114,11 @@ func (r *AdharPlatformReconciler) ensureGatewayExternalDNSTarget(ctx context.Con
 }
 
 // ensureGatewayHostNetworkShim creates the Service (and its EndpointSlice) that
-// in-cluster clients reach the host-network Envoy through.
+// adhar-controlplane clients reach the host-network Envoy through.
 //
 // Selector-less on purpose: the endpoints are the NODES, not pods. The node
 // addresses come from the Node objects rather than from the recorded public
-// ones, because in-cluster traffic has to stay inside the cluster — sending a
+// ones, because adhar-controlplane traffic has to stay inside the cluster — sending a
 // pod to the public address relies on hairpin NAT at the cloud edge.
 func (r *AdharPlatformReconciler) ensureGatewayHostNetworkShim(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
@@ -140,7 +140,7 @@ func (r *AdharPlatformReconciler) ensureGatewayHostNetworkShim(ctx context.Conte
 		}
 	}
 	if len(addresses) == 0 {
-		return fmt.Errorf("no Ready node has an internal address, so the platform edge has no in-cluster endpoint")
+		return fmt.Errorf("no Ready node has an internal address, so the platform edge has no adhar-controlplane endpoint")
 	}
 	sort.Strings(addresses)
 
@@ -200,7 +200,7 @@ func (r *AdharPlatformReconciler) ensureGatewayHostNetworkShim(ctx context.Conte
 }
 
 // nodeIsReady reports whether a node is currently Ready. An unready node still
-// has Envoy on it, but sending in-cluster traffic there is a connection that
+// has Envoy on it, but sending adhar-controlplane traffic there is a connection that
 // hangs rather than one that fails over.
 func nodeIsReady(node *corev1.Node) bool {
 	for _, cond := range node.Status.Conditions {

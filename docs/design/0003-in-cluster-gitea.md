@@ -1,16 +1,16 @@
-# Low-Level Design — Self-hosted in-cluster Gitea as the platform source of truth
+# Low-Level Design — Self-hosted adhar-controlplane Gitea as the platform source of truth
 
-Detailed design for [ADR-0003](../adr/0003-in-cluster-gitea.md). This is the authoritative as-built description of how Adhar ships **Gitea inside the cluster** as the GitOps system of record: the embedded install/post-install manifests, the bootstrap reconciler that installs it, the CLI-driven repository seeding (org → repos → `git push`), the ArgoCD↔Gitea wiring, SSO/team mapping, and password rotation. Every path and symbol below resolves in the current tree.
+Detailed design for [ADR-0003](../adr/0003-adhar-controlplane-gitea.md). This is the authoritative as-built description of how Adhar ships **Gitea inside the cluster** as the GitOps system of record: the embedded install/post-install manifests, the bootstrap reconciler that installs it, the CLI-driven repository seeding (org → repos → `git push`), the ArgoCD↔Gitea wiring, SSO/team mapping, and password rotation. Every path and symbol below resolves in the current tree.
 
 ## 0. Context recap
 
-GitOps needs a Git server, and the bootstrap cannot depend on an external SaaS or customer forge — those break the "one command, offline, no accounts" promise and would require credentials that don't exist yet. ADR-0003 ships **Gitea in-cluster** as part of the bootstrap foundation: the controller installs it, waits for API readiness, creates the `environments`/`packages` repos, force-pushes `platform/stack/` into them, and wires ArgoCD to sync from it. Gitea is the platform's system of record; developers may still use GitHub/GitLab/Bitbucket as first-class `GitRepository` providers and mirror content, but the in-cluster copy is what ArgoCD reconciles.
+GitOps needs a Git server, and the bootstrap cannot depend on an external SaaS or customer forge — those break the "one command, offline, no accounts" promise and would require credentials that don't exist yet. ADR-0003 ships **Gitea adhar-controlplane** as part of the bootstrap foundation: the controller installs it, waits for API readiness, creates the `environments`/`packages` repos, force-pushes `platform/stack/` into them, and wires ArgoCD to sync from it. Gitea is the platform's system of record; developers may still use GitHub/GitLab/Bitbucket as first-class `GitRepository` providers and mirror content, but the adhar-controlplane copy is what ArgoCD reconciles.
 
 ## 1. Invariants
 
 - **INV-1** Gitea is installed by the **5th** step of the ordered foundation (`Gateway API CRDs → Cilium → Gateway → [CNPG, HA] → ArgoCD → Gitea → Crossplane`), after the data path and ArgoCD, before the GitOps handoff.
 - **INV-2** The install is **embedded** (`//go:embed resources/gitea`) — offline-capable, no chart fetched at runtime; applied via Server-Side Apply with `FieldManager = "adhar"`, `ForceOwnership`.
-- **INV-3** Repository **seeding is a CLI-bootstrap-only capability**: it shells out to `kubectl exec`/`kubectl cp` against the `gitea` pod and requires `r.StackDir != ""`. The in-cluster manager runs with an empty `StackDir` and only reconciles an already-seeded platform.
+- **INV-3** Repository **seeding is a CLI-bootstrap-only capability**: it shells out to `kubectl exec`/`kubectl cp` against the `gitea` pod and requires `r.StackDir != ""`. The adhar-controlplane manager runs with an empty `StackDir` and only reconciles an already-seeded platform.
 - **INV-4** All Gitea state lives in namespace **`adhar-system`** (not a dedicated `gitea` namespace); the admin credential Secret `gitea-credential` lives there too.
 - **INV-5** Every seeding API call is **idempotent**: org/team creation tolerates 409/422, repo creation tolerates 409, population is a `git push -f`. Re-runs adopt existing state.
 
@@ -32,7 +32,7 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx, req, resource) (ctrl.Resul
 }
 ```
 
-`RawGiteaInstallResources` routes through `k8s.BuildCustomizedManifests(config.FilePath, "resources/gitea", giteaFS, …)` so a user-provided override file on disk can layer on top of the embedded base. `giteaInternalBaseUrl(config)` renders the in-cluster URL used by other components — `http://gitea.<host>:<port>` (host routing) or `http://<host>:<port>/gitea` (`UsePathRouting`).
+`RawGiteaInstallResources` routes through `k8s.BuildCustomizedManifests(config.FilePath, "resources/gitea", giteaFS, …)` so a user-provided override file on disk can layer on top of the embedded base. `giteaInternalBaseUrl(config)` renders the adhar-controlplane URL used by other components — `http://gitea.<host>:<port>` (host routing) or `http://<host>:<port>/gitea` (`UsePathRouting`).
 
 `ReconcileGitea` sets **only** `Status.Gitea.Available = true`; `syncConditions` derives `GiteaReady` from it, and `Status.Gitea.RepositoriesCreated` (set later, §5) drives the separate `GitOpsReady` condition.
 
@@ -48,7 +48,7 @@ The single-node `install.yaml` (~1500 lines) is a rendered Gitea Helm chart (`gi
 | `gitea-valkey-primary` | StatefulSet | bundled `valkey` (`8Gi` PVC) — session + queue backend (redis protocol) |
 | `gitea-inline-config` | Secret | non-secret `app.ini` sections consumed by the init container |
 | `gitea` | Secret | rendered chart secret / init scripts |
-| `gitea-http` | Service | headless ClusterIP, port `3000` — the in-cluster HTTP endpoint |
+| `gitea-http` | Service | headless ClusterIP, port `3000` — the adhar-controlplane HTTP endpoint |
 | `gitea-ssh` | Service | headless ClusterIP, port `22 → 2222` — Git-over-SSH |
 
 Key `gitea-inline-config` settings (verified at [install.yaml:186-220](../../platform/controllers/adharplatform/resources/gitea/install.yaml)):
@@ -129,8 +129,8 @@ Sources are `filepath.Join(r.StackDir, "packages")` and `…/environments`.
 
 SSA of [`argocd-auth.yaml`](../../platform/stack/argocd-auth.yaml) creates:
 
-- **`gitea-argocd` Service** — a dedicated ClusterIP (port 3000, selector `app.kubernetes.io/name=gitea`) giving ArgoCD a stable in-cluster endpoint independent of the headless `gitea-http`.
-- **`repo-environments` / `repo-packages` Secrets** — labeled `argocd.argoproj.io/secret-type: repository`, `type: git`, `url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/<repo>`, `username: gitea_admin`, `password: …`, `insecure: "true"` (plain HTTP in-cluster).
+- **`gitea-argocd` Service** — a dedicated ClusterIP (port 3000, selector `app.kubernetes.io/name=gitea`) giving ArgoCD a stable adhar-controlplane endpoint independent of the headless `gitea-http`.
+- **`repo-environments` / `repo-packages` Secrets** — labeled `argocd.argoproj.io/secret-type: repository`, `type: git`, `url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/<repo>`, `username: gitea_admin`, `password: …`, `insecure: "true"` (plain HTTP adhar-controlplane).
 - **`gitea-argocd-config` ConfigMap** — service/credential discovery for tooling.
 
 ArgoCD then reconciles the provider-selected ApplicationSet (`appSetFileForProvider`: `ProviderKind`/`""` → `adhar-appset-local.yaml`, else `adhar-appset-production.yaml`) whose Applications point at these two repos. This is the imperative→declarative boundary: after seeding, the controller stops writing workloads.
@@ -159,7 +159,7 @@ When `Config.StaticPassword` is set, the steady-state reconcile rotates the Gite
 
 ## 9. `GitRepository` CRD — Gitea is source-of-record, not the only forge
 
-ADR-0003's "system of record, not necessarily the developers' forge" is realized by the `GitRepository` CRD, whose provider enum ([`api/v1alpha1/gitrepository_types.go`](../../api/v1alpha1/gitrepository_types.go)) is `gitea | gitlab | github | bitbucket`. Organizations can host developer content on an external forge and mirror it, while ArgoCD still syncs the platform stack from in-cluster Gitea. Two-way mirror sync is the organization's responsibility (ADR ⚠️).
+ADR-0003's "system of record, not necessarily the developers' forge" is realized by the `GitRepository` CRD, whose provider enum ([`api/v1alpha1/gitrepository_types.go`](../../api/v1alpha1/gitrepository_types.go)) is `gitea | gitlab | github | bitbucket`. Organizations can host developer content on an external forge and mirror it, while ArgoCD still syncs the platform stack from adhar-controlplane Gitea. Two-way mirror sync is the organization's responsibility (ADR ⚠️).
 
 ## 10. Data model
 

@@ -20,7 +20,7 @@ spec:
       type: http
       # Through the platform edge, so the check covers DNS, TLS and the Gateway.
       endpoint: https://payments.platform.example.com/healthz
-    - name: in-cluster
+    - name: adhar-controlplane
       type: http
       endpoint: http://payments-api.payments-api-prod.svc.cluster.local:8080/healthz
   checks:

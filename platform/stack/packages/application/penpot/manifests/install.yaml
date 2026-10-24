@@ -113,6 +113,37 @@ spec:
       serviceAccountName: penpot
       securityContext:
         fsGroup: 1001
+      initContainers:
+        - name: wait-for-keycloak
+          image: docker.io/curlimages/curl:8.11.1
+          env:
+            - name: PENPOT_OIDC_BASE_URI
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              url="${PENPOT_OIDC_BASE_URI%/}/.well-known/openid-configuration"
+              i=0
+              until curl -ksf -o /dev/null --max-time 5 "$url"; do
+                i=$((i+1))
+                if [ "$i" -ge 180 ]; then
+                  echo "Keycloak discovery not reachable after 15 min; starting without SSO"
+                  exit 0
+                fi
+                echo "waiting for $url ($i)"
+                sleep 5
+              done
+              echo "Keycloak discovery reachable: $url"
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            # Numeric: the image's user is the NAME curl_user, which kubelet
+            # cannot verify as non-root (CreateContainerConfigError).
+            runAsUser: 100
+            capabilities: {drop: [all]}
       containers:
         - name: penpot-backend
           image: "penpotapp/backend:2.17.2"

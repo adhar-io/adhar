@@ -5,7 +5,7 @@ Applied by the `supply-chain-kyverno` ApplicationSet element, separate from
 curated core turns Kyverno off). Requires the `kyverno` package:
 
 - `10-kpack-build-ca-trust.yaml` — mutates kpack build pods to trust the
-  in-cluster Harbor CA. Without it, builds cannot push to Harbor over TLS.
+  adhar-controlplane Harbor CA. Without it, builds cannot push to Harbor over TLS.
 - `40-verify-images.yaml` — the enforce policy that admits only images signed
   by the platform's cosign key. Without it, unsigned images are admitted.
 - `45-verify-scan-attestation.yaml` — AUDIT only: reports workloads whose image

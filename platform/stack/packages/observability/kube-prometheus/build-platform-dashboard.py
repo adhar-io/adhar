@@ -709,23 +709,19 @@ def dashboard():
         "editable": True,
         "fiscalYearStartMonth": 0,
         "graphTooltip": 1,
+        # Three links, so the controls stay on one row beside the variables. One
+        # dropdown per folder (seven of them, plus Adhar AI) wrapped the controls
+        # onto a third row; "All dashboards" lists every Adhar dashboard and the
+        # folder is in the breadcrumb (dash_common.links keeps the same three).
         "links": [
             # Pinned first: where custom-application owners find their logs.
             {"asDropdown": False, "icon": "doc", "includeVars": False, "keepTime": True, "tags": [], "targetBlank": False,
              "title": "Application Logs", "tooltip": "Logs of every custom application, by environment, application and component",
              "type": "link", "url": "/d/adhar-app-logs"},
-            {"asDropdown": False, "icon": "external link", "includeVars": False, "keepTime": True, "tags": [], "targetBlank": False,
-             "title": "Adhar AI", "tooltip": "The AI plane: agent runs, models, tokens, MCP tools and guardrails", "type": "link", "url": "/d/adhar-ai/adhar-ai"},
             {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": ["application"], "targetBlank": False,
              "title": "Applications", "tooltip": "One dashboard per custom application", "type": "dashboards", "url": ""},
-        ] + [
-            # One dropdown per Grafana folder (dash_common.FOLDER_TAG): each folder holds a
-            # small aggregated set, so the dropdown is the folder's table of contents.
-            {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": [tag], "targetBlank": False,
-             "title": folder, "tooltip": f"The {folder} dashboards", "type": "dashboards", "url": ""}
-            for folder, tag in (("Kubernetes", "adhar-kubernetes"), ("Networking", "adhar-networking"), ("Data", "adhar-data"),
-                                ("Delivery", "adhar-delivery"), ("Security", "adhar-security"),
-                                ("Observability", "adhar-observability"), ("Resilience", "adhar-resilience"))
+            {"asDropdown": True, "icon": "external link", "includeVars": False, "keepTime": True, "tags": ["adhar"], "targetBlank": False,
+             "title": "All dashboards", "tooltip": "Every Adhar dashboard", "type": "dashboards", "url": ""},
         ],
         "panels": build(),
         "refresh": "1m",

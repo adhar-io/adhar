@@ -29,7 +29,7 @@ spec:
     versioning: true
     quotaGB: 50
     expireAfterDays: 365
-    # Anonymous read. The store is reachable in-cluster only, so this means
+    # Anonymous read. The store is reachable adhar-controlplane only, so this means
     # "anyone in the cluster", not "the internet" — still a deliberate choice.
     public: false
     organisation: acme

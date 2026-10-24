@@ -272,7 +272,7 @@ And three outside it:
   carries the PRIVATE addresses, and `--policy=upsert-only` means a private
   record is never retracted — 140 of them had to be deleted through the API on
   2026-10-06,
-- CoreDNS resolves `*.<host>` in-cluster to a selector-less shim Service whose
+- CoreDNS resolves `*.<host>` adhar-controlplane to a selector-less shim Service whose
   EndpointSlice lists the nodes' internal addresses. Pods must not be sent to
   the public address: it is NAT'd back to a node and hairpinning generally fails,
   and every oauth2-proxy does OIDC discovery against `https://keycloak.<host>`

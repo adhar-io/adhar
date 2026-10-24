@@ -253,6 +253,8 @@ spec:
             name: litmus-admin-secret
         - configMapRef:
             name: litmus-admin-config
+        - secretRef:
+            name: litmus-oidc
         env:
         - name: DB_PASSWORD
           valueFrom:

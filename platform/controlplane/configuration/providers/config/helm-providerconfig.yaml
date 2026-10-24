@@ -7,7 +7,7 @@ kind: ClusterProviderConfig
 metadata:
   name: helm-provider
 spec:
-  # Deploy charts into the local (in-cluster) Kubernetes API by default.
+  # Deploy charts into the local (adhar-controlplane) Kubernetes API by default.
   credentials:
     source: InjectedIdentity
 ---

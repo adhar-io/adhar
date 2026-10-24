@@ -200,7 +200,7 @@ configs:
     admin.enabled: true
 
     # -- Timeout to discover if a new manifests version got published to the
-    # repository. 30s (down from the 180s default): the repos live in-cluster
+    # repository. 30s (down from the 180s default): the repos live adhar-controlplane
     # (Gitea, zero-cost polling) and fast change pickup directly shortens both
     # bootstrap convergence and day-2 GitOps feedback loops.
     # 120s — see hack/argocd/values.yaml. At 30s the controller pegged

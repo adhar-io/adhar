@@ -244,8 +244,10 @@ spec:
             category: "observability"
             manifestPath: "observability/victoria-metrics/manifests"
           - name: "trino"
-            # Off in production since 2026-10-24 (operator decision): opt-in.
-            enabled: "false"
+            # Back on in production 2026-10-24: the one query engine over the
+            # Iceberg lakehouse (Metabase, the SQL editor and OpenMetadata reach
+            # RustFS S3 Tables through its `iceberg` catalog).
+            enabled: "true"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/trino/manifests"

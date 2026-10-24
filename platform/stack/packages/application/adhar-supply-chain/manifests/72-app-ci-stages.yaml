@@ -16,7 +16,7 @@
 ---
 # Unit tests, language detected from the checkout. One task instead of one per
 # language so the pipeline does not need to know what it is building — the
-# buildpack does not either. Maven/Gradle resolve through the in-cluster Nexus
+# buildpack does not either. Maven/Gradle resolve through the adhar-controlplane Nexus
 # when the repository ships the platform's settings.xml (the templates do).
 apiVersion: tekton.dev/v1
 kind: Task

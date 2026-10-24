@@ -18,7 +18,7 @@ metadata:
   namespace: adhar-system
 spec:
   # kind | aws | azure | gcp | do | civo — the infrastructure this platform runs
-  # on. The in-cluster controllers read it back; it is not a request to create
+  # on. The adhar-controlplane controllers read it back; it is not a request to create
   # anything.
   provider: civo
 
@@ -31,7 +31,7 @@ spec:
   autoscaling:
     enabled: true
     minWorkers: 2
-    maxWorkers: 5
+    maxWorkers: 10
     nodeGroup: workers
     scaleUpUtilizationThreshold: 90%
     scaleUpCooldown: 3m

@@ -74,9 +74,11 @@ spec:
         - name: nexus
           image: sonatype/nexus3:3.79.1
           imagePullPolicy: IfNotPresent
-          # Deterministic admin password ("admin123") so the bootstrap Job can
-          # configure repositories without scraping the random admin.password
-          # file. Rotate post-install for hardened environments.
+          # Deterministic FIRST-BOOT admin password ("admin123") so the
+          # bootstrap Job can take over without scraping the random
+          # admin.password file. It does not stay that way: bootstrap.sh
+          # (config-job.yaml, step 1b) changes it to the platform admin
+          # password on its first run and keeps it there (2026-10-24).
           env:
             - {name: NEXUS_SECURITY_RANDOMPASSWORD, value: "false"}
             # Heap + direct memory sized to fit the 2Gi limit (~1Gi heap + 512m
@@ -87,7 +89,14 @@ spec:
             # thrashed GC through the OrientDB/H2 + OSGi startup and never went
             # Ready. Give it a healthy heap + direct memory that fits the 3Gi
             # limit for a reliable, faster cold start.
-            - {name: INSTALL4J_ADD_VM_PARAMS, value: "-Xms1200m -Xmx2048m -XX:MaxDirectMemorySize=2g -Djava.util.prefs.userRoot=/nexus-data/javaprefs"}
+            #
+            # -Dnexus.secrets.file (2026-10-24): the platform's own secrets
+            # encryption key, generated once by secrets-key.yaml, instead of
+            # the default key built into every Nexus ("Default Secret
+            # Encryption Key" on the status page). Nexus 3.79 resolves
+            # nexus.* properties from JVM system properties, so it goes here
+            # rather than into a nexus.properties on the data volume.
+            - {name: INSTALL4J_ADD_VM_PARAMS, value: "-Xms1200m -Xmx2048m -XX:MaxDirectMemorySize=2g -Djava.util.prefs.userRoot=/nexus-data/javaprefs -Dnexus.secrets.file=/etc/nexus-secrets/nexus.secrets.json"}
           ports:
             - {name: http, containerPort: 8081}
           resources:
@@ -131,10 +140,22 @@ spec:
             timeoutSeconds: 20
           volumeMounts:
             - {name: nexus-data, mountPath: /nexus-data}
+            - {name: secrets-key, mountPath: /etc/nexus-secrets, readOnly: true}
       volumes:
         - name: nexus-data
           persistentVolumeClaim:
             claimName: nexus-data
+        # NOT optional, deliberately: once Nexus has re-encrypted under this
+        # key it cannot read its stored secrets without it, so a missing key
+        # must hold the pod in ContainerCreating rather than boot a Nexus that
+        # silently falls back to the default key. 0440 + fsGroup 200: readable
+        # by the nexus user only.
+        - name: secrets-key
+          secret:
+            secretName: nexus-secrets-key
+            defaultMode: 0440
+            items:
+              - {key: nexus.secrets.json, path: nexus.secrets.json}
 ---
 apiVersion: v1
 kind: Service

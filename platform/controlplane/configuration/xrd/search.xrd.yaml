@@ -102,7 +102,7 @@ spec:
                           default: false
                           description: >-
                             Also run OpenSearch Dashboards (one replica, Service <name>-dashboards:5601,
-                            in-cluster only). Off by default: it is 0.5-1 GiB that most API-driven
+                            adhar-controlplane only). Off by default: it is 0.5-1 GiB that most API-driven
                             consumers never open.
                     snapshots:
                       type: object

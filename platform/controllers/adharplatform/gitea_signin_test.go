@@ -61,7 +61,7 @@ func TestGiteaRequiresSignInAndEveryReaderAuthenticates(t *testing.T) {
 		}
 	}
 
-	// 2. Argo CD: a PREFIX credential for every in-cluster Gitea host.
+	// 2. Argo CD: a PREFIX credential for every adhar-controlplane Gitea host.
 	auth := read("..", "..", "stack", "argocd-auth.yaml")
 	for _, prefix := range []string{
 		"http://gitea-http.adhar-system.svc.cluster.local:3000/",
@@ -84,7 +84,7 @@ func TestGiteaRequiresSignInAndEveryReaderAuthenticates(t *testing.T) {
 	if !strings.Contains(clone, "secretKeyRef: {name: gitea-ci-creds, key: password") ||
 		!strings.Contains(clone, `git -c http.extraHeader="$AUTH" clone`) ||
 		!strings.Contains(clone, "http://gitea-http.adhar-system.svc.cluster.local:3000/*") {
-		t.Error("the git-clone Task no longer authenticates to the in-cluster Gitea")
+		t.Error("the git-clone Task no longer authenticates to the adhar-controlplane Gitea")
 	}
 	// 4. The AI knowledge base reads with the bot token.
 	for _, f := range []string{"agent-runtime.yaml", "knowledge-reindex.yaml"} {
@@ -103,7 +103,7 @@ func TestGiteaRequiresSignInAndEveryReaderAuthenticates(t *testing.T) {
 
 // Argo CD reads Gitea as gitea_admin, with the password the CLI bootstrap wrote
 // into argocd-auth.yaml's Secrets. The day-0 credential rotation then changes
-// that password minutes later, and the in-cluster manager never re-applies
+// that password minutes later, and the adhar-controlplane manager never re-applies
 // those Secrets (it has no stack directory). Once Gitea required sign-in, every
 // Application went Unknown with "authentication required" and a fresh
 // DigitalOcean `adhar up` failed waiting for the console (2026-10-22). So the

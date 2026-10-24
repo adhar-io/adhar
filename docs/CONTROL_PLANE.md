@@ -148,7 +148,7 @@ spec:
 
 Two composition idioms (CONVENTIONS §2):
 
-1. **Native Kubernetes objects** — for in-cluster resources, emit them directly (a `Service`, a CNPG `Cluster`); v2 manages natives without a wrapper and applies the XR's namespace automatically
+1. **Native Kubernetes objects** — for adhar-controlplane resources, emit them directly (a `Service`, a CNPG `Cluster`); v2 manages natives without a wrapper and applies the XR's namespace automatically
 2. **Managed resources** — for cloud/remote resources, use the namespaced `.m` API groups and reference the shared `ClusterProviderConfig`s (`default` per cloud family, `kubernetes-provider`, `helm-provider`)
 
 ### The packaging
@@ -183,9 +183,9 @@ The whole configuration is gated on `Status.Crossplane.ControlPlaneApplied`, and
 
 Upjet provider families register hundreds of CRDs each (AWS + Azure + GCP together ≈ 3,000). Installing all of them pushed a single-control-plane-node API server into timeouts and bought nothing, so step 10 filters `providers/cloud/provider-packages.yaml` to the **platform's own cloud family** (`cloudFamily()`: aws, azure, gcp, digitalocean, civo) and applies only that family's packages and `<family>-providerconfig.yaml`. Additional clouds are opted in by applying their entries manually (`configuration/providers/README.md`). On Kind, no cloud providers are installed at all — their pods would only crash-loop.
 
-**Credentials**: cloud ProviderConfigs read from Secrets in `adhar-system` (templates under `configuration/providers/cloud/`); the production path is workload identity — IRSA on AWS, Workload Identity on GCP, Managed Identity on Azure — so no long-lived keys exist in-cluster ([Production §5](PRODUCTION.md#5-security-hardening)). DigitalOcean and Civo use legacy cluster-scoped `ProviderConfig`: their community providers have no namespaced MRs yet.
+**Credentials**: cloud ProviderConfigs read from Secrets in `adhar-system` (templates under `configuration/providers/cloud/`); the production path is workload identity — IRSA on AWS, Workload Identity on GCP, Managed Identity on Azure — so no long-lived keys exist adhar-controlplane ([Production §5](PRODUCTION.md#5-security-hardening)). DigitalOcean and Civo use legacy cluster-scoped `ProviderConfig`: their community providers have no namespaced MRs yet.
 
-**GitOps note**: the control plane installs during bootstrap (it is foundation, like ArgoCD), *and* an `infrastructure/crossplane` package exists in the GitOps stack and is enabled in production — so ArgoCD's self-heal owns the Crossplane Deployment thereafter. To test a controller change against a cloud cluster, park the in-cluster manager (`kubectl scale deploy/adhar-controller-manager --replicas=0`) and run `adhar controller --kubeconfig <path> --platform-name <env> --leader-elect=false` locally.
+**GitOps note**: the control plane installs during bootstrap (it is foundation, like ArgoCD), *and* an `infrastructure/crossplane` package exists in the GitOps stack and is enabled in production — so ArgoCD's self-heal owns the Crossplane Deployment thereafter. To test a controller change against a cloud cluster, park the adhar-controlplane manager (`kubectl scale deploy/adhar-controller-manager --replicas=0`) and run `adhar controller --kubeconfig <path> --platform-name <env> --leader-elect=false` locally.
 
 ## 6. How It Operates: a Request's Life
 

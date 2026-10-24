@@ -72,11 +72,11 @@ func (p *Provider) cloudIntegrationSteps(clusterName string) []provider.Integrat
 		if id, sec, token, err := resolveStaticCredentials(context.Background()); err == nil {
 			keyID, secretKey = id, sec
 			if token != "" {
-				log.Printf("WARNING: the AWS credentials given to the in-cluster CCM/CSI are TEMPORARY; " +
+				log.Printf("WARNING: the AWS credentials given to the adhar-controlplane CCM/CSI are TEMPORARY; " +
 					"they will expire and both will stop working until re-run")
 			}
 		} else {
-			log.Printf("WARNING: no AWS credentials for the in-cluster CCM/CSI (%v) — the cloud-controller-manager "+
+			log.Printf("WARNING: no AWS credentials for the adhar-controlplane CCM/CSI (%v) — the cloud-controller-manager "+
 				"will not initialise nodes, and every node will keep its uninitialized taint so nothing can schedule", err)
 		}
 	}

@@ -59,18 +59,6 @@ data:
           "tooltip": "Logs of every custom application, by environment, application and component"
         },
         {
-          "title": "Networking",
-          "type": "dashboards",
-          "tags": [
-            "adhar-networking"
-          ],
-          "asDropdown": true,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "external link"
-        },
-        {
           "title": "All dashboards",
           "type": "dashboards",
           "tags": [
@@ -81,28 +69,6 @@ data:
           "keepTime": true,
           "targetBlank": false,
           "icon": "external link"
-        },
-        {
-          "title": "Cilium & Hubble",
-          "type": "link",
-          "url": "/d/adhar-net-cilium",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
-        },
-        {
-          "title": "Workloads & pods",
-          "type": "link",
-          "url": "/d/6581e46e4e5c7ba40a07646395ef7b23",
-          "asDropdown": false,
-          "includeVars": false,
-          "keepTime": true,
-          "targetBlank": false,
-          "icon": "dashboard",
-          "tags": []
         }
       ],
       "liveNow": false,
@@ -2696,7 +2662,7 @@ data:
       },
       "timepicker": {},
       "timezone": "browser",
-      "title": "Networking / Traffic by Namespace & Workload",
+      "title": "Traffic by Namespace & Workload",
       "uid": "ff635a025bcfea7bc3dd4f508990a3e9",
       "version": 1,
       "weekStart": ""

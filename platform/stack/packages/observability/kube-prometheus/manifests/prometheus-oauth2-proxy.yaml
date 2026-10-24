@@ -3,7 +3,7 @@
 # Prometheus has no native OIDC, so an oauth2-proxy sits in front of it and does
 # the OpenID Connect handshake with Keycloak. Prometheus is given its OWN host
 # (prometheus.adhar.localtest.me) rather than a sub-path so it can keep serving at
-# root — that keeps Grafana's in-cluster datasource (http://prometheus…:9090/) and
+# root — that keeps Grafana's adhar-controlplane datasource (http://prometheus…:9090/) and
 # the operator/scrapes working unchanged. The platform wildcard cert
 # (*.adhar.localtest.me) already covers this subdomain and the Gateway listeners
 # are hostname-agnostic.

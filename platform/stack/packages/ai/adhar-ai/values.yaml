@@ -15,7 +15,7 @@ plane: control-plane
 #   http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
 #
 # Requests are OpenAI-shaped and pick a provider BY MODEL NAME (`claude-*` ->
-# Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI, `local/*` -> the in-cluster vLLM), so
+# Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI, `local/*` -> the adhar-controlplane vLLM), so
 # `provider` is no longer a server-side switch — it is only the default model
 # this package's callers name when a caller does not choose one.
 #

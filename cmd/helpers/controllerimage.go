@@ -1,6 +1,6 @@
 package helpers
 
-// Which image the in-cluster controller manager runs from — and the check that
+// Which image the adhar-controlplane controller manager runs from — and the check that
 // it exists.
 //
 // WHY THIS IS SHARED. `adhar up` chooses the image; `adhar upgrade` keeps
@@ -92,7 +92,7 @@ func ResolveControllerImage(
 			say(fmt.Sprintf("The controller image %s is not in its registry; using %s instead", configured, derived))
 			return derived
 		}
-		say(fmt.Sprintf("The controller image %s could not be found in its registry; the in-cluster manager will "+
+		say(fmt.Sprintf("The controller image %s could not be found in its registry; the adhar-controlplane manager will "+
 			"not start, and nothing will reconcile this platform", configured))
 		return configured
 	}
@@ -100,7 +100,7 @@ func ResolveControllerImage(
 	if derived == "" || exists(ctx, derived) {
 		return derived
 	}
-	tell(fmt.Sprintf("No published image for this build (%s); the in-cluster manager will run %s instead. "+
+	tell(fmt.Sprintf("No published image for this build (%s); the adhar-controlplane manager will run %s instead. "+
 		"Pass --controller-image to pin a different one", derived, FallbackControllerImage))
 	return FallbackControllerImage
 }

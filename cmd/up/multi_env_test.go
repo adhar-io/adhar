@@ -82,7 +82,7 @@ func TestEnvClusterNameBuildsOnThePlatformDefault(t *testing.T) {
 //	  reporting the same metric.
 //
 // 1 of 3 environments provisioned. Both CLI managers serve no metrics
-// (`BindAddress: "0"`), so the validation protects nothing here — the in-cluster
+// (`BindAddress: "0"`), so the validation protects nothing here — the adhar-controlplane
 // manager in cmd/controller deliberately keeps it.
 func TestCLIManagersSkipControllerNameValidation(t *testing.T) {
 	for _, f := range []string{"bootstrap.go", "local.go"} {

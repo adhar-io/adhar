@@ -1,6 +1,6 @@
 # In-cluster controller manager: keeps AdharPlatform, GitRepository and
 # CustomPackage reconciliation running continuously after the CLI exits.
-# Applied by the CLI (adhar up --in-cluster); not part of the reconciler's
+# Applied by the CLI (adhar up --adhar-controlplane); not part of the reconciler's
 # own resource set.
 apiVersion: v1
 kind: ServiceAccount

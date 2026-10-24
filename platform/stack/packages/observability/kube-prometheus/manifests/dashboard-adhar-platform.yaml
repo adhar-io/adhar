@@ -71,18 +71,6 @@ data:
           "url": "/d/adhar-app-logs"
         },
         {
-          "asDropdown": false,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [],
-          "targetBlank": false,
-          "title": "Adhar AI",
-          "tooltip": "The AI plane: agent runs, models, tokens, MCP tools and guardrails",
-          "type": "link",
-          "url": "/d/adhar-ai/adhar-ai"
-        },
-        {
           "asDropdown": true,
           "icon": "external link",
           "includeVars": false,
@@ -102,95 +90,11 @@ data:
           "includeVars": false,
           "keepTime": true,
           "tags": [
-            "adhar-kubernetes"
+            "adhar"
           ],
           "targetBlank": false,
-          "title": "Kubernetes",
-          "tooltip": "The Kubernetes dashboards",
-          "type": "dashboards",
-          "url": ""
-        },
-        {
-          "asDropdown": true,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [
-            "adhar-networking"
-          ],
-          "targetBlank": false,
-          "title": "Networking",
-          "tooltip": "The Networking dashboards",
-          "type": "dashboards",
-          "url": ""
-        },
-        {
-          "asDropdown": true,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [
-            "adhar-data"
-          ],
-          "targetBlank": false,
-          "title": "Data",
-          "tooltip": "The Data dashboards",
-          "type": "dashboards",
-          "url": ""
-        },
-        {
-          "asDropdown": true,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [
-            "adhar-delivery"
-          ],
-          "targetBlank": false,
-          "title": "Delivery",
-          "tooltip": "The Delivery dashboards",
-          "type": "dashboards",
-          "url": ""
-        },
-        {
-          "asDropdown": true,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [
-            "adhar-security"
-          ],
-          "targetBlank": false,
-          "title": "Security",
-          "tooltip": "The Security dashboards",
-          "type": "dashboards",
-          "url": ""
-        },
-        {
-          "asDropdown": true,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [
-            "adhar-observability"
-          ],
-          "targetBlank": false,
-          "title": "Observability",
-          "tooltip": "The Observability dashboards",
-          "type": "dashboards",
-          "url": ""
-        },
-        {
-          "asDropdown": true,
-          "icon": "external link",
-          "includeVars": false,
-          "keepTime": true,
-          "tags": [
-            "adhar-resilience"
-          ],
-          "targetBlank": false,
-          "title": "Resilience",
-          "tooltip": "The Resilience dashboards",
+          "title": "All dashboards",
+          "tooltip": "Every Adhar dashboard",
           "type": "dashboards",
           "url": ""
         }

@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The environments repo is edited in-cluster by Kargo, so a promotion shows up
+// The environments repo is edited adhar-controlplane by Kargo, so a promotion shows up
 // as a "differing" file and a push reverts it — twice on live clusters with
 // nothing on screen to say the change was Kargo's. The diff must name it.
 func TestKargoWrittenFilesAreRecognised(t *testing.T) {
@@ -53,7 +53,7 @@ func TestKargoWrittenFilesAreRecognised(t *testing.T) {
 		t.Errorf("Kargo's promotion of test/config.yaml was not recognised: %q", got)
 	}
 	if got := inClusterChange(t.Context(), gitDir, "dev/config.yaml"); got != "" {
-		t.Errorf("a platform-written file was labelled as in-cluster: %q", got)
+		t.Errorf("a platform-written file was labelled as adhar-controlplane: %q", got)
 	}
 	// The console's Marketplace commits as the platform's own Gitea account,
 	// so it is recognised by its message, not its author.
@@ -87,13 +87,13 @@ func TestStackChangesRenderAtTheGutterWithAWarningForPromotions(t *testing.T) {
 		"    + new.yaml\n",
 		"    − old.yaml\n",
 		"  environments  1 file\n",
-		`changed in-cluster by Kargo ("promote: dev -> test") — pushing reverts it`,
+		`changed adhar-controlplane by Kargo ("promote: dev -> test") — pushing reverts it`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered changes lack %q:\n%s", want, out)
 		}
 	}
-	if p := ansi.Strip(confirmPrompt(c)); !strings.Contains(p, "changed in-cluster") || !strings.Contains(p, "Push 4 files to Gitea anyway?") {
+	if p := ansi.Strip(confirmPrompt(c)); !strings.Contains(p, "changed adhar-controlplane") || !strings.Contains(p, "Push 4 files to Gitea anyway?") {
 		t.Errorf("the prompt does not warn that the push reverts a promotion:\n%s", p)
 	}
 	if p := ansi.Strip(confirmPrompt(c[:1])); p != "Push 3 files to Gitea and sync? [y/N]: " {

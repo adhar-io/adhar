@@ -13,7 +13,7 @@ Standardize on **OpenTelemetry as the collection contract and the Grafana stack 
 - **Collection**: Grafana **Alloy** (OTel-native collector) is the single shipping agent for metrics, logs, and traces; **Beyla/Pixie** provide eBPF auto-instrumentation without code changes; **Hubble** covers network flows from the Cilium data path (ADR-0002)
 - **Storage**: Prometheus for cluster-local metrics, **Mimir** for long-term/multi-cluster metrics, **Loki** for logs, **Tempo** for traces — all object-storage-backed in production so retention is policy, not disk size
 - **UX**: Grafana is the single pane (dashboards, Explore, alerting); Alertmanager/Grafana OnCall route alerts; OpenCost attributes spend
-- **Topology**: single-cluster (T1/T2) runs the full stack in-cluster; multi-cluster (T3) is **hub-and-spoke** — workload clusters run only collectors, the management cluster hosts storage and query
+- **Topology**: single-cluster (T1/T2) runs the full stack adhar-controlplane; multi-cluster (T3) is **hub-and-spoke** — workload clusters run only collectors, the management cluster hosts storage and query
 - All of it ships as ordinary packages (ADR-0004): swap or disable components per environment (e.g. `victoria-metrics` exists as an alternative package)
 
 ## Consequences

@@ -396,7 +396,7 @@ func (c *Cluster) oidcIssuerURL() string {
 // ensurePlatformPKI generates the platform certificate on the host before the
 // cluster is created. kube-apiserver refuses to start when --oidc-ca-file is
 // missing, so the certificate has to exist before the node does; the same
-// material is later adopted as the in-cluster TLS Secret.
+// material is later adopted as the adhar-controlplane TLS Secret.
 func (c *Cluster) ensurePlatformPKI() error {
 	_, _, err := EnsurePlatformCertificateOnDisk(PlatformPKIDirName, PlatformCertificateSANs(c.cfg))
 	if err != nil {

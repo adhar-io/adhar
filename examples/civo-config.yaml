@@ -183,7 +183,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   test:
     isolation: namespace
@@ -209,7 +209,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   prod:
     isolation: namespace
@@ -235,7 +235,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 3
-      maxWorkers: 5
+      maxWorkers: 10
 
 # ---------------------------------------------------------------------------
 # A note on storage, because it decides how many workers you need

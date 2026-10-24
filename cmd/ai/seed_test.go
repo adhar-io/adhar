@@ -95,7 +95,7 @@ func TestSeedIsAbsentWhenNothingWasSupplied(t *testing.T) {
 		t.Fatalf("local provider: seed=%v err=%v", seed, err)
 	}
 	if seed.SetOpenAI || seed.SetAnthropic {
-		t.Error("in-cluster inference must not fill a hosted key slot")
+		t.Error("adhar-controlplane inference must not fill a hosted key slot")
 	}
 
 	// A provider that needs a key, with none, is an error worth reporting.

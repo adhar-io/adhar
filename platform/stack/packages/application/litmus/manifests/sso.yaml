@@ -40,7 +40,7 @@ data:
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": true,
       "frontchannelLogout": true,
-      "redirectUris": ["https://litmus.adhar.localtest.me:8443/oauth2/callback"],
+      "redirectUris": ["https://litmus.adhar.localtest.me:8443/oauth2/callback", "https://litmus.adhar.localtest.me:8443/auth/oauth/callback"],
       "webOrigins": ["https://litmus.adhar.localtest.me:8443"]
     }
 ---

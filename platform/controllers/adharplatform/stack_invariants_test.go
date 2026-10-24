@@ -184,7 +184,7 @@ func TestGiteaBootstrapValuesKeepCIAndRotationWorking(t *testing.T) {
 		}
 		s := string(raw)
 		if !strings.Contains(s, "ALLOWED_HOST_LIST: external,private,*.svc.cluster.local") {
-			t.Errorf("%s: webhook.ALLOWED_HOST_LIST must allow in-cluster targets (el-app-ci / el-adhar-ci)", name)
+			t.Errorf("%s: webhook.ALLOWED_HOST_LIST must allow adhar-controlplane targets (el-app-ci / el-adhar-ci)", name)
 		}
 		if strings.Contains(s, "passwordMode: keepUpdated") {
 			t.Errorf("%s: gitea.admin.passwordMode keepUpdated undoes the platform's password rotation on restart", name)

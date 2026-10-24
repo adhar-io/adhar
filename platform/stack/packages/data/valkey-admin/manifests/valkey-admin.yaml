@@ -57,6 +57,42 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      # Pre-added connections (2026-10-24, see connections-sync.yaml): the app
+      # keeps its connection list only in browser localStorage, so the list is
+      # seeded by two same-origin scripts served from /adhar/. This copies the
+      # image's own built frontend into an emptyDir and adds their <script>
+      # tags to index.html — derived from the image at start, so it can never
+      # pin a stale asset hash from another release. Classic scripts run during
+      # parsing, before the app's deferred module script reads localStorage.
+      initContainers:
+        - name: inject-connections
+          image: ghcr.io/valkey-io/valkey-admin:1.2.0
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args:
+            - |
+              set -eu
+              cp -a /app/apps/frontend/dist/. /dist/
+              tags='<script src="/adhar/connections.js"></script><script src="/adhar/bootstrap.js"></script>'
+              sed -i "s#</head>#${tags}</head>#" /dist/index.html
+              # A newer image whose index.html changed shape still serves the
+              # UI; only the pre-added connections would be missing, so warn
+              # rather than keep the admin UI down.
+              grep -q '/adhar/bootstrap.js' /dist/index.html \
+                || echo "WARNING: could not inject the connection bootstrap into index.html" >&2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: frontend
+              mountPath: /dist
       containers:
         - name: valkey-admin
           # Pinned, not :latest — this is the UI through which someone can
@@ -119,6 +155,34 @@ spec:
               memory: 64Mi
             limits:
               memory: 256Mi
+          volumeMounts:
+            # The image's frontend, with the bootstrap tags (init container).
+            - name: frontend
+              mountPath: /app/apps/frontend/dist
+            # Served by the app's own express.static at /adhar/*, behind the
+            # same oauth2-proxy as everything else. Not a subPath mount, so the
+            # kubelet refreshes it in place when the sync job rewrites the
+            # Secret — no restart when a cache is added or removed.
+            - name: adhar-connections
+              mountPath: /app/apps/frontend/dist/adhar
+              readOnly: true
+      volumes:
+        - name: frontend
+          emptyDir:
+            sizeLimit: 32Mi
+        - name: adhar-connections
+          projected:
+            sources:
+              - configMap:
+                  name: valkey-admin-connections
+                  items: [{key: bootstrap.js, path: bootstrap.js}]
+              # Written by the sync job, not by Argo CD (it holds passwords of
+              # caches created with `password: true`). Optional so the UI starts
+              # before the first run; bootstrap.js changes nothing without it.
+              - secret:
+                  name: valkey-admin-connections
+                  optional: true
+                  items: [{key: connections.js, path: connections.js}]
 ---
 apiVersion: v1
 kind: Service

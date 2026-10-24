@@ -58,7 +58,7 @@ const (
 	engineValkey = "valkey"
 	engineRedis  = "redis"
 
-	// defaultProvider pins cache requests to the in-cluster compositions. See the
+	// defaultProvider pins cache requests to the adhar-controlplane compositions. See the
 	// package comment for why this is not ActiveProvider().
 	defaultProvider = "local"
 )

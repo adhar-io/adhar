@@ -488,7 +488,8 @@ data:
         jsonData:
           stackId: 5
           orgId: 100
-          onCallApiUrl: http://helm-testing-oncall-engine:8080
+          onCallApiUrl: http://oncall-engine:8080
+          grafanaUrl: http://oncall-grafana.adhar-system.svc.cluster.local
 ---
 # Source: oncall/charts/grafana/templates/pvc.yaml
 apiVersion: v1
@@ -1019,7 +1020,7 @@ spec:
             {}
           env:
             - name: BASE_URL
-              value: http://example.com
+              value: https://oncall.adhar.localtest.me:8443
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -1110,7 +1111,7 @@ spec:
             - name: CELERY_WORKER_SHUTDOWN_INTERVAL
               value: "65m"
             - name: BASE_URL
-              value: http://example.com
+              value: https://oncall.adhar.localtest.me:8443
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -1273,7 +1274,7 @@ spec:
             {}
           env:
             - name: BASE_URL
-              value: http://example.com
+              value: https://oncall.adhar.localtest.me:8443
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -1356,7 +1357,7 @@ spec:
               protocol: TCP
           env:
             - name: BASE_URL
-              value: http://example.com
+              value: https://oncall.adhar.localtest.me:8443
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -2181,7 +2182,7 @@ spec:
             python manage.py migrate
         env:
             - name: BASE_URL
-              value: http://example.com
+              value: https://oncall.adhar.localtest.me:8443
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:

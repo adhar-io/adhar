@@ -58,7 +58,7 @@ type CredentialManager struct {
 // NewCredentialManager creates a new credential manager
 func NewCredentialManager(config *rest.Config) (*CredentialManager, error) {
 	if config == nil {
-		// If no config is provided, try to get in-cluster config
+		// If no config is provided, try to get adhar-controlplane config
 		var err error
 		config, err = rest.InClusterConfig()
 		if err != nil {

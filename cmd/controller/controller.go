@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package controller implements the `adhar controller` command: the long-running
-// controller-manager mode used when the platform controllers run in-cluster as a
-// Deployment (installed by `adhar up --in-cluster`) instead of inside the CLI
+// controller-manager mode used when the platform controllers run adhar-controlplane as a
+// Deployment (installed by `adhar up --adhar-controlplane`) instead of inside the CLI
 // process. It reconciles AdharPlatform, GitRepository and CustomPackage
 // continuously and never exits on sync.
 package controller
@@ -48,6 +48,20 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
+// Leader-election timings, well above controller-runtime's 15s/10s/2s. A lease
+// the manager cannot renew within RenewDeadline makes it EXIT, and on a loaded
+// control plane (an API server at 100% CPU answers a renewal in seconds, not
+// milliseconds) the default 10s was lost every few minutes: the manager
+// restarted six times in ten hours, and one restart landed between launching
+// a worker's instance and kubeadm-joining it, leaving an instance that billed
+// and never became a node (AWS, 2026-10-24). There is one replica, so the only
+// cost of a longer lease is a slower hand-over to a replica that does not exist.
+var (
+	leaseDuration = 60 * time.Second
+	renewDeadline = 40 * time.Second
+	retryPeriod   = 5 * time.Second
+)
+
 var (
 	metricsBindAddress string
 	probeBindAddress   string
@@ -60,12 +74,12 @@ var (
 // ControllerCmd represents the controller command
 var ControllerCmd = &cobra.Command{
 	Use:   "controller",
-	Short: "⎔ Run the platform controller manager (in-cluster mode)",
+	Short: "⎔ Run the platform controller manager (adhar-controlplane mode)",
 	Long: `⎔ **Adhar Platform Controller Manager**
 
 Runs the AdharPlatform, GitRepository and CustomPackage controllers as a
-long-lived manager process. This is the entrypoint used by the in-cluster
-controller Deployment (installed with 'adhar up --in-cluster') so the platform
+long-lived manager process. This is the entrypoint used by the adhar-controlplane
+controller Deployment (installed with 'adhar up --adhar-controlplane') so the platform
 keeps reconciling continuously after the CLI exits.
 
 The manager reads its build configuration (host, port, TLS settings) from the
@@ -104,6 +118,9 @@ func runController(cmd *cobra.Command, args []string) error {
 		LeaderElection:          leaderElect,
 		LeaderElectionID:        "adhar-platform-controller.adhar.io",
 		LeaderElectionNamespace: namespace,
+		LeaseDuration:           &leaseDuration,
+		RenewDeadline:           &renewDeadline,
+		RetryPeriod:             &retryPeriod,
 		GracefulShutdownTimeout: func() *time.Duration {
 			d := 30 * time.Second
 			return &d
@@ -138,7 +155,7 @@ func runController(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// The reconcilers take the build customization (host/port/TLS) as static
-	// config; in-cluster it comes from the AdharPlatform resource the CLI
+	// config; adhar-controlplane it comes from the AdharPlatform resource the CLI
 	// created at bootstrap. A missing resource is tolerated: reconciliation
 	// starts once one is created.
 	buildCfg, err := loadBuildCustomization(ctx, cfg, scheme)
@@ -153,7 +170,7 @@ func runController(cmd *cobra.Command, args []string) error {
 	defer os.RemoveAll(tmpDir)
 
 	exitCh := make(chan error)
-	// exitOnSync is always false in-cluster: this manager's purpose is
+	// exitOnSync is always false adhar-controlplane: this manager's purpose is
 	// continuous reconciliation.
 	if err := controllers.RunControllers(ctx, mgr, exitCh, cancel, false, 0, buildCfg, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)

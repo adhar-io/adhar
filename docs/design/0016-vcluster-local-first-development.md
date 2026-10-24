@@ -78,7 +78,7 @@ chart's own ingress path is never used.
 | CoreDNS | `coredns.enabled: true`, `embedded: false` | The vcluster runs its **own** CoreDNS deployment (`k8s-app: vcluster-kube-dns`). |
 | Networking | `podCIDR: 10.244.0.0/16`, `clusterDomain: cluster.local`, `proxyKubelets.byHostname/byIP: true` | Virtual pod network; kubelet calls (logs/exec) proxied through the syncer. |
 | Proxy | `controlPlane.proxy.port: 8443`, `bindAddress: 0.0.0.0` | API server exposed on 8443 inside the pod, fronted by the `vcluster` Service. |
-| Service | `controlPlane.service.spec.type: ClusterIP` | No NodePort/LB; reachable in-cluster and via Gateway only. |
+| Service | `controlPlane.service.spec.type: ClusterIP` | No NodePort/LB; reachable adhar-controlplane and via Gateway only. |
 | Integrations | cert-manager / external-secrets / istio / kubeVirt / metrics-server all **false** | Off by default; enable per vcluster when a workload needs host↔vcluster sync. |
 | Policies | `limitRange: auto`, `resourceQuota: auto`, `networkPolicy: false` | Auto LimitRange/ResourceQuota inside the vcluster; NetworkPolicy off. |
 | Telemetry | `telemetry.enabled: true` | Loft anonymous telemetry (chart default). |

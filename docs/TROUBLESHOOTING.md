@@ -1012,7 +1012,7 @@ barman-cloud-wal-archive: exit status 4
 
 on **every** CNPG database at once.
 
-**Root cause** — the shared in-cluster RustFS object store (bucket
+**Root cause** — the shared adhar-controlplane RustFS object store (bucket
 `adhar-backups`) is the default backup target for every platform database and
 for Velero. When its `rustfs-data` PVC fills, every `barman-cloud-wal-archive`
 fails, so no database can retire WAL, so every Postgres volume starts filling —
@@ -1041,7 +1041,7 @@ NAME:.metadata.name,STATUS:.status.phase,LASTFAILED:.status.lastFailedBackup
    platform database so WAL is actually retired.
 3. Expand any Postgres PVC that already filled ([7.1](#71-keycloak-503-on-every-login--its-database-filled)).
 4. In production, point the BackupStorageLocation at real object storage rather
-   than the in-cluster store — see [PRODUCTION §8](PRODUCTION.md#8-backup-and-disaster-recovery).
+   than the adhar-controlplane store — see [PRODUCTION §8](PRODUCTION.md#8-backup-and-disaster-recovery).
 
 **Alert on this before it happens:** PVC usage > 80% on the `rustfs-data` claim, and
 CNPG `lastFailedBackup` on any cluster.
@@ -1072,7 +1072,7 @@ clusters are unaffected**.
   re-syncs from Gitea.
 - **Production** — an HA/DR concern; see
   [PRODUCTION §8.3](PRODUCTION.md#83-management-cluster-recovery-runbook). The
-  in-cluster `adhar-controller-manager` Deployment self-heals the foundation
+  adhar-controlplane `adhar-controller-manager` Deployment self-heals the foundation
   once the cluster returns.
 
 ---
@@ -1115,7 +1115,7 @@ environment's cluster first.
 
 ## 10. Testing a controller change without cutting a release
 
-The in-cluster manager runs the **released** image, so a locally built
+The adhar-controlplane manager runs the **released** image, so a locally built
 controller never runs there — and pushing a dev image needs Harbor, which needs
 volumes, which needs nodes. Run the manager out-of-cluster instead:
 

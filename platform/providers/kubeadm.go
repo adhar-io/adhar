@@ -228,7 +228,7 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 # The CRI images plugin already defaults config_path to certs.d, but pulls
 # go through the transfer service (use_local_image_pull = false), whose own
 # config_path is empty — so a hosts.toml/CA dropped into certs.d (the
-# harbor package's node DaemonSet, for kpack-built images on the in-cluster
+# harbor package's node DaemonSet, for kpack-built images on the adhar-controlplane
 # Harbor) was silently ignored and every such pull failed on DNS/TLS
 # (2026-09-15 DO bring-up). Set it on every table that carries the key.
 sed -i "s|config_path = ''|config_path = '/etc/containerd/certs.d'|" /etc/containerd/config.toml
@@ -258,7 +258,7 @@ apt-mark hold kubelet kubeadm kubectl
 # and best-effort: node prep returns immediately, the download overlaps the
 # kubeadm join and the control plane coming up, and a failure here only means
 # the kubelet pulls them later exactly as before. --hosts-dir keeps the certs.d
-# mirrors (in-cluster Harbor, any registry mirror) in effect.
+# mirrors (adhar-controlplane Harbor, any registry mirror) in effect.
 nohup sh -c 'for img in %[3]s; do ctr -n k8s.io images pull --hosts-dir /etc/containerd/certs.d "$img" >/dev/null 2>&1 || true; done' >/dev/null 2>&1 &
 
 mkdir -p "$(dirname %[2]s)"
@@ -448,14 +448,55 @@ func WaitForNodePrep(ctx context.Context, signer ssh.Signer, user, ip string, de
 // most expensive possible moment to discover a quoting slip. TestAPIServerFlagCommand
 // pins it.
 func apiServerFlagCommand(name, value string) string {
-	const manifest = "/etc/kubernetes/manifests/kube-apiserver.yaml"
+	return staticPodFlagCommand("kube-apiserver", name, value)
+}
+
+// staticPodFlagCommand is apiServerFlagCommand for any kubeadm control-plane
+// component (kube-apiserver, kube-controller-manager, kube-scheduler): each
+// static pod manifest starts its command list with `    - <component>`.
+func staticPodFlagCommand(component, name, value string) string {
+	manifest := "/etc/kubernetes/manifests/" + component + ".yaml"
 	flag := fmt.Sprintf("--%s=%s", name, value)
 	// grep on the flag NAME (not the whole assignment) so an existing flag with a
 	// different value counts as already-configured rather than being added a
-	// second time — two copies of one apiserver flag is a start-up error.
+	// second time — two copies of one flag is a start-up error.
 	return fmt.Sprintf(
-		"grep -q -- '--%s=' %s || sed -i 's|    - kube-apiserver|    - kube-apiserver\\n    - %s|' %s",
-		name, manifest, flag, manifest)
+		"grep -q -- '--%s=' %s || sed -i 's|    - %s|    - %s\\n    - %s|' %s",
+		name, manifest, component, component, flag, manifest)
+}
+
+// ControlPlaneLeaseArgs are the leader-election timings for kube-controller-
+// manager and kube-scheduler, well above upstream's 15s/10s/2s. Each must renew
+// its lease within the renew deadline or EXIT, and an API server at 100% CPU
+// answers in seconds: on a loaded AWS control plane both sat in
+// CrashLoopBackOff (eight restarts in an hour), so new nodes kept their
+// not-ready taint (that is the controller manager's job) and nothing scheduled
+// (the scheduler's), long after the node itself was Ready (2026-10-24). A
+// longer lease only slows a hand-over between replicas, and kubeadm runs one.
+var ControlPlaneLeaseArgs = map[string]string{
+	"leader-elect-lease-duration": "60s",
+	"leader-elect-renew-deadline": "40s",
+	"leader-elect-retry-period":   "5s",
+}
+
+// ApplyControlPlaneLeaseArgs sets ControlPlaneLeaseArgs on the controller
+// manager and the scheduler. Idempotent, like ApplyAPIServerExtraArgs; the
+// kubelet restarts each static pod when its manifest changes.
+func ApplyControlPlaneLeaseArgs(signer ssh.Signer, user, publicIP string) error {
+	names := make([]string, 0, len(ControlPlaneLeaseArgs))
+	for k := range ControlPlaneLeaseArgs {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, component := range []string{"kube-controller-manager", "kube-scheduler"} {
+		for _, name := range names {
+			cmd := staticPodFlagCommand(component, name, ControlPlaneLeaseArgs[name])
+			if out, err := SSHRun(signer, user, publicIP, cmd, 2*time.Minute); err != nil {
+				return fmt.Errorf("failed to set %s flag --%s: %w (output: %s)", component, name, err, LastLines(out, 5))
+			}
+		}
+	}
+	return nil
 }
 
 func ApplyAPIServerExtraArgs(signer ssh.Signer, user, publicIP string, args map[string]string) error {
@@ -535,6 +576,9 @@ func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR str
 	}
 
 	if err := ApplyAPIServerExtraArgs(signer, user, publicIP, apiServerExtraArgs); err != nil {
+		return "", err
+	}
+	if err := ApplyControlPlaneLeaseArgs(signer, user, publicIP); err != nil {
 		return "", err
 	}
 
@@ -976,7 +1020,7 @@ func WorkerScalePlan(prefix string, current []string, desired int) (add, remove 
 // A node added later must match the running control plane, not a default or a
 // remembered value: install the wrong minor and the new kubelet is skewed from
 // the API server it joins. The CLI knows the version from its own state file,
-// but the in-cluster node autoscaler does not — it has no state file at all —
+// but the adhar-controlplane node autoscaler does not — it has no state file at all —
 // and discovery from the cloud cannot see inside the machines. Asking the master
 // is the only source that is correct by construction.
 //

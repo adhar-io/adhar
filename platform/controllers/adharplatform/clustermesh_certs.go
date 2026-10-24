@@ -174,7 +174,10 @@ func certStillValid(secret *corev1.Secret, ca *x509.Certificate, commonName stri
 	if cert.Subject.CommonName != commonName {
 		return false
 	}
-	if time.Now().Add(clusterMeshCertRenewAt).After(cert.NotAfter) {
+	// Near expiry is a reason to reissue only if reissuing helps: a leaf is
+	// capped at its CA's own expiry (issueCert), and re-signing one that
+	// already ends with the CA would churn the Secret on every reconcile.
+	if time.Now().Add(clusterMeshCertRenewAt).After(cert.NotAfter) && cert.NotAfter.Before(ca.NotAfter) {
 		return false
 	}
 	return cert.CheckSignatureFrom(ca) == nil
@@ -193,11 +196,17 @@ func issueCert(ca *x509.Certificate, caKey *rsa.PrivateKey, commonName string, d
 	if server {
 		usages = append(usages, x509.ExtKeyUsageServerAuth)
 	}
+	// Never outlive the CA: a chain is only as valid as its shortest link,
+	// and a leaf claiming more would be renewed too late.
+	notAfter := time.Now().Add(clusterMeshCertValidity)
+	if ca.NotAfter.Before(notAfter) {
+		notAfter = ca.NotAfter
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: commonName},
 		NotBefore:    time.Now().Add(-5 * time.Minute),
-		NotAfter:     time.Now().Add(clusterMeshCertValidity),
+		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  usages,
 		DNSNames:     dnsNames,

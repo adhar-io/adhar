@@ -25,7 +25,7 @@
 #      management account. Re-test with a repeated sample — while an SCP is being
 #      edited, calls pass briefly and then go back to denied.
 #   2. IAM. EC2 (VPC, subnets, gateways, route tables, security groups, key pairs,
-#      instances, volumes), ELB read + delete for the load balancer the in-cluster
+#      instances, volumes), ELB read + delete for the load balancer the adhar-controlplane
 #      CCM creates, servicequotas:GetServiceQuota, sts:GetCallerIdentity.
 #      docs/AWS_PROVIDER.md §1 has a ready-to-paste policy.
 #   3. QUOTA. The region's Running On-Demand Standard vCPU limit (L-1216C47A) must
@@ -101,7 +101,7 @@ providers:
     # kubeadm-joins it, which a managed node pool does not let it do. It also
     # keeps the node ours, which two things the platform needs depend on: the
     # kubelet flags, and the containerd certs.d trust that lets nodes pull
-    # kpack-built images from the in-cluster Harbor.
+    # kpack-built images from the adhar-controlplane Harbor.
     #
     # Nothing is given up at the edge on THIS cloud. Compute mode installs the
     # cloud-controller-manager (platform/providers/cloudintegration.go), so the
@@ -233,7 +233,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   test:
     isolation: namespace
@@ -257,7 +257,7 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10
 
   prod:
     isolation: namespace
@@ -281,4 +281,4 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 5
+      maxWorkers: 10

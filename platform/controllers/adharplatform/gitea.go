@@ -79,7 +79,7 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-// giteaInternalBaseUrl returns the internal URL for Gitea, used for in-cluster communication (e.g., by ArgoCD).
+// giteaInternalBaseUrl returns the internal URL for Gitea, used for adhar-controlplane communication (e.g., by ArgoCD).
 // The URL format depends on whether path-based routing is used.
 func giteaInternalBaseUrl(config v1alpha1.BuildCustomizationSpec) string {
 	// Define a template for Gitea URL. This might be better placed in a constants or utils package.
