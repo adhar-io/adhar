@@ -232,12 +232,18 @@ spec:
             printf '%s:registry=%s\n' "$scope" "$NEXUS_NPM" >> "$NPMRC"
             echo "  ${scope} -> ${NEXUS_NPM}"
           done
-          # Credentials scoped to the Nexus path only. `always-auth` is NOT set:
-          # that would send these to npmjs for every public package too.
+          # Credentials are NOT written into the app's .npmrc: secret scanning
+          # flags that file and the buildpack then bakes it into the image
+          # layers. Keep source-level .npmrc for non-secret scope routing only,
+          # and pass credentials through an ephemeral userconfig file outside
+          # the source tree.
           if [ -n "${NEXUS_USER:-}" ] && [ -n "${NEXUS_PASS:-}" ]; then
             AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
-            sed -i "\|^//${NEXUS_HOST}:_auth=|d" "$NPMRC"
-            printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH" >> "$NPMRC"
+            PLATFORM_NPMRC="/platform/npmrc"
+            printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH" > "$PLATFORM_NPMRC"
+            chown 1001:1000 "$PLATFORM_NPMRC"
+            printf '%s' "$PLATFORM_NPMRC" > /platform/env/NPM_CONFIG_USERCONFIG
+            echo "npm auth configured via NPM_CONFIG_USERCONFIG (${PLATFORM_NPMRC})"
           fi
           # Written as root after the chown above, so hand it to the lifecycle.
           chown 1001:1000 "$NPMRC"

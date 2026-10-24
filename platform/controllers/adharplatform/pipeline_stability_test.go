@@ -227,6 +227,9 @@ func TestBuildpacksBuildRoutesPlatformScopesToTheClusterRegistry(t *testing.T) {
 		// Sourced from the same Secret the release pipeline publishes with, so
 		// the two cannot point at different registries.
 		"key: npm-hosted",
+		// Credentials are carried through a lifecycle-only userconfig file, not
+		// written into the application's source tree.
+		"NPM_CONFIG_USERCONFIG",
 		// Existing mappings are deleted before ours are appended, so the result
 		// does not depend on npm's last-key-wins parsing.
 		`sed -i "\|^${scope}:registry=|d" "$NPMRC"`,
@@ -250,6 +253,9 @@ func TestBuildpacksBuildRoutesPlatformScopesToTheClusterRegistry(t *testing.T) {
 	// fails on that comment — a test that cannot pass however correct the code is.
 	if strings.Contains(s, "always-auth=") {
 		t.Error("always-auth must not be set: it would leak the registry credential to npmjs")
+	}
+	if strings.Contains(s, `printf '//%s:_auth=%s\n' "$NEXUS_HOST" "$AUTH" >> "$NPMRC"`) {
+		t.Error("npm auth must not be written into the application's .npmrc; it is scanned and then baked into the image")
 	}
 }
 
