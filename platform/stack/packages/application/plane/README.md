@@ -2,7 +2,7 @@
 
 Project and issue tracking, routed through the platform Gateway at
 `https://plane.<host>`. Chart `plane/plane-ce` 1.8.0; every app image is the
-Adhar fork's build, `ghcr.io/adhar-io/plane-{backend,frontend,space,admin,live}:1.4.2-3`
+Adhar fork's build, `ghcr.io/adhar-io/plane-{backend,frontend,space,admin,live}:1.4.2-4`
 (upstream line v1.4.2 plus a build number). Plane brings its own Postgres,
 Valkey and RabbitMQ (`local_setup`); its object store is the platform's RustFS.
 
