@@ -378,9 +378,10 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/penpot/manifests"
-          # Strapi headless CMS, CNPG-backed, Keycloak admin SSO. Opt-in: the
-          # image (ghcr.io/adhar-io/strapi) is multi-arch and prebuilt, so it
-          # runs on Kind, but a CMS is not part of the default local loop.
+          # Strapi headless CMS, CNPG-backed, click-free Keycloak admin SSO.
+          # Opt-in: first boot scaffolds the project and builds the admin panel
+          # (an npm install of ~700 MiB), and a CMS is not part of the default
+          # local loop.
           - name: "strapi"
             enabled: "false"
             namespace: "adhar-system"
