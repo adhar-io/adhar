@@ -395,7 +395,7 @@ def otlp_quantile(q, by="", window=W):
 # empty for both `type, value` and `event_name, event_data_responseStatus`).
 FRONTEND_ROW = "Frontend (Faro: real users)"
 FARO = 'source="faro",app_name="__APP__",app_environment="${env:text}"'
-NO_FARO = "No browser telemetry: the page does not load the Faro Web SDK, or FARO_URL is unset (the golden-path frontends wire both)"
+NO_FARO = "No browser telemetry yet: no Faro events were received in this time range (check FARO_URL + SDK wiring, app traffic, and environment filter)"
 PAGE_LOADS = f'{{{FARO},kind="event"}} |= "faro.performance.navigation" | logfmt event_name | event_name="faro.performance.navigation"'
 SESSIONS = f'{{{FARO},kind="event"}} |= "session_start" | logfmt event_name | event_name="session_start"'
 ERRORS = f'{{{FARO},kind="exception"}}'
