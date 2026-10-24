@@ -368,7 +368,7 @@ spec:
       containers:
       - name: plane-admin
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-admin:1.4.2-3
+        image: ghcr.io/adhar-io/plane-admin:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -414,7 +414,7 @@ spec:
       containers:
       - name: plane-api
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -484,7 +484,7 @@ spec:
       containers:
       - name: plane-beat-worker
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -545,7 +545,7 @@ spec:
       containers:
       - name: plane-live
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-live:1.4.2-3
+        image: ghcr.io/adhar-io/plane-live:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -598,7 +598,7 @@ spec:
       containers:
       - name: plane-space
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-space:1.4.2-3
+        image: ghcr.io/adhar-io/plane-space:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -643,7 +643,7 @@ spec:
     spec:
       initContainers:
       - name: auto-sso-index
-        image: ghcr.io/adhar-io/plane-frontend:1.4.2-3
+        image: ghcr.io/adhar-io/plane-frontend:1.4.2-4
         command:
         - sh
         - -c
@@ -660,7 +660,7 @@ spec:
       containers:
       - name: plane-web
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-frontend:1.4.2-3
+        image: ghcr.io/adhar-io/plane-frontend:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -713,7 +713,7 @@ spec:
       containers:
       - name: plane-worker
         imagePullPolicy: Always
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-4
         stdin: true
         tty: true
         resources:
@@ -949,7 +949,7 @@ spec:
     spec:
       containers:
       - name: plane-api-migrate
-        image: ghcr.io/adhar-io/plane-backend:1.4.2-3
+        image: ghcr.io/adhar-io/plane-backend:1.4.2-4
         command: 
           - ./bin/docker-entrypoint-migrator.sh
         imagePullPolicy: Always

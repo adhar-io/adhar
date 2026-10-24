@@ -79,17 +79,17 @@ PYEOF
 # does not know, so running the fork backend under the upstream frontend (as this
 # package did until 1.4.2-2) left the sign-in page unable to show Keycloak at all.
 # The fork's CI publishes all six images under one tag — the upstream line plus a
-# build number (1.4.2-3 for v1.4.2) — so the tag cannot come from the chart's
+# build number (1.4.2-4 for v1.4.2) — so the tag cannot come from the chart's
 # `planeVersion` value and is rewritten here, the same way the MinIO images are.
 #
 # Verified public and multi-arch (linux/amd64 + linux/arm64) before pinning:
 #   curl -H "Authorization: Bearer $(ghcr token)" \
-#     https://ghcr.io/v2/adhar-io/plane-frontend/manifests/1.4.2-3
+#     https://ghcr.io/v2/adhar-io/plane-frontend/manifests/1.4.2-4
 python3 - ${INSTALL_YAML} <<'PYEOF'
 import re, sys
 
 path = sys.argv[1]
-tag = "1.4.2-3"
+tag = "1.4.2-4"
 src = open(path).read()
 total = 0
 for name in ("backend", "frontend", "admin", "space", "live"):
