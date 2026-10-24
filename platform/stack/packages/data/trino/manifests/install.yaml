@@ -105,6 +105,7 @@ data:
     web-ui.authentication.type=fixed
     web-ui.user=adhar-ui
     protocol.v1.alternate-header-name=Presto
+    http-server.process-forwarded=true
   access-control.properties: |
     access-control.name=file
     security.refresh-period=60s
@@ -277,7 +278,7 @@ spec:
     metadata:
       annotations:
         checksum/catalog-config: 03591c7a519ba131f59c34349ac071649a610510e8ceaa96dd8cd858d705cfb5
-        checksum/coordinator-config: fda825e365022a2e9b7de30bdeb070fe8710fe91ca4ab2933cf4b653de5c873a
+        checksum/coordinator-config: 399275c5fd30e39533a9b8e94bbd0e09f7ed3fc09c798511d3f4b1541e43125c
 
       labels:
         helm.sh/chart: trino-1.42.2

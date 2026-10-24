@@ -68,6 +68,11 @@ func TestTheLakehouseReachesMetabaseReadOnly(t *testing.T) {
 		if !strings.Contains(s, "protocol.v1.alternate-header-name=Presto") {
 			t.Errorf("%s: Trino must accept presto-jdbc's X-Presto-* headers", filepath.Join(f...))
 		}
+		// Behind the Gateway and the oauth2-proxy every request carries
+		// X-Forwarded-*; without this Trino answers 406 to the whole UI.
+		if !strings.Contains(s, "http-server.process-forwarded=true") {
+			t.Errorf("%s: Trino must process X-Forwarded-* headers or it rejects every proxied request (406)", filepath.Join(f...))
+		}
 		if !strings.Contains(strings.ReplaceAll(s, `\"`, `"`), readOnly) {
 			t.Errorf("%s: the metabase user must be read-only on every catalog", filepath.Join(f...))
 		}

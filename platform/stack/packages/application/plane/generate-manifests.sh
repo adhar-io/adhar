@@ -228,3 +228,26 @@ src = src.rstrip("\n") + "\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  n
 open(path, "w").write(src)
 print("plane-web: Keycloak sign-in starts on its own when it is the only method")
 PYEOF
+
+# Uploads go from the BROWSER straight to the object store, on a URL the API
+# signs. With the chart's USE_MINIO=0 Plane signs against AWS_S3_ENDPOINT_URL,
+# which here is the in-cluster RustFS Service — a name no browser can resolve,
+# so every cover image and attachment failed ("Failed to upload cover image",
+# GCP, 2026-10-24). USE_MINIO=1 makes Plane sign against the host the browser
+# used (plane.<host>, path-style /plane/<key>), and MINIO_ENDPOINT_SSL=1 pins
+# the scheme to https behind the TLS-terminating Gateway. The HTTPRoute sends
+# /plane to RustFS (manifests/httproute.yaml.tmpl). The chart ties both values
+# to its bundled MinIO, which stays off (values.yaml), so they are set here.
+# Pinned by TestPlaneSignsUploadsForTheBrowser.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+for key in ("USE_MINIO", "MINIO_ENDPOINT_SSL"):
+    old, new = f'  {key}: "0"\n', f'  {key}: "1"\n'
+    if src.count(old) + src.count(new) != 1:
+        raise SystemExit(f"expected exactly one {key} in {path}")
+    src = src.replace(old, new)
+open(path, "w").write(src)
+print("post-render: Plane signs uploads for the browser (USE_MINIO=1, MINIO_ENDPOINT_SSL=1)")
+PYEOF

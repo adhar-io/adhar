@@ -15,10 +15,20 @@ server:
   # `presto-jdbc` driver (it ships no Trino/Starburst driver), which speaks
   # X-Presto-* headers. Trino accepts them only with this set; without it every
   # Metabase query fails on a missing user header.
+  #
+  # `process-forwarded=true`: every request reaches Trino through the Cilium
+  # Gateway (X-Forwarded-For/-Proto) and the oauth2-proxy (X-Forwarded-Email,
+  # -User, -Preferred-Username). Trino's default REJECTS any request carrying an
+  # X-Forwarded-* header — the UI answered `406 Server configuration does not
+  # allow processing of the X-Forwarded-Email header` (GCP, 2026-10-24). This is
+  # the setting Trino documents for running behind a TLS-terminating proxy, and
+  # it is safe here: the coordinator is a ClusterIP Service, reachable from
+  # outside only through that proxy.
   coordinatorExtraConfig: |-
     web-ui.authentication.type=fixed
     web-ui.user=adhar-ui
     protocol.v1.alternate-header-name=Presto
+    http-server.process-forwarded=true
 
 # Access control: the `metabase` user is READ-ONLY on every catalog, everyone
 # else unchanged. Metabase is enrolled by metabase-database-sync and the

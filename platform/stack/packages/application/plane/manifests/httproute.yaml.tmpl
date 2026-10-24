@@ -107,6 +107,20 @@ spec:
       backendRefs:
         - name: plane-oauth2-proxy
           port: 4180
+    # The `plane` bucket, straight to the object store. Uploads and downloads
+    # are presigned against this host (USE_MINIO=1, generate-manifests.sh), so
+    # the URL carries its own SigV4 signature and must NOT go through the SSO
+    # proxy, which would hand it to Plane's web app instead of to S3. Only this
+    # bucket's path is exposed, and the bucket is private: an unsigned request
+    # is refused by RustFS. PathPrefix matches whole segments, so /plane does
+    # not catch a /planes... path.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /plane
+      backendRefs:
+        - name: rustfs
+          port: 9000
     - matches:
         - path:
             type: PathPrefix

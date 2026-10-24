@@ -1053,12 +1053,13 @@ func TestPlaneUsesThePlatformObjectStore(t *testing.T) {
 		t.Error("the plane package still references a minio/minio image")
 	}
 
-	// 2. The endpoint is the platform store, and MinIO mode is off.
+	// 2. The endpoint is the platform store. USE_MINIO is "1" on purpose since
+	//    2026-10-24: it does not bring MinIO back, it makes Plane presign for
+	//    the BROWSER's host, and the HTTPRoute sends /plane to RustFS
+	//    (TestPlaneSignsUploadsForTheBrowser). With "0" the browser was handed
+	//    URLs on the in-cluster Service name and every upload failed.
 	if !strings.Contains(text, "rustfs.adhar-system.svc.cluster.local:9000") {
 		t.Error("plane's doc store does not point at the platform object store (RustFS)")
-	}
-	if !strings.Contains(text, `USE_MINIO: "0"`) {
-		t.Error(`plane still runs with USE_MINIO: "1"; with an external S3 endpoint that makes it sign requests wrongly`)
 	}
 
 	// 3. Every workload that reads the doc-store Secret also reads the
