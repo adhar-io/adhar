@@ -207,6 +207,13 @@ func TestValkeyAdminIsGatedBySSO(t *testing.T) {
 	if !client || !proxy {
 		t.Errorf("sso.yaml: keycloak client declared=%v, oauth2-proxy Deployment present=%v", client, proxy)
 	}
+	raw, err := os.ReadFile(filepath.Join(dir, "valkey-admin.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "cp -a /app/apps/frontend/dist/. /dist/") {
+		t.Error("valkey-admin init copy preserves metadata with cp -a; this fails under non-root and keeps the pod in Init:Error")
+	}
 	prod := map[string]string{}
 	for _, e := range loadAppSetElements(t, "adhar-appset-production.yaml") {
 		prod[e.Name] = e.Enabled

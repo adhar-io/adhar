@@ -72,7 +72,9 @@ spec:
           args:
             - |
               set -eu
-              cp -a /app/apps/frontend/dist/. /dist/
+              # Keep file content only; preserving source mtimes/ownership with
+              # -a fails under the pod's non-root security context.
+              cp -R /app/apps/frontend/dist/. /dist/
               tags='<script src="/adhar/connections.js"></script><script src="/adhar/bootstrap.js"></script>'
               sed -i "s#</head>#${tags}</head>#" /dist/index.html
               # A newer image whose index.html changed shape still serves the
