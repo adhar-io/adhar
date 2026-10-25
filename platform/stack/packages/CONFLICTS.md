@@ -23,14 +23,11 @@ overwrite each other's content on every sync.
 |---|---|---|
 | `Secret/webhook-certs` | cosign, buildpack (kpack) | RESOLVED by namespace — both binaries hardcode the name (`webhook.Options{SecretName: "webhook-certs"}` in sigstore's and kpack's `cmd/webhook/main.go`), so buildpack is the one package kept in its own `kpack-system` namespace (ADR-0011 exception). Never move it into adhar-system while cosign is enabled. |
 | `Secret/webhook-certs` | cosign, tekton | RESOLVED — tekton reads the name from `WEBHOOK_SECRET_NAME`, so its generator renames it to `tekton-webhook-certs`. |
-| `ConfigMap/config-logging`, `config-observability` | knative, open-function, **tekton** | knative/open-function are disabled. kpack's copies are renamed `buildpack-config-*` (and its `CONFIG_*_NAME` env vars repointed) by its generator. |
-| `ConfigMap/config-defaults`, `config-tracing`, `config-registry-cert`, `feature-flags`, `pipelines-info` | open-function, **tekton** | open-function vendors Knative's and Tekton's copies. Disabled. |
-| `Service/webhook` → `WEBHOOK_PORT` env | **cosign** (policy-controller) vs. any pod that parses env with a strict decoder | RESOLVED per-consumer — Kubernetes injects `WEBHOOK_PORT=tcp://<ip>:443` for every pod in the namespace, and chaos-mesh's dashboard reads `WEBHOOK_PORT` as an integer, so it crash-looped with `converting 'tcp://10.107.33.255:443' to type int`. cosign hardcodes the Service name in its binary, so the consumer opts out: `enableServiceLinks: false` on the workloads (applied in each package's generate-manifests.sh) — chaos-mesh originally, and `litmus`, whose graphql server reads its configuration from the environment the same way. Any future package that decodes env strictly needs the same. |
-| dapr/keda objects (`Deployment/dapr-operator`, `Service/keda-operator`, …) | open-function, **dapr**, **keda** | open-function vendors whole sub-stacks the platform already runs. Disabled. |
+| `ConfigMap/config-logging`, `config-observability` | knative, **tekton** | RESOLVED by namespace isolation — Knative runs in `knative-serving` and `knative-eventing`; kpack's copies are renamed `buildpack-config-*` (and its `CONFIG_*_NAME` env vars repointed) by its generator. |
+| `Service/webhook` → `WEBHOOK_PORT` env | **cosign** (policy-controller) vs. any pod that parses env with a strict decoder | RESOLVED per-consumer — Kubernetes injects `WEBHOOK_PORT=tcp://<ip>:443` for every pod in the namespace, and Litmus's graphql server reads `WEBHOOK_PORT` as an integer, so it crash-looped with `converting 'tcp://10.107.33.255:443' to type int`. cosign hardcodes the Service name in its binary, so the consumer opts out: `enableServiceLinks: false` on affected workloads (applied in each package's generate-manifests.sh). Any future package that decodes env strictly needs the same. |
 | `Deployment/workflow-controller`, `ConfigMap/workflow-controller-configmap`, `ServiceAccount/argo`, `argoproj.io` CRDs | kubeflow, **argo-workflows** | RESOLVED — kubeflow's generator strips its bundled Argo Workflows control plane and runs on the shared controller. |
 | `ServiceAccount/minio-sa` | mimir, **minio** | mimir bundles its own MinIO. |
 | `ClusterSecretStore/vault`, `Service/vault` | **openbao**, vault | MUTUALLY EXCLUSIVE — exactly one secrets backend may be enabled. Production enables `openbao`; `vault` is disabled. See below. |
-| `DaemonSet/node-agent` | kubescape, velero | Both enabled — pre-existing. |
 
 **A name a package hardcodes in its binary cannot be fixed by renaming the
 manifest** — a renamed object is simply never read or populated. When two
@@ -94,8 +91,8 @@ policy-controller binary (it is the cert SAN), so the fix is on the consumer
 side: crossplane sets `enableServiceLinks: false`.
 
 Generically-named Services in the stack: `webhook` (cosign), `controller`
-(buildpack, open-function), `mysql` / `cache-server` / `ml-pipeline` (kubeflow),
-`operator` / `storage` (kubescape), `proxy` (jupyterhub).
+(buildpack), `mysql` / `cache-server` / `ml-pipeline` (kubeflow),
+`proxy` (jupyterhub).
 
 **Set `enableServiceLinks: false` on any platform component that reads
 configuration from env vars** (or set the variable explicitly — an explicit

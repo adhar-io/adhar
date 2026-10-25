@@ -75,7 +75,7 @@ Salient points:
 
 - **`selector` is a sibling of `list`, not nested inside it.** It filters the generated parameter set: elements whose `enabled` value isn't `"true"` never produce an Application. Wiring 77 packages but templating only the enabled subset is the whole mechanism.
 - **`repoURL` is the adhar-controlplane Gitea** `adhar/packages` repo seeded during bootstrap ([ADR-0001 §6](0001-management-cluster-first.md)) — not an upstream chart repo. `path` is the element's `manifestPath`; `targetRevision: main`.
-- **`namespace` is templated per-element**, so nearly everything lands in the shared `adhar-system` ([ADR-0011](../adr/0011-shared-platform-namespace.md)) while an incompatible package opts out — `open-function` uses `namespace: "openfunction"` because it vendors Knative/Tekton objects whose fixed upstream names collide with the core `tekton` package (see [`packages/CONFLICTS.md`](../../platform/stack/packages/CONFLICTS.md)).
+- **`namespace` is templated per-element**, and platform packages land in the shared `adhar-system` ([ADR-0011](../adr/0011-shared-platform-namespace.md)).
 - **`selfHeal: true` + `prune: true`** — kubectl edits to a synced package are reverted; toggling must go through Git (that is the operational rule in [ADR-0014](../adr/0014-package-lifecycle-operations.md)).
 - **`ServerSideApply=true` + `CreateNamespace=true`** on every Application. The retry budget (`limit: 15`, 5s×2 backoff capped at 1m ≈ 12 min) covers cold-bootstrap dependency races — e.g. `adhar-console`'s OIDC `ExternalSecret` waiting on Keycloak's realm client.
 
@@ -97,14 +97,14 @@ The ADR describes "a single ApplicationSet per environment." As built there are 
 
 | File | `metadata.name` | Generator | Selected by | Enabled |
 |---|---|---|---|---|
-| `adhar-appset-local.yaml` | `helm-charts-local` | `list` (77 elements) | `appSetFileForProvider` for `kind`/unset | 21 |
-| `adhar-appset-production.yaml` | `helm-charts-production` | `list` (77 elements) | `appSetFileForProvider` for any cloud/on-prem provider | 72 |
+| `adhar-appset-local.yaml` | `helm-charts-local` | `list` (76 elements) | `appSetFileForProvider` for `kind`/unset | 20 |
+| `adhar-appset-production.yaml` | `helm-charts-production` | `list` (76 elements) | `appSetFileForProvider` for any cloud/on-prem provider | 71 |
 | `adhar-appset-workload.yaml` | `adhar-workload-clusters` | `matrix` (clusters × list) | always applied if present (§5) | thin agent set |
 | `adhar-appset-gitops.yaml` | `helm-charts-gitops` | `list` (72 elements) | **not** applied by the controller | 72 |
 
-`local` and `production` are the parity-locked pair: identical 77-element wiring, differing **only** in the `enabled` field (local enables 21; production enables 72 — all but the documented conflict exclusions such as `knative`). The `namespace` on every element in both is `adhar-system` (bar `open-function`).
+`local` and `production` are the parity-locked pair: identical 76-element wiring, differing **only** in the `enabled` field (local enables 20; production enables 71 — all but the documented conflict exclusions such as `knative`). The `namespace` on every element in both is `adhar-system`.
 
-`adhar-appset-gitops.yaml` is the odd one out and diverges materially — see Drift (§8): it assigns each package its **own** namespace (`external-secrets`→`external-secrets`, `falco`→`falco`, `cert-manager`→`cert-manager`, …), wires only 72 packages (missing `tekton`, `pyroscope`, `credential-rotation`, `policy-packs`, `jenkins-x`), and is referenced only as an example input to `adhar gitops resolve` ([`cmd/gitops/resolve.go`](../../cmd/gitops/resolve.go)), not by the reconcile path.
+`adhar-appset-gitops.yaml` is the odd one out and diverges materially — see Drift (§8): it assigns each package its **own** namespace (`external-secrets`→`external-secrets`, `falco`→`falco`, `cert-manager`→`cert-manager`, …), wires only 72 packages (missing `tekton`, `pyroscope`, `credential-rotation`, `policy-packs`), and is referenced only as an example input to `adhar gitops resolve` ([`cmd/gitops/resolve.go`](../../cmd/gitops/resolve.go)), not by the reconcile path.
 
 `adhar-appset-workload.yaml` uses a **matrix** generator (`clusters × list`) with `packageName` (not `name`) elements, still enabled-gated by a sibling `selector` — the same ADR-0004 shape projected onto every ArgoCD-registered workload cluster (roadmap P2.2). Its list is a thin agent set: `metrics-server`, `kyverno`, `kyverno-policies`, `alloy`.
 
@@ -164,7 +164,7 @@ Both tests parse YAML directly (`sigs.k8s.io/yaml`) with no cluster — they run
 
 - **Counts.** ADR-0004 and CLAUDE.md say "69 packages wired" and a curated local core of "~16"; the appsets actually wire **77** packages each and local enables **21** (`external-secrets, hubble, vault, buildpack, cnpg, jupyterhub, headlamp, keycloak, tekton, adhar-console, metrics-server, kube-prometheus, loki, alloy, tempo, pyroscope, mimir, k6, dapr, redis, kafka-operator`). Production enables **72** (all but `knative` and the CONFLICTS exclusions). ~86 package directories exist on disk. Treat the ADR's numbers as illustrative, not current.
 - **Two undocumented appsets.** The ADR frames "one ApplicationSet per environment"; the repo has four files. `adhar-appset-workload.yaml` (matrix, thin agent, roadmap) and `adhar-appset-gitops.yaml` are additive to the model.
-- **`adhar-appset-gitops.yaml` contradicts ADR-0011 and is stale.** It gives each package its own namespace (not the shared `adhar-system`), wires only 72 packages (missing `tekton`, `pyroscope`, `credential-rotation`, `policy-packs`, `jenkins-x`), still labels `environment: "local"` in its template, and is unreferenced by the controller (only `adhar gitops resolve`'s help text). It is neither parity-tested nor applied — effectively an unmaintained per-namespace variant that has drifted from the local/production pair.
+- **`adhar-appset-gitops.yaml` contradicts ADR-0011 and is stale.** It gives each package its own namespace (not the shared `adhar-system`), wires only 72 packages (missing `tekton`, `pyroscope`, `credential-rotation`, `policy-packs`), still labels `environment: "local"` in its template, and is unreferenced by the controller (only `adhar gitops resolve`'s help text). It is neither parity-tested nor applied — effectively an unmaintained per-namespace variant that has drifted from the local/production pair.
 - **Production is "everything except conflicts," not "everything."** `adhar-appset-production.yaml` disables `knative` (and other CONFLICTS.md exclusions) inline with a reason comment; it is not full enablement despite the "multi-node cloud cluster has the capacity" framing.
 - **Retry budgets differ by environment** (not called out in the ADR): local `limit: 15`/`maxDuration: 1m`; production and gitops `limit: 30`/`maxDuration: 3m`.
 

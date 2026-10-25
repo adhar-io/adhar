@@ -35,11 +35,11 @@
 #  5. REDIRECT_URI_DYNAMIC must be off. It derives the callback from request
 #     headers, which behind the Gateway and the proxy is not the browser's URL.
 #  6. The group claim values must EQUAL RustFS policy names, verbatim
-#     (map_claims_to_policies). Hence the policies below are named after the
-#     platform's existing Keycloak groups instead of the built-in
-#     consoleAdmin/readwrite/readonly, so the realm needs no new groups and
-#     Keycloak's "Full group path" setting stays off (a leading slash would
-#     never match, and `/` is not even a legal policy-name character).
+#     (map_claims_to_policies). The activation job therefore writes policies
+#     named after the platform's Keycloak groups in BOTH spellings:
+#     `platform-admin` and `/platform-admin` (same for developer/viewer). That
+#     keeps login working whether a realm emits bare names (full.path=false) or
+#     path-form names from an older/full-path mapper.
 #
 # The edge proxy STAYS in front. Native OIDC could replace it, but the proxy is
 # what keeps an unauthenticated browser off the console entirely and it is the
@@ -198,7 +198,7 @@ spec:
           command: ["/bin/bash", "-c"]
           args:
             - |
-              set -uo pipefail
+              set -euo pipefail
               log() { echo "[rustfs-oidc] $*"; }
 
               # ── 1. wait for the Keycloak client secret ──────────────────────
@@ -265,15 +265,16 @@ spec:
               # test_iam_policy_serialize_keeps_empty_resource_omitted_for_action_families).
               # The README's `"Resource":["arn:aws:s3:::*"]` on an admin
               # statement is not what the parser accepts.
-              ADMIN_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["admin:*"]},{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]}]}'
-              RW_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]}]}'
-              RO_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation","s3:ListAllMyBuckets"],"Resource":["arn:aws:s3:::*"]}]}'
+              ADMIN_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["admin:*"]},{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
+              RW_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
+              RO_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation","s3:ListAllMyBuckets"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
 
-              rc=0
-              admin_policy platform-admin     "$ADMIN_DOC" || rc=1
-              admin_policy platform-developer "$RW_DOC"    || rc=1
-              admin_policy platform-viewer    "$RO_DOC"    || rc=1
-              [ "$rc" -eq 0 ] || log "WARNING: at least one policy could not be written; a login whose groups resolve to none of them will be refused"
+              admin_policy platform-admin      "$ADMIN_DOC"
+              admin_policy /platform-admin     "$ADMIN_DOC"
+              admin_policy platform-developer  "$RW_DOC"
+              admin_policy /platform-developer "$RW_DOC"
+              admin_policy platform-viewer     "$RO_DOC"
+              admin_policy /platform-viewer    "$RO_DOC"
 
               # ── 3. make sure the provider is actually SERVED ────────────────
               # Discovery runs once at start-up and a failure drops the provider

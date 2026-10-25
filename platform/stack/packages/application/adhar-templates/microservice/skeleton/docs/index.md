@@ -9,9 +9,10 @@ A production-quality starting point scaffolded by the Adhar platform:
   distroless (`nonroot`, no shell).
 - **Deployment** — `manifests/`: Deployment with probes, resource
   requests/limits, and a hardened securityContext (runAsNonRoot, drop ALL,
-  RuntimeDefault seccomp), a Service, and an HTTPRoute through the platform
-  Gateway. The Deployment starts on a placeholder image (podinfo, same
-  endpoint contract) until your first release is promoted.
+  RuntimeDefault seccomp), a Service, an HTTPRoute through the platform
+  Gateway, and a KEDA `ScaledObject` (minimum 1 replica, load-based scale up).
+  The Deployment starts on a placeholder image (podinfo, same endpoint
+  contract) until your first release is promoted.
 - **CI** — `.adhar/app.yaml` + the platform Tekton `app-ci` pipeline (supply-chain package): PRs run
   the platform `adhar-pr-verify` pipeline, merges to `main` run
   `adhar-release`, which ends by opening a promotion PR against the

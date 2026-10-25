@@ -28,7 +28,7 @@ OUT_DIR = os.path.join(HERE, "manifests")
 # Kubernetes overview/capacity, and the kubernetes-mixin set vendored from
 # kube-prometheus). Edit and re-run THAT script; this one only re-packages them.
 # Hand-authored Adhar dashboards for components with no reliable published
-# grafana.com dashboard (Alloy, external-dns, cosign, tetragon, kubescape,
+# grafana.com dashboard (Alloy, external-dns, cosign, tetragon,
 # pyroscope, spark-operator). These reference datasources by their fixed UIDs
 # (prometheus/loki/tempo/mimir/pyroscope) directly, so pin_datasources is a
 # no-op on them. A source string "local:<file>" reads dashboards-custom/<file>.

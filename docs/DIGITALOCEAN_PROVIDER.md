@@ -860,7 +860,7 @@ new count (keep it inside `min`/`max`, or the autoscaler will pull it back).
 ### 4.2 One namespace for the platform
 
 Every platform package installs into `adhar-system` — including the former
-hold-outs (Kubeflow Pipelines, cosign, OpenFunction), whose charts and
+hold-outs (Kubeflow Pipelines, cosign), whose charts and
 kustomize bases are re-rendered for it at generation time. The only namespaces
 the platform creates elsewhere are Kargo `Project` namespaces
 (`adhar-environments`; Kargo requires one per Project), data-plane vclusters

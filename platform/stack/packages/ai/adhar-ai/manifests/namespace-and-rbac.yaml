@@ -101,7 +101,7 @@ rules:
   # The enumerated rules above covered the surfaces the agent was first written
   # against, which left it blind to most of the platform it is supposed to
   # explain: Tekton runs, Kargo promotions, Strimzi/Kafka, Velero backups,
-  # Cilium, KEDA, Dapr, Kubeflow, Harbor/cosign policy, Kubescape, the whole
+  # Cilium, KEDA, Dapr, Kubeflow, Harbor/cosign policy, the whole
   # Crossplane provider surface, and the DigitalOcean managed resources. Asked
   # about a failing build it could only describe a Pod, because a PipelineRun was
   # not a thing it was allowed to see.
@@ -125,7 +125,6 @@ rules:
       - autoscaling
       - cert-manager.io
       - acme.cert-manager.io
-      - chaos-mesh.org
       - cilium.io
       - clickhouse.altinity.com
       - dapr.io
@@ -147,9 +146,6 @@ rules:
       - kubeflow.org
       - kubernetes.crossplane.io
       - kubernetes.m.crossplane.io
-      - kubescape.io
-      - hostdata.kubescape.cloud
-      - spdx.softwarecomposition.kubescape.io
       - kyverno.io
       - policies.kyverno.io
       - reports.kyverno.io

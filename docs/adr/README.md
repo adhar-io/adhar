@@ -21,7 +21,6 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0015](0015-idp-critical-pillars.md) | Critical pillars of the IDP — the tests every addition must pass | Accepted |
 | [0016](0016-vcluster-local-first-development.md) | vCluster as the virtual-cluster primitive for local-first development and tenancy | Accepted |
 | [0017](0017-preview-environments.md) | Ephemeral preview environments per pull request | Accepted |
-| [0018](0018-jenkins-x-ci-model.md) | CI on the platform: Jenkins X pipeline model on Tekton, promotion via GitOps | Superseded (Tekton app-ci) |
 | [0019](0019-secure-supply-chain-chainguard.md) | Secure software supply chain: Chainguard images, Sigstore signing, policy admission | Accepted |
 | [0020](0020-iceberg-data-lakehouse.md) | Data lakehouse on Apache Iceberg over platform object storage | Accepted |
 | [0021](0021-day2-operations-first-class.md) | Day-2 operations as a first-class product surface | Accepted |
@@ -30,6 +29,7 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0024](0024-agentic-ai-platform.md) | Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime | Accepted |
 | [0025](0025-ai-gateway-agentgateway.md) | agentgateway as the platform’s AI data plane (LLM routing, federated MCP, guardrails) | Accepted |
 | [0026](0026-concept-hierarchy.md) | Organisation → Team → Project → Application → Environment → Release as one declarative control plane (XRDs, one label vocabulary, Kargo-backed releases) | Accepted |
+| [0027](0027-functions-on-knative.md) | Functions standardize on Knative Serving/Eventing; OpenFunction removed from the platform stack | Accepted |
 
 ## Proposing an ADR
 

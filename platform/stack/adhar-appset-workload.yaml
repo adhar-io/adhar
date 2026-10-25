@@ -179,6 +179,10 @@ spec:
       # ConfigMap the alloy package ships with adhar-controlplane defaults. Leave the
       # controller-owned fields alone instead of fighting over them.
       ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
         - kind: ConfigMap
           name: observability-hub
           managedFieldsManagers:

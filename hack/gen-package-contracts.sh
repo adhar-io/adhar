@@ -108,10 +108,6 @@ CURATED = {
    description="kpack Cloud Native Buildpacks builder that turns application source into OCI images without Dockerfiles.",
    license="Apache-2.0", homepage="https://github.com/buildpacks-community/kpack",
    keywords="build buildpacks images kpack supply-chain"),
- "application/chaos-mesh": dict(
-   description="Chaos Mesh chaos-engineering platform for injecting pod, network and IO faults into Kubernetes workloads.",
-   license="Apache-2.0", homepage="https://chaos-mesh.org",
-   keywords="chaos resilience testing fault-injection"),
  "application/coder": dict(
    description="Coder self-hosted cloud development environments, bootstrapped with an admin owner and Keycloak SSO.",
    license="AGPL-3.0", homepage="https://coder.com",
@@ -149,10 +145,6 @@ CURATED = {
    license="EPL-1.0", homepage="https://www.sonatype.com/products/sonatype-nexus-repository",
    version="3.75.1", appVersion="3.75.1",
    keywords="artifacts maven npm repository"),
- "application/open-function": dict(
-   description="OpenFunction FaaS platform for building and running serverless functions on Kubernetes.",
-   license="Apache-2.0", homepage="https://openfunction.dev",
-   keywords="faas serverless functions"),
  "application/penpot": dict(
    description="Penpot open-source design and prototyping tool, with in-namespace PostgreSQL and Valkey for local use.",
    license="MPL-2.0", homepage="https://penpot.app",
@@ -395,10 +387,6 @@ CURATED = {
    license="Apache-2.0", homepage="https://www.keycloak.org",
    version="26.7.1", appVersion="26.7.1",
    keywords="identity oidc sso keycloak"),
- "security/kubescape": dict(
-   description="Kubescape operator for continuous posture scanning against CIS, NSA and MITRE control frameworks.",
-   license="Apache-2.0", homepage="https://kubescape.io",
-   keywords="posture compliance cis scanning"),
  "security/kyverno": dict(
    description="Kyverno policy engine: admission validation, mutation and generation, with PolicyReports for every result.",
    license="Apache-2.0", homepage="https://kyverno.io",

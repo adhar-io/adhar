@@ -2,7 +2,7 @@
 
 # Example Basic Application
 
-Thanks for trying out this demo! In this example, we deployed a simple application.
+Thanks for trying out this demo! In this example, we deployed a simple application with a KEDA ScaledObject (minimum 1 replica, scale up on load).
 
 ### adhar
 

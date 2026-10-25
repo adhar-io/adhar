@@ -171,7 +171,7 @@ Sharing one namespace has two standing consequences, both platform invariants:
 | Failure class | Mechanism | Rule |
 |---|---|---|
 | **Object-name collisions** | Two packages defining the same `kind/name` fight over ArgoCD ownership and flap forever | Rename in the generator where the name is configurable; otherwise the pair is mutually exclusive (`vault` ↔ `openbao`) or split by namespace (`cosign` ↔ `buildpack`) |
-| **Service-link env collisions** | Kubernetes injects a `<NAME>_PORT` variable for every Service in the namespace. cosign's `Service/webhook` becomes `WEBHOOK_PORT=tcp://<ip>:443`, which crashes any pod that decodes env strictly — observed on crossplane (`--webhook-port`) and chaos-mesh's dashboard | Set **`enableServiceLinks: false`** on any component that reads configuration from env vars |
+| **Service-link env collisions** | Kubernetes injects a `<NAME>_PORT` variable for every Service in the namespace. cosign's `Service/webhook` becomes `WEBHOOK_PORT=tcp://<ip>:443`, which crashes any pod that decodes env strictly — observed on crossplane (`--webhook-port`) and Litmus's graphql server | Set **`enableServiceLinks: false`** on any component that reads configuration from env vars |
 
 The authoritative collision register, with a scan script to run before wiring a new package, is [`platform/stack/packages/CONFLICTS.md`](../platform/stack/packages/CONFLICTS.md).
 
@@ -402,7 +402,7 @@ Each area of this document is backed by ADRs. The full register, with status, is
 | [§6 Networking](#6-networking) | [0002](adr/0002-cilium-cni-and-gateway.md) Cilium CNI + Gateway API |
 | [§7 Security](#7-security-architecture) | [0008](adr/0008-keycloak-platform-identity.md) Keycloak identity · [0009](adr/0009-secrets-eso-vault.md) ESO + secrets backend · [0013](adr/0013-sso-bootstrap-config-job.md) SSO bootstrap job · [0019](adr/0019-secure-supply-chain-chainguard.md) supply chain |
 | [§8 Topologies](#8-topologies-and-verification-status) | [0016](adr/0016-vcluster-local-first-development.md) vcluster · [0023](adr/0023-control-dataplane-separation.md) control/data-plane split |
-| [§9 Extensibility](#9-extensibility--customization-model) | [0015](adr/0015-idp-critical-pillars.md) IDP pillars · [0017](adr/0017-preview-environments.md) preview environments · [0018](adr/0018-jenkins-x-ci-model.md) CI model (superseded by Tekton app-ci) · [0021](adr/0021-day2-operations-first-class.md) day-2 first class |
+| [§9 Extensibility](#9-extensibility--customization-model) | [0015](adr/0015-idp-critical-pillars.md) IDP pillars · [0017](adr/0017-preview-environments.md) preview environments · [0021](adr/0021-day2-operations-first-class.md) day-2 first class |
 | [§10 AI](#10-the-ai-layer) | [0024](adr/0024-agentic-ai-platform.md) agentic AI platform · [0025](adr/0025-ai-gateway-agentgateway.md) agentgateway as the AI data plane |
 | [§11 Observability](#11-observability) | [0010](adr/0010-observability-lgtm-otel.md) OTel + LGTM · [0020](adr/0020-iceberg-data-lakehouse.md) Iceberg lakehouse |
 

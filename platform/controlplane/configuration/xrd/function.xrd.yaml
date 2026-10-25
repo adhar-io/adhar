@@ -1,0 +1,114 @@
+---
+# Function — a serverless workload that scales to zero on idle and scales out
+# on demand under load.
+#
+# This is the platform contract the Console + CLI create/manage. Runtime is
+# Knative Serving/Eventing.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: functions.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: Function
+    plural: functions
+  defaultCompositionRef:
+    name: function-local-knative
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                compositionSelector:
+                  type: object
+                  default:
+                    matchLabels:
+                      feature: function
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: { type: string }
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name: { type: string }
+                parameters:
+                  type: object
+                  required: [runtime, image]
+                  properties:
+                    displayName: { type: string }
+                    runtime:
+                      type: string
+                      enum: [node20, python312, go122, custom]
+                      default: node20
+                    image:
+                      type: string
+                      description: OCI image to run.
+                    trigger:
+                      type: string
+                      enum: [http, cloudevent, topic, bucket, cron]
+                      default: http
+                    eventSource:
+                      type: string
+                      description: Optional source descriptor (for example `topic://orders.v1`).
+                      default: ""
+                    port:
+                      type: integer
+                      default: 8080
+                      minimum: 1
+                      maximum: 65535
+                    minScale:
+                      type: integer
+                      default: 0
+                      minimum: 0
+                    maxScale:
+                      type: integer
+                      default: 20
+                      minimum: 1
+                    targetConcurrency:
+                      type: integer
+                      default: 100
+                      minimum: 1
+                    timeoutSeconds:
+                      type: integer
+                      default: 30
+                      minimum: 1
+                      maximum: 900
+                    env:
+                      type: object
+                      additionalProperties: { type: string }
+                      description: Environment variables injected into the function container.
+                    labels:
+                      type: object
+                      additionalProperties: { type: string }
+                    annotations:
+                      type: object
+                      additionalProperties: { type: string }
+                    organisation: { type: string, default: adhar }
+                    team: { type: string, default: platform }
+                    project: { type: string, default: "" }
+                    environment:
+                      type: string
+                      enum: [dev, test, prod]
+                      default: dev
+            status:
+              type: object
+              properties:
+                url: { type: string }
+                readyRevision: { type: string }
+                latestRevision: { type: string }
+                observedGeneration: { type: integer }
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true

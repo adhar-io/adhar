@@ -47,6 +47,8 @@ set `MLFLOW_TRACKING_URI` in `manifests/configmap.yaml` and uncomment the
 - `deployment.yaml` + `service.yaml` — the hardened model server (non-root,
   dropped capabilities, probes, requests + limits).
 - `httproute.yaml` — the API through the platform Cilium Gateway.
+- `autoscaling.yaml` — KEDA `ScaledObject` for the serving deployment (minimum
+  1 replica, scale up on CPU/memory load).
 - `cronjob.yaml` — scheduled retraining: submits the compiled pipeline to KFP.
 
 `serving/kserve-inferenceservice.yaml` is the opt-in KServe alternative — not

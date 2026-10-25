@@ -73,7 +73,6 @@ Decisions with lasting consequences are [ADRs](adr/README.md); each has a matchi
 | [0015](adr/0015-idp-critical-pillars.md) | The critical pillars of the IDP — the tests every addition must pass | [design](design/0015-idp-critical-pillars.md) |
 | [0016](adr/0016-vcluster-local-first-development.md) | vcluster as the virtual-cluster primitive for local-first development and tenancy | [design](design/0016-vcluster-local-first-development.md) |
 | [0017](adr/0017-preview-environments.md) | Ephemeral preview environments per pull request | [design](design/0017-preview-environments.md) |
-| [0018](adr/0018-jenkins-x-ci-model.md) | CI on the platform, promotion via GitOps — *superseded: Tekton `app-ci` is the paved road* | [design](design/0018-jenkins-x-ci-model.md) |
 | [0019](adr/0019-secure-supply-chain-chainguard.md) | Secure supply chain: Chainguard images, Sigstore signing, policy admission | [design](design/0019-secure-supply-chain-chainguard.md) |
 | [0020](adr/0020-iceberg-data-lakehouse.md) | Data lakehouse on Apache Iceberg over platform object storage | [design](design/0020-iceberg-data-lakehouse.md) |
 | [0021](adr/0021-day2-operations-first-class.md) | Day-2 operations as a first-class product surface | [design](design/0021-day2-operations-first-class.md) |
@@ -81,6 +80,8 @@ Decisions with lasting consequences are [ADRs](adr/README.md); each has a matchi
 | [0023](adr/0023-control-dataplane-separation.md) | Control-plane / data-plane separation with a first-class `DataPlane` API | [design](design/0023-control-dataplane-separation.md) |
 | [0024](adr/0024-agentic-ai-platform.md) | Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime | [design](design/0024-agentic-ai-platform.md) |
 | [0025](adr/0025-ai-gateway-agentgateway.md) | agentgateway as the platform's AI data plane (LLM routing, federated MCP, guardrails) | — |
+| [0026](adr/0026-concept-hierarchy.md) | Organisation → Team → Project → Application → Environment → Release as one declarative control plane | — |
+| [0027](adr/0027-functions-on-knative.md) | Functions standardize on Knative Serving/Eventing; OpenFunction is removed from the stack | — |
 
 One design document has no ADR: [CLI command landscape](design/cli-command-landscape.md) — the developer- and operator-facing command surface, modelled on CloudFoundry.
 

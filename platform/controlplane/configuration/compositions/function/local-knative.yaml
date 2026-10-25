@@ -1,0 +1,104 @@
+---
+# Function on Knative Serving. This is the control-plane path behind
+# scale-to-zero + on-demand autoscaling.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: function-local-knative
+  labels:
+    feature: function
+    provider: local
+    runtime: knative
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Function
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $runtime := dig "runtime" "node20" $p -}}
+            {{- $img := dig "image" "" $p -}}
+            {{- if eq $img "" }}{{ fail "parameters.image must be set" }}{{ end -}}
+            {{- $provider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- $min := dig "minScale" 0 $p -}}
+            {{- $max := dig "maxScale" 20 $p -}}
+            {{- $target := dig "targetConcurrency" 100 $p -}}
+            {{- $timeout := dig "timeoutSeconds" 30 $p -}}
+            {{- $port := dig "port" 8080 $p -}}
+            {{- $labels := merge
+                  (dict
+                    "platform.adhar.io/function" $name
+                    "platform.adhar.io/runtime" $runtime
+                    "adhar.io/organisation" (dig "organisation" "adhar" $p)
+                    "adhar.io/team" (dig "team" "platform" $p)
+                    "adhar.io/environment" (dig "environment" "dev" $p)
+                    "adhar.io/plane" "workload")
+                  (default (dict) (dig "labels" dict $p))
+                -}}
+            {{- if dig "project" "" $p }}{{ $_ := set $labels "adhar.io/project" (dig "project" "" $p) }}{{ end -}}
+            {{- $annotations := merge
+                  (dict
+                    "autoscaling.knative.dev/min-scale" (toString $min)
+                    "autoscaling.knative.dev/max-scale" (toString $max)
+                    "autoscaling.knative.dev/target" (toString $target))
+                  (default (dict) (dig "annotations" dict $p))
+                -}}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-knative-service
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: knative-service
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: serving.knative.dev/v1
+                  kind: Service
+                  metadata:
+                    name: {{ $name }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    template:
+                      metadata:
+                        annotations:
+                          {{- range $k, $v := $annotations }}
+                          {{ $k }}: {{ $v | quote }}
+                          {{- end }}
+                      spec:
+                        containerConcurrency: {{ $target }}
+                        timeoutSeconds: {{ $timeout }}
+                        containers:
+                          - image: {{ $img | quote }}
+                            ports:
+                              - containerPort: {{ $port }}
+                            {{- $env := default (dict) (dig "env" dict $p) }}
+                            {{- if gt (len $env) 0 }}
+                            env:
+                              {{- range $k, $v := $env }}
+                              - name: {{ $k | quote }}
+                                value: {{ $v | quote }}
+                              {{- end }}
+                            {{- end }}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

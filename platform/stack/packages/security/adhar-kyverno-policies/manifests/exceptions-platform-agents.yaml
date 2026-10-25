@@ -150,11 +150,11 @@ spec:
         names:
         - "prometheus-prometheus-node-exporter*"
 ---
-# Kubescape node agent: inspects host paths for runtime and vulnerability data.
+# Velero node agent: reads host paths for pod volume backups and restores.
 apiVersion: kyverno.io/v2
 kind: PolicyException
 metadata:
-  name: platform-agent-kubescape-node-agent
+  name: platform-agent-velero-node-agent
   namespace: adhar-system
   labels:
     app.kubernetes.io/part-of: adhar-kyverno-policies

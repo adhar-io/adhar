@@ -34,6 +34,8 @@ Target Iceberg table: **`${{values.targetTable}}`**
   the platform `iceberg-rest` service; override per environment).
 - `deployment.yaml` + `service.yaml` — the Dagster webserver (UI + GraphQL).
 - `httproute.yaml` — routes the UI through the platform Cilium Gateway.
+- `autoscaling.yaml` — KEDA `ScaledObject` for the webserver (minimum 1
+  replica, scale up on CPU/memory load).
 - `cronjob.yaml` — a daily `dagster job execute` run that materializes the
   pipeline (the same schedule the Dagster daemon would trigger, run as a
   Kubernetes CronJob so the scaffold needs no long-running daemon).

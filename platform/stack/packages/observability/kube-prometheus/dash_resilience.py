@@ -2,7 +2,7 @@
 failure — backups (Velero), chaos experiments (Litmus, the platform's chaos engine),
 load tests (k6) and the Adhar resilience / scorecard jobs that run them on a schedule.
 
-Chaos Mesh's two dashboards were dropped: chaos-mesh is disabled in every profile in
+Litmus-specific dashboards are used for chaos visibility across profiles in
 favour of Litmus.
 """
 from dashlib import *  # noqa: F401,F403
@@ -18,8 +18,7 @@ def resilience():
     d = Dash(UIDS["resilience"], "Resilience / Chaos, Backup & Load Testing",
              "Can the platform survive a failure and recover from one? Velero backups and restores (schedules, "
              "outcomes, age of the last good backup, snapshots, the storage location), Litmus chaos experiments, "
-             "k6 load tests, and the Adhar resilience-runner and scorecard CronJobs that exercise them. Replaces "
-             "the Velero, k6 Operator and Chaos Mesh (2) dashboards.",
+             "k6 load tests, and the Adhar resilience-runner and scorecard CronJobs that exercise them.",
              tags("Resilience", "velero", "litmus", "k6"),
              [ds_var(), qvar("schedule", "Backup schedule", f'label_values(velero_backup_last_status{{{VE}}}, schedule)')],
              links=links("Resilience", ("Storage", "k8s-storage"), ("Developer platform", "dev-platform")),

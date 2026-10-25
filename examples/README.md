@@ -70,6 +70,7 @@ configures nothing.
 | `pipeline.yaml` | Pipeline | A Tekton CI pipeline (clone → build → scan → sign → deploy) |
 | `gitops.yaml` | GitOps | An Argo CD AppProject and the ApplicationSets that fill it |
 | `service.yaml` | Service | A Service with its ServiceMonitor |
+| `function.yaml` | Function | A serverless function on Knative Serving (scale-to-zero + on-demand autoscaling) |
 | `scale.yaml` | Scale | Horizontal pod autoscaling for a workload |
 | `webhook.yaml` | Webhook | Platform events delivered to an endpoint of your own |
 | `agent-workload.yaml` | AgentWorkload | A governed AI agent: its own namespace, quota, egress policy, and an allowlist of models and MCP tools |

@@ -35,9 +35,7 @@ The ApplicationSet is a `list` generator: one element per package, each carrying
 # platform/stack/adhar-appset-local.yaml (template.spec.destination)
 destination:
   # Per-element so a package that cannot share adhar-system can opt out.
-  # Nearly everything uses adhar-system; open-function needs its own because
-  # it vendors Knative/Tekton objects whose names are fixed upstream and
-  # therefore collide (see platform/stack/packages/CONFLICTS.md).
+  # Platform packages use adhar-system (ADR-0011).
   namespace: "{{ .namespace }}"
   server: https://kubernetes.default.svc
 syncOptions:
@@ -45,16 +43,7 @@ syncOptions:
   - ServerSideApply=true
 ```
 
-Of the 77 wired elements, **76 set `namespace: "adhar-system"`; exactly one — `open-function` — sets `namespace: "openfunction"`**. This is the *only* current exception, and the same in both `adhar-appset-local.yaml` and `adhar-appset-production.yaml`:
-
-```yaml
-- name: "open-function"
-  # Own namespace: open-function vendors Knative and Tekton objects whose
-  # hardcoded names collide with the core tekton package.
-  namespace: "openfunction"
-  category: "application"
-  manifestPath: "application/open-function/manifests"
-```
+Of the 76 wired elements, **all set `namespace: "adhar-system"`** in both `adhar-appset-local.yaml` and `adhar-appset-production.yaml`.
 
 `CreateNamespace=true` means ArgoCD stamps the target namespace on first sync; because no package ships a `kind: Namespace` (INV-4), this is the only creator of package namespaces post-bootstrap. Enablement is orthogonal to placement — the generator `selector: matchLabels.enabled: "true"` filters which of the 77 elements deploy (24 in the local core); the namespace field is unaffected.
 
@@ -66,12 +55,10 @@ Two enabled packages defining the same `kind/name` in `adhar-system` each get an
 |---|---|---|
 | `ConfigMap/config-logging` | knative, **tekton** | both read this name by fixed convention |
 | `ConfigMap/config-observability` | knative, **tekton** | same |
-| `ConfigMap/config-defaults` | open-function, **tekton** | open-function vendors Knative's copy |
-| `ConfigMap/config-tracing` | open-function, **tekton** | same |
 | `Secret/webhook-certs` | cosign, **tekton** | last writer owns the cert; the other's webhook fails TLS |
 | `ServiceAccount/minio-sa` | mimir, **minio** | mimir bundles its own MinIO |
 
-(Bold = enabled in the local core, so enabling the *other* triggers the clash.) These **cannot** be fixed by renaming — Knative and Tekton read the ConfigMaps by fixed name, which is precisely why upstream isolates them in `knative-serving`/`tekton-pipelines`. The invariant: treat the pairs as **mutually exclusive**, or split one into its own namespace via the §3 escape hatch (exactly what `open-function` does).
+(Bold = enabled in the local core, so enabling the *other* triggers the clash.) These **cannot** be fixed by renaming — Knative and Tekton read the ConfigMaps by fixed name, which is precisely why upstream isolates them in `knative-serving`/`tekton-pipelines`. The invariant: treat the pair as **mutually exclusive** when they target one namespace.
 
 ## 5. Failure class 2 — service-link env collisions
 
@@ -90,7 +77,7 @@ The fix is disabling service links on every component that reads config from env
 enableServiceLinks: false
 ```
 
-`enableServiceLinks: false` appears across ~19 stack packages plus the embedded crossplane (`install.yaml` + `install-ha.yaml`) and gitea (`post-install.yaml`, `install-ha.yaml`) foundation manifests. Generically-named Services currently live in the namespace and are standing hazards: `webhook` (cosign, buildpack), `controller` (buildpack, open-function), `operator`/`storage` (kubescape), `proxy` (jupyterhub), `dashboard` (devtron), and jenkins-x's Lighthouse `Service/hook` (injects `HOOK_PORT`). The standing ADR-0011 rule: **any component that parses `*_PORT`-shaped env must set `enableServiceLinks: false`** — service links are almost never used, and disabling them erases the whole failure class.
+`enableServiceLinks: false` appears across ~19 stack packages plus the embedded crossplane (`install.yaml` + `install-ha.yaml`) and gitea (`post-install.yaml`, `install-ha.yaml`) foundation manifests. Generically-named Services currently live in the namespace and are standing hazards: `webhook` (cosign, buildpack), `controller` (buildpack), `proxy` (jupyterhub), and `dashboard` (devtron). The standing ADR-0011 rule: **any component that parses `*_PORT`-shaped env must set `enableServiceLinks: false`** — service links are almost never used, and disabling them erases the whole failure class.
 
 ## 6. Package-author rules (enforced by review + scan)
 
@@ -120,7 +107,7 @@ ADR-0011 collapses *platform* packages into one namespace on **one** cluster. AD
 
 ## Testing
 
-- **Parity — namespace is part of the wiring identity** (`parity_test.go`, [platform/controllers/adharplatform/parity_test.go](../../platform/controllers/adharplatform/parity_test.go)): `wiring(e) = {Name, Namespace, Category, ManifestPath}`. `TestLocalProductionAppSetParity` asserts local and production ApplicationSets wire the **identical** package set including the `namespace` field — so the `open-function → openfunction` opt-out (and any future one) must appear in both, and no package can silently drift to a different namespace in one environment. `TestEnvironmentConfigsMatchAppSets` mirrors the same tuple against the per-env `config.yaml` package lists.
+- **Parity — namespace is part of the wiring identity** (`parity_test.go`, [platform/controllers/adharplatform/parity_test.go](../../platform/controllers/adharplatform/parity_test.go)): `wiring(e) = {Name, Namespace, Category, ManifestPath}`. `TestLocalProductionAppSetParity` asserts local and production ApplicationSets wire the **identical** package set including the `namespace` field, and no package can silently drift to a different namespace in one environment. `TestEnvironmentConfigsMatchAppSets` mirrors the same tuple against the per-env `config.yaml` package lists.
 - **Collision scan** (manual/CI, [CONFLICTS.md](../../platform/stack/packages/CONFLICTS.md)): the Python scan enumerates `(kind,name)` owned by >1 package; a non-empty result is a merge blocker for the affected pair.
 - **E2E** (`tests/e2e/bootstrap`, `make e2e`): a full `adhar up` brings the whole enabled core up in `adhar-system` and verifies foundation + GitOps health — the practical proof that 24 co-tenant packages coexist without object/service-link clashes.
 
@@ -134,7 +121,7 @@ ADR-0011 collapses *platform* packages into one namespace on **one** cluster. AD
 | `cmd/up/{bootstrap,local}.go` | creates the `AdharPlatform` CR **in** `adhar-system` |
 | `platform/controllers/adharplatform/controller.go` | `adhar-system`-scoped health/list checks; `ReconcileProjectNamespace` (legacy `adhar-<name>` ns) |
 | `platform/controllers/adharplatform/resources/{gitea,argocd,crossplane,cnpg}/*.yaml` | embedded foundation, all pinned to `namespace: adhar-system`; crossplane/gitea set `enableServiceLinks: false` |
-| `platform/stack/adhar-appset-local.yaml` / `-production.yaml` | per-element `namespace` destination + `CreateNamespace=true`; 76×`adhar-system`, 1×`openfunction` |
+| `platform/stack/adhar-appset-local.yaml` / `-production.yaml` | per-element `namespace` destination + `CreateNamespace=true`; all package elements set `adhar-system` |
 | `platform/stack/packages/CONFLICTS.md` | the two failure classes, the unrenamable-pair table, package-author rules, the collision scan |
 | `platform/stack/packages/**/manifests/*.yaml` | ~19 packages set `enableServiceLinks: false`; none ship `kind: Namespace` |
 | `platform/controllers/adharplatform/parity_test.go` | namespace is part of the parity `wiring` tuple; both appsets must agree |

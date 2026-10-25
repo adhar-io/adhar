@@ -1,6 +1,6 @@
 # BUILDPACK (kpack) INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/application/buildpack/generate-manifests.sh'
-# kpack v0.17.1 (upstream release manifest), post-processed into adhar-system (ADR-0011 exception: hardcoded Secret/webhook-certs)
+# kpack v0.17.1 (upstream release manifest), post-processed into adhar-system.
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -786,7 +786,7 @@ spec:
   - port: 443
     targetPort: 8443
   selector:
-    role: webhook
+    app: kpack-webhook
 
 ---
 apiVersion: apiextensions.k8s.io/v1
@@ -880,7 +880,7 @@ webhooks:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: webhook-certs
+  name: kpack-webhook-certs
   namespace: adhar-system
 
 ---
@@ -906,7 +906,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       priorityClassName: kpack-control-plane
-      serviceAccountName: webhook
+      serviceAccountName: kpack-webhook
       nodeSelector:
         kubernetes.io/os: linux
       containers:
@@ -935,6 +935,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: WEBHOOK_SECRET_NAME
+          value: kpack-webhook-certs
         # Raised from the upstream 50Mi/200Mi, which OOMKilled this container 17
         # times in a row on a live cluster (exit 137, CrashLoopBackOff, so kpack
         # admission was down and every Image/Build went unvalidated).
@@ -962,7 +964,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: webhook
+  name: kpack-webhook
   namespace: adhar-system
 
 ---
@@ -985,7 +987,7 @@ rules:
   resources:
   - secrets
   resourceNames:
-  - webhook-certs
+  - kpack-webhook-certs
   verbs:
   - update
 - apiGroups:
@@ -1017,7 +1019,7 @@ metadata:
   namespace: adhar-system
 subjects:
 - kind: ServiceAccount
-  name: webhook
+  name: kpack-webhook
   namespace: adhar-system
 roleRef:
   kind: Role
@@ -1115,7 +1117,7 @@ metadata:
   name: kpack-webhook-certs-mutatingwebhookconfiguration-admin-binding
 subjects:
 - kind: ServiceAccount
-  name: webhook
+  name: kpack-webhook
   namespace: adhar-system
 roleRef:
   kind: ClusterRole

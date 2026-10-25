@@ -7,7 +7,7 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: knative
 category: application
-version: "v1.22.2"
+version: "v1.23.1"
 description: Knative Operator for installing Knative Serving and Eventing (scale-to-zero serverless workloads).
 maintainer:
   name: Adhar Platform Team

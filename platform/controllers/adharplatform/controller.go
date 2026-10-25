@@ -1049,7 +1049,7 @@ func (r *AdharPlatformReconciler) createGiteaOrg(ctx context.Context) error {
 			// CombinedOutput merges kubectl's stderr, and a cluster with any
 			// unavailable aggregated API prints a discovery warning per call:
 			//
-			//   E... couldn't get resource list for spdx.softwarecomposition.kubescape.io/v1beta1
+			//   E... couldn't get resource list for <group>/<version>
 			//   E... couldn't get resource list for ...
 			//   422
 			//

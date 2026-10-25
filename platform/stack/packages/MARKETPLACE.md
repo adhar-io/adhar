@@ -108,7 +108,7 @@ behind.
 - **data-plane** — the package *is* a per-node agent (e.g. `falco`, `tetragon`,
   `beyla`, `alloy`, `fluent-bit`, `pixie`).
 - **any** — a control component with a per-node half: `velero` (server + node-agent),
-  `kube-prometheus` (Prometheus + node-exporter), `kubescape`, `litmus`
+  `kube-prometheus` (Prometheus + node-exporter), `litmus`
   (controller + chaos-daemon), `keycloak` (issuer + oidc-loopback-proxy).
 
 **A package that ships a DaemonSet is never `control-plane`.** A DaemonSet places a pod

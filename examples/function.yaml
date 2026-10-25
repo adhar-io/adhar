@@ -1,0 +1,30 @@
+# A serverless function on Knative Serving: scales to zero while idle and
+# scales out automatically under load.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Function
+metadata:
+  name: image-thumbnail
+  namespace: team-media
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: function
+  parameters:
+    displayName: Image thumbnailer
+    runtime: node20
+    image: ghcr.io/acme/media-thumbnail:1.0.0
+    trigger: bucket
+    eventSource: bucket://media/uploads/*
+    port: 8080
+    minScale: 0
+    maxScale: 50
+    targetConcurrency: 80
+    timeoutSeconds: 30
+    env:
+      LOG_LEVEL: info
+      OUTPUT_FORMAT: webp
+    organisation: acme
+    team: media
+    project: media-platform
+    environment: dev

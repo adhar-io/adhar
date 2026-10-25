@@ -12,7 +12,7 @@ Platform packages originally deployed into per-package namespaces (`cert-manager
 
 ## Decision
 
-All platform packages deploy into **`adhar-system`**, the same namespace as the bootstrap foundation — with one exception (buildpack, below). The ApplicationSet destination is still templated per element (`namespace: "{{ .namespace }}"`), but every element now sets `adhar-system`; the field is kept only as a mechanical escape hatch, not as a sanctioned opt-out. Packages that previously opted out (`cosign` → `cosign-system`, `buildpack` → `kpack-system`, `kubeflow` → `kubeflow`, `open-function` → `openfunction`) were re-rendered into `adhar-system`, with the upstream `kind: Namespace` objects dropped and the collisions handled by renaming (see below).
+All platform packages deploy into **`adhar-system`**, the same namespace as the bootstrap foundation — with one exception (buildpack, below). The ApplicationSet destination is still templated per element (`namespace: "{{ .namespace }}"`), but every element now sets `adhar-system`; the field is kept only as a mechanical escape hatch, not as a sanctioned opt-out. Packages that previously opted out (`cosign` → `cosign-system`, `buildpack` → `kpack-system`, `kubeflow` → `kubeflow`) were re-rendered into `adhar-system`, with the upstream `kind: Namespace` objects dropped and the collisions handled by renaming (see below).
 
 The only namespaces the platform creates outside `adhar-system` are:
 

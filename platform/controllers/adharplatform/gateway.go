@@ -73,9 +73,9 @@ func (r *AdharPlatformReconciler) ReconcileGatewayAPICRDs(ctx context.Context, r
 	// prohibited". Every reconcile then failed at this step and the bring-up
 	// never reached Argo CD (mum1, 2026-10-17). The platform's own objects
 	// (Gateway, GatewayClass, HTTPRoute, ReferenceGrant, GRPCRoute) are all
-	// standard, so the cluster's CRDs are used as they are; the two packages
-	// that declare experimental kinds (agentgateway's TLSRoute, open-function)
-	// stay OutOfSync there, which is a missing feature, not a broken cluster.
+	// standard, so the cluster's CRDs are used as they are; packages that
+	// declare experimental kinds (for example, agentgateway's TLSRoute) stay
+	// OutOfSync there, which is a missing feature, not a broken cluster.
 	if foreign, detail := r.foreignGatewayAPICRDs(ctx); foreign {
 		logger.Info("The cluster already provides the Gateway API CRDs; the platform's bundle is not applied over them", "existing", detail)
 		return ctrl.Result{}, nil

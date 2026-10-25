@@ -20,9 +20,8 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/external-secrets/manifests"
-          # knative disabled in production: CONFLICTS.md: config-logging/config-observability collide with tekton
           - name: "knative"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/knative/manifests"
@@ -201,18 +200,6 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/adhar-credential-rotation/manifests"
-          # kubescape disabled by default: opt-in. It registers an AGGREGATED APIServer
-          # (spdx.softwarecomposition.kubescape.io), and whenever its pod cannot run the
-          # API becomes unavailable and EVERY kubectl call in the cluster then prints
-          # "couldn't get resource list for spdx.softwarecomposition.kubescape.io/v1beta1".
-          # That noise goes to stderr and contaminates anything capturing command output —
-          # it is what made `adhar upgrade` misread a Gitea 409 as a failure (2026-09-26).
-          # A scanner should not be able to break unrelated tooling by being unschedulable.
-          - name: "kubescape"
-            enabled: "false"
-            namespace: "adhar-system"
-            category: "security"
-            manifestPath: "security/kubescape/manifests"
           - name: "tetragon"
             enabled: "true"
             namespace: "adhar-system"
@@ -301,7 +288,7 @@ spec:
           # Off in every profile since 2026-10-10 (opt-in). It was the platform's
           # MySQL-protocol database for a week; nothing on the platform consumes
           # it — no package declares it, oncall ships its own MariaDB and
-          # chaos-mesh/kubeflow bundle their own MySQL — and it cost a CNPG-sized
+          # kubeflow bundles its own MySQL — and it cost a CNPG-sized
           # footprint plus a Degraded app on every fresh cluster while its
           # password template was wrong. Flip `enabled` to bring it back; the
           # manifests are complete and the template is fixed.
@@ -311,7 +298,7 @@ spec:
             category: "data"
             manifestPath: "data/mariadb-operator/manifests"
           # Off since 2026-10-03. Nothing depended on this one — no package
-          # declares it, and chaos-mesh and kubeflow bundle their own MySQL
+          # declares it, and kubeflow bundles its own MySQL
           # rather than consuming a shared instance.
           - name: "mysql-operator"
             enabled: "false"
@@ -361,17 +348,7 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/buildpack/manifests"
-          # chaos-mesh disabled: replaced by `litmus` as the platform's chaos
-          # engine. Chaos Mesh's dashboard is a CR editor; ChaosCenter is a
-          # chaos workflow engine with a fault catalogue, probes and recorded
-          # results, which is what resilience testing in CI needs. Running both
-          # would put two fault injectors on the same nodes.
-          - name: "chaos-mesh"
-            enabled: "false"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/chaos-mesh/manifests"
-          # litmus: the platform's chaos-engineering engine (replaces chaos-mesh).
+          # litmus: the platform's chaos-engineering engine.
           # Three charts in one package — ChaosCenter, the chaos operator + CRDs,
           # and the 29-fault Kubernetes catalogue — plus its own MongoDB replica
           # set from the platform operator.
@@ -385,17 +362,6 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/external-dns/manifests"
-          # open-function disabled in production: CONFLICTS.md: vendors Knative ConfigMaps that collide with tekton
-          - name: "open-function"
-            enabled: "false"
-            # adhar-system like every other package (ADR-0011). Kept DISABLED:
-            # it vendors Knative/Tekton ConfigMaps (config-defaults,
-            # config-tracing) whose names are fixed upstream and collide with the
-            # core tekton package once both live in adhar-system. Enabling it
-            # requires disabling tekton first (see CONFLICTS.md).
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/open-function/manifests"
           - name: "coder"
             enabled: "true"
             namespace: "adhar-system"
@@ -840,6 +806,13 @@ spec:
         kind: ExternalSecret
         jsonPointers:
         - /status
+      # KEDA/HPA own runtime scaling. Git pins baseline replicas, but the
+      # autoscaler must control live replica count without ArgoCD self-heal
+      # forcing it back to baseline.
+      - group: apps
+        kind: Deployment
+        jsonPointers:
+        - /spec/replicas
       - group: apiextensions.k8s.io
         kind: CustomResourceDefinition
         jsonPointers:

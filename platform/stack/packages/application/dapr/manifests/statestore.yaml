@@ -9,10 +9,8 @@ spec:
   version: v1
   metadata:
     - name: redisHost
-      value: redis-master:6379
-    - name: redisPassword
-      secretKeyRef:
-        name: redis
-        key: redis-password
+      value: adhar-cache.adhar-system.svc.cluster.local:6379
+    - name: actorStateStore
+      value: "true"
 auth:
   secretStore: kubernetes

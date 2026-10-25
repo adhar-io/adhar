@@ -828,7 +828,7 @@ subchart with a pinned `-debian-11-*` tag needs the same treatment in its
 
 ```text
 if kind is a CRD, it should be installed before calling Start
-{"kind": "StressChaos.chaos-mesh.org"}
+{"kind": "<YourKind>.<your.group>"}
 ```
 
 …and the controller crash-loops forever. `kubectl get crd | grep <group>`
@@ -878,7 +878,7 @@ spec:
       enableServiceLinks: false
 ```
 
-Applied to the chaos-mesh workloads in its `generate-manifests.sh`. **Any new
+Applied to the Litmus workloads in its `generate-manifests.sh`. **Any new
 package that parses environment variables strictly needs the same.** A component
 that pins the variable itself as a container env var is safe — container env
 beats service-link injection (that is why Tekton is fine next to cosign).
@@ -927,8 +927,8 @@ apply the same rewrite.
 
 - `certificate signed by unknown authority` from a webhook, and every
   cert-manager custom resource fails (`inject-ca-from-secret: cert-manager/…`);
-- APIService discovery breaks for `kubectl` *and* ArgoCD (kubescape's storage
-  APIService cert SAN, from `ksNamespace`);
+- APIService discovery breaks for `kubectl` *and* ArgoCD (a chart-shipped
+  APIService cert SAN still points at its old namespace);
 - CRDs annotated with a foreign namespace (`kamaji-system/…`).
 
 **Root cause** — the chart hardcodes its default namespace into CA-injection
@@ -940,7 +940,7 @@ CRD annotations, then grep the generated manifest for foreign namespaces before
 committing:
 
 ```bash
-grep -nE '(cert-manager|kamaji-system|kubescape|kpack-system)/' manifests/install.yaml
+grep -nE '(cert-manager|kamaji-system|kpack-system)/' manifests/install.yaml
 ```
 
 ### 6.7 The scorecard job fails, or scores everything the same

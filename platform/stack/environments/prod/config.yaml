@@ -11,7 +11,7 @@ packages:
     category: "security"
     manifestPath: "security/external-secrets/manifests"
   - name: "knative"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/knative/manifests"
@@ -135,18 +135,6 @@ packages:
     namespace: "adhar-system"
     category: "security"
     manifestPath: "security/adhar-credential-rotation/manifests"
-  # kubescape disabled by default: opt-in. It registers an AGGREGATED APIServer
-  # (spdx.softwarecomposition.kubescape.io), and whenever its pod cannot run the
-  # API becomes unavailable and EVERY kubectl call in the cluster then prints
-  # "couldn't get resource list for spdx.softwarecomposition.kubescape.io/v1beta1".
-  # That noise goes to stderr and contaminates anything capturing command output —
-  # it is what made `adhar upgrade` misread a Gitea 409 as a failure (2026-09-26).
-  # A scanner should not be able to break unrelated tooling by being unschedulable.
-  - name: "kubescape"
-    enabled: "false"
-    namespace: "adhar-system"
-    category: "security"
-    manifestPath: "security/kubescape/manifests"
   - name: "tetragon"
     enabled: "true"
     namespace: "adhar-system"
@@ -262,15 +250,6 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/buildpack/manifests"
-  # chaos-mesh superseded by `litmus` as the platform's chaos engine: ChaosCenter
-  # is a chaos workflow engine with a fault catalogue, probes and recorded
-  # results, where the Chaos Mesh dashboard is a CR editor. Two fault injectors
-  # on the same nodes is not a configuration anyone wants.
-  - name: "chaos-mesh"
-    enabled: "false"
-    namespace: "adhar-system"
-    category: "application"
-    manifestPath: "application/chaos-mesh/manifests"
   - name: "litmus"
     enabled: "true"
     namespace: "adhar-system"
@@ -281,11 +260,6 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/external-dns/manifests"
-  - name: "open-function"
-    enabled: "false"
-    namespace: "adhar-system"
-    category: "application"
-    manifestPath: "application/open-function/manifests"
   - name: "coder"
     enabled: "true"
     namespace: "adhar-system"

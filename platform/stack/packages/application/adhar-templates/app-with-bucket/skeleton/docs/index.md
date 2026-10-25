@@ -2,7 +2,7 @@
 
 # Example Basic Application
 
-Thanks for trying out this demo! In this example, we deployed a simple application with a S3 bucket using Crossplane.
+Thanks for trying out this demo! In this example, we deployed a simple application with a S3 bucket using Crossplane and a KEDA ScaledObject (minimum 1 replica, scale up on load).
 
 
 ### aadhar 

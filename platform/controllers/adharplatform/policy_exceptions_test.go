@@ -51,7 +51,7 @@ func TestPolicyExceptionsAreHonouredAndShipped(t *testing.T) {
 		}
 	}
 	agents, _ := os.ReadFile(filepath.Join(dir, "exceptions-platform-agents.yaml"))
-	for _, agent := range []string{"cilium", "falco", "tetragon", "node-exporter", "kubescape-node-agent",
+	for _, agent := range []string{"cilium", "falco", "tetragon", "node-exporter", "velero-node-agent",
 		"harbor-node-registry-trust", "oidc-loopback-proxy", "opensearch", "cloud-integration"} {
 		if !strings.Contains(string(agents), "name: platform-agent-"+agent+"\n") {
 			t.Errorf("no PolicyException for the %s agent", agent)

@@ -433,7 +433,7 @@ spec:
         # upgraded it on any pod restart, and the console's own status card
         # reported "latest" against its build version. Bump this line to ship
         # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.158
+        image: ghcr.io/adhar-io/adhar-console:0.1.160
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

@@ -656,7 +656,7 @@ func TestStatefulPackagesUseThePlatformDatabase(t *testing.T) {
 // duplicate name is two Argo CD Applications owning one object. What that looks like
 // in practice, measured on a live cluster:
 //
-//   - DaemonSet/node-agent (velero + kubescape): whichever synced second failed
+//   - DaemonSet/node-agent (duplicate owners): whichever synced second failed
 //     forever on `spec.selector: field is immutable`, so velero sat Degraded at retry
 //     attempt #9 and its node-agent never ran.
 //   - ConfigMap/adhar-dashboard-opensearch and -external-dns (the component package +
@@ -667,10 +667,10 @@ func TestStatefulPackagesUseThePlatformDatabase(t *testing.T) {
 // note in CONFLICTS.md — that file recorded the node-agent collision as
 // "pre-existing" for weeks while velero silently failed.
 //
-// Disabled packages are excluded on purpose: open-function vendors dapr, keda and
-// tekton, and cosign/vault duplicate their replacements. Those are real duplicates
-// that matter only if someone enables them, and the enablement is where the decision
-// belongs (platform/stack/packages/CONFLICTS.md lists them).
+// Disabled packages are excluded on purpose: some optional packages duplicate
+// resources shipped by enabled replacements. Those duplicates matter only if
+// someone enables them, and the enablement is where the decision belongs
+// (platform/stack/packages/CONFLICTS.md lists them).
 func TestEnabledPackagesDoNotShipDuplicateObjectNames(t *testing.T) {
 	for _, appset := range []string{"adhar-appset-local.yaml", "adhar-appset-production.yaml"} {
 		elements := loadAppSetElements(t, appset)

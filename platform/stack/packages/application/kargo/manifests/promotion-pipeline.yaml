@@ -10,7 +10,7 @@
 #
 # The Project gets its own namespace (Kargo requirement — a Project owns a
 # namespace of the same name; this is a sanctioned exception to the
-# shared-namespace rule of ADR-0011, like open-function). Git credentials are
+# shared-namespace rule of ADR-0011). Git credentials are
 # projected from gitea-credential via ESO using the kubernetes-backed
 # ClusterSecretStore (same mechanism as the SSO secret chain, ADR-0013).
 apiVersion: v1

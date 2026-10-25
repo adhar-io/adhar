@@ -2,6 +2,7 @@
 # new`, `adhar routes new` and the Console). Given a name, it creates:
 #   * a Deployment   → runs harbor-core…/library/<name>:latest in adhar-system
 #   * a Service      → cluster-internal endpoint
+#   * a ScaledObject → KEDA autoscaling (min 1 replica, scale up on load)
 # It does NOT build the image (see the note in the task below): the app-ci
 # pipeline builds, scans and signs it on pushes to the service's Gitea repo.
 # The git-url/subpath params are only echoed into the run log. adhar-system is
@@ -35,8 +36,9 @@ metadata:
   annotations: {argocd.argoproj.io/sync-wave: "4"}
 rules:
   - {apiGroups: ["kpack.io"], resources: [images], verbs: [get, create, update, patch]}
-  - {apiGroups: ["apps"], resources: [deployments], verbs: [get, create, update, patch]}
+  - {apiGroups: ["apps"], resources: [deployments], verbs: [get, list, create, update, patch]}
   - {apiGroups: [""], resources: [services], verbs: [get, create, update, patch]}
+  - {apiGroups: ["keda.sh"], resources: [scaledobjects], verbs: [get, list, create, update, patch]}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -46,6 +48,73 @@ metadata:
   annotations: {argocd.argoproj.io/sync-wave: "4"}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: service-factory}
 subjects: [{kind: ServiceAccount, name: service-factory, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: service-autoscaling-retrofit
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  # Backfill once per hour for already-running services that predate autoscaling.
+  # Idempotent: creates only missing ScaledObjects and leaves existing ones untouched.
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: service-factory
+          restartPolicy: OnFailure
+          containers:
+            - name: retrofit
+              image: alpine/k8s:1.31.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  if ! kubectl -n adhar-system get scaledobjects.keda.sh --no-headers >/dev/null 2>&1; then
+                    echo "KEDA CRD not found; skipping retrofit."
+                    exit 0
+                  fi
+                  DEPLOYS="$(kubectl -n adhar-system get deploy -l adhar.io/supply-chain=true -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
+                  if [ -z "${DEPLOYS}" ]; then
+                    echo "No supply-chain deployments found for retrofit."
+                    exit 0
+                  fi
+                  for name in ${DEPLOYS}; do
+                    if kubectl -n adhar-system get scaledobject.keda.sh "${name}" >/dev/null 2>&1; then
+                      continue
+                    fi
+                    kubectl apply -f - <<YAML
+                  apiVersion: keda.sh/v1alpha1
+                  kind: ScaledObject
+                  metadata:
+                    name: ${name}
+                    namespace: adhar-system
+                    labels: {app: ${name}, adhar.io/supply-chain: "true"}
+                  spec:
+                    scaleTargetRef:
+                      name: ${name}
+                    pollingInterval: 30
+                    cooldownPeriod: 120
+                    minReplicaCount: 1
+                    maxReplicaCount: 10
+                    triggers:
+                      - type: cpu
+                        metricType: Utilization
+                        metadata:
+                          value: "70"
+                      - type: memory
+                        metricType: Utilization
+                        metadata:
+                          value: "75"
+                  YAML
+                    echo "Created ScaledObject for deployment ${name}"
+                  done
+                  echo "Autoscaling retrofit complete."
 ---
 apiVersion: tekton.dev/v1
 kind: Task
@@ -137,6 +206,34 @@ spec:
           selector: {app: ${NAME}}
           ports: [{port: 80, targetPort: 8080}]
         YAML
+        if kubectl -n adhar-system get scaledobjects.keda.sh --no-headers >/dev/null 2>&1; then
+          kubectl apply -f - <<YAML
+        apiVersion: keda.sh/v1alpha1
+        kind: ScaledObject
+        metadata:
+          name: ${NAME}
+          namespace: adhar-system
+          labels: {app: ${NAME}, adhar.io/supply-chain: "true"}
+        spec:
+          scaleTargetRef:
+            name: ${NAME}
+          pollingInterval: 30
+          cooldownPeriod: 120
+          minReplicaCount: 1
+          maxReplicaCount: 10
+          triggers:
+            - type: cpu
+              metricType: Utilization
+              metadata:
+                value: "70"
+            - type: memory
+              metricType: Utilization
+              metadata:
+                value: "75"
+        YAML
+        else
+          echo "KEDA CRD not found; skipping ScaledObject for ${NAME}."
+        fi
         echo "Service ${NAME} scaffolded."
         echo "This does not build the image: app-ci builds, scans and signs it on the"
         echo "next push to the ${NAME} repository in the platform Gitea. Until then the"
