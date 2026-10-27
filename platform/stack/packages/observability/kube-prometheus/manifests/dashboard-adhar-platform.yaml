@@ -276,7 +276,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "sum(argocd_app_info{health_status=\"Healthy\"}) / count(argocd_app_info)",
+              "expr": "sum(argocd_app_info{health_status=\"Healthy\"}) / (count(argocd_app_info) > 0)",
               "legendFormat": "__auto",
               "instant": true,
               "range": false
@@ -1085,7 +1085,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "100 * sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests) / sum(max by (node) (kube_node_status_allocatable{resource=\"cpu\"}))",
+              "expr": "100 * sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests) / (sum(max by (node) (kube_node_status_allocatable{resource=\"cpu\"})) > 0)",
               "legendFormat": "__auto",
               "instant": true,
               "range": false
@@ -1154,7 +1154,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))",
+              "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / (sum(node_memory_MemTotal_bytes) > 0))",
               "legendFormat": "__auto",
               "instant": true,
               "range": false
@@ -1223,7 +1223,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "100 * sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_requests) / sum(max by (node) (kube_node_status_allocatable{resource=\"memory\"}))",
+              "expr": "100 * sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_requests) / (sum(max by (node) (kube_node_status_allocatable{resource=\"memory\"})) > 0)",
               "legendFormat": "__auto",
               "instant": true,
               "range": false
@@ -1301,7 +1301,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "B",
-              "expr": "100 * sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests) / sum(max by (node) (kube_node_status_allocatable{resource=\"cpu\"}))",
+              "expr": "100 * sum(cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests) / (sum(max by (node) (kube_node_status_allocatable{resource=\"cpu\"})) > 0)",
               "legendFormat": "CPU requested"
             },
             {
@@ -1310,7 +1310,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "C",
-              "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))",
+              "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / (sum(node_memory_MemTotal_bytes) > 0))",
               "legendFormat": "Memory used"
             },
             {
@@ -1319,7 +1319,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "D",
-              "expr": "100 * sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_requests) / sum(max by (node) (kube_node_status_allocatable{resource=\"memory\"}))",
+              "expr": "100 * sum(cluster:namespace:pod_memory:active:kube_pod_container_resource_requests) / (sum(max by (node) (kube_node_status_allocatable{resource=\"memory\"})) > 0)",
               "legendFormat": "Memory requested"
             }
           ],
@@ -1676,7 +1676,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "100 * sum(kubelet_running_pods) / sum(max by (node) (kube_node_status_allocatable{resource=\"pods\"}))",
+              "expr": "100 * sum(kubelet_running_pods) / (sum(max by (node) (kube_node_status_allocatable{resource=\"pods\"})) > 0)",
               "legendFormat": "__auto",
               "instant": true,
               "range": false
@@ -1824,7 +1824,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "max(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"}))",
+              "expr": "max(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"} / (node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"} > 0)))",
               "legendFormat": "__auto",
               "instant": true,
               "range": false
@@ -1931,7 +1931,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "D",
-              "expr": "100 * sum by (node) (cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests{node=~\"$node\"}) / max by (node) (kube_node_status_allocatable{resource=\"cpu\",node=~\"$node\"})",
+              "expr": "100 * sum by (node) (cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests{node=~\"$node\"}) / (max by (node) (kube_node_status_allocatable{resource=\"cpu\",node=~\"$node\"}) > 0)",
               "format": "table",
               "instant": true,
               "range": false
@@ -1975,7 +1975,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "H",
-              "expr": "100 * sum by (node) (cluster:namespace:pod_memory:active:kube_pod_container_resource_requests{node=~\"$node\"}) / max by (node) (kube_node_status_allocatable{resource=\"memory\",node=~\"$node\"})",
+              "expr": "100 * sum by (node) (cluster:namespace:pod_memory:active:kube_pod_container_resource_requests{node=~\"$node\"}) / (max by (node) (kube_node_status_allocatable{resource=\"memory\",node=~\"$node\"}) > 0)",
               "format": "table",
               "instant": true,
               "range": false
@@ -2374,7 +2374,7 @@ data:
                 "uid": "prometheus"
               },
               "refId": "A",
-              "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"}) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+              "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"} / (node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|ramfs\"} > 0)) * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
               "legendFormat": "{{nodename}}",
               "instant": true,
               "range": false
@@ -4282,7 +4282,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.5, sum by (le) (rate(argocd_app_reconcile_bucket[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.5, sum by (le) (rate(argocd_app_reconcile_bucket[$__rate_interval]))) >= 0)",
                   "legendFormat": "p50"
                 },
                 {
@@ -4291,7 +4291,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "B",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(argocd_app_reconcile_bucket[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(argocd_app_reconcile_bucket[$__rate_interval]))) >= 0)",
                   "legendFormat": "p95"
                 }
               ],
@@ -4796,7 +4796,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket[$__range])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket[$__range]))) >= 0)",
                   "legendFormat": "__auto",
                   "instant": true,
                   "range": false
@@ -4884,7 +4884,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "C",
-                  "expr": "sum by (pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_sum[$__range])) / sum by (pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_count[$__range]))",
+                  "expr": "sum by (pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_sum[$__range])) / (sum by (pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_count[$__range])) > 0)",
                   "format": "table",
                   "instant": true,
                   "range": false
@@ -5049,7 +5049,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "B",
-                  "expr": "(sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\",status=~\"5..\"}[$__range])) or sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])) * 0) / sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range]))",
+                  "expr": "(sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\",status=~\"5..\"}[$__range])) or sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])) * 0) / (sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])) > 0)",
                   "format": "table",
                   "instant": true,
                   "range": false
@@ -5060,7 +5060,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "C",
-                  "expr": "1 - ((sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\",status=~\"5..\"}[$__range])) or sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])) * 0) / sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range]))) / (1 - $slo)",
+                  "expr": "1 - ((sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\",status=~\"5..\"}[$__range])) or sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])) * 0) / (sum by (namespace, application) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])) > 0)) / (1 - $slo)",
                   "format": "table",
                   "instant": true,
                   "range": false
@@ -5071,7 +5071,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "D",
-                  "expr": "histogram_quantile(0.95, sum by (namespace, application, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range])))",
+                  "expr": "(histogram_quantile(0.95, sum by (namespace, application, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__range]))) >= 0)",
                   "format": "table",
                   "instant": true,
                   "range": false
@@ -5354,7 +5354,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "(sum by (application, namespace) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\",status=~\"5..\"}[$__rate_interval])) or sum by (application, namespace) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__rate_interval])) * 0) / sum by (application, namespace) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__rate_interval]))",
+                  "expr": "(sum by (application, namespace) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\",status=~\"5..\"}[$__rate_interval])) or sum by (application, namespace) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__rate_interval])) * 0) / (sum by (application, namespace) (rate(http_server_requests_seconds_count{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__rate_interval])) > 0)",
                   "legendFormat": "{{application}} ({{namespace}})"
                 }
               ],
@@ -5421,7 +5421,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.95, sum by (application, namespace, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (application, namespace, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$app_namespace\",application!=\"\",uri!~\"/actuator.*\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{application}} ({{namespace}})"
                 }
               ],
@@ -5939,7 +5939,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.99, sum by (verb, le) (rate(apiserver_request_sli_duration_seconds_bucket{verb!~\"WATCH|CONNECT\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (verb, le) (rate(apiserver_request_sli_duration_seconds_bucket{verb!~\"WATCH|CONNECT\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{verb}}"
                 }
               ],
@@ -6125,7 +6125,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.99, sum by (operation, le) (rate(etcd_request_duration_seconds_bucket[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (operation, le) (rate(etcd_request_duration_seconds_bucket[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{operation}}"
                 }
               ],
@@ -6948,7 +6948,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.5, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.5, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[$__rate_interval]))) >= 0)",
                   "legendFormat": "p50"
                 },
                 {
@@ -6957,7 +6957,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "B",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[$__rate_interval]))) >= 0)",
                   "legendFormat": "p95"
                 },
                 {
@@ -6966,7 +6966,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "C",
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99"
                 }
               ],
@@ -8238,7 +8238,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "max(100 * (1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes)) or vector(0)",
+                  "expr": "max(100 * (1 - kubelet_volume_stats_available_bytes / (kubelet_volume_stats_capacity_bytes > 0))) or vector(0)",
                   "legendFormat": "__auto",
                   "instant": true,
                   "range": false
@@ -8466,7 +8466,7 @@ data:
                     "uid": "prometheus"
                   },
                   "refId": "A",
-                  "expr": "topk(15, 100 * (1 - kubelet_volume_stats_available_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"}))",
+                  "expr": "topk(15, 100 * (1 - kubelet_volume_stats_available_bytes{namespace=~\"$namespace\"} / (kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"} > 0)))",
                   "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
                   "instant": true,
                   "range": false
@@ -8700,7 +8700,7 @@ data:
                     "uid": "mimir"
                   },
                   "refId": "A",
-                  "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) / sum by (service) (rate(traces_spanmetrics_calls_total[$__rate_interval]))",
+                  "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) / (sum by (service) (rate(traces_spanmetrics_calls_total[$__rate_interval])) > 0)",
                   "legendFormat": "{{service}}"
                 }
               ],
@@ -8834,7 +8834,7 @@ data:
                     "uid": "mimir"
                   },
                   "refId": "A",
-                  "expr": "histogram_quantile(0.95, sum by (service, le) (rate(traces_spanmetrics_latency_bucket{span_kind=~\"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (service, le) (rate(traces_spanmetrics_latency_bucket{span_kind=~\"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{service}}"
                 }
               ],

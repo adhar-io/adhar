@@ -64,6 +64,10 @@ spec:
   failedJobsHistoryLimit: 2
   jobTemplate:
     spec:
+      # Under Forbid a hung run blocks every later one (an apiserver call that
+      # never returns). The retrofit takes seconds; ten minutes is generous and
+      # still ends a stuck run long before the next hourly slot.
+      activeDeadlineSeconds: 600
       template:
         spec:
           serviceAccountName: service-factory

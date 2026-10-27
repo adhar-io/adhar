@@ -166,7 +166,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\", status=\"success\"}[$__range])) / sum(increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range]))",
+              "expr": "100 * sum(increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\", status=\"success\"}[$__range])) / (sum(increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range])) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -391,7 +391,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "histogram_quantile(0.95, sum by (le) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range])))",
+              "expr": "(histogram_quantile(0.95, sum by (le) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range]))) >= 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -838,7 +838,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.95, sum by (le, pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[1h])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[1h]))) >= 0)",
                   "legendFormat": "{{pipeline}} p95",
                   "range": true,
                   "instant": false,
@@ -850,7 +850,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.5, sum by (le, pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[1h])))",
+                  "expr": "(histogram_quantile(0.5, sum by (le, pipeline) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[1h]))) >= 0)",
                   "legendFormat": "{{pipeline}} p50",
                   "range": true,
                   "instant": false,
@@ -1002,7 +1002,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (pipeline) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\", status=\"success\"}[$__range])) / sum by (pipeline) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range]))",
+                  "expr": "100 * sum by (pipeline) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\", status=\"success\"}[$__range])) / (sum by (pipeline) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_count{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range])) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -1015,7 +1015,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.95, sum by (le, pipeline) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, pipeline) (increase(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[$__range]))) >= 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -1247,7 +1247,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(10, histogram_quantile(0.95, sum by (le, pipeline, task) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[1h]))))",
+                  "expr": "topk(10, (histogram_quantile(0.95, sum by (le, pipeline, task) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket{job=\"adhar-system-controller\", pipeline=~\"$pipeline\"}[1h]))) >= 0))",
                   "legendFormat": "{{pipeline}}/{{task}}",
                   "range": true,
                   "instant": false,
@@ -1653,7 +1653,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(tekton_pipelines_controller_reconcile_latency_bucket{job=\"adhar-system-controller\"}[$__rate_interval]))) / 1000",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(tekton_pipelines_controller_reconcile_latency_bucket{job=\"adhar-system-controller\"}[$__rate_interval]))) >= 0) / 1000",
                   "legendFormat": "reconcile p99 (s)",
                   "range": true,
                   "instant": false,
@@ -2358,7 +2358,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"harbor-.+|kpack-.+|buildpack.*\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"harbor-.+|kpack-.+|buildpack.*\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"harbor-.+|kpack-.+|buildpack.*\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"harbor-.+|kpack-.+|buildpack.*\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,

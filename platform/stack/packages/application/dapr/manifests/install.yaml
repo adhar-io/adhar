@@ -3250,6 +3250,8 @@ metadata:
 spec:
   # One replica: the platform runs one copy of every component by default and
   # scales where a cluster asks for HA (enableHAMode), not by shipping three.
+  # The etcd peer list below names the same single member; the two numbers
+  # are rewritten together by post-render.py and must never disagree.
   replicas: 1
   serviceName: dapr-scheduler-server
   podManagementPolicy: Parallel
@@ -3329,8 +3331,11 @@ spec:
         - "--listen-address=0.0.0.0"
         - "--id"
         - "$(SCHEDULER_ID)"
+        # One member, matching `replicas` (post-render.py). A data directory that
+        # already recorded three members ignores this flag and never elects: wipe
+        # the scheduler's volume (README.md, "Recovering a leaderless scheduler").
         - "--etcd-initial-cluster"
-        - "dapr-scheduler-server-0=https://dapr-scheduler-server-0.dapr-scheduler-server.adhar-system.svc.cluster.local:2380,dapr-scheduler-server-1=https://dapr-scheduler-server-1.dapr-scheduler-server.adhar-system.svc.cluster.local:2380,dapr-scheduler-server-2=https://dapr-scheduler-server-2.dapr-scheduler-server.adhar-system.svc.cluster.local:2380"
+        - "dapr-scheduler-server-0=https://dapr-scheduler-server-0.dapr-scheduler-server.adhar-system.svc.cluster.local:2380"
         - "--etcd-embed=true"
         - "--log-level"
         - info
@@ -3377,6 +3382,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+      # Node-local volume: this pod has one legal node (post-render.py).
+      priorityClassName: adhar-node-bound
       serviceAccountName: dapr-scheduler
       volumes:
       - name: dapr-scheduler-writeable-identity

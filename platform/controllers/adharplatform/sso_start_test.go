@@ -67,7 +67,7 @@ func stagedRoute(t *testing.T, app string) ssoRoute {
 func TestSSOStartRoutesCannotLoop(t *testing.T) {
 	for app, passCookie := range map[string]string{
 		"kargo":  "adhar_sso_kargo=1",
-		"penpot": "auth-token=abc",
+		"penpot": "adhar_sso_penpot=1", // not auth-token: see TestPenpotRouteTrustsOnlyTheStartPagesMarker
 	} {
 		r := stagedRoute(t, app)
 		page := "/adhar-sso/" + app + ".html"

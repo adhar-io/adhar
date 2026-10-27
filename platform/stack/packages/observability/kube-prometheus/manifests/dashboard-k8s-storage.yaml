@@ -368,7 +368,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "count(kubelet_volume_stats_used_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} > 0.8) or vector(0)",
+              "expr": "count(kubelet_volume_stats_used_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} / (kubelet_volume_stats_capacity_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} > 0) > 0.8) or vector(0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -437,7 +437,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "max(1 - node_filesystem_avail_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} / node_filesystem_size_bytes{mountpoint=\"/\", fstype!=\"rootfs\"}) * 100",
+              "expr": "max(1 - node_filesystem_avail_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} / (node_filesystem_size_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} > 0)) * 100",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -576,7 +576,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"}) / max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"})",
+              "expr": "100 * max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"}) / (max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1072,7 +1072,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(10, max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"}))",
+                  "expr": "topk(10, max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} / (kubelet_volume_stats_capacity_bytes{job=\"kubelet\", metrics_path=\"/metrics\", namespace=~\"$namespace\"} > 0)))",
                   "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
                   "range": true,
                   "instant": false,
@@ -1379,7 +1379,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "max without(instance,node) (\n(\n  topk(1, kubelet_volume_stats_capacity_bytes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n  -\n  topk(1, kubelet_volume_stats_available_bytes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n)\n/\ntopk(1, kubelet_volume_stats_capacity_bytes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n* 100)\n",
+                  "expr": "max without(instance,node) (\n(\n  topk(1, kubelet_volume_stats_capacity_bytes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n  -\n  topk(1, kubelet_volume_stats_available_bytes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n)\n/\n(topk(1, kubelet_volume_stats_capacity_bytes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"}) > 0)\n* 100)\n",
                   "instant": true
                 }
               ],
@@ -1493,7 +1493,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "max without(instance,node) (\ntopk(1, kubelet_volume_stats_inodes_used{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n/\ntopk(1, kubelet_volume_stats_inodes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n* 100)\n",
+                  "expr": "max without(instance,node) (\ntopk(1, kubelet_volume_stats_inodes_used{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"})\n/\n(topk(1, kubelet_volume_stats_inodes{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", namespace=\"$volume_namespace\", persistentvolumeclaim=\"$volume\"}) > 0)\n* 100)\n",
                   "instant": true
                 }
               ],
@@ -1529,7 +1529,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} / node_filesystem_size_bytes{mountpoint=\"/\", fstype!=\"rootfs\"})) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} / (node_filesystem_size_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} > 0))) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}}",
                   "range": false,
                   "instant": true,
@@ -1693,7 +1693,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (operation_name, le) (rate(storage_operation_duration_seconds_bucket{job=\"kubelet\", metrics_path=\"/metrics\", node=~\"$node\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (operation_name, le) (rate(storage_operation_duration_seconds_bucket{job=\"kubelet\", metrics_path=\"/metrics\", node=~\"$node\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{operation_name}} p99",
                   "range": true,
                   "instant": false,
@@ -1908,7 +1908,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (method_name, le) (rate(csi_operations_seconds_bucket{job=\"kubelet\", metrics_path=\"/metrics\", node=~\"$node\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (method_name, le) (rate(csi_operations_seconds_bucket{job=\"kubelet\", metrics_path=\"/metrics\", node=~\"$node\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{method_name}}",
                   "range": true,
                   "instant": false,

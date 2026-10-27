@@ -2142,7 +2142,10 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: oncall-engine-migrate-2026-09-12-07-04-21
+  name: oncall-engine-migrate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
   labels:
     helm.sh/chart: oncall-1.16.5
     app.kubernetes.io/name: oncall
@@ -2152,10 +2155,9 @@ metadata:
     app.kubernetes.io/component: engine
 spec:
   backoffLimit: 15
-  ttlSecondsAfterFinished: 20
   template:
     metadata:
-      name: oncall-engine-migrate-2026-09-12-07-04-21
+      name: oncall-engine-migrate
       labels:
         app.kubernetes.io/name: oncall
         app.kubernetes.io/instance: oncall

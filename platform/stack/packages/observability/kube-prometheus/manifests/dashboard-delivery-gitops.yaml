@@ -2098,7 +2098,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(argocd_appset_reconcile_bucket{job=\"adhar-system/argocd\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(argocd_appset_reconcile_bucket{job=\"adhar-system/argocd\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "reconcile p99",
                   "range": true,
                   "instant": false,
@@ -2314,7 +2314,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, request_type) (rate(argocd_git_request_duration_seconds_bucket{job=\"adhar-system/argocd\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, request_type) (rate(argocd_git_request_duration_seconds_bucket{job=\"adhar-system/argocd\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{request_type}}",
                   "range": true,
                   "instant": false,
@@ -2927,7 +2927,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"argo-cd-.+\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"argo-cd-.+\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"argo-cd-.+\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"argo-cd-.+\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -3915,7 +3915,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(rollout_reconcile_bucket{job=\"argo-rollouts\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(rollout_reconcile_bucket{job=\"argo-rollouts\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "reconcile p99",
                   "range": true,
                   "instant": false,
@@ -4642,7 +4642,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"kargo.*\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"kargo.*\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{controller}}",
                   "range": true,
                   "instant": false,

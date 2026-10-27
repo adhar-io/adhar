@@ -74,6 +74,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
               weight: 100
       serviceAccountName: operator-webhook
+      enableServiceLinks: false
       containers:
         - name: operator-webhook
           # This is the Go import path for the binary that is containerized
@@ -96,9 +97,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: CONFIG_LOGGING_NAME
-              value: config-logging
+              value: knative-operator-config-logging
             - name: CONFIG_OBSERVABILITY_NAME
-              value: config-observability
+              value: knative-operator-config-observability
             - name: WEBHOOK_NAME
               value: operator-webhook
             - name: WEBHOOK_PORT
@@ -7691,7 +7692,6 @@ aggregationRule:
     # automatically.
     - matchExpressions:
         - {key: serving.knative.dev/release, operator: Exists}
-rules: [] # Rules are automatically filled in by the controller manager.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -7707,7 +7707,6 @@ aggregationRule:
     # automatically.
     - matchExpressions:
         - {key: app.kubernetes.io/name, operator: In, values: ["knative-serving"]}
-rules: [] # Rules are automatically filled in by the controller manager.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -7723,7 +7722,6 @@ aggregationRule:
     # automatically.
     - matchExpressions:
         - {key: eventing.knative.dev/release, operator: Exists}
-rules: [] # Rules are automatically filled in by the controller manager.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -7739,7 +7737,6 @@ aggregationRule:
     # automatically.
     - matchExpressions:
         - {key: app.kubernetes.io/name, operator: In, values: ["knative-eventing"]}
-rules: [] # Rules are automatically filled in by the controller manager.
 
 ---
 # Copyright 2020 The Knative Authors
@@ -8771,7 +8768,7 @@ subjects:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: config-logging
+  name: knative-operator-config-logging
   namespace: adhar-system
   labels:
     app.kubernetes.io/version: "1.23.1"
@@ -8834,7 +8831,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: config-observability
+  name: knative-operator-config-observability
   namespace: adhar-system
   labels:
     app.kubernetes.io/version: "1.23.1"
@@ -8927,6 +8924,7 @@ spec:
         sidecar.istio.io/inject: "false"
     spec:
       serviceAccountName: knative-operator
+      enableServiceLinks: false
       containers:
         - name: knative-operator
           image: gcr.io/knative-releases/knative.dev/operator/cmd/operator@sha256:2ebbd50df4792fef5c10c067779e2e99545722c2a04fd034747258b57f415c44
@@ -8950,9 +8948,9 @@ spec:
             - name: METRICS_DOMAIN
               value: knative.dev/operator
             - name: CONFIG_LOGGING_NAME
-              value: config-logging
+              value: knative-operator-config-logging
             - name: CONFIG_OBSERVABILITY_NAME
-              value: config-observability
+              value: knative-operator-config-observability
             - name: KUBERNETES_MIN_VERSION
               value: ""
           securityContext:

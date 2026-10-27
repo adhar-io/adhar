@@ -777,7 +777,10 @@ data:
 
 def main():
     import sys
-    body = json.dumps(dashboard(), indent=2)
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, HERE)
+    from nanguard import guard_dashboard  # no NaN in any PromQL target (nanguard.py)
+    body = json.dumps(guard_dashboard(dashboard()), indent=2)
     text = HEADER + "".join("    " + line + "\n" for line in body.splitlines())
     if "--check" in sys.argv:
         if open(OUT).read() != text:

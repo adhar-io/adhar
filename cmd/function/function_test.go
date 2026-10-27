@@ -111,4 +111,3 @@ func TestFromObjectDoesNotMarkReadyWhenConditionFalse(t *testing.T) {
 		t.Fatalf("conditions = %#v, want [Ready=False]", got.Conditions)
 	}
 }
-

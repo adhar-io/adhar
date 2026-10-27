@@ -1,6 +1,6 @@
 # BUILDPACK (kpack) INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/application/buildpack/generate-manifests.sh'
-# kpack v0.17.1 (upstream release manifest), post-processed into adhar-system.
+# kpack v0.17.1 (upstream release manifest), post-processed into adhar-system; the webhook keeps its hardcoded Secret/webhook-certs
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -501,8 +501,6 @@ spec:
               key: image
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs:/etc/adhar-ca
-        # The kpack controller is a reconciler (~100-200 MiB); builds run in
-        # their own pods. 1Gi requested here was 1Gi no build could use.
         resources:
           requests:
             cpu: 20m
@@ -786,7 +784,7 @@ spec:
   - port: 443
     targetPort: 8443
   selector:
-    app: kpack-webhook
+    role: webhook
 
 ---
 apiVersion: apiextensions.k8s.io/v1
@@ -880,7 +878,7 @@ webhooks:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kpack-webhook-certs
+  name: webhook-certs
   namespace: adhar-system
 
 ---
@@ -906,7 +904,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       priorityClassName: kpack-control-plane
-      serviceAccountName: kpack-webhook
+      serviceAccountName: webhook
       nodeSelector:
         kubernetes.io/os: linux
       containers:
@@ -935,23 +933,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - name: WEBHOOK_SECRET_NAME
-          value: kpack-webhook-certs
-        # Raised from the upstream 50Mi/200Mi, which OOMKilled this container 17
-        # times in a row on a live cluster (exit 137, CrashLoopBackOff, so kpack
-        # admission was down and every Image/Build went unvalidated).
-        #
-        # The upstream default is sized for kpack's OWN namespace, holding a handful
-        # of objects. On this platform every package installs into adhar-system
-        # (ADR-0011), which on a production profile holds ~370 pods, ~260 Secrets and
-        # ~350 ConfigMaps — close to a megabyte of Secret data before decoding. The
-        # webhook's informers cache and index all of it, so the memory it needs
-        # scales with the whole platform rather than with kpack. The controller next
-        # to it already asks for 1Gi for the same reason; 512Mi is measured headroom
-        # over the ~70Mi the controller settles at, not a guess doubled twice.
-        #
-        # The CPU limit goes up with it: informer resync on a namespace this size is
-        # a burst, and 100m made it slow enough to look hung during startup.
         resources:
           requests:
             cpu: 10m
@@ -964,7 +945,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kpack-webhook
+  name: webhook
   namespace: adhar-system
 
 ---
@@ -987,7 +968,7 @@ rules:
   resources:
   - secrets
   resourceNames:
-  - kpack-webhook-certs
+  - webhook-certs
   verbs:
   - update
 - apiGroups:
@@ -1019,7 +1000,7 @@ metadata:
   namespace: adhar-system
 subjects:
 - kind: ServiceAccount
-  name: kpack-webhook
+  name: webhook
   namespace: adhar-system
 roleRef:
   kind: Role
@@ -1117,7 +1098,7 @@ metadata:
   name: kpack-webhook-certs-mutatingwebhookconfiguration-admin-binding
 subjects:
 - kind: ServiceAccount
-  name: kpack-webhook
+  name: webhook
   namespace: adhar-system
 roleRef:
   kind: ClusterRole

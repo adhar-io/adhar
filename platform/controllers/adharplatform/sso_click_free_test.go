@@ -30,6 +30,7 @@ func TestEveryExposedUIHasAKeycloakSignInPath(t *testing.T) {
 		"adhar-ai-gateway":   "agentgateway; JWT-validated LLM/MCP API (no UI)",
 		"argo-server":        "argo-workflows --auth-mode=sso (disabled in every profile)",
 		"coder":              "Coder native OIDC; the route sends a session-less GET / into its OIDC start",
+		"coder-sso":          "Coder's sign-in edge: page loads only; asks Coder whether the session is live, starts Coder's own Keycloak OIDC when it is not",
 		"console":            "the Adhar Console's own Keycloak sign-in (the place a person signs in once)",
 		"faro-alloy":         "browser telemetry collector (no UI)",
 		"faro-cors":          "CORS front of the browser telemetry collector (no UI)",

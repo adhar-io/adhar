@@ -1497,7 +1497,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, source) (rate(cilium_policy_implementation_delay_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, source) (rate(cilium_policy_implementation_delay_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{source}}",
                   "range": true,
                   "instant": false,
@@ -1832,7 +1832,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(cilium_endpoint_regeneration_time_stats_seconds_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\", scope=\"total\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(cilium_endpoint_regeneration_time_stats_seconds_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\", scope=\"total\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99 time",
                   "range": true,
                   "instant": false,
@@ -2034,7 +2034,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(100 * sum by (pod) (cilium_ip_addresses{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\", family=\"ipv4\"}) / sum by (pod) (cilium_ipam_capacity{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\", family=\"ipv4\"})) * on (pod) group_left (node) max by (pod, node) (kube_pod_info{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"cilium-[a-z0-9]{5}\"})",
+                  "expr": "(100 * sum by (pod) (cilium_ip_addresses{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\", family=\"ipv4\"}) / (sum by (pod) (cilium_ipam_capacity{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\", family=\"ipv4\"}) > 0)) * on (pod) group_left (node) max by (pod, node) (kube_pod_info{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"cilium-[a-z0-9]{5}\"})",
                   "legendFormat": "{{node}}",
                   "range": false,
                   "instant": true,
@@ -2537,7 +2537,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, type, protocol) (rate(cilium_node_health_connectivity_latency_seconds_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, type, protocol) (rate(cilium_node_health_connectivity_latency_seconds_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{type}} {{protocol}}",
                   "range": true,
                   "instant": false,
@@ -2872,7 +2872,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(cilium_k8s_client_api_latency_time_seconds_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(cilium_k8s_client_api_latency_time_seconds_bucket{job=\"adhar-system/cilium-agent\", pod=~\"$agent_pods\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99 latency",
                   "range": true,
                   "instant": false,
@@ -3193,7 +3193,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"cilium.*|hubble-relay.*|hubble-ui.*\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"cilium.*|hubble-relay.*|hubble-ui.*\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"cilium.*|hubble-relay.*|hubble-ui.*\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"cilium.*|hubble-relay.*|hubble-ui.*\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,

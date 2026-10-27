@@ -123,6 +123,16 @@ spec:
             # reserved addresses as an SSRF guard — which is every ClusterIP.
             # Without this allow-list, discovery is blocked at start-up and the
             # provider is dropped with nothing in the API to explain it.
+            #
+            # Only discovery and the JWKS are fetched from this origin. The code
+            # exchange goes to the token_endpoint Keycloak advertises, which is
+            # its PUBLIC hostname; that works wherever the public name resolves
+            # to a public address in-cluster (the cloud load balancer). Where it
+            # resolves privately — kind's CoreDNS rewrite to the Gateway, a
+            # host-network Gateway — that origin must be listed here too, or the
+            # callback fails "blocked by outbound policy"; on kind RustFS would
+            # also have to trust the self-signed edge certificate. Neither is
+            # set here, so this login is verified on the cloud profiles only.
             - name: RUSTFS_OUTBOUND_ALLOW_ORIGINS
               value: http://keycloak.adhar-system.svc.cluster.local:8080
             - name: RUSTFS_IDENTITY_OPENID_CLIENT_ID
@@ -145,18 +155,20 @@ spec:
               value: https://rustfs.adhar.localtest.me:8443
             - name: RUSTFS_IDENTITY_OPENID_DISPLAY_NAME
               value: Keycloak
-            # The claim values are matched against policy NAMES verbatim, so the
-            # policies are named after the platform's Keycloak groups
-            # (rustfs-oidc-activate writes them). Keycloak's "Full group path"
-            # must stay off: a leading slash never matches, and `/` is not a
-            # legal policy-name character.
+            # The claim values resolve through RustFS GROUPS of the same name,
+            # each carrying a policy (rustfs-oidc-activate writes both; oidc.yaml
+            # point 6); a value naming no RustFS group is skipped as long as one
+            # does. Keycloak's "Full group path" stays off: `/platform-admin` is
+            # never a legal claim policy name, and finds its group only because
+            # RustFS's store collapses `//` (1.0.1).
             - name: RUSTFS_IDENTITY_OPENID_GROUPS_CLAIM
               value: groups
-            # The claim POLICIES are read from. Distinct from GROUPS_CLAIM and
-            # defaulting to `policy` (MinIO semantics), which Keycloak never
-            # sends — so every sign-in reached a valid token and then failed with
-            # "OIDC policy mapping did not resolve to current policies" (400,
-            # logged only in /logs/rustfs.log; 2026-10-24).
+            # An EXTRA claim to read policy names from, consulted only when it
+            # differs from GROUPS_CLAIM. 1.0.1 already defaults it to `groups`
+            # (OIDC_DEFAULT_CLAIM_NAME), so this is explicit, not a fix: the 400
+            # "OIDC policy mapping did not resolve to current policies" first
+            # blamed on it (2026-10-24) was the missing group mappings, and it
+            # outlived this setting (2026-10-26).
             - name: RUSTFS_IDENTITY_OPENID_CLAIM_NAME
               value: groups
             - name: RUSTFS_IDENTITY_OPENID_USERNAME_CLAIM

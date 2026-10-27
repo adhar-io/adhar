@@ -81,3 +81,24 @@ engine:
 celery:
   resources:
     requests: {cpu: 20m, memory: 320Mi}
+
+# The schema migration Job, as an Argo CD Sync hook. The chart ships it as an
+# ordinary resource with a 20 s TTL: the TTL controller deleted it, Argo CD saw
+# a resource missing, selfHeal recreated it, and `manage.py migrate` ran every
+# five minutes while the app sat OutOfSync for good (12 runs in an hour on the
+# GCP cluster, 2026-10-26). A hook is not compared for drift; it runs once per
+# sync, which is when a new release can bring a migration, and
+# BeforeHookCreation removes the previous run as the next one starts — so no
+# TTL either, and the last run's log stays readable until then.
+#
+# NOT the chart's `useHook: true`: that stamps `helm.sh/hook: pre-install,
+# pre-upgrade` and weight -1, which Argo CD reads as a PreSync hook — it would
+# run before the MariaDB and the two Secrets it reads exist, and a fresh
+# install would wait on it forever. As a Sync hook it starts beside them in
+# wave 0: the Job waits for MySQL itself, and the engine's init container waits
+# for the migrations. post-render.py gives it the stable name a hook needs.
+migrate:
+  ttlSecondsAfterFinished: ""
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation

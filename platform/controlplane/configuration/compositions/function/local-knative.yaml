@@ -1,6 +1,42 @@
 ---
-# Function on Knative Serving. This is the control-plane path behind
-# scale-to-zero + on-demand autoscaling.
+# Function on Knative Serving + Eventing (ADR-0027): scale-to-zero, on-demand
+# autoscaling, and the event sources that invoke it. README.md beside this file
+# maps every parameter to what it becomes; the rules a reader would otherwise
+# have to reverse-engineer are here.
+#
+# Every object is a provider-kubernetes Object because three of them do not live
+# in the XR's namespace (the ClusterDomainClaim is cluster-scoped, the
+# ReferenceGrant sits in knative-serving) and one idiom is easier to read than
+# two. Each Object derives its readiness from what the object itself reports,
+# so the Function is Ready when it actually answers, not when the Knative
+# Service was accepted.
+#
+# The edge. Kourier runs ClusterIP-only in knative-serving; nothing reaches a
+# function except through the platform Gateway, so it inherits the Gateway's
+# TLS, external-dns and certificate like every other platform URL:
+#   HTTPRoute (function namespace, on adhar-system/adhar-gateway)
+#     -> Service kourier.knative-serving:80, admitted by a ReferenceGrant there
+#     -> DomainMapping <host> -> the Knative Service, which is cluster-local, so
+#        Knative publishes no second public name for it.
+# The DomainMapping needs a ClusterDomainClaim for <host>. It is composed
+# create-only (no update, no delete): a host another namespace already claimed
+# is never taken over, the Function just stays unready and says so, and a
+# deleted function's claim stays with its namespace, exactly as Knative's own
+# autocreate-cluster-domain-claims would leave it.
+#
+# The host follows the platform route rule (cmd/apps/scaffold_hosts.go):
+# <name>.<environment>.<domain>, or <name>-<environment>.<domain> when the
+# domain's first label IS the environment. The domain is read from the cluster
+# rather than written here, because this file is applied verbatim — the stack's
+# adhar.localtest.me rewrite (stageStack) never sees the control-plane
+# configuration — so a literal host would be the laptop's on every cloud.
+# argocd-cm's `url` is the platform's own published address
+# (https://argocd.<host><port suffix>, templated from the platform spec on every
+# provider), read as a required resource with Crossplane's own permissions.
+#
+# Where it runs: an environment namespace's labels (organisation, team, project,
+# environment) win over the parameters, because the namespace IS the
+# environment; the Placement condition says when a parameter disagreed.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -28,34 +64,229 @@ spec:
             {{- $name := $xr.metadata.name -}}
             {{- $ns := $xr.metadata.namespace -}}
             {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $provider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- /* The serving edge (ADR-0027) and the telemetry intake. */ -}}
+            {{- $knativeNS := "knative-serving" -}}
+            {{- $eventingNS := "knative-eventing" -}}
+            {{- $kourier := "kourier" -}}
+            {{- $gatewayNS := "adhar-system" -}}
+            {{- $gateway := "adhar-gateway" -}}
+            {{- $otlp := "http://alloy.adhar-system.svc.cluster.local:4318" -}}
+            {{- /* The name is the Knative Service's, so it must be a DNS-1035 label. */ -}}
+            {{- if or (gt (len $name) 63) (not (regexMatch "^[a-z]([-a-z0-9]*[a-z0-9])?$" $name)) -}}
+            {{-   fail (printf "Function name %q must be a DNS-1035 label (lowercase letters, digits and '-', starting with a letter, at most 63 characters): it names the Knative Service" $name) -}}
+            {{- end -}}
             {{- $runtime := dig "runtime" "node20" $p -}}
             {{- $img := dig "image" "" $p -}}
             {{- if eq $img "" }}{{ fail "parameters.image must be set" }}{{ end -}}
-            {{- $provider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
-            {{- $min := dig "minScale" 0 $p -}}
-            {{- $max := dig "maxScale" 20 $p -}}
-            {{- $target := dig "targetConcurrency" 100 $p -}}
-            {{- $timeout := dig "timeoutSeconds" 30 $p -}}
-            {{- $port := dig "port" 8080 $p -}}
-            {{- $labels := merge
-                  (dict
-                    "platform.adhar.io/function" $name
-                    "platform.adhar.io/runtime" $runtime
-                    "adhar.io/organisation" (dig "organisation" "adhar" $p)
-                    "adhar.io/team" (dig "team" "platform" $p)
-                    "adhar.io/environment" (dig "environment" "dev" $p)
-                    "adhar.io/plane" "workload")
-                  (default (dict) (dig "labels" dict $p))
-                -}}
-            {{- if dig "project" "" $p }}{{ $_ := set $labels "adhar.io/project" (dig "project" "" $p) }}{{ end -}}
-            {{- $annotations := merge
-                  (dict
-                    "autoscaling.knative.dev/min-scale" (toString $min)
-                    "autoscaling.knative.dev/max-scale" (toString $max)
-                    "autoscaling.knative.dev/target" (toString $target))
-                  (default (dict) (dig "annotations" dict $p))
-                -}}
+
+            {{- /* Placement: the namespace's hierarchy labels win (header). */ -}}
+            {{- $nsLabels := dict -}}
+            {{- range (default (list) (getExtraResources . "namespace")) }}{{ $nsLabels = dig "resource" "metadata" "labels" (dict) . }}{{ end -}}
+            {{- $overridden := list -}}
+            {{- range $k := list "organisation" "team" "project" "environment" -}}
+            {{-   $lv := get $nsLabels (printf "adhar.io/%s" $k) -}}
+            {{-   $pv := dig $k "" $p -}}
+            {{-   if and $lv $pv (ne $lv $pv) }}{{ $overridden = append $overridden (printf "%s %q (the namespace is %q)" $k $pv $lv) }}{{ end -}}
+            {{- end -}}
+            {{- $org := get $nsLabels "adhar.io/organisation" | default (dig "organisation" "" $p) | default "adhar" -}}
+            {{- $team := get $nsLabels "adhar.io/team" | default (dig "team" "" $p) | default "platform" -}}
+            {{- $project := get $nsLabels "adhar.io/project" | default (dig "project" "" $p) -}}
+            {{- $env := get $nsLabels "adhar.io/environment" | default (dig "environment" "" $p) | default "dev" -}}
+            {{- $app := dig "application" "" $p | default $name -}}
+            {{- $envNamespace := ne (get $nsLabels "adhar.io/environment") "" -}}
+
+            {{- /* The platform domain and port suffix, from argocd-cm's url (header). */ -}}
+            {{- $platformURL := "" -}}
+            {{- range (default (list) (getExtraResources . "platform")) }}{{ $platformURL = dig "resource" "data" "url" "" . }}{{ end -}}
+            {{- $authority := regexReplaceAll "/.*$" (regexReplaceAll "^[a-zA-Z][a-zA-Z0-9+.-]*://" $platformURL "") "" -}}
+            {{- $platformHost := regexReplaceAll ":[0-9]+$" $authority "" -}}
+            {{- $portSuffix := trimPrefix $platformHost $authority -}}
+            {{- $domain := "" -}}
+            {{- if hasPrefix "argocd." $platformHost }}{{ $domain = trimPrefix "argocd." $platformHost }}{{ end -}}
+
+            {{- $public := ne (dig "visibility" "public" $p) "cluster" -}}
+            {{- $host := lower (regexReplaceAll ":[0-9]+$" (dig "hostname" "" $p) "") -}}
+            {{- if and $public (not $host) $domain -}}
+            {{-   if eq (first (splitList "." $domain)) $env -}}
+            {{-     $host = printf "%s-%s.%s" $name $env $domain -}}
+            {{-   else -}}
+            {{-     $host = printf "%s.%s.%s" $name $env $domain -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- if and $host (not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)+$" $host)) -}}
+            {{-   fail (printf "hostname %q is not a DNS name whose labels are at most 63 characters; set parameters.hostname" $host) -}}
+            {{- end -}}
+            {{- $url := "" -}}
+            {{- if and $public $host -}}
+            {{-   $url = printf "https://%s" $host -}}
+            {{-   if and $domain (hasSuffix (printf ".%s" $domain) $host) }}{{ $url = printf "%s%s" $url $portSuffix }}{{ end -}}
+            {{- end -}}
+
+            {{- /* Triggers: the list, or the one-trigger shorthand of the first API. */ -}}
+            {{- $triggers := list -}}
+            {{- $declared := dig "triggers" (list) $p -}}
+            {{- if $declared -}}
+            {{-   range $i, $t := $declared -}}
+            {{-     $c := dict -}}
+            {{-     range $k, $v := $t }}{{ $_ := set $c $k $v }}{{ end -}}
+            {{-     if not (get $c "name") }}{{ $_ := set $c "name" (printf "%s-%d" (get $c "type") $i) }}{{ end -}}
+            {{-     $triggers = append $triggers $c -}}
+            {{-   end -}}
+            {{- else -}}
+            {{-   $kind := dig "trigger" "http" $p -}}
+            {{-   $src := trim (dig "eventSource" "" $p) -}}
+            {{-   $body := regexReplaceAll "^[a-zA-Z][a-zA-Z0-9+.-]*://" $src "" -}}
+            {{-   if eq $kind "cron" -}}
+            {{-     $c := dict "name" "cron" "type" "cron" -}}
+            {{-     if $body }}{{ $_ := set $c "schedule" $body }}{{ end -}}
+            {{-     $triggers = append $triggers $c -}}
+            {{-   else if eq $kind "topic" -}}
+            {{-     $c := dict "name" "topic" "type" "topic" -}}
+            {{-     if contains "/" $body -}}
+            {{-       $parts := splitList "/" $body -}}
+            {{-       $_ := set $c "pubsub" (first $parts) -}}
+            {{-       $_ := set $c "topic" (join "/" (rest $parts)) -}}
+            {{-     else if $body -}}
+            {{-       $_ := set $c "topic" $body -}}
+            {{-     end -}}
+            {{-     $triggers = append $triggers $c -}}
+            {{-   else if eq $kind "cloudevent" -}}
+            {{-     $filter := dict -}}
+            {{-     range (splitList "," $body) -}}
+            {{-       $kv := trim . -}}
+            {{-       if contains "=" $kv -}}
+            {{-         $pair := splitn "=" 2 $kv -}}
+            {{-         $_ := set $filter (trim $pair._0) (trim $pair._1) -}}
+            {{-       else if $kv -}}
+            {{-         $_ := set $filter "type" $kv -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-     $triggers = append $triggers (dict "name" "cloudevent" "type" "cloudevent" "filter" $filter) -}}
+            {{-   else if eq $kind "bucket" -}}
+            {{-     $triggers = append $triggers (dict "name" "bucket" "type" "bucket" "bucket" $body) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- $seen := list -}}
+            {{- $types := list -}}
+            {{- $hasTopic := false -}}
+            {{- range $triggers -}}
+            {{-   if has .name $seen }}{{ fail (printf "two triggers are named %q; give each a distinct name" .name) }}{{ end -}}
+            {{-   $seen = append $seen .name -}}
+            {{-   if not (has .type $types) }}{{ $types = append $types .type }}{{ end -}}
+            {{-   if eq .type "topic" }}{{ $hasTopic = true }}{{ end -}}
+            {{- end -}}
+            {{- $triggerTypes := join "," $types | default "http" -}}
+
+            {{- /* Scale, concurrency, Dapr. */ -}}
+            {{- $notes := list -}}
+            {{- $min := int (dig "minScale" 0 $p) -}}
+            {{- $max := int (dig "maxScale" 20 $p) -}}
+            {{- $target := int (dig "targetConcurrency" 100 $p) -}}
+            {{- $cc := int (dig "containerConcurrency" 0 $p) -}}
+            {{- $timeout := int (dig "timeoutSeconds" 30 $p) -}}
+            {{- $port := int (dig "port" 8080 $p) -}}
+            {{- /* Dapr delivers a topic's events from its sidecar, which a pod
+                   scaled to zero does not have: the subscription would sit
+                   unread until something else woke the function. One warm pod
+                   is the price of a topic trigger. */ -}}
+            {{- if and $hasTopic (lt $min 1) -}}
+            {{-   $min = 1 -}}
+            {{-   $notes = append $notes "minScale raised to 1: a topic trigger is delivered by the Dapr sidecar, which a function scaled to zero does not run" -}}
+            {{- end -}}
+            {{- if gt $min $max }}{{ fail (printf "minScale %d exceeds maxScale %d" $min $max) }}{{ end -}}
+            {{- $daprOn := or (dig "dapr" "enabled" false $p) $hasTopic -}}
+            {{- $daprPort := int (dig "dapr" "appPort" $port $p) -}}
+            {{- $daprConfig := dig "dapr" "config" "adhar-dapr" $p -}}
+
+            {{- /* Labels: the caller's, then the platform's, which win. */ -}}
+            {{- $labels := dict -}}
+            {{- range $k, $v := (dig "labels" (dict) $p) }}{{ $_ := set $labels $k $v }}{{ end -}}
+            {{- $_ := set $labels "app.kubernetes.io/name" $name -}}
+            {{- $_ := set $labels "platform.adhar.io/function" $name -}}
+            {{- $_ := set $labels "platform.adhar.io/runtime" $runtime -}}
+            {{- $_ := set $labels "adhar.io/organisation" $org -}}
+            {{- $_ := set $labels "adhar.io/team" $team -}}
+            {{- $_ := set $labels "adhar.io/environment" $env -}}
+            {{- $_ := set $labels "adhar.io/application" $app -}}
+            {{- $_ := set $labels "adhar.io/plane" "workload" -}}
+            {{- if $project }}{{ $_ := set $labels "adhar.io/project" $project }}{{ end -}}
+            {{- /* Knative publishes no public name of its own: the edge is the
+                   DomainMapping below, behind the platform Gateway. */ -}}
+            {{- $svcLabels := dict -}}
+            {{- range $k, $v := $labels }}{{ $_ := set $svcLabels $k $v }}{{ end -}}
+            {{- $_ := set $svcLabels "networking.knative.dev/visibility" "cluster-local" -}}
+
+            {{- /* The revision's annotations. target is the autoscaler's SOFT
+                   goal; containerConcurrency (below) is the separate HARD cap,
+                   0 = unlimited. Setting both to one number made every pod
+                   refuse work at exactly the point the autoscaler aims for. */ -}}
+            {{- $annotations := dict -}}
+            {{- range $k, $v := (dig "annotations" (dict) $p) }}{{ $_ := set $annotations $k $v }}{{ end -}}
+            {{- $_ := set $annotations "autoscaling.knative.dev/min-scale" (toString $min) -}}
+            {{- $_ := set $annotations "autoscaling.knative.dev/max-scale" (toString $max) -}}
+            {{- $_ := set $annotations "autoscaling.knative.dev/target" (toString $target) -}}
+            {{- if $daprOn -}}
+            {{-   $_ := set $annotations "dapr.io/enabled" "true" -}}
+            {{-   $_ := set $annotations "dapr.io/app-id" $name -}}
+            {{-   $_ := set $annotations "dapr.io/app-port" (toString $daprPort) -}}
+            {{-   $_ := set $annotations "dapr.io/config" $daprConfig -}}
+            {{-   $_ := set $annotations "dapr.io/enable-metrics" "true" -}}
+            {{- /* Knative's queue-proxy already listens on 9090 (Dapr's
+                   default metrics port) in the same pod. */ -}}
+            {{-   $_ := set $annotations "dapr.io/metrics-port" "9095" -}}
+            {{-   $_ := set $annotations "dapr.io/log-as-json" "true" -}}
+            {{- end -}}
+
+            {{- /* The function's environment: the platform's, then the caller's. */ -}}
+            {{- $envVars := dict
+                  "FUNCTION_NAME" $name
+                  "FUNCTION_RUNTIME" $runtime
+                  "FUNCTION_TRIGGER" $triggerTypes
+                  "ADHAR_ENVIRONMENT" $env
+                  "APP_ID" $name
+                  "OTEL_EXPORTER_OTLP_ENDPOINT" $otlp
+                  "OTEL_SERVICE_NAME" $name
+                  "OTEL_RESOURCE_ATTRIBUTES" (printf "deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s" $env $env $ns) -}}
+            {{- range $k, $v := (dig "env" (dict) $p) -}}
+            {{-   if has $k (list "PORT" "K_SERVICE" "K_CONFIGURATION" "K_REVISION") -}}
+            {{-     fail (printf "env %s is set by Knative and refused by its admission webhook; the port is parameters.port" $k) -}}
+            {{-   end -}}
+            {{-   $_ := set $envVars $k $v -}}
+            {{- end -}}
+            {{- $pullSecrets := list "harbor-dockercfg" -}}
+            {{- if hasKey $p "imagePullSecrets" }}{{ $pullSecrets = default (list) (get $p "imagePullSecrets") }}{{ end -}}
+
+            {{- /* What the cluster reports back. */ -}}
+            {{- $ksvc := dig "knative-service" "resource" "status" "atProvider" "manifest" (dict) $observed -}}
+            {{- $ksvcStatus := dig "status" (dict) $ksvc -}}
+            {{- $readyRev := dig "latestReadyRevisionName" "" $ksvcStatus -}}
+            {{- $latestRev := dig "latestCreatedRevisionName" "" $ksvcStatus -}}
+            {{- $address := dig "address" "url" "" $ksvcStatus | default (printf "http://%s.%s.svc.cluster.local" $name $ns) -}}
+            {{- $svcCond := dict "status" "Unknown" "reason" "Creating" "message" (printf "creating Knative Service %s" $name) -}}
+            {{- range (dig "conditions" (list) $ksvcStatus) }}{{ if eq .type "Ready" }}{{ $svcCond = . }}{{ end }}{{ end -}}
+            {{- $svcReady := eq (toString (get $svcCond "status")) "True" -}}
+            {{- /* Knative's Ready=True carries no reason or message. */ -}}
+            {{- $svcReason := get $svcCond "reason" | default (ternary "RevisionReady" "Unknown" $svcReady) -}}
+            {{- $svcMessage := get $svcCond "message" | default (ternary (printf "revision %s is serving" $readyRev) "waiting for the Knative Service" $svcReady) -}}
             ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ExtraResources
+            requirements:
+              namespace:
+                apiVersion: v1
+                kind: Namespace
+                matchName: {{ $ns | quote }}
+              platform:
+                apiVersion: v1
+                kind: ConfigMap
+                matchName: argocd-cm
+                namespace: {{ $gatewayNS | quote }}
+            ---
+            # Same Object name and composition-resource-name as the first
+            # version of this composition: renaming either would replace the
+            # Knative Service, and with it every revision.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:
@@ -66,6 +297,8 @@ spec:
               providerConfigRef:
                 name: {{ $provider }}
                 kind: ClusterProviderConfig
+              readiness:
+                policy: DeriveFromObject
               forProvider:
                 manifest:
                   apiVersion: serving.knative.dev/v1
@@ -74,31 +307,533 @@ spec:
                     name: {{ $name }}
                     namespace: {{ $ns }}
                     labels:
-                      {{- range $k, $v := $labels }}
+                      {{- range $k, $v := $svcLabels }}
                       {{ $k }}: {{ $v | quote }}
                       {{- end }}
+                    {{- with dig "displayName" "" $p }}
+                    annotations:
+                      platform.adhar.io/display-name: {{ . | quote }}
+                    {{- end }}
                   spec:
                     template:
                       metadata:
+                        labels:
+                          {{- range $k, $v := $labels }}
+                          {{ $k }}: {{ $v | quote }}
+                          {{- end }}
                         annotations:
                           {{- range $k, $v := $annotations }}
                           {{ $k }}: {{ $v | quote }}
                           {{- end }}
                       spec:
-                        containerConcurrency: {{ $target }}
+                        containerConcurrency: {{ $cc }}
                         timeoutSeconds: {{ $timeout }}
+                        {{- if $pullSecrets }}
+                        imagePullSecrets:
+                          {{- range $pullSecrets }}
+                          - name: {{ . | quote }}
+                          {{- end }}
+                        {{- end }}
                         containers:
-                          - image: {{ $img | quote }}
+                          - name: user-container
+                            image: {{ $img | quote }}
                             ports:
                               - containerPort: {{ $port }}
-                            {{- $env := default (dict) (dig "env" dict $p) }}
-                            {{- if gt (len $env) 0 }}
                             env:
-                              {{- range $k, $v := $env }}
+                              {{- range $k, $v := $envVars }}
                               - name: {{ $k | quote }}
                                 value: {{ $v | quote }}
                               {{- end }}
-                            {{- end }}
+            {{- if $envNamespace }}
+            ---
+            # An environment namespace denies ingress by default and admits only
+            # itself and adhar-system. Kourier and the activator (knative-serving)
+            # and every event source's dispatcher (knative-eventing) reach the
+            # function's pods from their own namespaces.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-ingress-policy
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: ingress-policy
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: networking.k8s.io/v1
+                  kind: NetworkPolicy
+                  metadata:
+                    name: {{ $name }}-from-knative
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    podSelector:
+                      matchLabels:
+                        serving.knative.dev/service: {{ $name }}
+                    policyTypes: [Ingress]
+                    ingress:
+                      - from:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: {{ $knativeNS }}
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: {{ $eventingNS }}
+            {{- end }}
+            {{- $edgeCond := dict "status" "True" "reason" "ClusterLocal" "message" (printf "visibility is cluster: reachable only inside the cluster at %s" $address) -}}
+            {{- if $public -}}
+            {{-   if not $host -}}
+            {{-     $edgeCond = dict "status" "False" "reason" "DomainUnknown" "message" "the platform domain is not published yet (adhar-system/argocd-cm has no url); set parameters.hostname or wait for it" -}}
+            {{-   else -}}
+            {{-     $claim := dig "domain-claim" "resource" "status" "atProvider" "manifest" (dict) $observed -}}
+            {{-     $claimedBy := dig "spec" "namespace" "" $claim -}}
+            {{-     $dm := dig "domain-mapping" "resource" "status" "atProvider" "manifest" (dict) $observed -}}
+            {{-     $dmCond := dict -}}
+            {{-     range (dig "status" "conditions" (list) $dm) }}{{ if eq .type "Ready" }}{{ $dmCond = . }}{{ end }}{{ end -}}
+            {{-     $route := dig "route" "resource" "status" "atProvider" "manifest" (dict) $observed -}}
+            {{-     $accepted := false -}}
+            {{-     $resolved := false -}}
+            {{-     $routeMsg := "" -}}
+            {{-     range (dig "status" "parents" (list) $route) -}}
+            {{-       range (default (list) .conditions) -}}
+            {{-         if and (eq .type "Accepted") (eq .status "True") }}{{ $accepted = true }}{{ end -}}
+            {{-         if and (eq .type "ResolvedRefs") (eq .status "True") }}{{ $resolved = true }}{{ end -}}
+            {{-         if and (eq .status "False") (not $routeMsg) }}{{ $routeMsg = printf "HTTPRoute %s: %s" .type (default .reason .message) }}{{ end -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-     if and $claimedBy (ne $claimedBy $ns) -}}
+            {{-       $edgeCond = dict "status" "False" "reason" "HostClaimed" "message" (printf "hostname %s is already claimed by namespace %s; set parameters.hostname to another name" $host $claimedBy) -}}
+            {{-     else if $routeMsg -}}
+            {{-       $edgeCond = dict "status" "False" "reason" "RouteNotReady" "message" $routeMsg -}}
+            {{-     else if and $accepted $resolved (eq (toString (get $dmCond "status")) "True") -}}
+            {{-       $edgeCond = dict "status" "True" "reason" "Published" "message" (printf "published at %s" $url) -}}
+            {{-     else if eq (toString (get $dmCond "status")) "False" -}}
+            {{-       $edgeCond = dict "status" "False" "reason" "DomainMappingNotReady" "message" (printf "DomainMapping %s: %s" $host (default (get $dmCond "reason") (get $dmCond "message"))) -}}
+            {{-     else -}}
+            {{-       $edgeCond = dict "status" "Unknown" "reason" "Publishing" "message" (printf "publishing %s through %s/%s" $url $gatewayNS $gateway) -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- if and $public $host }}
+            ---
+            # The host belongs to this namespace. Create-only: see the header.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-domain-claim
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: domain-claim
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              managementPolicies: [Observe, Create]
+              readiness:
+                policy: DeriveFromCelQuery
+                celQuery: {{ printf "object.spec.namespace == '%s'" $ns | quote }}
+              forProvider:
+                manifest:
+                  apiVersion: networking.internal.knative.dev/v1alpha1
+                  kind: ClusterDomainClaim
+                  metadata:
+                    name: {{ $host }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    namespace: {{ $ns }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-domain-mapping
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: domain-mapping
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: serving.knative.dev/v1beta1
+                  kind: DomainMapping
+                  metadata:
+                    name: {{ $host }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    ref:
+                      apiVersion: serving.knative.dev/v1
+                      kind: Service
+                      name: {{ $name }}
+            ---
+            # Kourier routes by Host, and the DomainMapping above gave it this
+            # one. The route lives with the function so its team can see it;
+            # external-dns publishes its hostname like any other route's.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-route
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: route
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              readiness:
+                # Accepted alone is not enough: a route whose backend the
+                # ReferenceGrant does not admit is Accepted, ResolvedRefs=False,
+                # and answers 500.
+                policy: DeriveFromCelQuery
+                celQuery: "has(object.status) && has(object.status.parents) && object.status.parents.exists(p, has(p.conditions) && p.conditions.exists(c, c.type == 'Accepted' && c.status == 'True') && p.conditions.exists(c, c.type == 'ResolvedRefs' && c.status == 'True'))"
+              forProvider:
+                manifest:
+                  apiVersion: gateway.networking.k8s.io/v1
+                  kind: HTTPRoute
+                  metadata:
+                    name: {{ $name }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    parentRefs:
+                      - group: gateway.networking.k8s.io
+                        kind: Gateway
+                        name: {{ $gateway }}
+                        namespace: {{ $gatewayNS }}
+                    hostnames:
+                      - {{ $host | quote }}
+                    rules:
+                      - matches:
+                          - path:
+                              type: PathPrefix
+                              value: /
+                        backendRefs:
+                          - group: ""
+                            kind: Service
+                            name: {{ $kourier }}
+                            namespace: {{ $knativeNS }}
+                            port: 80
+                        # Longer than the revision's own timeout, so a slow
+                        # request ends with Knative's answer rather than a
+                        # Gateway 504 cut mid-response.
+                        timeouts:
+                          request: {{ printf "%ds" (add $timeout 15) | quote }}
+                          backendRequest: {{ printf "%ds" (add $timeout 15) | quote }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-route-grant
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: route-grant
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              readiness:
+                policy: SuccessfulCreate
+              forProvider:
+                manifest:
+                  apiVersion: gateway.networking.k8s.io/v1beta1
+                  kind: ReferenceGrant
+                  metadata:
+                    # One per function, not per namespace: grants are additive,
+                    # and a shared one would leave with whichever function was
+                    # deleted first.
+                    name: {{ printf "function-%s-%s" $ns $name }}
+                    namespace: {{ $knativeNS }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    from:
+                      - group: gateway.networking.k8s.io
+                        kind: HTTPRoute
+                        namespace: {{ $ns }}
+                    to:
+                      - group: ""
+                        kind: Service
+                        name: {{ $kourier }}
+            {{- end }}
+            {{- /* Event sources, one composed object per trigger. */ -}}
+            {{- $triggerStatus := list -}}
+            {{- $triggersReady := true -}}
+            {{- $unsupported := list -}}
+            {{- $brokers := list -}}
+            {{- range $t := $triggers -}}
+            {{-   $tname := $t.name -}}
+            {{-   $tobj := printf "%s-%s" $name $tname -}}
+            {{-   if gt (len $tobj) 63 }}{{ $tobj = printf "%s-%s" (trimSuffix "-" (trunc 54 $tobj)) (trunc 8 (sha256sum $tobj)) }}{{ end -}}
+            {{-   $path := default "/" (get $t "path") -}}
+            {{-   $res := printf "trigger-%s" $tname -}}
+            {{-   $obj := dig $res "resource" (dict) $observed -}}
+            {{-   $target := dig "status" "atProvider" "manifest" (dict) $obj -}}
+            {{-   $state := "Unknown" -}}
+            {{-   $msg := "" -}}
+            {{-   range (dig "status" "conditions" (list) $obj) }}{{ if eq .type "Ready" }}{{ $state = toString .status }}{{ end }}{{ end -}}
+            {{-   range (dig "status" "conditions" (list) $target) }}{{ if and (eq .type "Ready") (ne (toString .status) "True") }}{{ $msg = default .reason .message }}{{ end }}{{ end -}}
+            {{-   $kind := "" -}}
+            {{-   if eq $t.type "bucket" -}}
+            {{-     $state = "Unsupported" -}}
+            {{-     $msg = "bucket triggers are not implemented yet: nothing invokes the function when an object changes; it is served over HTTP only" -}}
+            {{-     $unsupported = append $unsupported $tname -}}
+            {{-   else if and (eq $t.type "cron") (not (get $t "schedule")) -}}
+            {{-     $state = "False" -}}
+            {{-     $msg = "a cron trigger needs a schedule (triggers[].schedule, or eventSource with trigger: cron)" -}}
+            {{-   else if and (eq $t.type "topic") (not (get $t "topic")) -}}
+            {{-     $state = "False" -}}
+            {{-     $msg = "a topic trigger needs a topic (triggers[].topic, or eventSource with trigger: topic)" -}}
+            {{-   else if eq $t.type "cron" -}}
+            {{-     $kind = "PingSource" }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $tobj }}-trigger
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ $res }}
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: sources.knative.dev/v1
+                  kind: PingSource
+                  metadata:
+                    name: {{ $tobj }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    schedule: {{ $t.schedule | quote }}
+                    {{- with get $t "timezone" }}
+                    timezone: {{ . | quote }}
+                    {{- end }}
+                    {{- with get $t "data" }}
+                    contentType: {{ default "application/json" (get $t "contentType") | quote }}
+                    data: {{ . | quote }}
+                    {{- end }}
+                    sink:
+                      ref:
+                        apiVersion: serving.knative.dev/v1
+                        kind: Service
+                        name: {{ $name }}
+                      {{- if ne $path "/" }}
+                      uri: {{ $path | quote }}
+                      {{- end }}
+            {{-   else if eq $t.type "cloudevent" -}}
+            {{-     $kind = "Trigger" -}}
+            {{-     $broker := default "default" (get $t "broker") }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $tobj }}-trigger
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ $res }}
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: eventing.knative.dev/v1
+                  kind: Trigger
+                  metadata:
+                    name: {{ $tobj }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    broker: {{ $broker | quote }}
+                    {{- with (get $t "filter") }}
+                    filter:
+                      attributes:
+                        {{- range $k, $v := . }}
+                        {{ $k }}: {{ $v | quote }}
+                        {{- end }}
+                    {{- end }}
+                    subscriber:
+                      ref:
+                        apiVersion: serving.knative.dev/v1
+                        kind: Service
+                        name: {{ $name }}
+                      {{- if ne $path "/" }}
+                      uri: {{ $path | quote }}
+                      {{- end }}
+            {{-     if not (has $broker $brokers) -}}
+            {{-       $brokers = append $brokers $broker }}
+            ---
+            # The namespace's Broker, created when absent and never updated or
+            # deleted: other functions' triggers may hang off it, and one the
+            # team configured itself is theirs.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ printf "%s-broker-%s" $name $broker | trunc 63 | trimSuffix "-" }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ printf "broker-%s" $broker }}
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              managementPolicies: [Observe, Create]
+              readiness:
+                policy: DeriveFromObject
+              forProvider:
+                manifest:
+                  apiVersion: eventing.knative.dev/v1
+                  kind: Broker
+                  metadata:
+                    name: {{ $broker }}
+                    namespace: {{ $ns }}
+                    labels:
+                      adhar.io/organisation: {{ $org | quote }}
+                      adhar.io/team: {{ $team | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                      adhar.io/plane: workload
+            {{-     end -}}
+            {{-   else if eq $t.type "topic" -}}
+            {{-     $kind = "Subscription" }}
+            ---
+            # Dapr reads the topic from its sidecar and POSTs each event to the
+            # route; `scopes` keeps every other app in the namespace from
+            # receiving the same subscription. The pub/sub component must exist
+            # in this namespace (Dapr components are namespaced).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $tobj }}-trigger
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ $res }}
+            spec:
+              providerConfigRef:
+                name: {{ $provider }}
+                kind: ClusterProviderConfig
+              readiness:
+                policy: SuccessfulCreate
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v2alpha1
+                  kind: Subscription
+                  metadata:
+                    name: {{ $tobj }}
+                    namespace: {{ $ns }}
+                    labels:
+                      {{- range $k, $v := $labels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    pubsubname: {{ default "pubsub" (get $t "pubsub") | quote }}
+                    topic: {{ $t.topic | quote }}
+                    routes:
+                      default: {{ $path | quote }}
+                    {{- with get $t "deadLetterTopic" }}
+                    deadLetterTopic: {{ . | quote }}
+                    {{- end }}
+                  scopes:
+                    - {{ $name }}
+            {{-   end -}}
+            {{-   if ne $state "True" }}{{ $triggersReady = false }}{{ end -}}
+            {{-   $triggerStatus = append $triggerStatus (dict "name" $tname "type" $t.type "kind" $kind "resource" (ternary $tobj "" (ne $kind "")) "ready" $state "message" $msg) -}}
+            {{- end -}}
+            {{- $triggerCond := dict "status" "True" "reason" "HTTPOnly" "message" "no event triggers; the function is invoked over HTTP" -}}
+            {{- if $unsupported -}}
+            {{-   $triggerCond = dict "status" "False" "reason" "Unsupported" "message" (printf "not implemented yet: %s (bucket); served over HTTP only" (join ", " $unsupported)) -}}
+            {{- else if $triggers -}}
+            {{-   $pending := list -}}
+            {{-   range $triggerStatus }}{{ if ne .ready "True" }}{{ $pending = append $pending (printf "%s (%s)" .name (default "not ready yet" .message)) }}{{ end }}{{ end -}}
+            {{-   if $pending -}}
+            {{-     $triggerCond = dict "status" "Unknown" "reason" "Waiting" "message" (printf "waiting for %s" (join ", " $pending)) -}}
+            {{-   else -}}
+            {{-     $triggerCond = dict "status" "True" "reason" "Ready" "message" (printf "%d trigger(s) ready" (len $triggers)) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- range $unsupported }}{{ $notes = append $notes (printf "trigger %s: bucket triggers are not implemented yet, so the function is served over HTTP only" .) }}{{ end -}}
+            {{- if $overridden }}{{ $notes = append $notes (printf "ignored %s: an environment namespace decides where its functions run" (join ", " $overridden)) }}{{ end -}}
+            {{- $message := "" -}}
+            {{- if not $svcReady -}}
+            {{-   $message = printf "%s: %s" $svcReason $svcMessage -}}
+            {{- else if ne (get $edgeCond "status") "True" -}}
+            {{-   $message = printf "serving %s; edge: %s" $readyRev (get $edgeCond "message") -}}
+            {{- else -}}
+            {{-   $message = printf "serving %s at %s" $readyRev (default $address $url) -}}
+            {{- end -}}
+            {{- if $notes }}{{ $message = printf "%s; %s" $message (join "; " $notes) }}{{ end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: Function
+            status:
+              url: {{ default $address $url | quote }}
+              address: {{ $address | quote }}
+              readyRevision: {{ $readyRev | quote }}
+              latestRevision: {{ $latestRev | quote }}
+              message: {{ $message | quote }}
+              {{- if $triggerStatus }}
+              triggers:
+                {{- range $triggerStatus }}
+                - name: {{ .name | quote }}
+                  type: {{ .type | quote }}
+                  kind: {{ .kind | quote }}
+                  resource: {{ .resource | quote }}
+                  ready: {{ .ready | quote }}
+                  message: {{ .message | quote }}
+                {{- end }}
+              {{- end }}
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ClaimConditions
+            conditions:
+              - type: ServiceReady
+                status: {{ get $svcCond "status" | toString | quote }}
+                reason: {{ $svcReason | quote }}
+                message: {{ $svcMessage | quote }}
+                target: Composite
+              - type: EdgeReady
+                status: {{ get $edgeCond "status" | quote }}
+                reason: {{ get $edgeCond "reason" | quote }}
+                message: {{ get $edgeCond "message" | quote }}
+                target: Composite
+              - type: TriggersReady
+                status: {{ get $triggerCond "status" | quote }}
+                reason: {{ get $triggerCond "reason" | quote }}
+                message: {{ get $triggerCond "message" | quote }}
+                target: Composite
+              - type: Placement
+                status: "True"
+                {{- if $overridden }}
+                reason: ParameterOverridden
+                {{- else if $envNamespace }}
+                reason: EnvironmentNamespace
+                {{- else }}
+                reason: Parameters
+                {{- end }}
+                message: {{ printf "environment %s of %s (team %s, organisation %s)%s" $env (ternary (printf "project %s" $project) "no project" (ne $project "")) $team $org (ternary (printf "; ignored %s" (join ", " $overridden)) "" (gt (len $overridden) 0)) | quote }}
+                target: Composite
     - step: automatically-detect-ready-composed-resources
       functionRef:
         name: function-auto-ready

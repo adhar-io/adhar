@@ -855,7 +855,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)))",
+              "expr": "100 * sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / (sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1))) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -929,7 +929,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)))",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / (sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1))) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -1081,7 +1081,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": true,
               "instant": false,
@@ -1182,7 +1182,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum by (node) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": true,
               "instant": false,
@@ -1283,7 +1283,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": true,
               "instant": false,
@@ -1384,7 +1384,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum by (node) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": true,
               "instant": false,
@@ -2031,7 +2031,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * max by (namespace, pod, container) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", namespace=~\"$namespace\"}) / max by (namespace, pod, container) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", namespace=~\"$namespace\", resource=\"memory\"})",
+                  "expr": "100 * max by (namespace, pod, container) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", namespace=~\"$namespace\"}) / (max by (namespace, pod, container) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", namespace=~\"$namespace\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -2660,7 +2660,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)))",
+                  "expr": "100 * sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / (sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1))) > 0)",
                   "legendFormat": "memory",
                   "range": true,
                   "instant": false,
@@ -2672,7 +2672,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)))",
+                  "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / (sum(sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1))) > 0)",
                   "legendFormat": "cpu",
                   "range": true,
                   "instant": false,
@@ -2805,7 +2805,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(node_load5 / count without (cpu, mode) (node_cpu_seconds_total{mode=\"idle\"})) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(node_load5 / (count without (cpu, mode) (node_cpu_seconds_total{mode=\"idle\"}) > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -2831,7 +2831,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(100 * (1 - node_memory_MemAvailable_bytes / (node_memory_MemTotal_bytes > 0))) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -2844,7 +2844,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} / node_filesystem_size_bytes{mountpoint=\"/\", fstype!=\"rootfs\"})) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} / (node_filesystem_size_bytes{mountpoint=\"/\", fstype!=\"rootfs\"} > 0))) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -3435,7 +3435,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[$__rate_interval]) * on (instance) group_left () node_uname_info{nodename=~\"$node\"}) / scalar(sum(count without (cpu, mode) (node_cpu_seconds_total{mode=\"idle\"}) * on (instance) group_left () node_uname_info{nodename=~\"$node\"}))",
+                  "expr": "sum by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[$__rate_interval]) * on (instance) group_left () node_uname_info{nodename=~\"$node\"}) / on () group_left () (sum(count without (cpu, mode) (node_cpu_seconds_total{mode=\"idle\"}) * on (instance) group_left () node_uname_info{nodename=~\"$node\"}) > 0)",
                   "legendFormat": "{{mode}}",
                   "range": true,
                   "instant": false,
@@ -3659,7 +3659,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(node_load5 / count without (cpu, mode) (node_cpu_seconds_total{mode=\"idle\"})) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(node_load5 / (count without (cpu, mode) (node_cpu_seconds_total{mode=\"idle\"}) > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}}",
                   "range": true,
                   "instant": false,
@@ -4099,7 +4099,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(1 - node_memory_MemAvailable_bytes / (node_memory_MemTotal_bytes > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}}",
                   "range": true,
                   "instant": false,
@@ -4744,7 +4744,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(rate(node_disk_read_time_seconds_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval]) / rate(node_disk_reads_completed_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval])) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(rate(node_disk_read_time_seconds_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval]) / (rate(node_disk_reads_completed_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval]) > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}} {{device}} read",
                   "range": true,
                   "instant": false,
@@ -4756,7 +4756,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(rate(node_disk_write_time_seconds_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval]) / rate(node_disk_writes_completed_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval])) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(rate(node_disk_write_time_seconds_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval]) / (rate(node_disk_writes_completed_total{device!~\"dm-.*|loop.*|sr.*\"}[$__rate_interval]) > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}} {{device}} write",
                   "range": true,
                   "instant": false,
@@ -4848,7 +4848,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(100 * (1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|rootfs|vfat|nsfs\", mountpoint!~\"/boot.*\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|rootfs|vfat|nsfs\", mountpoint!~\"/boot.*\"})) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(100 * (1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|rootfs|vfat|nsfs\", mountpoint!~\"/boot.*\"} / (node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|rootfs|vfat|nsfs\", mountpoint!~\"/boot.*\"} > 0))) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}} {{mountpoint}}",
                   "range": false,
                   "instant": true,
@@ -5041,7 +5041,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(1 - node_filesystem_files_free{mountpoint=\"/\"} / node_filesystem_files{mountpoint=\"/\"}) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(1 - node_filesystem_files_free{mountpoint=\"/\"} / (node_filesystem_files{mountpoint=\"/\"} > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}} inodes",
                   "range": true,
                   "instant": false,
@@ -5408,7 +5408,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(100 * node_nf_conntrack_entries / node_nf_conntrack_entries_limit) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(100 * node_nf_conntrack_entries / (node_nf_conntrack_entries_limit > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}} conntrack %",
                   "range": true,
                   "instant": false,
@@ -5531,7 +5531,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "(node_filefd_allocated / node_filefd_maximum) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
+                  "expr": "(node_filefd_allocated / (node_filefd_maximum > 0)) * on (instance) group_left (nodename) node_uname_info{nodename=~\"$node\"}",
                   "legendFormat": "{{nodename}}",
                   "range": true,
                   "instant": false,
@@ -6055,7 +6055,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) / sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) / (sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_cpu:active:kube_pod_container_resource_requests{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) > 0)",
                   "format": "table",
                   "instant": true
                 },
@@ -6073,7 +6073,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) / sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) / (sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_cpu:active:kube_pod_container_resource_limits{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) > 0)",
                   "format": "table",
                   "instant": true
                 }
@@ -6497,7 +6497,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_memory_working_set_bytes{cluster=\"$cluster\", node=~\"$node\",container!=\"\"})) by (namespace, pod) / sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_memory:active:kube_pod_container_resource_requests{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_memory_working_set_bytes{cluster=\"$cluster\", node=~\"$node\",container!=\"\"})) by (namespace, pod) / (sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_memory:active:kube_pod_container_resource_requests{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) > 0)",
                   "format": "table",
                   "instant": true
                 },
@@ -6515,7 +6515,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_memory_working_set_bytes{cluster=\"$cluster\", node=~\"$node\",container!=\"\"})) by (namespace, pod) / sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_memory_working_set_bytes{cluster=\"$cluster\", node=~\"$node\",container!=\"\"})) by (namespace, pod) / (sum(max by (cluster, namespace, pod, container)(cluster:namespace:pod_memory:active:kube_pod_container_resource_limits{cluster=\"$cluster\", node=~\"$node\"})) by (namespace, pod) > 0)",
                   "format": "table",
                   "instant": true
                 },

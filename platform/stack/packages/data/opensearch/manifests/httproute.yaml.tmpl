@@ -1,0 +1,85 @@
+# OpenSearch Dashboards routed through the Cilium Gateway (adhar-gateway).
+# TLS terminates at the Gateway (adhar-cert).
+#
+# Straight to Dashboards — NO oauth2-proxy (removed 2026-10-27, see sso.yaml).
+# Dashboards signs people in with Keycloak itself: an unauthenticated page
+# request goes to /auth/openid/captureUrlFragment -> /auth/openid/login ->
+# Keycloak, which already holds the person's session and returns at once, and
+# the callback (/auth/openid/login?code=...) has to reach Dashboards
+# unobstructed. Dashboards is served at the ROOT of its own hostname (basePath
+# empty, values-cluster.yaml).
+#
+# The backend Service is created by the operator from the OpenSearchCluster
+# named `opensearch`, hence `opensearch-dashboards`. Rename the cluster and this
+# file breaks.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: opensearch-dashboards
+  namespace: adhar-system
+  annotations:
+    # After the OpenSearchCluster (wave 5) that makes the operator create the
+    # backend Service: a route whose backend does not exist yet is Degraded
+    # (ResolvedRefs=False) and would hold the sync.
+    argocd.argoproj.io/sync-wave: "6"
+  labels:
+    app.kubernetes.io/name: opensearch-dashboards
+    app.kubernetes.io/instance: opensearch-dashboards
+    app.kubernetes.io/part-of: opensearch
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - opensearch.adhar.localtest.me
+  rules:
+    # Break-glass: the sign-in page with BOTH options — the internal admin's
+    # username/password form and the single sign-on button — for when Keycloak
+    # is unavailable. `auto_login=false` is Dashboards' own switch for exactly
+    # this (security-dashboards login_page.ts). It carries one more query match
+    # than the redirect below, which is how Gateway API ranks it first; both are
+    # GET-only, so the form's POST to /auth/login is never redirected.
+    - matches:
+        - path:
+            type: Exact
+            value: /app/login
+          method: GET
+          queryParams:
+            - name: auto_login
+              value: "false"
+      backendRefs:
+        - name: opensearch-dashboards
+          port: 5601
+    # Click-free single sign-on for anyone who opens the sign-in page itself
+    # (a bookmark, a link, https://opensearch.<host>/app/login). Dashboards
+    # auto-redirects every other page into Keycloak on its own
+    # (default_redirect_auth_type: openid) but deliberately draws /app/login,
+    # so it is sent to the same start URL its own SSO button uses. The query
+    # (?nextUrl=...) is kept by the redirect, so the person lands where they
+    # were going.
+    - matches:
+        - path:
+            type: Exact
+            value: /app/login
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /auth/openid/captureUrlFragment
+            # Stated only when it is not the scheme's default: a local platform
+            # on 8443 needs it or the Location points at 443, where nothing
+            # listens. Behind a real 443 it is left to the listener (same
+            # pattern as Plane).
+{{- if .PortSuffix }}
+            port: {{ .Port }}
+{{- end }}
+            statusCode: 302
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: opensearch-dashboards
+          port: 5601

@@ -1,0 +1,27 @@
+# An HTTP function in an environment namespace, as the API server stores it
+# (schema defaults applied). The namespace's labels decide organisation, team,
+# project and environment; nothing here repeats them.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Function
+metadata:
+  name: orders
+  namespace: dev
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: function
+        provider: local
+  parameters:
+    runtime: node22
+    image: harbor-core.adhar-system.svc.cluster.local/library/orders@sha256:2c4b2f4c5e1d0e9f5b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f
+    trigger: http
+    eventSource: ""
+    port: 8080
+    minScale: 0
+    maxScale: 20
+    targetConcurrency: 100
+    containerConcurrency: 0
+    timeoutSeconds: 30
+    visibility: public
+    project: ""

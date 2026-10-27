@@ -48,11 +48,34 @@ key (a rebuilt database). Nothing rotates them on a schedule.
 
 ## Sign-in
 
-Keycloak, natively (generic OAuth2, `keycloak-client.yaml`). A person signed in
-to the platform clicks **Log in with OAuth2** once and is back in Tolgee without
-a password prompt; a first sign-in creates their Tolgee account. That click
-cannot be removed at the edge: Tolgee's sign-in page generates the OAuth2
-`state`, keeps it in localStorage, and rejects a callback carrying any other.
+Keycloak, natively (generic OAuth2, `keycloak-client.yaml`), and click-free: a
+person signed in to the platform opens `https://tolgee.<host>/` and lands inside
+Tolgee with no button and no password; a first sign-in creates their Tolgee
+account.
+
+A Gateway redirect cannot start Tolgee's sign-in, because the "Log in with
+OAuth2" button carries a `state` that Tolgee's sign-in page writes to
+localStorage (`oauth2State`) and its callback refuses any other. So a bare load
+of `/` or `/login` goes to `/adhar-sso/tolgee.html` on Tolgee's own host (the
+keycloak package's `adhar-sso-start`, `sso-start.yaml`), which shares Tolgee's
+localStorage:
+
+* a Tolgee session is already stored (`jwtToken`, still accepted by `GET /v2/user`)
+  → straight back to Tolgee (`/projects`);
+* otherwise it writes the state exactly as the button would and goes to Keycloak
+  with the button's parameters (read from `/api/public/configuration`); Keycloak
+  already holds the session and returns to Tolgee's own callback,
+  `/login/auth_callback/oauth2`, which checks the state and signs in.
+
+The page sets an `adhar_sso_tolgee` marker (8 h once a session is confirmed,
+5 minutes otherwise) that lets `/` and `/login` through to Tolgee, and every
+place it sends the browser is a path the route never redirects, so it cannot
+loop. Deep links go straight to Tolgee (whose own sign-in page then offers the
+button), and so do the API and the CLI/SDK traffic.
+
+**Break-glass:** `https://tolgee.<host>/login?local=1` always shows Tolgee's own
+sign-in page, password form included; the start page falls back to it whenever
+Keycloak or Tolgee's configuration cannot be reached.
 
 Password sign-UP is closed at the edge (`/api/public/sign_up` and `/sign_up`
 redirect to `/login`). Password sign-IN stays on for the initial administrator

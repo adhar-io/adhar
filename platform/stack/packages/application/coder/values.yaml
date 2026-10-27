@@ -69,9 +69,20 @@ coder:
       value: "groups"
     - name: CODER_OIDC_USER_ROLE_MAPPING
       value: '{"platform-admin":["owner"],"admin":["owner"]}'
+    # Keycloak is the only sign-in a person is offered. Coder turns on its OWN
+    # GitHub login by default on a fresh deployment (Coder's shared GitHub
+    # OAuth app, any GitHub account, device flow): authmethods reported it as
+    # `github.enabled: true, default_provider_configured: true`, and the sign-in
+    # page drew a "GitHub" button beside Keycloak's. This switch is the login
+    # provider only; the Gitea external auth (git credentials in workspaces,
+    # envFrom below) is configured separately and is unaffected.
+    - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+      value: "false"
     # Keep the local password login enabled: it is the break-glass path for the
     # generated `adhar-admin` owner (`adhar get secrets -p coder`) and the only
-    # way in if Keycloak is down.
+    # way in if Keycloak is down. Page loads are sent into Keycloak by the
+    # coder-sso edge (manifests/sso-edge.yaml); /login?local=1 is the one page
+    # it never redirects, and shows this form.
     - name: CODER_DISABLE_PASSWORD_AUTH
       value: "false"
     # --- Database -----------------------------------------------------------

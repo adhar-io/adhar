@@ -16,6 +16,7 @@ does not export. dash_common.RETIRED maps each retired uid to its successor.
 
 Building blocks:
   dashlib.py          panel primitives and the Dash layout (rows, sections, merge, embed)
+  nanguard.py         no NaN: guards every PromQL target's divisions and quantiles on output
   dash_common.py      uids, link bar, kubernetes-mixin loader, generic component sections
   dash_k8s_core.py    the cluster overview and capacity views (hand-authored)
   dash_data_core.py   CloudNativePG, Valkey, Kafka brokers + topics, RabbitMQ

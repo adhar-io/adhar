@@ -117,23 +117,22 @@ spec:
         - name: wait-for-keycloak
           image: docker.io/curlimages/curl:8.11.1
           env:
-            - name: PENPOT_OIDC_BASE_URI
-              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/"
+            - name: KEYCLOAK_JWKS_URI
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/certs"
           command: ["/bin/sh", "-c"]
           args:
             - |
-              url="${PENPOT_OIDC_BASE_URI%/}/.well-known/openid-configuration"
               i=0
-              until curl -ksf -o /dev/null --max-time 5 "$url"; do
+              until curl -sf -o /dev/null --max-time 5 "$KEYCLOAK_JWKS_URI"; do
                 i=$((i+1))
                 if [ "$i" -ge 180 ]; then
-                  echo "Keycloak discovery not reachable after 15 min; starting without SSO"
+                  echo "Keycloak JWKS not reachable after 15 min; starting anyway (userinfo fallback)"
                   exit 0
                 fi
-                echo "waiting for $url ($i)"
+                echo "waiting for $KEYCLOAK_JWKS_URI ($i)"
                 sleep 5
               done
-              echo "Keycloak discovery reachable: $url"
+              echo "Keycloak JWKS reachable: $KEYCLOAK_JWKS_URI"
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {memory: 32Mi}
@@ -161,9 +160,12 @@ spec:
             - name: PENPOT_PUBLIC_URI
               value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_FLAGS
-              value: "$PENPOT_FLAGS enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification disable-secure-session-cookies"
+              value: "$PENPOT_FLAGS enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification"
             - name: PENPOT_SECRET_KEY
-              value: "kmZ96pAxhTgk3HZvvBkPeVTspGBneKVLEpO_3ecORs_gwACENZ77z05zCe7skvPsQ3jI3QgkULQOWCuLjmjQsg"
+              valueFrom:
+                secretKeyRef:
+                  name: penpot-secret-key
+                  key: secretKey
             # Telemetry settings
             - name: PENPOT_TELEMETRY_ENABLED
               value: "true"
@@ -217,6 +219,12 @@ spec:
                 secretKeyRef:
                   name: penpot-oidc
                   key: clientSecret
+            - name: PENPOT_OIDC_AUTH_URI
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth"
+            - name: PENPOT_OIDC_TOKEN_URI
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token"
+            - name: PENPOT_OIDC_USER_URI
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/userinfo"
             - name: PENPOT_OIDC_SCOPES
               value: "openid profile email"
             - name: PENPOT_OIDC_NAME_ATTR
@@ -229,6 +237,10 @@ spec:
             - name: PENPOT_AUTO_FILE_SNAPSHOT_TIMEOUT
               value: "3h"
             # Extra environments
+            - name: PENPOT_OIDC_JWKS_URI
+              value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/certs
+            - name: PENPOT_SSRF_ALLOWED_HOSTS
+              value: keycloak.adhar-system.svc.cluster.local
           volumeMounts:
             - mountPath: "/opt/data/assets"
               name: app-data
@@ -300,7 +312,10 @@ spec:
             - name: PENPOT_INTERNAL_URI
               value: http://penpot:8080
             - name: PENPOT_SECRET_KEY
-              value: "kmZ96pAxhTgk3HZvvBkPeVTspGBneKVLEpO_3ecORs_gwACENZ77z05zCe7skvPsQ3jI3QgkULQOWCuLjmjQsg"
+              valueFrom:
+                secretKeyRef:
+                  name: penpot-secret-key
+                  key: secretKey
             - name: PENPOT_REDIS_URI
               value: "redis://penpot-valkey.adhar-system.svc.cluster.local:6379/0"
             - name: PENPOT_TEMPDIR
@@ -362,7 +377,7 @@ spec:
             runAsUser: 1001
           env:
             - name: PENPOT_FLAGS
-              value: "$PENPOT_FLAGS enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification disable-secure-session-cookies"
+              value: "$PENPOT_FLAGS enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification"
             - name: PENPOT_PUBLIC_URI
               value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_BACKEND_URI

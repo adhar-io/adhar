@@ -1,0 +1,127 @@
+# The OpenSearch security plugin's authentication config (config.yml): Keycloak
+# for people, HTTP Basic for service accounts and break-glass.
+#
+# Handed to the operator as `security.config.securityConfigSecret`
+# (values-cluster.yaml). Operator 3.0.0 merges it with its own generated
+# internal_users.yml into `opensearch-security-config-generated` and applies it
+# with securityadmin.sh, authenticating with the admin CLIENT CERTIFICATE
+# (opensearch-admin-cert). That certificate is super-admin and is not subject to
+# anything below, so no edit to this file can lock the operator out: a bad
+# config is fixed by pushing a corrected one, which the operator re-applies.
+#
+# ONLY config.yml lives here, on purpose. securityadmin REPLACES every document
+# type it is given. A roles_mapping.yml here would wipe the operator-managed
+# mappings (the platform-group bindings and adhar-monitoring in cluster.yaml)
+# and, unless it repeated it, the image's kibana_server mapping that the
+# Dashboards server user needs, on EVERY re-apply. Mappings and roles stay
+# OpensearchUserRoleBinding / OpensearchRole CRs, reconciled over REST every 30s
+# (TestOpenSearchSecurityConfigOwnsOnlyConfigYml).
+#
+# What a re-apply touches: the operator applies each key of the generated secret
+# with `securityadmin.sh -f <file> -t <type>`, i.e. `config` and
+# `internalusers`. The internalusers re-apply replaces the REST-created
+# adhar-monitoring user until the operator's OpensearchUser reconciler puts it
+# back (<= 30s, one or two failed Prometheus scrapes). admin and kibanaserver
+# keep their hashes: the operator reuses a hash that still matches the password.
+#
+# Domain order is load-bearing (verified against security 3.8.0.0,
+# BackendRegistry.authenticate): a domain with `challenge: true` that finds NO
+# credentials of its own kind answers 401 immediately and later domains never
+# run. basic does not recognise a Bearer header, so a challenging basic domain
+# placed first would 401 every Keycloak token Dashboards sends. openid therefore
+# goes first and does not challenge; basic goes last and keeps challenging, so a
+# request with no credentials still gets `WWW-Authenticate: Basic` — clients
+# that only send credentials after a challenge (the Java REST client behind
+# OpenMetadata's bridge) keep working.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: opensearch-securityconfig
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: opensearch-securityconfig
+    app.kubernetes.io/part-of: opensearch
+  # Before the OpenSearchCluster (wave 5) that names it: the operator refuses to
+  # build the generated security config while a referenced Secret is missing.
+  annotations: {argocd.argoproj.io/sync-wave: "-5"}
+type: Opaque
+stringData:
+  # No secret material in here: validating a Keycloak token needs only the
+  # realm's PUBLIC signing keys.
+  config.yml: |
+    _meta:
+      type: "config"
+      config_version: 2
+    config:
+      dynamic:
+        # Developers hold read/write on non-system indices only (adhar-developer
+        # in values-cluster.yaml). Without this a wildcard search such as
+        # `GET _search` or Discover over `*` fails with 403 the moment it
+        # touches an index they cannot read; with it, those indices are
+        # silently left out of the result. Admins and the service accounts see
+        # no difference.
+        do_not_fail_on_forbidden: true
+        http:
+          anonymous_auth_enabled: false
+          xff:
+            enabled: false
+        authc:
+          # People: the ID token OpenSearch Dashboards obtained from Keycloak
+          # (realm `adhar`, client `opensearch`) and forwards as
+          # `Authorization: Bearer`. Validated locally against the realm's keys.
+          openid_auth_domain:
+            description: "Platform users: Keycloak ID tokens forwarded by OpenSearch Dashboards"
+            http_enabled: true
+            transport_enabled: false
+            order: 0
+            http_authenticator:
+              type: openid
+              # Never challenge: see the ordering note at the top of this file.
+              challenge: false
+              config:
+                # The username OpenSearch shows, audits and maps by — the same
+                # name every other platform app uses for the person.
+                subject_key: preferred_username
+                # Group names, NOT paths: the realm's `groups` mapper and the
+                # client's own mapper (sso.yaml) both set full.path=false, so the
+                # claim carries `platform-admin`, which is what the
+                # OpensearchUserRoleBindings in cluster.yaml map.
+                roles_key: groups
+                # Discovery, for reference and as the fallback when jwks_uri is
+                # removed. Keycloak's hostname is fixed (security/keycloak
+                # install.yaml.tmpl), so even this in-cluster document lists the
+                # PUBLIC https endpoints.
+                openid_connect_url: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/.well-known/openid-configuration
+                # The keys themselves, fetched in-cluster over plain HTTP.
+                # security 3.8 prefers jwks_uri over discovery when both are set
+                # (HTTPJwtKeyByOpenIdConnectAuthenticator.initKeyProvider), and
+                # this keeps the node's JVM out of the public certificate's
+                # trust question: Let's Encrypt on a cloud with DNS-01, a
+                # self-signed certificate everywhere else.
+                jwks_uri: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/certs
+                # Only tokens Keycloak minted FOR OpenSearch. Every platform app
+                # gets tokens with its own audience (per-app cookies, CLAUDE.md);
+                # without this any signed realm token — one issued to Grafana,
+                # say — would also be accepted here.
+                required_audience: opensearch
+                # The realm's public issuer, rewritten to the platform host at
+                # seed time like every other URL in the stack.
+                required_issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+            authentication_backend:
+              type: noop
+          # Service accounts and break-glass: the operator (admin, from
+          # opensearch-admin-credentials), the Dashboards server user
+          # (kibanaserver), Prometheus (adhar-monitoring), OpenMetadata and
+          # LibreDB Studio (admin). Also the break-glass Dashboards login at
+          # /app/login?auto_login=false.
+          basic_internal_auth_domain:
+            description: "Service accounts and break-glass: HTTP Basic against the internal users database"
+            http_enabled: true
+            transport_enabled: true
+            order: 1
+            http_authenticator:
+              type: basic
+              challenge: true
+            authentication_backend:
+              type: intern

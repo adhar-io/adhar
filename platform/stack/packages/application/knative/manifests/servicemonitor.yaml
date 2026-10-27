@@ -1,0 +1,42 @@
+# Knative Serving control plane metrics. Not emitted by the operator, which only
+# installs upstream's manifests. Each component's Service publishes `http-metrics`
+# (9090), served once serving.yaml sets metrics-protocol: prometheus:
+#   activator  — request buffering while a function scales from zero
+#   autoscaler — the scale decisions (desired vs actual pods per revision)
+#   controller — reconcile latency and work-queue depth
+# The webhook, autoscaler-hpa and Kourier (component net-kourier) Services carry
+# the same name label and are deliberately not selected. Prometheus'
+# serviceMonitorSelector and namespace selector are empty ({}), so a monitor in
+# knative-serving is scraped as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: knative-serving
+  namespace: knative-serving
+  labels:
+    app.kubernetes.io/name: knative-serving
+    app.kubernetes.io/part-of: knative-serving
+    app.kubernetes.io/managed-by: adhar
+spec:
+  # job becomes activator / autoscaler / controller
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - knative-serving
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: knative-serving
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - activator
+          - autoscaler
+          - controller
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s

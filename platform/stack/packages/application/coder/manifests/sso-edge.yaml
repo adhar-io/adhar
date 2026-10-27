@@ -1,0 +1,325 @@
+# coder-sso — the sign-in edge in front of Coder's PAGES (never its API).
+#
+# Coder signs people in through Keycloak natively (values.yaml CODER_OIDC_*),
+# and a person who already has a Keycloak session should land inside Coder
+# with no click. The route used to decide that at the Gateway from whether
+# the browser carried a `coder_session_token` cookie, and that cookie is not
+# evidence of a session: Coder v2.37 sets it with Max-Age = ONE YEAR (coderd
+# createAPIKey) while the API key behind it expires after 24 h idle
+# (CODER_SESSION_DURATION) and dies at once if Keycloak refuses the refresh
+# token. So anyone who had signed in before carried a dead cookie, the Gateway
+# served them the dashboard, the SPA's /api/v2/users/me came back 401, and it
+# navigated client-side to /login: Coder's own page, a password form and a
+# button. Deep links (/workspaces, /templates, /@user/ws) never had a rule at
+# all, and Coder has no setting that starts OIDC from its sign-in page.
+#
+# Only Coder can tell a live session from a dead one, so this edge asks it.
+# The route (httproute.yaml.tmpl) sends it the requests a browser makes when it
+# NAVIGATES to a page — GET with Sec-Fetch-Mode: navigate and Sec-Fetch-Dest:
+# document — and nothing else: the `coder` CLI, workspace agents, the
+# dashboard's XHRs and websockets, DERP and API tokens never carry those
+# headers and go straight to Coder as before. For each page load, nginx calls
+# Coder's /api/v2/users/me with the browser's own cookie (auth_request):
+#   - 200: the page is proxied to Coder unchanged.
+#   - 401 (no cookie, a stale one, a dead Keycloak refresh token): 302 to
+#     Coder's own OIDC start, /api/v2/users/oidc/callback?redirect=<the page>,
+#     and Keycloak, which already knows the person, sends them straight back
+#     to that page signed in. For /login itself the destination is the page
+#     that sent them there (its `redirect` parameter).
+#   - Coder unreachable or any other answer: proxied to Coder, which answers.
+#
+# Break-glass: /login?local=1 is never redirected and shows Coder's password
+# form (the generated `adhar-admin` owner, `adhar get secrets -p coder`).
+#
+# Loop safety: a sign-in is started only while Coder reports Keycloak sign-in
+# enabled (before oidc-reload.yaml restarts Coder with the client secret, the
+# page is simply served), and at most twice a minute per browser (cookie
+# adhar_sso_coder, cleared by the first page that passes); a third failure in
+# a row lands on /login?local=1 with a note instead of another round trip.
+#
+# Not handled here, deliberately: while a dashboard tab is already open, a
+# session that ends makes the SPA move to /login without a page load, and so
+# does Coder's own "Sign out". The edge never sees either, and starting
+# Keycloak there would make "Sign out" sign the person straight back in. The
+# next page load or reload, of /login included, signs them in.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-sso
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder-sso
+    app.kubernetes.io/part-of: coder
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+data:
+  coder.js: |
+    // Where a browser goes when Coder says it has no session (nginx.conf sends
+    // only that case here: /api/v2/users/me answered 401 for the cookie it holds).
+    //
+    // Into Coder's own Keycloak sign-in, carrying the page that was asked for, so
+    // Keycloak (which already knows the person) hands them straight back to it.
+    // Two exits keep that from ever becoming a redirect loop:
+    //   - Coder has no Keycloak sign-in configured (a cold bootstrap, before
+    //     oidc-reload restarts it with the client secret): show Coder's own page.
+    //   - Keycloak came back twice within a minute and the session still did not
+    //     take: show Coder's sign-in page (password form + Keycloak button) with a
+    //     note, instead of a third round trip.
+    const MARK = 'adhar_sso_coder';
+    const MAX_STARTS = 2;
+    const WINDOW_SECONDS = 60;
+    const FALLBACK_MESSAGE = 'Automatic sign-in through Keycloak did not complete. Sign in below.';
+
+    // The page to land on after Keycloak: what was asked for or, for Coder's own
+    // sign-in page, the page that sent the person there. Same-origin paths only
+    // (Coder re-checks with SafeRedirectPath), and never /login itself.
+    function destination(r) {
+      let to = r.variables.request_uri || '/';
+      if (r.uri === '/login') {
+        const asked = r.args.redirect;
+        to = typeof asked === 'string' && asked !== '' ? asked : '/';
+      }
+      if (to.charAt(0) !== '/' || to.charAt(1) === '/' || to.charAt(1) === '\\') {
+        to = '/';
+      }
+      if (to === '/login' || to.indexOf('/login?') === 0) {
+        to = '/';
+      }
+      return to;
+    }
+
+    async function signin(r) {
+      const to = destination(r);
+      let oidc = false;
+      try {
+        const reply = await r.subrequest('/_adhar/coder/authmethods');
+        oidc = reply.status === 200 && JSON.parse(reply.responseText).oidc.enabled === true;
+      } catch (e) {
+        oidc = false;
+      }
+      if (!oidc) {
+        r.internalRedirect('@coder');
+        return;
+      }
+      const starts = parseInt(r.variables['cookie_' + MARK] || '0', 10) || 0;
+      // auth_request copied Coder's 401 challenge onto this response; a redirect
+      // has no use for it.
+      delete r.headersOut['WWW-Authenticate'];
+      r.headersOut['Cache-Control'] = 'no-store';
+      if (starts >= MAX_STARTS) {
+        r.return(302, '/login?local=1&redirect=' + encodeURIComponent(to) +
+          '&message=' + encodeURIComponent(FALLBACK_MESSAGE));
+        return;
+      }
+      r.headersOut['Set-Cookie'] = MARK + '=' + (starts + 1) + '; Path=/; Max-Age=' + WINDOW_SECONDS +
+        '; Secure; HttpOnly; SameSite=Lax';
+      r.return(302, '/api/v2/users/oidc/callback?redirect=' + encodeURIComponent(to));
+    }
+
+    export default { signin };
+  nginx.conf: |
+    load_module modules/ngx_http_js_module.so;
+
+    worker_processes 1;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr notice;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      server_tokens off;
+
+      # Path and outcome only: a deep link's query string can carry anything.
+      log_format edge '$remote_addr "$request_method $uri" $status upstream=$upstream_status $request_time';
+      access_log /dev/stdout edge;
+
+      # Coder's Service is resolved per request, not once at start: a pod that
+      # starts before the Service exists still comes up, and a recreated Service
+      # (new ClusterIP) is picked up within 30 s.
+      resolver kube-dns.kube-system.svc.cluster.local. valid=30s;
+      map $host $coder {
+        default coder.adhar-system.svc.cluster.local:80;
+      }
+
+      # Once a navigation passes the session check, the loop counter coder.js
+      # keeps is spent: clear it.
+      map $cookie_adhar_sso_coder $coder_mark_reset {
+        ""      "";
+        default "adhar_sso_coder=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax";
+      }
+
+      js_path /etc/nginx/njs/;
+      js_import coder from coder.js;
+
+      # A browser hands over every cookie it holds for the host.
+      large_client_header_buffers 4 32k;
+
+      server {
+        listen 8080;
+        # Relative Location headers: the browser resolves them against the host and
+        # port it is on (443 on a cloud, 8443 locally).
+        absolute_redirect off;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        # The browser's Host, port included: Coder builds its CSP connect-src
+        # (wss://<host>) from it, and the dashboard's websockets break under any other.
+        proxy_set_header Host $http_host;
+        proxy_redirect off;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        subrequest_output_buffer_size 16k;
+
+        location = /_adhar/healthz {
+          access_log off;
+          return 200 "ok\n";
+        }
+
+        # The session check. Coder decides, from the cookie the browser sent: no
+        # cookie, a stale one (Coder sets it for a year; the key behind it expires
+        # after 24 h idle) and a dead Keycloak refresh token all answer 401.
+        location = /_adhar/coder/session {
+          internal;
+          proxy_pass http://$coder/api/v2/users/me;
+          proxy_pass_request_body off;
+          # proxy_set_header here replaces the server-level set, so restate Host.
+          proxy_set_header Host $http_host;
+          proxy_set_header Content-Length "";
+        }
+
+        # Whether Coder has its Keycloak sign-in configured right now.
+        location = /_adhar/coder/authmethods {
+          internal;
+          proxy_pass http://$coder/api/v2/users/authmethods;
+          proxy_pass_request_body off;
+          proxy_set_header Host $http_host;
+          proxy_set_header Content-Length "";
+          proxy_set_header Cookie "";
+        }
+
+        # Not pages (the API, including the OIDC callback itself), or public by
+        # Coder's design (CLI downloads, install script, health): no check.
+        location /api/ {
+          proxy_pass http://$coder;
+        }
+        location ~ ^/(bin/|install\.sh$|healthz$|\.well-known/) {
+          proxy_pass http://$coder;
+        }
+
+        location @coder {
+          proxy_pass http://$coder;
+        }
+        location @signin {
+          js_content coder.signin;
+        }
+
+        # Coder's own sign-in page. ?local=1 is the break-glass password form and
+        # is never redirected; any other load of /login is a person who wants in.
+        location = /login {
+          error_page 418 = @coder;
+          if ($arg_local) {
+            return 418;
+          }
+          auth_request /_adhar/coder/session;
+          error_page 401 = @signin;
+          error_page 403 500 502 503 504 = @coder;
+          add_header Set-Cookie $coder_mark_reset;
+          proxy_pass http://$coder;
+        }
+
+        # Every other page: Coder with a live session, Keycloak without one.
+        location / {
+          auth_request /_adhar/coder/session;
+          error_page 401 = @signin;
+          error_page 403 500 502 503 504 = @coder;
+          add_header Set-Cookie $coder_mark_reset;
+          proxy_pass http://$coder;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coder-sso
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder-sso
+    app.kubernetes.io/part-of: coder
+  # Before the route (wave 0) points at it, so an upgrade never sends a page
+  # load to an edge that is not serving yet.
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coder-sso
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: coder-sso
+        app.kubernetes.io/part-of: coder
+      annotations:
+        # sha256 of the ConfigMap's data, first 16 hex digits: the config is
+        # mounted with subPath, which never updates a running pod, so a change
+        # must roll it. TestCoderSSOEdgeRollsWhenItsConfigChanges recomputes it.
+        adhar.io/config-hash: "267e56f525ea8a77"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: nginx
+          # -alpine, not -alpine-slim: the slim image has no njs module.
+          image: docker.io/nginxinc/nginx-unprivileged:1.29-alpine
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /_adhar/healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /_adhar/healthz, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: conf, mountPath: /etc/nginx/njs/coder.js, subPath: coder.js, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: conf
+          configMap:
+            name: coder-sso
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coder-sso
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder-sso
+    app.kubernetes.io/part-of: coder
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  selector:
+    app.kubernetes.io/name: coder-sso
+  ports:
+    - {name: http, port: 80, targetPort: http}

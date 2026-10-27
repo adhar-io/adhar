@@ -6,14 +6,31 @@
 # the runtime is up, healthy, or mid-rollout — and one an operator can trigger by
 # hand with `kubectl create job --from=cronjob/adhar-ai-knowledge-reindex`.
 #
-# It is the SAME code path (`adhar-ai index`) against the SAME database, and it
+# It is the SAME code path (`adhar-ai index`) against the SAME stores, and it
 # is incremental: content whose hash and embedding model are unchanged is never
 # re-embedded, so a nightly pass over a corpus that did not move costs one
-# database round trip per origin rather than a full re-embedding bill. That is
-# what makes a schedule affordable at all.
+# round trip per origin rather than a full re-embedding bill. That is what
+# makes a schedule affordable at all.
 #
-# Kept OUT of the AI data plane on purpose: this talks to the vector store and to the LLM
-# gateway, not to any MCP server, so it needs no Keycloak token.
+# "The same stores" has to be WIRED, not assumed. Until 2026-10-27 this Job had
+# no ADHAR_AI_VECTOR_URL, so it fell back to the old pgvector table — whose
+# `vector` type the runtime database no longer installs — and it called the AI
+# gateway with no identity: every run ended `401 Unauthorized` on
+# /v1/embeddings, then `type "vector" does not exist`, three attempts a night
+# (GCP, 2026-10-26). It now carries the runtime's vector store, graph and
+# service identity, variable for variable (agent-runtime.yaml), except that it
+# reads the Qdrant key from the Secret the Vector composition actually writes,
+# `<vector>-api-key` (the runtime's `adhar-ai-knowledge-credentials` is a name
+# nothing creates). The gateway admits that identity on /v1/ through
+# gateway-grant.yaml.
+#
+# One gap is in the image, not here: adhar-ai 0.3.7's `index` builds its
+# embedder without the service token (cli.py `_reindex` calls
+# `load_embeddings(gateway_url)` with no token provider, where the runtime
+# passes `policy.service_token`). Until a release does, /v1/embeddings still
+# answers 401 and a run prunes and re-checks the store but embeds nothing new;
+# the runtime's own 30-minute refresh embeds meanwhile. That release needs no
+# change to this file.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -26,7 +43,7 @@ metadata:
     adhar.io/plane: control
     adhar.io/origin: adhar-ai
   annotations:
-    # Wave 6: after the runtime (wave 5) and the CNPG cluster it writes to.
+    # Wave 6: after the Vector (wave 5) and the CNPG cluster it writes to.
     argocd.argoproj.io/sync-wave: "6"
 spec:
   # 02:15, off the hour so it does not land with every other platform CronJob.
@@ -57,12 +74,15 @@ spec:
               type: RuntimeDefault
           containers:
             - name: reindex
-              image: ghcr.io/adhar-io/adhar-ai-runtime:latest
-              imagePullPolicy: Always
+              # Pinned to a release, never :latest. Nobody watches a 02:15 run,
+              # so it must be the code someone chose: with `:latest` and
+              # `Always` every night ran whatever the last push to adhar-ai main
+              # built. 0.3.7 is the build the runtime's :latest currently
+              # resolves to (same commit, 68feb33); move both together.
+              image: ghcr.io/adhar-io/adhar-ai-runtime:0.3.7
+              imagePullPolicy: IfNotPresent
               args: ["index"]
               env:
-                # Embeddings go through the AI data plane, exactly as the
-                # runtime's do, so the provider key stays server-side.
                 # Same repositories the runtime reads; see agent-runtime.yaml.
                 - name: GITEA_API_URL
                   value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
@@ -73,12 +93,71 @@ spec:
                       name: adhar-ai-bot
                       key: GITEA_BOT_TOKEN
                       optional: true
+                # Embeddings go through the AI data plane, exactly as the
+                # runtime's do, so the provider key stays server-side.
                 - name: LLM_GATEWAY_URL
                   value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
+                # The identity the gateway sees: the `adhar-ai` client's service
+                # account, by client credentials against the in-cluster Keycloak
+                # (agentgateway runs jwtAuthentication: Strict, so a call with
+                # no bearer is a 401). Same four variables as the runtime; the
+                # issuer is what enables the service account, the token URL is
+                # where the token is minted.
+                - name: OIDC_ISSUER_URL
+                  value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+                - name: OIDC_CLIENT_ID
+                  value: "adhar-ai"
+                - name: ADHAR_AI_OIDC_TOKEN_URL
+                  value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token"
+                - name: ADHAR_AI_OIDC_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-clients
+                      key: ADHAR_AI_CLIENT_SECRET
+                      optional: true
+                # Threads, runs, notes and (until the Cypher backend lands) the
+                # graph tables — not the vectors.
                 - name: RAG_DB_HOST
                   value: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
                 - name: RAG_DB_NAME
                   value: "adhar_ai_rag"
+                # The vector store the runtime searches: Qdrant, composed by the
+                # Vector in stores.yaml. URL and collection as the runtime has
+                # them; a collection this Job created by itself would have the
+                # default width and match nothing.
+                - name: ADHAR_AI_VECTOR_URL
+                  value: "http://adhar-ai-knowledge.adhar-system.svc.cluster.local:6333"
+                - name: ADHAR_AI_VECTOR_COLLECTION
+                  value: "adhar_knowledge"
+                - name: ADHAR_AI_VECTOR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      # compositions/vector/qdrant.yaml writes `<name>-api-key`
+                      # (status.credentialsSecret). Optional: before Qdrant is
+                      # composed the run fails loudly on the store, not on a
+                      # pod that cannot start.
+                      name: adhar-ai-knowledge-api-key
+                      key: api-key
+                      optional: true
+                # The knowledge graph's target, wired ahead of the code exactly
+                # as the runtime's is, so the day the runtime reads Neo4j this
+                # Job writes there too.
+                - name: ADHAR_AI_GRAPH_URI
+                  value: "bolt://neo4j.adhar-system.svc.cluster.local:7687"
+                - name: ADHAR_AI_GRAPH_DATABASE
+                  value: "neo4j"
+                - name: ADHAR_AI_GRAPH_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: neo4j-auth
+                      key: username
+                      optional: true
+                - name: ADHAR_AI_GRAPH_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: neo4j-auth
+                      key: password
+                      optional: true
                 # The platform knowledge bundle (docs, examples, changelog, CLI
                 # reference). Same projection, same content as the runtime's;
                 # see agent-runtime.yaml.

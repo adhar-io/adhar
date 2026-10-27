@@ -1,0 +1,18 @@
+# The one-trigger shorthand of the first API: `trigger` plus `eventSource`.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Function
+metadata:
+  name: billing
+  namespace: dev
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: function
+        provider: local
+  parameters:
+    runtime: go125
+    image: harbor-core.adhar-system.svc.cluster.local/library/billing:latest
+    trigger: topic
+    eventSource: topic://pubsub/billing.v1
+    visibility: cluster

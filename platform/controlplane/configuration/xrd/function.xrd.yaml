@@ -3,7 +3,18 @@
 # on demand under load.
 #
 # This is the platform contract the Console + CLI create/manage. Runtime is
-# Knative Serving/Eventing.
+# Knative Serving/Eventing (ADR-0027); the default composition is
+# compositions/function/local-knative.yaml, whose README documents what each
+# parameter becomes.
+#
+# Where a Function runs is decided by its NAMESPACE, not by its parameters: an
+# environment namespace (one a Project composed, labelled adhar.io/environment
+# and the rest of the hierarchy) supplies organisation, team, project and
+# environment, and those win over the parameters below. That is why the four
+# carry no schema default any more — a defaulted `environment: dev` on a
+# Function that lives in `prod` could not be told apart from a deliberate one.
+# Outside an environment namespace the parameters apply, falling back to
+# adhar / platform / dev.
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
@@ -20,6 +31,13 @@ spec:
     - name: v1alpha1
       served: true
       referenceable: true
+      additionalPrinterColumns:
+        - name: URL
+          type: string
+          jsonPath: .status.url
+        - name: Revision
+          type: string
+          jsonPath: .status.readyRevision
       schema:
         openAPIV3Schema:
           type: object
@@ -30,6 +48,10 @@ spec:
               properties:
                 compositionSelector:
                   type: object
+                  description: >-
+                    Ignored by Crossplane v2, which selects the composition from
+                    spec.crossplane.compositionSelector. Kept so objects written
+                    against the first version of this API stay valid.
                   default:
                     matchLabels:
                       feature: function
@@ -44,28 +66,145 @@ spec:
                 parameters:
                   type: object
                   required: [runtime, image]
+                  x-kubernetes-validations:
+                    - rule: "!has(self.minScale) || !has(self.maxScale) || self.minScale <= self.maxScale"
+                      message: minScale must not exceed maxScale
                   properties:
                     displayName: { type: string }
                     runtime:
                       type: string
-                      enum: [node20, python312, go122, custom]
+                      description: >-
+                        The language runtime the image was built for. The image
+                        decides what actually runs; this is published to the
+                        function as FUNCTION_RUNTIME and as the
+                        platform.adhar.io/runtime label. go122 is kept only so
+                        existing objects stay valid.
+                      enum: [node20, node22, node24, python312, python313, go122, go125, java21, java25, deno2, custom]
                       default: node20
                     image:
                       type: string
                       description: OCI image to run.
+                    imagePullSecrets:
+                      type: array
+                      description: >-
+                        Secrets the kubelet pulls the image with. Unset means
+                        harbor-dockercfg, which the platform clones into every
+                        environment namespace; set [] for a public image.
+                      items: { type: string }
                     trigger:
                       type: string
+                      description: >-
+                        Shorthand for ONE trigger, kept from the first version of
+                        this API. Ignored when `triggers` is set.
                       enum: [http, cloudevent, topic, bucket, cron]
                       default: http
                     eventSource:
                       type: string
-                      description: Optional source descriptor (for example `topic://orders.v1`).
+                      description: >-
+                        What `trigger` reads: a cron schedule (`cron://*/5 * * * *`
+                        or the bare schedule), a topic (`topic://orders.v1`,
+                        `topic://<pubsub>/<topic>`, `kafka://orders`), CloudEvent
+                        filter attributes (`type=com.acme.order.created,source=shop`
+                        or a bare type) or a bucket (`bucket://media`). Ignored
+                        when `triggers` is set.
                       default: ""
+                    triggers:
+                      type: array
+                      maxItems: 16
+                      description: >-
+                        Events that invoke the function, besides HTTP, which is
+                        always served. cron becomes a Knative PingSource,
+                        cloudevent a Knative Trigger on a Broker in the namespace,
+                        topic a Dapr Subscription (and turns Dapr on, with at
+                        least one pod kept warm). bucket is accepted but not
+                        implemented yet: the Function reports it and serves HTTP.
+                      items:
+                        type: object
+                        required: [type]
+                        x-kubernetes-validations:
+                          - rule: "self.type != 'cron' || has(self.schedule)"
+                            message: a cron trigger needs a schedule
+                          - rule: "self.type != 'topic' || has(self.topic)"
+                            message: a topic trigger needs a topic
+                        properties:
+                          name:
+                            type: string
+                            description: >-
+                              Names the composed source `<function>-<name>`.
+                              Defaults to `<type>-<index>`.
+                            maxLength: 30
+                            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          type:
+                            type: string
+                            enum: [cron, cloudevent, topic, bucket]
+                          path:
+                            type: string
+                            description: Path the event is delivered to (default `/`).
+                            pattern: "^/"
+                          schedule:
+                            type: string
+                            description: "cron: the schedule, in crontab syntax."
+                          timezone:
+                            type: string
+                            description: "cron: an IANA time zone (default UTC)."
+                          data:
+                            type: string
+                            description: "cron: the payload each tick sends."
+                          contentType:
+                            type: string
+                            description: "cron: the payload's content type (default application/json)."
+                          broker:
+                            type: string
+                            description: >-
+                              cloudevent: the Broker in the function's namespace
+                              (default `default`, composed when absent and never
+                              deleted, since other functions may use it).
+                          filter:
+                            type: object
+                            description: "cloudevent: exact-match CloudEvent attributes, e.g. type and source."
+                            additionalProperties: { type: string }
+                          pubsub:
+                            type: string
+                            description: "topic: the Dapr pub/sub component (default `pubsub`)."
+                          topic:
+                            type: string
+                            description: "topic: the topic to subscribe to."
+                          deadLetterTopic:
+                            type: string
+                            description: "topic: where Dapr sends events the function rejects."
+                          bucket:
+                            type: string
+                            description: "bucket: not implemented yet."
+                          events:
+                            type: array
+                            description: "bucket: not implemented yet."
+                            items: { type: string }
+                    hostname:
+                      type: string
+                      description: >-
+                        The public hostname. Defaults to the platform route
+                        `<name>.<environment>.<platform domain>` (or
+                        `<name>-<environment>.<domain>` when the domain's first
+                        label IS the environment), which the Gateway already
+                        serves a certificate for.
+                      maxLength: 253
+                      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"
+                    visibility:
+                      type: string
+                      description: >-
+                        public publishes the function on the platform Gateway;
+                        cluster keeps it reachable only inside the cluster (and
+                        to its event sources).
+                      enum: [public, cluster]
+                      default: public
                     port:
                       type: integer
                       default: 8080
                       minimum: 1
                       maximum: 65535
+                      x-kubernetes-validations:
+                        - rule: "!(self in [8008, 8012, 8013, 8022, 9090, 9091])"
+                          message: Knative's queue-proxy reserves ports 8008, 8012, 8013, 8022, 9090 and 9091
                     minScale:
                       type: integer
                       default: 0
@@ -76,36 +215,97 @@ spec:
                       minimum: 1
                     targetConcurrency:
                       type: integer
+                      description: >-
+                        The autoscaler's SOFT target of in-flight requests per pod
+                        (autoscaling.knative.dev/target): it scales out past it.
                       default: 100
                       minimum: 1
+                    containerConcurrency:
+                      type: integer
+                      description: >-
+                        The HARD limit of in-flight requests per pod; excess
+                        requests queue. 0 means unlimited, which is right for
+                        almost every function.
+                      default: 0
+                      minimum: 0
+                      maximum: 1000
                     timeoutSeconds:
                       type: integer
+                      description: >-
+                        Per-request timeout. Capped at 600, Knative's default
+                        max-revision-timeout-seconds: a larger value is refused
+                        by Knative's admission webhook.
                       default: 30
                       minimum: 1
-                      maximum: 900
+                      maximum: 600
+                    dapr:
+                      type: object
+                      description: >-
+                        A Dapr sidecar for the function. A topic trigger turns it
+                        on regardless.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        appPort:
+                          type: integer
+                          description: Port Dapr delivers to (default `port`).
+                          minimum: 1
+                          maximum: 65535
+                        config:
+                          type: string
+                          description: The Dapr Configuration to load (default adhar-dapr).
                     env:
                       type: object
                       additionalProperties: { type: string }
-                      description: Environment variables injected into the function container.
+                      description: >-
+                        Environment variables injected into the function
+                        container, after (and over) the platform's own.
                     labels:
                       type: object
                       additionalProperties: { type: string }
                     annotations:
                       type: object
                       additionalProperties: { type: string }
-                    organisation: { type: string, default: adhar }
-                    team: { type: string, default: platform }
+                    organisation:
+                      type: string
+                      description: Used outside an environment namespace (default adhar).
+                    team:
+                      type: string
+                      description: Used outside an environment namespace (default platform).
                     project: { type: string, default: "" }
+                    application:
+                      type: string
+                      description: >-
+                        The application this function belongs to, as the
+                        adhar.io/application label (default the function's name).
                     environment:
                       type: string
+                      description: Used outside an environment namespace (default dev).
                       enum: [dev, test, prod]
-                      default: dev
             status:
               type: object
               properties:
-                url: { type: string }
+                url:
+                  type: string
+                  description: Where the function answers — the public URL, or the in-cluster one when visibility is cluster.
+                address:
+                  type: string
+                  description: The in-cluster URL event sources deliver to.
                 readyRevision: { type: string }
                 latestRevision: { type: string }
+                message: { type: string }
+                triggers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      type: { type: string }
+                      kind: { type: string }
+                      resource: { type: string }
+                      ready: { type: string }
+                      message: { type: string }
                 observedGeneration: { type: integer }
                 conditions:
                   type: array

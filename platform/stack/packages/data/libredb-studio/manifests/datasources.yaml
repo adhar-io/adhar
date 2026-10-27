@@ -16,11 +16,25 @@
 # kubernetes-provider store over adhar-system (the same one penpot reads MinIO
 # credentials through); the name is historical, the scope is the namespace.
 #
-# argocd.argoproj.io/ignore-healthcheck: whether the owning package is enabled
-# is an environment choice (local enables a curated core), so a datasource
-# mirror that cannot sync must not make THIS application Degraded. The
-# ExternalSecret keeps retrying every 5m and the connection appears the moment
-# the package is turned on.
+# Two kinds of datasource, and only one of them may hold the sync.
+#
+# The four platform databases below (gitea, keycloak, console, this package's
+# own) exist wherever Studio runs, so their mirrors are an ordinary wave -2
+# gate: the Deployment starts only once their Secrets are there, which matters
+# because `envFrom` is read once, when the container starts.
+#
+# The databases of OPTIONAL packages (posthog, metabase, open-metadata) carry
+# `adhar.io/optional: "true"`. Whether those packages run is an environment
+# choice, and an ExternalSecret whose source does not exist is Degraded — which
+# a sync wave waits on forever. With open-metadata switched off in production
+# (2026-10-24) libredb-studio sat at wave -2 for two days and 4,000+ retries
+# with no Deployment at all (GCP, 2026-10-26). The platform's ExternalSecret
+# health check (argocd-cm) reports an optional mirror Healthy while its source
+# is missing; the mirror keeps retrying every 5m, and Studio lists that
+# connection from its next restart after the package is turned on.
+#
+# (This used to be `argocd.argoproj.io/ignore-healthcheck`, an annotation
+# Argo CD does not have, so it changed nothing.)
 ---
 # gitea-db, created by the bootstrap phase (controllers/.../cnpg/gitea-db.yaml) — always present
 apiVersion: external-secrets.io/v1
@@ -31,7 +45,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -67,7 +80,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -96,7 +108,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -125,7 +136,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -154,7 +164,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
+    adhar.io/optional: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -183,7 +193,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
+    adhar.io/optional: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -212,7 +222,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-    argocd.argoproj.io/ignore-healthcheck: "true"
+    adhar.io/optional: "true"
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -239,11 +249,12 @@ spec:
 # default install. External Secrets fails an ExternalSecret whose remote key is
 # absent ("could not get secret data from provider"), and ArgoCD then retries
 # the whole Application forever: observed on the live DigitalOcean cluster as
-# `Retrying attempt #14` while the app itself sat Healthy, because
-# `ignore-healthcheck` hides the failure from the health check but not from the
-# sync. A datasource must never be able to put the package into a permanent
-# retry loop over something that is switched off.
+# `Retrying attempt #14` while the app itself sat Healthy. A datasource must
+# never be able to put the package into a permanent retry loop over something
+# that is switched off — the same failure open-metadata's mirror caused until
+# it was marked `adhar.io/optional` (see the top of this file).
 #
-# To add it after enabling `adhar-ai`, copy the pattern of any Postgres
-# block above (the README has the one-command recipe) — the seed document
-# already tolerates a connection whose env vars are unset.
+# To add it after enabling `adhar-ai`, copy the pattern of an OPTIONAL block
+# above (posthog/metabase/open-metadata, with `adhar.io/optional: "true"`; the
+# README has the one-command recipe) — the seed document already tolerates a
+# connection whose env vars are unset.

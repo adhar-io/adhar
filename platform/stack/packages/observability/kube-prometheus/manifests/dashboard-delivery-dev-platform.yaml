@@ -1015,7 +1015,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"crossplane\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"crossplane\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{controller}}",
                   "range": true,
                   "instant": false,
@@ -1258,7 +1258,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.95, sum by (le, gvk) (rate(crossplane_managed_resource_first_time_to_readiness_seconds_bucket{job=\"crossplane\"}[1h])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, gvk) (rate(crossplane_managed_resource_first_time_to_readiness_seconds_bucket{job=\"crossplane\"}[1h]))) >= 0)",
                   "legendFormat": "{{gvk}}",
                   "range": true,
                   "instant": false,
@@ -1560,7 +1560,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, function_name) (rate(function_run_function_seconds_bucket{job=\"crossplane\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, function_name) (rate(function_run_function_seconds_bucket{job=\"crossplane\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{function_name}}",
                   "range": true,
                   "instant": false,
@@ -2189,7 +2189,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"crossplane.*|provider-.+|function-.+|upbound-.+\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"crossplane.*|provider-.+|function-.+|upbound-.+\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"crossplane.*|provider-.+|function-.+|upbound-.+\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"crossplane.*|provider-.+|function-.+|upbound-.+\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -2784,7 +2784,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(coderd_api_request_latencies_seconds_bucket{job=\"coder\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(coderd_api_request_latencies_seconds_bucket{job=\"coder\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99",
                   "range": true,
                   "instant": false,

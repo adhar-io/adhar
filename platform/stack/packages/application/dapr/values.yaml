@@ -1,0 +1,36 @@
+# Values for the dapr/dapr chart (CHART_VERSION in generate-manifests.sh).
+#
+# Every key here restates a chart default on purpose. These are the values the
+# rest of the package is built against — the monitors and alerts scrape the
+# metrics port named here, the composed environments trust the mTLS set up here
+# — so a chart release that moves one of them shows up as a diff in
+# install.yaml instead of a dashboard that silently goes empty. What the chart
+# cannot be told at all lives in post-render.py.
+global:
+  # One copy of every control-plane service; HA is a per-cluster choice, not a
+  # chart default to inherit (TestNoPackageWorkloadShipsMoreThanOneReplica).
+  # This switch does NOT reach the scheduler: its template hard-codes three
+  # replicas and a three-member etcd peer list, and post-render.py reduces both.
+  ha:
+    enabled: false
+  # Every control-plane binary and every injected daprd serve Prometheus metrics
+  # on this port: manifests/servicemonitor.yaml scrapes it by port name, and
+  # manifests/rules.yaml alerts on what it serves.
+  prometheus:
+    enabled: true
+    port: 9090
+  # Sentry issues every sidecar's workload certificate; the composed
+  # environments' Configuration (compositions/env/local.yaml) does not repeat
+  # mTLS because this one, Configuration/daprsystem, is cluster-wide.
+  mtls:
+    enabled: true
+    workloadCertTTL: 24h
+    allowedClockSkew: 15m
+
+dapr_scheduler:
+  cluster:
+    # A StatefulSet's volumeClaimTemplates are immutable, and the scheduler on
+    # every existing cluster was created with 16Gi. A different number here
+    # would not resize anything; it would make every sync fail on the
+    # StatefulSet until the object was deleted by hand.
+    storageSize: 16Gi

@@ -89,3 +89,37 @@ kept = [d for d in docs if 'kind: Namespace' not in d]
 open(path, 'w').write('\n---\n'.join(kept))
 print(f"dropped {len(docs) - len(kept)} Namespace document(s)")
 PYEOF
+
+# The resolvers ship their own config-logging and config-observability. Upstream
+# they sit in tekton-pipelines-resolvers, apart from the pipelines' copies; the
+# namespace rewrite above lands both pairs on the same adhar-system names, so the
+# Application carried each object twice (Argo CD RepeatedResourceWarning) and
+# whichever copy applied last won. The copies carry the same settings (only the
+# commented `_example` text differs), so the resolvers' are dropped and the
+# resolvers read the pipelines' — which is what the cluster ended up doing
+# anyway. If a future release makes the settings differ, this stops instead:
+# rename the resolvers' copies then and repoint their CONFIG_*_NAME env vars.
+python3 - manifests/install.yaml <<'PYEOF'
+import sys, yaml
+path = sys.argv[1]
+docs = open(path).read().split('\n---\n')
+first, kept, dropped = {}, [], []
+for d in docs:
+    obj = yaml.safe_load(d)
+    if not isinstance(obj, dict) or not obj.get('kind'):
+        kept.append(d)
+        continue
+    meta = obj.get('metadata') or {}
+    key = (obj.get('apiVersion'), obj['kind'], meta.get('namespace'), meta.get('name'))
+    if key not in first:
+        first[key] = obj
+        kept.append(d)
+        continue
+    settings = lambda o: {k: v for k, v in (o.get('data') or {}).items() if k != '_example'}
+    if obj['kind'] != 'ConfigMap' or settings(obj) != settings(first[key]):
+        sys.exit(f"{obj['kind']}/{meta.get('name')} appears twice with different content; "
+                 "rename one copy instead of dropping it")
+    dropped.append(meta.get('name'))
+open(path, 'w').write('\n---\n'.join(kept))
+print(f"dropped {len(dropped)} duplicate document(s): {', '.join(dropped)}")
+PYEOF

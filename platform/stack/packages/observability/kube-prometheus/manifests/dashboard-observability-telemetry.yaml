@@ -1793,7 +1793,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(loki_write_request_duration_seconds_bucket{job=\"alloy\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(loki_write_request_duration_seconds_bucket{job=\"alloy\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99 latency",
                   "range": true,
                   "instant": false,
@@ -1914,7 +1914,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum by (pod) (otelcol_exporter_queue_size{job=\"alloy\"}) / sum by (pod) (otelcol_exporter_queue_capacity{job=\"alloy\"})",
+                  "expr": "sum by (pod) (otelcol_exporter_queue_size{job=\"alloy\"}) / (sum by (pod) (otelcol_exporter_queue_capacity{job=\"alloy\"}) > 0)",
                   "legendFormat": "{{pod}}",
                   "range": true,
                   "instant": false,
@@ -2068,7 +2068,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(alloy_component_evaluation_seconds_bucket{job=\"alloy\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(alloy_component_evaluation_seconds_bucket{job=\"alloy\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "evaluation p99",
                   "range": true,
                   "instant": false,

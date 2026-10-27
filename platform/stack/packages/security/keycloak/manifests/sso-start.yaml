@@ -94,8 +94,28 @@ data:
       }
     })();
     </script></body></html>
-  # Penpot: the same POST its "OpenID" button makes. The backend sets its
-  # `auth-token` cookie on the callback, which is what lets `/` through after.
+  # Penpot (2.17.2): the same POST its "OpenID" button makes. The route sends
+  # every load of `/` here unless it carries this page's `adhar_sso_penpot`
+  # marker — NOT on Penpot's own `auth-token`, which outlives the session it
+  # names (rebuilt cluster, new PENPOT_SECRET_KEY, session GC): Penpot answers
+  # such a cookie as the anonymous user and never clears it. So the page:
+  #   1. a fragment under #/auth/ is the end of a sign-in (Penpot's callback
+  #      only ever redirects to /#/auth/login?error=…, /#/auth/register/validate
+  #      or /#/auth/verify-token, and the browser keeps the fragment through
+  #      the route's 302): hand it to Penpot (10-min marker). On a first
+  #      sign-in started by THIS tab within 15 min, submit Penpot's "Create
+  #      account" step (register-profile) for the identity Keycloak returned;
+  #      the tab check is what stops a link carrying someone else's token from
+  #      signing this browser in as them;
+  #   2. ask Penpot whether the session is live (get-profile); if so go in with
+  #      a 1-hour marker, deep link and all;
+  #   3. a share link (share-id=) opens as it is, for people without accounts;
+  #   4. otherwise keep any deep link where Penpot's login form keeps it
+  #      (sessionStorage `login-redirect`, transit) and start OIDC.
+  # Any failure: Penpot's login screen (or the deep link) with a 5-min marker.
+  # Where cookies are blocked the marker cannot stick and every road leads back
+  # here, so the page stops and says so instead of looping.
+  # /#/auth/login stays the break-glass (password) sign-in.
   penpot.html: |
     <!doctype html><html><head><meta charset="utf-8"><title>Signing in to Penpot…</title>
     <meta name="viewport" content="width=device-width, initial-scale=1"></head>
@@ -103,29 +123,74 @@ data:
     <p>Signing in to Penpot…</p>
     <script>
     (async () => {
-      // Penpot returns from Keycloak to the page that STARTED the login — this
-      // one — with its next route in the fragment (#/auth/register/validate for
-      // a first sign-in, #/dashboard/… after). Starting another login here was
-      // an endless loop (2026-10-24). Hand the route to Penpot instead, with the
-      // marker that lets `/` through before Penpot has set its auth-token
-      // (registration completes on that page).
+      const ZERO = '00000000-0000-0000-0000-000000000000';
+      const STARTED = 'adhar_sso_penpot_started', REDIRECT = 'penpot:/login-redirect';
+      const hash = location.hash;
+      const mark = (age) => {
+        document.cookie = 'adhar_sso_penpot=1; path=/; max-age=' + age + '; secure; samesite=lax';
+        if (/(?:^|;\s*)adhar_sso_penpot=1/.test(document.cookie)) return true;
+        document.querySelector('p').textContent = 'Penpot needs cookies for ' + location.host + '. Allow them and reload.';
+        return false;
+      };
+      const call = async (path, body) => {
+        const res = await fetch(path, body === undefined
+          ? { credentials: 'include', cache: 'no-store', headers: { accept: 'application/json' } }
+          : { method: 'POST', credentials: 'include', cache: 'no-store',
+              headers: { 'content-type': 'application/json', accept: 'application/json' },
+              body: JSON.stringify(body) });
+        if (!res.ok) throw new Error(path + ' answered ' + res.status);
+        return res.json();
+      };
       if (location.hash.length > 1) {
-        document.cookie = 'adhar_sso_penpot=1; path=/; max-age=600; secure; samesite=lax';
-        location.replace('/' + location.hash);
-        return;
+        // The end of a sign-in. Restarting the login here looped forever
+        // (2026-10-24): hand the route to Penpot.
+        if (hash.startsWith('#/auth/')) {
+          const started = Number(sessionStorage.getItem(STARTED) || 0);
+          sessionStorage.removeItem(STARTED);
+          if (hash.startsWith('#/auth/register/validate?') && started > 0 && Date.now() - started < 15 * 60 * 1000) {
+            try {
+              const token = new URLSearchParams(hash.slice(hash.indexOf('?') + 1)).get('token');
+              const p = token ? await call('/api/main/methods/register-profile', { token }) : null;
+              if (p && p.isActive === true) {
+                let to = '/';
+                try {
+                  const r = JSON.parse(sessionStorage.getItem(REDIRECT) || 'null');
+                  if (Array.isArray(r) && typeof r[1] === 'string' && r[1].startsWith(location.origin + '/#/')) to = r[1].slice(location.origin.length);
+                } catch (e) { /* no deep link */ }
+                sessionStorage.removeItem(REDIRECT);
+                if (mark(3600)) location.replace(to);
+                return;
+              }
+            } catch (e) { /* Penpot draws the step itself below */ }
+          }
+          if (!mark(600)) return;
+          location.replace('/' + location.hash);
+          return;
+        }
       }
       try {
+        const me = await call('/api/main/methods/get-profile');
+        if (me && typeof me.id === 'string' && me.id !== ZERO) {
+          if (mark(3600)) location.replace('/' + hash);
+          return;
+        }
+        if (/[?&]share-id=/.test(hash)) {
+          if (mark(600)) location.replace('/' + hash);
+          return;
+        }
+        if (hash.length > 1) sessionStorage.setItem(REDIRECT, JSON.stringify(["~#'", location.origin + '/' + hash]));
+        else sessionStorage.removeItem(REDIRECT);
         const res = await fetch('/api/auth/oidc', {
           method: 'POST', credentials: 'include',
           headers: { 'content-type': 'application/json', accept: 'application/json' },
           body: JSON.stringify({ provider: 'oidc' }) });
         const d = await res.json();
         const u = d.redirectUri || d['redirect-uri'];
-        if (!res.ok || !u) throw new Error('penpot OIDC unavailable');
+        if (!res.ok || !u || !/^https?:$/.test(new URL(u).protocol)) throw new Error('penpot OIDC unavailable');
+        sessionStorage.setItem(STARTED, String(Date.now()));
         location.replace(u);
       } catch (e) {
-        document.cookie = 'adhar_sso_penpot=1; path=/; max-age=300; secure; samesite=lax';
-        location.replace('/#/auth/login');
+        if (mark(300)) location.replace(hash.length > 1 ? '/' + hash : '/#/auth/login');
       }
     })();
     </script></body></html>
@@ -196,6 +261,73 @@ data:
       }
     })();
     </script></body></html>
+  # Tolgee: its "Log in with OAuth2" button carries a `state` the sign-in page
+  # generates and keeps in localStorage, and the callback refuses any other.
+  # Tolgee 3.x webapp (useAuthService, OAuthService, TokenService): the state is
+  # a raw uuid in localStorage `oauth2State`; the button's URL is the
+  # configured authorizationUrl + client_id, redirect_uri
+  # <origin>/login/auth_callback/oauth2, response_type=code, the scopes joined
+  # by spaces, and state; the session is the JWT in localStorage `jwtToken`,
+  # which the edge cannot see. So this page looks at the session first:
+  #   - a token Tolgee still accepts (GET /v2/user) sets the marker for the
+  #     token's remaining life (at most 8 h) and goes to /projects, which Tolgee
+  #     answers with its home page and the route never redirects — no loop even
+  #     where cookies are blocked;
+  #   - no token, an expired one or a refused one (401/403, dropped exactly as
+  #     Tolgee drops it on a 401): write the state the button would, go to
+  #     Keycloak with the button's parameters (read from Tolgee's public
+  #     configuration, never hardcoded), and Keycloak — already holding the
+  #     session — returns to Tolgee's own callback, which checks the state,
+  #     clears it and signs in.
+  # Any failure falls back to /login?local=1 (Tolgee's sign-in page, password
+  # form included) with a 5-minute marker. The token never leaves this origin.
+  tolgee.html: |
+    <!doctype html><html><head><meta charset="utf-8"><title>Signing in to Tolgee…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"></head>
+    <body style="font-family:system-ui,sans-serif;color:#64748b;display:grid;place-items:center;height:100vh;margin:0">
+    <p>Signing in to Tolgee…</p>
+    <script>
+    (async () => {
+      const TOKEN = 'jwtToken', STATE = 'oauth2State';
+      const mark = (age) => { document.cookie = 'adhar_sso_tolgee=1; path=/; max-age=' + age + '; secure; samesite=lax'; };
+      try {
+        const t = localStorage.getItem(TOKEN);
+        if (t) {
+          let left = 0;
+          try { left = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp - Date.now() / 1000; } catch (e) { left = 0; }
+          if (left > 60) {
+            const r = await fetch('/v2/user', { headers: { authorization: 'Bearer ' + t }, cache: 'no-store' }).catch(() => null);
+            if (!r || (r.status !== 401 && r.status !== 403)) {
+              mark(r && r.ok ? Math.floor(Math.min(left, 8 * 3600)) : 300);
+              location.replace('/projects');
+              return;
+            }
+          }
+          localStorage.removeItem(TOKEN);
+        }
+        const res = await fetch('/api/public/configuration', { headers: { accept: 'application/json' }, cache: 'no-store' });
+        if (!res.ok) throw new Error('tolgee configuration unavailable');
+        const cfg = await res.json();
+        const o = (cfg.authMethods || {}).oauth2 || {};
+        if (cfg.authentication === false || !o.enabled || !o.clientId || !o.authorizationUrl || !(o.scopes || []).length) throw new Error('tolgee has no OAuth2 sign-in configured');
+        const u = new URL(o.authorizationUrl);
+        if (!/^https?:$/.test(u.protocol)) throw new Error('tolgee has no usable authorization URL');
+        const state = crypto.randomUUID ? crypto.randomUUID()
+          : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem(STATE, state);
+        u.searchParams.set('client_id', o.clientId);
+        u.searchParams.set('redirect_uri', location.origin + '/login/auth_callback/oauth2');
+        u.searchParams.set('response_type', 'code');
+        u.searchParams.set('scope', o.scopes.join(' '));
+        u.searchParams.set('state', state);
+        mark(300);
+        location.replace(u.toString());
+      } catch (e) {
+        mark(300);
+        location.replace('/login?local=1');
+      }
+    })();
+    </script></body></html>
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -254,6 +386,7 @@ spec:
               - {key: kargo.html, path: kargo.html}
               - {key: penpot.html, path: penpot.html}
               - {key: openbao.html, path: openbao.html}
+              - {key: tolgee.html, path: tolgee.html}
         - name: conf
           configMap:
             name: adhar-sso-start

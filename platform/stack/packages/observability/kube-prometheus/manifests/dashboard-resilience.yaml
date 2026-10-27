@@ -29,7 +29,7 @@ data:
           }
         ]
       },
-      "description": "Can the platform survive a failure and recover from one? Velero backups and restores (schedules, outcomes, age of the last good backup, snapshots, the storage location), Litmus chaos experiments, k6 load tests, and the Adhar resilience-runner and scorecard CronJobs that exercise them. Replaces the Velero, k6 Operator and Chaos Mesh (2) dashboards.",
+      "description": "Can the platform survive a failure and recover from one? Velero backups and restores (schedules, outcomes, age of the last good backup, snapshots, the storage location), Litmus chaos experiments, k6 load tests, and the Adhar resilience-runner and scorecard CronJobs that exercise them.",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
@@ -1182,7 +1182,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.95, sum by (le, schedule) (rate(velero_backup_duration_seconds_bucket{job=\"velero\", schedule=~\"$schedule\"}[1h])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, schedule) (rate(velero_backup_duration_seconds_bucket{job=\"velero\", schedule=~\"$schedule\"}[1h]))) >= 0)",
                   "legendFormat": "{{schedule}}",
                   "range": true,
                   "instant": false,
@@ -2239,7 +2239,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"litmus-.+\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"litmus-.+\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"litmus-.+\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"litmus-.+\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -3330,7 +3330,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"k6-operator|k6-k6-operator-controller-manager-metrics-service\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"k6-operator|k6-k6-operator-controller-manager-metrics-service\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{controller}}",
                   "range": true,
                   "instant": false,

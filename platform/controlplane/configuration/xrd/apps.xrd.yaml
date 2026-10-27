@@ -58,7 +58,12 @@ spec:
                       Containers, RuntimeClass `kata-qemu-nvidia-gpu` when it asks for a GPU) with
                       GPU sharing, and gets an AgentWorkload for its namespace: resource quota,
                       network policy, and model and tool allow-lists on the AI gateway.
-                    enum: [service, web, worker, data, ai]
+                      `function` is a serverless Function (platform.adhar.io Function XR in each
+                      environment, Knative scale-to-zero) deployed from the repository's
+                      deploy/envs/<env> overlays; its pods are Knative revisions
+                      (<name>-<revision>-deployment-…), which the delivery checks select by
+                      label rather than by name.
+                    enum: [service, web, worker, data, ai, function]
                     default: service
                   dashboard:
                     type: object

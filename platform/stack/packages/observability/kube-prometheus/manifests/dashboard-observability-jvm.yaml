@@ -296,7 +296,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * (sum(rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", status=~\"5..\"}[5m])) or vector(0)) / sum(rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m]))",
+              "expr": "100 * (sum(rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", status=~\"5..\"}[5m])) or vector(0)) / (sum(rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -370,7 +370,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "max(100 * sum by (namespace, pod) (jvm_memory_used_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"}) / sum by (namespace, pod) (jvm_memory_max_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"} > 0))",
+              "expr": "max(100 * sum by (namespace, pod) (jvm_memory_used_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"}) / (sum by (namespace, pod) (jvm_memory_max_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"} > 0) > 0))",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -544,7 +544,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * (sum by (namespace, job, pod) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", status=~\"5..\"}[5m])) or sum by (namespace, job, pod) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])) * 0) / sum by (namespace, job, pod) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m]))",
+              "expr": "100 * (sum by (namespace, job, pod) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", status=~\"5..\"}[5m])) or sum by (namespace, job, pod) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])) * 0) / (sum by (namespace, job, pod) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -557,7 +557,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "histogram_quantile(0.99, sum by (namespace, job, pod, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])))",
+              "expr": "(histogram_quantile(0.99, sum by (namespace, job, pod, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m]))) >= 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -570,7 +570,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (namespace, job, pod) (jvm_memory_used_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"}) / sum by (namespace, job, pod) (jvm_memory_max_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"} > 0)",
+              "expr": "100 * sum by (namespace, job, pod) (jvm_memory_used_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"}) / (sum by (namespace, job, pod) (jvm_memory_max_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\", area=\"heap\"} > 0) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1098,7 +1098,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (job, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (job, le) (rate(http_server_requests_seconds_bucket{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{job}} p99",
                   "range": true,
                   "instant": false,
@@ -1110,7 +1110,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum by (job) (rate(http_server_requests_seconds_sum{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval])) / sum by (job) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval]))",
+                  "expr": "sum by (job) (rate(http_server_requests_seconds_sum{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval])) / (sum by (job) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval])) > 0)",
                   "legendFormat": "{{job}} avg",
                   "range": true,
                   "instant": false,
@@ -1236,7 +1236,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(10, sum by (job, uri) (rate(http_server_requests_seconds_sum{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])) / sum by (job, uri) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m]) > 0))",
+                  "expr": "topk(10, sum by (job, uri) (rate(http_server_requests_seconds_sum{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m])) / (sum by (job, uri) (rate(http_server_requests_seconds_count{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[5m]) > 0) > 0))",
                   "legendFormat": "{{job}} {{uri}}",
                   "range": false,
                   "instant": true,
@@ -2608,7 +2608,7 @@ data:
             {
               "type": "timeseries",
               "title": "Kafka clients",
-              "description": "Records consumed / produced per second and consumer lag for services using the Kafka client (Micrometer kafka_* metrics).",
+              "description": "Records consumed / produced per second and consumer lag for services using the Kafka client (Micrometer kafka_* metrics). Lag is the worst partition's records-lag as the consumer last measured it: 0 when caught up. (records-lag-max is a windowed max that reads NaN whenever the consumer received nothing in the last 30 s, i.e. for every idle consumer.)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -2643,7 +2643,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "max by (job) (kafka_consumer_fetch_manager_records_lag_max{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"})",
+                  "expr": "max by (job) (kafka_consumer_fetch_manager_records_lag{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"})",
                   "legendFormat": "{{job}} max lag",
                   "range": true,
                   "instant": false,

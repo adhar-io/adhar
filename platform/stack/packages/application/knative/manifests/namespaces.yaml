@@ -1,9 +1,26 @@
+# Knative's data planes run in their own namespaces — the one ADR-0011 exception
+# (packages/CONFLICTS.md, serving.yaml). The operator would create these itself,
+# but declaring them here puts them in place before the CRs that target them and
+# lets them carry the ADR-0023 placement label: `control` is what the plane and
+# supply-chain admission policies key on to treat Knative's system pods as
+# platform services rather than tenant workloads.
+#
+# Safe to prune, unlike adhar-system: nothing but Knative lives here, and
+# disabling the package is exactly when these should go.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: knative-serving
+  labels:
+    adhar.io/plane: control
+    adhar.io/component: knative
+    app.kubernetes.io/part-of: adhar
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: knative-eventing
+  labels:
+    adhar.io/plane: control
+    adhar.io/component: knative
+    app.kubernetes.io/part-of: adhar

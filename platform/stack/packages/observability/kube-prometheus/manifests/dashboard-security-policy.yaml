@@ -1239,7 +1239,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(10, histogram_quantile(0.99, sum by (le, policy_name) (rate(kyverno_policy_execution_duration_seconds_bucket{job=~\"kyverno-.+-controller\"}[$__rate_interval]))))",
+                  "expr": "topk(10, (histogram_quantile(0.99, sum by (le, policy_name) (rate(kyverno_policy_execution_duration_seconds_bucket{job=~\"kyverno-.+-controller\"}[$__rate_interval]))) >= 0))",
                   "legendFormat": "{{policy_name}}",
                   "range": true,
                   "instant": false,
@@ -4075,7 +4075,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"trivy-operator\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (controller, le) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"trivy-operator\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{controller}}",
                   "range": true,
                   "instant": false,

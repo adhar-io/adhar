@@ -34,12 +34,19 @@
 #     split Plane's provider needs.
 #  5. REDIRECT_URI_DYNAMIC must be off. It derives the callback from request
 #     headers, which behind the Gateway and the proxy is not the browser's URL.
-#  6. The group claim values must EQUAL RustFS policy names, verbatim
-#     (map_claims_to_policies). The activation job therefore writes policies
-#     named after the platform's Keycloak groups in BOTH spellings:
-#     `platform-admin` and `/platform-admin` (same for developer/viewer). That
-#     keeps login working whether a realm emits bare names (full.path=false) or
-#     path-form names from an older/full-path mapper.
+#  6. The platform's groups must exist as RustFS GROUPS, each with its policy
+#     attached. RustFS first resolves policies through its own group mappings
+#     (sts_policy_db_get): a claim value that names a RustFS group contributes
+#     that group's policy, and a value naming no group is skipped. Only when no
+#     group maps does it fall back to treating EVERY claim value as a policy
+#     name, and then ALL of them must exist (all_oidc_policies_resolved in
+#     rustfs/src/admin/service/federated_identity.rs). With policies alone, a
+#     platform-admin who was also in `ws-team-platform` (every team member has
+#     a ws-team-* group, every tenant an org-* one) was refused on the callback
+#     with "OIDC policy mapping did not resolve to current policies" (400, logged
+#     only in /logs/rustfs.log; live 2026-10-25/26, reproduced on 1.0.1). The
+#     claim values stay bare names: Keycloak's "Full group path" is off, and a
+#     leading `/` is not a legal claim policy name either.
 #
 # The edge proxy STAYS in front. Native OIDC could replace it, but the proxy is
 # what keeps an unauthenticated browser off the console entirely and it is the
@@ -150,12 +157,201 @@ roleRef:
   kind: Role
   name: rustfs-oidc-activate
 ---
-# Creates the S3 policies the group claim names, then makes sure the running
-# RustFS is actually serving the provider.
+# The activation script, kept in a TRACKED object rather than inline in the
+# hook below, so that changing it re-runs it.
+#
+# Argo CD leaves hooks out of the sync status, so a push that changed only an
+# inline hook script left the app Synced and nothing ran the new script. Nor
+# does the half-hourly self-heal (rustfs-buckets' TTL expires, the app goes
+# OutOfSync): Argo CD heals a revision it has already synced with a SELECTIVE
+# sync of just the drifted objects, and selective syncs run no hooks (argo-cd
+# v3.5 autoSync). Here an edit to the script is a diff on this ConfigMap, so the
+# next automated sync is a FULL sync of the new revision and its PostSync hook
+# runs with the new script.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rustfs-oidc-activate
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: rustfs-oidc-activate
+    app.kubernetes.io/part-of: rustfs
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+data:
+  activate.sh: |
+    set -euo pipefail
+    log() { echo "[rustfs-oidc] $*"; }
+
+    # ── 1. wait for the Keycloak client secret ──────────────────────
+    # It comes from keycloak-clients, which Keycloak's wave-20 config
+    # Job writes. Twenty minutes, the same patience the library
+    # mirrors give nexus-credentials. Waiting, not skipping: a Sync or
+    # PostSync hook does not run again once the app has converged, so
+    # "it will be picked up next sync" is not true.
+    log "waiting up to 20m for the rustfs-oidc Secret"
+    ready=no
+    for i in $(seq 1 120); do
+      if [ -n "$(kubectl -n "$NS" get secret rustfs-oidc \
+                  -o jsonpath='{.data.RUSTFS_IDENTITY_OPENID_CLIENT_SECRET}' 2>/dev/null)" ]; then
+        ready=yes; log "client secret present after $((i * 10))s"; break
+      fi
+      sleep 10
+    done
+    if [ "$ready" != yes ]; then
+      log "ERROR: the rustfs-oidc Secret never arrived — the console will keep asking for an"
+      log "ERROR: access key. It comes from keycloak-clients/RUSTFS_APP_CLIENT_SECRET; check"
+      log "ERROR: that Secret, then re-run by syncing the rustfs app."
+      exit 1
+    fi
+
+    # ── 2. the policies the platform groups map to ──────────────────
+    # Written before the groups (step 3): attaching a policy that does
+    # not exist yet is refused with NoSuchPolicy.
+    log "waiting for the S3 endpoint"
+    for i in $(seq 1 90); do
+      curl -s -o /dev/null --max-time 5 "${S3_ENDPOINT}/" && break
+      sleep 5
+    done
+    s3() { curl -s -o /tmp/out -w '%{http_code}' --user "${S3_USER}:${S3_PASS}" \
+             --aws-sigv4 "aws:amz:us-east-1:s3" "$@"; }
+
+    admin_policy() {
+      local name="$1" doc="$2" code
+      code=$(s3 -X PUT -H 'Content-Type: application/json' --data-binary "$doc" \
+               "${S3_ENDPOINT}/rustfs/admin/v3/add-canned-policy?name=${name}")
+      case "$code" in
+        200|201|204) log "policy ${name}: written" ;;
+        *)           log "policy ${name}: HTTP ${code} $(head -c 200 /tmp/out)"; return 1 ;;
+      esac
+    }
+
+    # TWO statements, and the admin one carries NO Resource.
+    #
+    # Two separate validations rejected the obvious spellings, and
+    # each one loses the WHOLE policy — after which an admin whose
+    # only group resolves to nothing is refused the login outright,
+    # while the other two policies write fine and nothing looks wrong:
+    #
+    #   {"Action":["admin:*","s3:*"],...}        ->  InvalidRequest:
+    #     'Action' contains mixed action families in the same statement
+    #   {"Action":["admin:*"],"Resource":["*"]}  ->  InvalidRequest:
+    #     invalid resource, type: 'unknown', pattern: '*'
+    #
+    # The admin, sts and kms families are not resource-scoped at all,
+    # and RustFS requires the key to be ABSENT rather than wildcarded
+    # (crates/policy/src/policy/policy.rs,
+    # test_iam_policy_serialize_keeps_empty_resource_omitted_for_action_families).
+    # The README's `"Resource":["arn:aws:s3:::*"]` on an admin
+    # statement is not what the parser accepts.
+    ADMIN_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["admin:*"]},{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
+    RW_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
+    RO_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation","s3:ListAllMyBuckets"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
+
+    # Bare names only. A `/platform-admin` spelling cannot help: RustFS
+    # never resolves a claim policy name containing `/`
+    # (is_safe_claim_policy_name), and the store collapses the slash,
+    # so writing one silently replaces `platform-admin` on disk — which
+    # shows only after the next restart.
+    admin_policy platform-admin     "$ADMIN_DOC"
+    admin_policy platform-developer "$RW_DOC"
+    admin_policy platform-viewer    "$RO_DOC"
+
+    # ── 3. the groups the login resolves through ────────────────────
+    # Policies alone are not enough (point 6 at the top of this file):
+    # without a RustFS group mapping, EVERY value of the groups claim
+    # must name an existing policy, so anyone who is also in a
+    # ws-team-* or org-* group is refused. Group mappings are consulted
+    # first, and a claim value that is not a RustFS group is skipped.
+    #
+    # The groups need no members — membership comes from the token on
+    # every login — and an empty member list is how the admin API
+    # creates one (existing members are kept). Attaching REPLACES the
+    # group's mapping, so these four groups are owned here.
+    # platform-engineer is the infrastructure admin tier (cluster-admin
+    # in security/keycloak k8s-rbac.yaml), so it gets the admin policy.
+    # A DISABLED group contributes no policy at login; that is reported
+    # below, not undone, because disabling one is a deliberate act.
+    rustfs_group() {
+      local group="$1" policy="$2" code
+      code=$(s3 -X PUT -H 'Content-Type: application/json' \
+               --data-binary "{\"group\":\"${group}\",\"members\":[],\"groupStatus\":\"enabled\",\"isRemove\":false}" \
+               "${S3_ENDPOINT}/rustfs/admin/v3/update-group-members")
+      case "$code" in
+        200|201|204) ;;
+        *) log "group ${group}: HTTP ${code} $(head -c 200 /tmp/out)"; return 1 ;;
+      esac
+      code=$(s3 -X PUT \
+               "${S3_ENDPOINT}/rustfs/admin/v3/set-user-or-group-policy?policyName=${policy}&userOrGroup=${group}&isGroup=true")
+      case "$code" in
+        200|201|204) ;;
+        *) log "group ${group}: attaching ${policy}: HTTP ${code} $(head -c 200 /tmp/out)"; return 1 ;;
+      esac
+      # Read it back: a mapping that silently did not land looks
+      # exactly like this bug from the outside.
+      code=$(s3 "${S3_ENDPOINT}/rustfs/admin/v3/group?group=${group}")
+      if [ "$code" != 200 ] || ! grep -q "\"policy\":\"${policy}\"" /tmp/out; then
+        log "group ${group}: mapping not visible (HTTP ${code}): $(head -c 200 /tmp/out)"; return 1
+      fi
+      if ! grep -q '"status":"enabled"' /tmp/out; then
+        log "WARNING: group ${group} is DISABLED in RustFS; its members get no policy from it"
+      fi
+      log "group ${group} -> policy ${policy}"
+    }
+
+    rustfs_group platform-admin     platform-admin
+    rustfs_group platform-engineer  platform-admin
+    rustfs_group platform-developer platform-developer
+    rustfs_group platform-viewer    platform-viewer
+
+    # ── 4. make sure the provider is actually SERVED ────────────────
+    # Discovery runs once at start-up and a failure drops the provider
+    # silently, so a RustFS that booted before the client secret
+    # existed serves an EMPTY provider list for ever. Ask it, and
+    # restart only if the answer is empty — which makes this
+    # idempotent and a no-op on every later run.
+    # `|| true`: under `set -e` an unreachable console (mid-restart)
+    # would otherwise end the Job at `body="$(providers)"` instead of
+    # letting the retry loop below wait for it.
+    providers() { curl -s --max-time 10 "${CONSOLE_ENDPOINT}/rustfs/admin/v3/oidc/providers" || true; }
+    body="$(providers)"
+    log "oidc providers before: ${body:-<empty>}"
+    if printf '%s' "$body" | grep -q '"default"'; then
+      log "the Keycloak provider is already being served; nothing to do"
+      exit 0
+    fi
+
+    log "no provider served — restarting ${DEPLOY} so it re-runs OIDC discovery"
+    kubectl -n "$NS" rollout restart "deployment/${DEPLOY}" || {
+      log "ERROR: could not restart ${DEPLOY}"; exit 1; }
+    kubectl -n "$NS" rollout status "deployment/${DEPLOY}" --timeout=10m || {
+      log "ERROR: ${DEPLOY} did not become ready after the restart"; exit 1; }
+
+    for i in $(seq 1 30); do
+      body="$(providers)"
+      if printf '%s' "$body" | grep -q '"default"'; then
+        log "oidc providers after: ${body}"
+        log "OK: the console now offers the Keycloak login"
+        exit 0
+      fi
+      sleep 10
+    done
+    log "ERROR: RustFS restarted but still serves no OIDC provider."
+    log "ERROR: discovery is failing. Check the rustfs pod log for an outbound-policy denial"
+    log "ERROR: (RUSTFS_OUTBOUND_ALLOW_ORIGINS must list the adhar-controlplane Keycloak origin) and"
+    log "ERROR: that RUSTFS_IDENTITY_OPENID_CONFIG_URL is reachable from the pod."
+    exit 1
+---
+# Writes the S3 policies and the RustFS groups the console login resolves
+# through, then makes sure the running RustFS is actually serving the provider.
+# Every step is idempotent, so it is safe on every sync.
 #
 # PostSync and a late wave on purpose: it waits for a Secret that another
 # package's Job writes, and a hook that waits for another hook's output must sit
 # in a later wave or it blocks it (the trap plane-console-reload documents).
+#
+# It runs on every FULL sync of the rustfs app: any push that changes one of the
+# package's tracked objects, including the script above. To run it by hand, sync
+# the whole app; syncing selected resources skips hooks.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -195,121 +391,15 @@ spec:
               valueFrom: {secretKeyRef: {name: root-creds, key: rootUser}}
             - name: S3_PASS
               valueFrom: {secretKeyRef: {name: root-creds, key: rootPassword}}
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-              set -euo pipefail
-              log() { echo "[rustfs-oidc] $*"; }
-
-              # ── 1. wait for the Keycloak client secret ──────────────────────
-              # It comes from keycloak-clients, which Keycloak's wave-20 config
-              # Job writes. Twenty minutes, the same patience the library
-              # mirrors give nexus-credentials. Waiting, not skipping: a Sync or
-              # PostSync hook does not run again once the app has converged, so
-              # "it will be picked up next sync" is not true.
-              log "waiting up to 20m for the rustfs-oidc Secret"
-              ready=no
-              for i in $(seq 1 120); do
-                if [ -n "$(kubectl -n "$NS" get secret rustfs-oidc \
-                            -o jsonpath='{.data.RUSTFS_IDENTITY_OPENID_CLIENT_SECRET}' 2>/dev/null)" ]; then
-                  ready=yes; log "client secret present after $((i * 10))s"; break
-                fi
-                sleep 10
-              done
-              if [ "$ready" != yes ]; then
-                log "ERROR: the rustfs-oidc Secret never arrived — the console will keep asking for an"
-                log "ERROR: access key. It comes from keycloak-clients/RUSTFS_APP_CLIENT_SECRET; check"
-                log "ERROR: that Secret, then re-run by syncing the rustfs app."
-                exit 1
-              fi
-
-              # ── 2. the policies the group claim names ───────────────────────
-              # RustFS matches each value of the `groups` claim against a policy
-              # name VERBATIM, so these are named after the platform's existing
-              # Keycloak groups. A claim value with no matching policy is
-              # ignored as long as one resolves, so a user in unrelated groups
-              # (org-*, ws-team-*) still signs in.
-              log "waiting for the S3 endpoint"
-              for i in $(seq 1 90); do
-                curl -s -o /dev/null --max-time 5 "${S3_ENDPOINT}/" && break
-                sleep 5
-              done
-              s3() { curl -s -o /tmp/out -w '%{http_code}' --user "${S3_USER}:${S3_PASS}" \
-                       --aws-sigv4 "aws:amz:us-east-1:s3" "$@"; }
-
-              admin_policy() {
-                local name="$1" doc="$2" code
-                code=$(s3 -X PUT -H 'Content-Type: application/json' --data-binary "$doc" \
-                         "${S3_ENDPOINT}/rustfs/admin/v3/add-canned-policy?name=${name}")
-                case "$code" in
-                  200|201|204) log "policy ${name}: written" ;;
-                  *)           log "policy ${name}: HTTP ${code} $(head -c 200 /tmp/out)"; return 1 ;;
-                esac
-              }
-
-              # TWO statements, and the admin one carries NO Resource.
-              #
-              # Two separate validations rejected the obvious spellings, and
-              # each one loses the WHOLE policy — after which an admin whose
-              # only group resolves to nothing is refused the login outright,
-              # while the other two policies write fine and nothing looks wrong:
-              #
-              #   {"Action":["admin:*","s3:*"],...}        ->  InvalidRequest:
-              #     'Action' contains mixed action families in the same statement
-              #   {"Action":["admin:*"],"Resource":["*"]}  ->  InvalidRequest:
-              #     invalid resource, type: 'unknown', pattern: '*'
-              #
-              # The admin, sts and kms families are not resource-scoped at all,
-              # and RustFS requires the key to be ABSENT rather than wildcarded
-              # (crates/policy/src/policy/policy.rs,
-              # test_iam_policy_serialize_keeps_empty_resource_omitted_for_action_families).
-              # The README's `"Resource":["arn:aws:s3:::*"]` on an admin
-              # statement is not what the parser accepts.
-              ADMIN_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["admin:*"]},{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
-              RW_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
-              RO_DOC='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation","s3:ListAllMyBuckets"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["sts:AssumeRole"]}]}'
-
-              admin_policy platform-admin      "$ADMIN_DOC"
-              admin_policy /platform-admin     "$ADMIN_DOC"
-              admin_policy platform-developer  "$RW_DOC"
-              admin_policy /platform-developer "$RW_DOC"
-              admin_policy platform-viewer     "$RO_DOC"
-              admin_policy /platform-viewer    "$RO_DOC"
-
-              # ── 3. make sure the provider is actually SERVED ────────────────
-              # Discovery runs once at start-up and a failure drops the provider
-              # silently, so a RustFS that booted before the client secret
-              # existed serves an EMPTY provider list for ever. Ask it, and
-              # restart only if the answer is empty — which makes this
-              # idempotent and a no-op on every later run.
-              providers() { curl -s --max-time 10 "${CONSOLE_ENDPOINT}/rustfs/admin/v3/oidc/providers"; }
-              body="$(providers)"
-              log "oidc providers before: ${body:-<empty>}"
-              if printf '%s' "$body" | grep -q '"default"'; then
-                log "the Keycloak provider is already being served; nothing to do"
-                exit 0
-              fi
-
-              log "no provider served — restarting ${DEPLOY} so it re-runs OIDC discovery"
-              kubectl -n "$NS" rollout restart "deployment/${DEPLOY}" || {
-                log "ERROR: could not restart ${DEPLOY}"; exit 1; }
-              kubectl -n "$NS" rollout status "deployment/${DEPLOY}" --timeout=10m || {
-                log "ERROR: ${DEPLOY} did not become ready after the restart"; exit 1; }
-
-              for i in $(seq 1 30); do
-                body="$(providers)"
-                if printf '%s' "$body" | grep -q '"default"'; then
-                  log "oidc providers after: ${body}"
-                  log "OK: the console now offers the Keycloak login"
-                  exit 0
-                fi
-                sleep 10
-              done
-              log "ERROR: RustFS restarted but still serves no OIDC provider."
-              log "ERROR: discovery is failing. Check the rustfs pod log for an outbound-policy denial"
-              log "ERROR: (RUSTFS_OUTBOUND_ALLOW_ORIGINS must list the adhar-controlplane Keycloak origin) and"
-              log "ERROR: that RUSTFS_IDENTITY_OPENID_CONFIG_URL is reachable from the pod."
-              exit 1
+          command: ["/bin/bash", "/opt/rustfs-oidc/activate.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /opt/rustfs-oidc
+              readOnly: true
           resources:
             requests: {cpu: 25m, memory: 64Mi}
             limits: {memory: 256Mi}
+      volumes:
+        - name: script
+          configMap:
+            name: rustfs-oidc-activate

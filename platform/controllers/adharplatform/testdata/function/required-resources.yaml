@@ -1,0 +1,29 @@
+# What the composition reads from the cluster (ExtraResources): the function's
+# namespace, for the hierarchy labels an environment namespace carries, and
+# argocd-cm, whose url is the platform's published address.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    kubernetes.io/metadata.name: dev
+    adhar.io/organisation: adhar
+    adhar.io/team: platform
+    adhar.io/project: shop
+    adhar.io/environment: dev
+    adhar.io/plane: workload
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-media
+  labels:
+    kubernetes.io/metadata.name: team-media
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: adhar-system
+data:
+  url: https://argocd.cloud.example.com

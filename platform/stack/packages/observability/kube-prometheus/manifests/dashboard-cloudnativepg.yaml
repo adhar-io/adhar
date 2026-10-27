@@ -581,7 +581,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "max(100 * sum by (namespace, pod) (cnpg_backends_total{namespace=~\"$namespace\", pod=~\"$instance\"}) / on (namespace, pod) max by (namespace, pod) (cnpg_pg_settings_setting{namespace=~\"$namespace\", pod=~\"$instance\", name=\"max_connections\"}))",
+              "expr": "max(100 * sum by (namespace, pod) (cnpg_backends_total{namespace=~\"$namespace\", pod=~\"$instance\"}) / on (namespace, pod) (max by (namespace, pod) (cnpg_pg_settings_setting{namespace=~\"$namespace\", pod=~\"$instance\", name=\"max_connections\"}) > 0))",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -707,7 +707,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "label_replace(100 * sum by (namespace, pod) (cnpg_backends_total{namespace=~\"$namespace\", pod=~\"$instance\"}) / on (namespace, pod) max by (namespace, pod) (cnpg_pg_settings_setting{namespace=~\"$namespace\", pod=~\"$instance\", name=\"max_connections\"}), \"cluster\", \"$1\", \"pod\", \"(.+)-[0-9]+\")",
+              "expr": "label_replace(100 * sum by (namespace, pod) (cnpg_backends_total{namespace=~\"$namespace\", pod=~\"$instance\"}) / on (namespace, pod) (max by (namespace, pod) (cnpg_pg_settings_setting{namespace=~\"$namespace\", pod=~\"$instance\", name=\"max_connections\"}) > 0), \"cluster\", \"$1\", \"pod\", \"(.+)-[0-9]+\")",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -824,7 +824,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "label_replace(100 * (sum by (namespace, pod) (cnpg_pg_database_size_bytes{namespace=~\"$namespace\", pod=~\"$instance\"}) + max by (namespace, pod) (cnpg_collector_pg_wal{namespace=~\"$namespace\", pod=~\"$instance\", value=\"size\"})) / on (namespace, pod) label_replace(max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{job=\"kube-state-metrics\", namespace=~\"$namespace\", persistentvolumeclaim=~\"$instance\"}), \"pod\", \"$1\", \"persistentvolumeclaim\", \"(.+)\"), \"cluster\", \"$1\", \"pod\", \"(.+)-[0-9]+\")",
+              "expr": "label_replace(100 * (sum by (namespace, pod) (cnpg_pg_database_size_bytes{namespace=~\"$namespace\", pod=~\"$instance\"}) + max by (namespace, pod) (cnpg_collector_pg_wal{namespace=~\"$namespace\", pod=~\"$instance\", value=\"size\"})) / on (namespace, pod) (label_replace(max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{job=\"kube-state-metrics\", namespace=~\"$namespace\", persistentvolumeclaim=~\"$instance\"}), \"pod\", \"$1\", \"persistentvolumeclaim\", \"(.+)\") > 0), \"cluster\", \"$1\", \"pod\", \"(.+)-[0-9]+\")",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1731,7 +1731,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (pod) (cnpg_backends_total{namespace=~\"$namespace\", pod=~\"$instance\"}) / on (pod) max by (pod) (cnpg_pg_settings_setting{namespace=~\"$namespace\", pod=~\"$instance\", name=\"max_connections\"})",
+                  "expr": "100 * sum by (pod) (cnpg_backends_total{namespace=~\"$namespace\", pod=~\"$instance\"}) / on (pod) (max by (pod) (cnpg_pg_settings_setting{namespace=~\"$namespace\", pod=~\"$instance\", name=\"max_connections\"}) > 0)",
                   "legendFormat": "{{pod}}",
                   "range": false,
                   "instant": true,
@@ -4133,7 +4133,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * (sum by (namespace, pod) (cnpg_pg_database_size_bytes{namespace=~\"$namespace\", pod=~\"$instance\"}) + max by (namespace, pod) (cnpg_collector_pg_wal{namespace=~\"$namespace\", pod=~\"$instance\", value=\"size\"})) / on (namespace, pod) label_replace(max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{job=\"kube-state-metrics\", namespace=~\"$namespace\", persistentvolumeclaim=~\"$instance\"}), \"pod\", \"$1\", \"persistentvolumeclaim\", \"(.+)\")",
+                  "expr": "100 * (sum by (namespace, pod) (cnpg_pg_database_size_bytes{namespace=~\"$namespace\", pod=~\"$instance\"}) + max by (namespace, pod) (cnpg_collector_pg_wal{namespace=~\"$namespace\", pod=~\"$instance\", value=\"size\"})) / on (namespace, pod) (label_replace(max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{job=\"kube-state-metrics\", namespace=~\"$namespace\", persistentvolumeclaim=~\"$instance\"}), \"pod\", \"$1\", \"persistentvolumeclaim\", \"(.+)\") > 0)",
                   "legendFormat": "{{pod}}",
                   "range": false,
                   "instant": true,

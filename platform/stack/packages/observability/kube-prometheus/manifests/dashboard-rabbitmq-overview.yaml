@@ -688,7 +688,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * max by (namespace, pod) (rabbitmq_process_resident_memory_bytes{namespace=~\"$namespace\", pod=~\"$pod\"}) / max by (namespace, pod) (rabbitmq_resident_memory_limit_bytes{namespace=~\"$namespace\", pod=~\"$pod\"})",
+              "expr": "100 * max by (namespace, pod) (rabbitmq_process_resident_memory_bytes{namespace=~\"$namespace\", pod=~\"$pod\"}) / (max by (namespace, pod) (rabbitmq_resident_memory_limit_bytes{namespace=~\"$namespace\", pod=~\"$pod\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -727,7 +727,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * max by (namespace, pod) (rabbitmq_process_open_fds{namespace=~\"$namespace\", pod=~\"$pod\"}) / max by (namespace, pod) (rabbitmq_process_max_fds{namespace=~\"$namespace\", pod=~\"$pod\"})",
+              "expr": "100 * max by (namespace, pod) (rabbitmq_process_open_fds{namespace=~\"$namespace\", pod=~\"$pod\"}) / (max by (namespace, pod) (rabbitmq_process_max_fds{namespace=~\"$namespace\", pod=~\"$pod\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -740,7 +740,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * max by (namespace, pod) (rabbitmq_erlang_processes_used{namespace=~\"$namespace\", pod=~\"$pod\"}) / max by (namespace, pod) (rabbitmq_erlang_processes_limit{namespace=~\"$namespace\", pod=~\"$pod\"})",
+              "expr": "100 * max by (namespace, pod) (rabbitmq_erlang_processes_used{namespace=~\"$namespace\", pod=~\"$pod\"}) / (max by (namespace, pod) (rabbitmq_erlang_processes_limit{namespace=~\"$namespace\", pod=~\"$pod\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -2624,7 +2624,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * max by (pod) (rabbitmq_process_open_fds{namespace=~\"$namespace\", pod=~\"$pod\"}) / max by (pod) (rabbitmq_process_max_fds{namespace=~\"$namespace\", pod=~\"$pod\"})",
+                  "expr": "100 * max by (pod) (rabbitmq_process_open_fds{namespace=~\"$namespace\", pod=~\"$pod\"}) / (max by (pod) (rabbitmq_process_max_fds{namespace=~\"$namespace\", pod=~\"$pod\"}) > 0)",
                   "legendFormat": "{{pod}} fds",
                   "range": true,
                   "instant": false,
@@ -2636,7 +2636,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * max by (pod) (rabbitmq_erlang_processes_used{namespace=~\"$namespace\", pod=~\"$pod\"}) / max by (pod) (rabbitmq_erlang_processes_limit{namespace=~\"$namespace\", pod=~\"$pod\"})",
+                  "expr": "100 * max by (pod) (rabbitmq_erlang_processes_used{namespace=~\"$namespace\", pod=~\"$pod\"}) / (max by (pod) (rabbitmq_erlang_processes_limit{namespace=~\"$namespace\", pod=~\"$pod\"}) > 0)",
                   "legendFormat": "{{pod}} processes",
                   "range": true,
                   "instant": false,

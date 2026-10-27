@@ -314,6 +314,33 @@ def co(name, color):
     return {"matcher": {"id": "byName", "options": name}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": color}}]}
 
 
+# NO NaN ON A DASHBOARD. An idle app still publishes its counters, so a rate over
+# a quiet window is 0, not absent: 0/0 is NaN, and histogram_quantile over
+# buckets that all rose by 0 is NaN too. Grafana prints that literally ("NaN" in
+# the 5xx Ratio and p95 stats, the Routes and Dependencies tables, the legends),
+# and the live transaction-service dashboard showed exactly that in dev and prod
+# (2026-10-27). "No requests in this window" is the truth there, and neither NaN
+# nor a made-up 0 says it: a guarded divisor drops the point so the panel shows
+# its no-value text. TestAppDashboardsNeverDivideByAnIdleRate pins both.
+def nonzero(expr):
+    """A divisor with its zeros dropped (`> 0` filters; NaN compares false)."""
+    return f"({expr} > 0)"
+
+
+def known(expr):
+    """A quantile without its NaN points (latency is never negative)."""
+    return f"{expr} >= 0"
+
+
+# ...and the no-value text of a panel that shows nothing when its window is idle
+# must say THAT first. "The app publishes no http_server_requests_seconds" is
+# false for an app that publishes it and served nothing: transaction-service in
+# test (GCP, 2026-10-27) had only probe series since its last restart, and every
+# RED panel claimed it had no HTTP metrics. TestGuardedPanelsExplainAnIdleWindow
+# pins this for every panel whose queries are all guarded.
+IDLE = "in this window"
+
+
 def rate(metric, sel=HTTP, by="", window=W):
     b = f" by ({by})" if by else ""
     return f'sum{b} (rate({metric}{{{sel}}}[{window}]))'
@@ -322,12 +349,12 @@ def rate(metric, sel=HTTP, by="", window=W):
 def ratio(sel_extra, by="", window=W):
     total = rate("http_server_requests_seconds_count", HTTP, by, window)
     part = rate("http_server_requests_seconds_count", f'{HTTP},{sel_extra}', by, window)
-    return f"({part} or {total} * 0) / {total}"
+    return f"({part} or {total} * 0) / {nonzero(total)}"
 
 
 def quantile(q, by="", window=W):
     byl = ", ".join(([by] if by else []) + ["le"])
-    return f'histogram_quantile({q}, sum by ({byl}) (rate(http_server_requests_seconds_bucket{{{HTTP}}}[{window}])))'
+    return known(f'histogram_quantile({q}, sum by ({byl}) (rate(http_server_requests_seconds_bucket{{{HTTP}}}[{window}])))')
 
 
 # ---------------------------------------------------------------- OTLP (Mimir)
@@ -361,7 +388,7 @@ def otlp_rate(by="", status_re=None, window=W):
 
 def otlp_ratio(status_re, by="", window=W):
     total = otlp_rate(by, window=window)
-    return f"({otlp_rate(by, status_re, window)} or {total} * 0) / {total}"
+    return f"({otlp_rate(by, status_re, window)} or {total} * 0) / {nonzero(total)}"
 
 
 def otlp_quantile(q, by="", window=W):
@@ -369,7 +396,9 @@ def otlp_quantile(q, by="", window=W):
     parts = []
     for conv in OTLP_HTTP:
         e = f"histogram_quantile({q}, sum by ({byl}) ({_norm(f'rate({conv[0]}_bucket{{{_osel(conv)}}}[{window}])', conv)}))"
-        parts.append(f"({e} / {conv[1]})" if conv[1] != 1 else e)
+        # Each convention filtered on its own, so an idle one yields nothing and
+        # `or` falls through to the next instead of returning its NaN.
+        parts.append(f"({known(f'{e} / {conv[1]}' if conv[1] != 1 else e)})")
     return "(" + " or ".join(parts) + ")"
 
 
@@ -395,7 +424,8 @@ def otlp_quantile(q, by="", window=W):
 # empty for both `type, value` and `event_name, event_data_responseStatus`).
 FRONTEND_ROW = "Frontend (Faro: real users)"
 FARO = 'source="faro",app_name="__APP__",app_environment="${env:text}"'
-NO_FARO = "No browser telemetry yet: no Faro events were received in this time range (check FARO_URL + SDK wiring, app traffic, and environment filter)"
+NO_FARO = ("No Faro events from this environment in this time range. Browser Telemetry, the first stat of the "
+           "Frontend row, says why: no browser visited, or the page ran and sent nothing")
 PAGE_LOADS = f'{{{FARO},kind="event"}} |= "faro.performance.navigation" | logfmt event_name | event_name="faro.performance.navigation"'
 SESSIONS = f'{{{FARO},kind="event"}} |= "session_start" | logfmt event_name | event_name="session_start"'
 ERRORS = f'{{{FARO},kind="exception"}}'
@@ -470,26 +500,95 @@ def vital_stat(b, name, w=3):
            th=steps((None, GREEN), (good, AMBER), (poor, RED)), w=w)
 
 
+# WHY the browser section is empty. Fifteen panels used to say "no Faro events"
+# and list three guesses (FARO_URL, traffic, the environment filter); the
+# dashboard can tell which one it is, from what Faro wrote and from what the
+# pod's nginx served. On the GCP cluster (2026-10-27) the answer was traffic:
+# everything reactapp served in 72 h came from k6, Go probes and curl, none of
+# which runs the page's JavaScript, while one headless-Chrome visit each to dev,
+# test and prod was in Loki within seconds. The first answer that holds wins:
+# (code, mapping text, colour, explanation; `nginx` = needs the access log).
+TELEMETRY_STATES = [
+    (1, "Receiving", GREEN, "Faro events from this environment arrived in the selected range.", False),
+    (2, "Visited, nothing received", RED,
+     "a browser ran the page (it fetched /runtime-config.json) but no Faro event arrived from this environment: open "
+     "the page with the browser's developer tools and check /runtime-config.json (faro.url set, environment = this "
+     "one), the POST to /collect (CORS, a blocker) and SDK errors in the console.", True),
+    (3, "Not instrumented", ORANGE,
+     "a browser rendered the page (it fetched the page's scripts, styles or images) but never asked for "
+     "/runtime-config.json: the running image predates the template's telemetry module (src/telemetry.js; "
+     "src/app/telemetry.ts in Angular) or the page fails before starting it.", True),
+    (4, "Other environments only", BLUE,
+     "nothing from this environment, but another environment of this app is sending: check the Environment picker.", False),
+    (5, "None in this range", BLUE,
+     "this environment sent events in the last 7 days, just not in the selected range: widen it.", False),
+    (6, "No browser visits", PURPLE,
+     "no event in 7 days and no browser rendered the page in the selected range: synthetic checks (k6, curl, probes, "
+     "link previews) do not run the page's JavaScript. Open the app in a browser.", False),
+]
+POD_LOG = '{adhar_application="__APP__", adhar_environment="${env:text}", adhar_component="app"}'
+# A browser that RENDERED the page, from the access log: its sub-resource requests
+# (scripts, styles, images, the config fetch) carry the page as Referer. A
+# browser user agent alone is not one: link-preview bots and crawlers send
+# "Mozilla/5.0 (compatible; ...)" and a script can borrow any user agent, and
+# all of them fetch just `/`. One such client (GET / only, no Referer) hit dev,
+# test and prod on 2026-10-27 and turned all three "Not instrumented" while the
+# page was instrumented and Faro was receiving.
+# (a double-quoted pattern, as in NGINX_PIPE: a backtick would end the Go raw string)
+RENDERED = (' |= "Mozilla/" '
+            r'| pattern "<_> - <_> [<_>] \"<_> <_> <_>\" <_> <_> \"<referer>\" \"<_>\"" | referer=~"https?://.+"')
+
+
+def telemetry_status(b, nginx_log=True, w=6):
+    """One stat that says why the browser panels have data or not."""
+    states = [st for st in TELEMETRY_STATES if nginx_log or not st[4]]
+    seen = lambda sel, window="$__range": f"(sum(count_over_time({sel} [{window}])) > 0)"
+    cond = {1: seen(f"{{{FARO}}}"),
+            2: seen(f'{POD_LOG} |= "GET /runtime-config.json" |= "Mozilla/"'),
+            3: seen(f'{POD_LOG}{RENDERED}'),
+            4: seen('{source="faro",app_name="__APP__"}'),
+            5: seen(f"{{{FARO}}}", "7d")}
+    last = states[-1][0]
+    expr = " or ".join(f"{cond[code]} * 0 + {code}" for code, *_ in states[:-1]) + f" or vector({last})"
+    text = {code: name for code, name, *_ in states}
+    why = {code: reason for code, _, _, reason, _ in states}
+    if not nginx_log:
+        # No access log to tell a visit from no visit: a visit that sent nothing reads as one of the last two.
+        text[last] = "No events in 7 days"
+        why[last] = ("no event in 7 days. Synthetic checks (k6, curl, probes) do not run the page's JavaScript; a "
+                     "browser visit that sent nothing looks the same here, so open the app in a browser with its "
+                     "developer tools.")
+    mappings = [{"type": "value", "options": {str(code): {"text": text[code], "color": color, "index": i}
+                                               for i, (code, _, color, *_) in enumerate(states)}}]
+    desc = ("Why the browser panels have data or not, for this environment and range; the first that holds. "
+            + " ".join(f"{text[code]}: {why[code]}" for code, *_ in states)
+            + " A failed query shows as a red corner on the panel, never as one of these.")
+    b.stat("Browser Telemetry", expr, desc, ds=LOKI, mappings=mappings, no_value="—", th=steps((None, BLUE)), w=w)
+
+
 def frontend(b, server_side=False):
     """What real users experience in the browser: Faro RUM, then errors, network,
     pages and releases (each a collapsed detail row)."""
     b.row(FRONTEND_ROW, collapsed=False)
+    telemetry_status(b, nginx_log=not server_side)                                   # 6 + 6 × 3 → 24
     b.stat("Page Loads", count(PAGE_LOADS, "$__range"), "Full page loads in the selected range (Faro navigation timing).",
-           ds=LOKI, no_value="—", color_mode="value", w=4)
+           ds=LOKI, no_value="—", color_mode="value")
     b.stat("Sessions", count(SESSIONS, "$__range"), "Browser sessions started in the selected range.", ds=LOKI,
-           no_value="—", color_mode="value", w=4)
+           no_value="—", color_mode="value")
     b.stat("Pages / Session", f"{count(PAGE_LOADS, '$__range')} / {count(SESSIONS, '$__range')}",
            "Page loads per session: how deep visitors go. A single-page app counts only full loads, not client-side route changes.",
-           ds=LOKI, unit="none", decimals=1, no_value="—", color_mode="value", w=4)
+           ds=LOKI, unit="none", decimals=1, no_value="—", color_mode="value")
     b.stat("Sessions with an Error", f'count({count(ERRORS + " | logfmt session_id", "$__range", "session_id")}) / {count(SESSIONS, "$__range")}',
            "Share of sessions in which at least one JavaScript error was reported.", ds=LOKI, unit="percentunit",
-           decimals=1, no_value="—", th=steps((None, GREEN), (0.01, AMBER), (0.05, RED)), w=4)
+           decimals=1, no_value="—", th=steps((None, GREEN), (0.01, AMBER), (0.05, RED)))
     b.stat("Browser Fetch p95", f"quantile_over_time(0.95, {FETCH} | unwrap event_data_duration [$__range]) by (app_name)",
            "95th percentile of the page's own fetch/XHR calls as the browser measured them: network + backend + queueing.",
-           ds=LOKI, unit="ms", decimals=0, no_value="—", th=steps((None, GREEN), (500, AMBER), (1500, RED)), w=4)
-    b.stat("Pages with Errors", f'count({count(ERRORS + " | logfmt page_url", "$__range", "page_url")})',
-           "Distinct pages (URL) on which at least one JavaScript error was reported.", ds=LOKI, no_value="0",
-           th=steps((None, GREEN), (1, AMBER)), w=4)
+           ds=LOKI, unit="ms", decimals=0, no_value="—", th=steps((None, GREEN), (500, AMBER), (1500, RED)))
+    # 0 only when pages were loaded: with no telemetry at all "0 pages with errors" is a made-up all-clear.
+    b.stat("Pages with Errors", f'count({count(ERRORS + " | logfmt page_url", "$__range", "page_url")}) '
+           f'or (sum(count_over_time({PAGE_LOADS} [$__range])) > 0) * 0',
+           "Distinct pages (URL) on which at least one JavaScript error was reported.", ds=LOKI, no_value="—",
+           th=steps((None, GREEN), (1, AMBER)))
     for name, key, unit, good, poor in VITALS:
         b.stat(f"{name} good", vital_good(key, good),
                f"Share of {name} measurements in the 'good' band (≤ {good}{' ms' if unit == 'ms' else ''}). "
@@ -662,6 +761,8 @@ def overview_delivery(b, w=3):
 
 def overview_runtime(b, w=3, only=("Restarts", "OOMKilled", "CPU / Request", "Memory / Limit", "CPU Throttled")):
     """The pod-health stats, in the order given (each type lays its top rows out differently)."""
+    cpu_request = f'sum(kube_pod_container_resource_requests{{{SEL},{APP_CONTAINER},resource="cpu"}})'
+    memory_limit = f'sum(kube_pod_container_resource_limits{{{SEL},{APP_CONTAINER},resource="memory"}})'
     stats = {
         "Restarts": lambda: b.stat(
             "Restarts", f'round(sum(increase(kube_pod_container_status_restarts_total{{{SEL},{APP_CONTAINER}}}[$__range]))) or vector(0)',
@@ -670,11 +771,11 @@ def overview_runtime(b, w=3, only=("Restarts", "OOMKilled", "CPU / Request", "Me
             "OOMKilled", f'count(kube_pod_container_status_last_terminated_reason{{{SEL},reason="OOMKilled"}} == 1) or vector(0)',
             "Containers whose last exit was an OOM kill.", th=steps((None, GREEN), (1, RED)), w=w),
         "CPU / Request": lambda: b.stat(
-            "CPU / Request", f'sum(rate(container_cpu_usage_seconds_total{{{SEL},{APP_CONTAINER}}}[{W}])) / sum(kube_pod_container_resource_requests{{{SEL},{APP_CONTAINER},resource="cpu"}})',
+            "CPU / Request", f'sum(rate(container_cpu_usage_seconds_total{{{SEL},{APP_CONTAINER}}}[{W}])) / {nonzero(cpu_request)}',
             "CPU used over CPU requested.", unit="percentunit", decimals=0, th=steps((None, GREEN), (0.8, AMBER), (1.2, RED)),
             no_value="—", w=w),
         "Memory / Limit": lambda: b.stat(
-            "Memory / Limit", f'sum(container_memory_working_set_bytes{{{SEL},{APP_CONTAINER}}}) / sum(kube_pod_container_resource_limits{{{SEL},{APP_CONTAINER},resource="memory"}})',
+            "Memory / Limit", f'sum(container_memory_working_set_bytes{{{SEL},{APP_CONTAINER}}}) / {nonzero(memory_limit)}',
             "Working set over the memory limit. Near 100% = next OOM kill.", unit="percentunit", decimals=0,
             th=steps((None, GREEN), (0.75, AMBER), (0.9, RED)), no_value="No limit", w=w),
         "CPU Throttled": lambda: b.stat(
@@ -710,16 +811,17 @@ def overview_server_red(b, generic, w=3, prefix=""):
         burn = [(f"({ratio('status=~\"5..\"', window='1h')}) / (1 - $slo)", "")]
     b.stat(f"{prefix}Requests / s", rps, "Request rate (probe and metrics endpoints excluded).", unit="reqps", decimals=2,
            no_value="—", graph=True, color_mode="value", w=w)
-    b.stat(f"{prefix}5xx Ratio", err, "Share of requests answered 5xx.", unit="percentunit", decimals=2, no_value="—",
+    # Idle, these have nothing to divide or rank: "No requests", not NaN and not a blank dash.
+    b.stat(f"{prefix}5xx Ratio", err, "Share of requests answered 5xx.", unit="percentunit", decimals=2, no_value="No requests",
            th=steps((None, GREEN), (0.001, AMBER), (0.01, RED)), w=w)
-    b.stat(f"{prefix}p95 Latency", p95, "95th percentile server latency.", unit="s", decimals=3, no_value="—",
+    b.stat(f"{prefix}p95 Latency", p95, "95th percentile server latency.", unit="s", decimals=3, no_value="No requests",
            th=steps((None, GREEN), (0.5, AMBER), (1, RED)), w=w)
     b.stat("Error Budget Left", left,
            "Share of the error budget left over the selected range for the $slo availability objective (5xx counted as failures). Below 0 = spent.",
-           unit="percentunit", decimals=1, no_value="—", th=steps((None, RED), (0.25, AMBER), (0.5, GREEN)), w=w)
+           unit="percentunit", decimals=1, no_value="No requests", th=steps((None, RED), (0.25, AMBER), (0.5, GREEN)), w=w)
     b.stat("Burn Rate (1h)", burn,
            "How fast the last hour spends the error budget: 1 = exactly on budget, ≥ 14.4 pages (2% of a 30-day budget in an hour), ≥ 6 is a ticket.",
-           unit="none", decimals=1, no_value="—", th=steps((None, GREEN), (1, AMBER), (6, ORANGE), (14.4, RED)), w=w)
+           unit="none", decimals=1, no_value="No requests in 1h", th=steps((None, GREEN), (1, AMBER), (6, ORANGE), (14.4, RED)), w=w)
 
 
 def overview(b, kind):
@@ -769,8 +871,9 @@ def overview(b, kind):
 def golden_signals_scraped(b, title="Golden Signals (RED)", collapsed=False, no_http=None):
     """Micrometer-named RED from Prometheus: Spring/adhar-kit, and any app that
     publishes http_server_requests_seconds (the TanStack server does, by design)."""
-    no_http = no_http or ("No HTTP metrics: the app publishes no http_server_requests_seconds "
-                          "(adhar-kit / Micrometer apps and the TanStack server do)")
+    no_http = no_http or (f"No requests {IDLE} (probe and metrics endpoints excluded), or no HTTP metrics at all: "
+                          "the app publishes no http_server_requests_seconds (adhar-kit / Micrometer apps and the "
+                          "TanStack server do)")
     b.row(title, collapsed=collapsed)
     b.ts("Requests / s by Status", [(rate("http_server_requests_seconds_count", HTTP, "status"), "{{status}}")],
          "Request rate by HTTP status (probe and metrics endpoints excluded).", unit="reqps", decimals=2, no_value=no_http, w=8,
@@ -802,7 +905,7 @@ def golden_signals_scraped(b, title="Golden Signals (RED)", collapsed=False, no_
         decimals=1, no_value=no_http, w=8, th=steps((None, GREEN), (1, AMBER), (6, ORANGE), (14.4, RED)),
         overrides=[co("1h", RED), co("6h", AMBER)])
     b.ts("Latency Buckets (SLO)", [
-        (f'sum(rate(http_server_requests_seconds_bucket{{{HTTP},le=~"0.1|0.25|0.5|1|1.0|2|2.0"}}[{W}])) by (le) / scalar({rate("http_server_requests_seconds_count", HTTP)})', "≤ {{le}}s")],
+        (f'sum(rate(http_server_requests_seconds_bucket{{{HTTP},le=~"0.1|0.25|0.5|1|1.0|2|2.0"}}[{W}])) by (le) / on() group_left() {nonzero(rate("http_server_requests_seconds_count", HTTP))}', "≤ {{le}}s")],
         "Share of requests faster than each SLO bucket (adhar-kit publishes 50ms…5s SLO buckets).", unit="percentunit", decimals=1,
         no_value=no_http, w=8, mx=1)
     b.ts("In-flight Requests", [(f'sum(http_server_requests_active_seconds_gcount{{{SEL}}})', "active")],
@@ -821,8 +924,9 @@ def golden_signals_generic(b):
     """RED for any runtime: target A reads Micrometer-named Prometheus metrics,
     target B the OTLP HTTP-server metrics in Mimir, whichever convention the SDK
     used (labels normalised to status / route / method)."""
-    no_http = ("No HTTP server metrics: neither http_server_requests_seconds in Prometheus nor OTLP "
-               "http.server.* metrics in Mimir for service.name=__APP__")
+    no_http = (f"No requests {IDLE} (probes excluded), or no HTTP server metrics at all: neither "
+               "http_server_requests_seconds in Prometheus nor OTLP http.server.* metrics in Mimir for "
+               "service.name=__APP__")
     b.row("Golden Signals (RED)", collapsed=False)
     b.ts("Requests / s by Status", [(rate("http_server_requests_seconds_count", HTTP, "status"), "{{status}}", PROM),
                                     (otlp_rate("status"), "{{status}}", MIMIR)],
@@ -856,11 +960,11 @@ def golden_signals_generic(b):
         hide=["__name__", "service_name", "k8s_namespace_name", "k8s_pod_name"])
     b.state("p95 by Route", f"{quantile(0.95, 'uri')}",
             "p95 latency of each route over time, coloured green < 0.5 s, amber < 1 s, red above (Prometheus-scraped routes).",
-            legend="{{uri}}", th=steps((None, GREEN), (0.5, AMBER), (1, RED)), unit="s", no_value="No scraped route metrics", w=12, h=8)
+            legend="{{uri}}", th=steps((None, GREEN), (0.5, AMBER), (1, RED)), unit="s", no_value=f"No scraped requests {IDLE}", w=12, h=8)
     b.state("p95 by Route (OTLP)", otlp_quantile(0.95, "route"),
             "p95 latency of each OTLP-reported route over time, coloured green < 0.5 s, amber < 1 s, red above.",
             legend="{{route}}", th=steps((None, GREEN), (0.5, AMBER), (1, RED)), unit="s", ds=MIMIR,
-            no_value="No OTLP route metrics", w=12, h=8)
+            no_value=f"No OTLP-reported requests {IDLE}", w=12, h=8)
     b.ts("Error Budget Burn Rate", [
         (f"({ratio('status=~\"5..\"', window='1h')}) / (1 - $slo)", "1h", PROM),
         (f"({ratio('status=~\"5..\"', window='6h')}) / (1 - $slo)", "6h", PROM),
@@ -875,29 +979,32 @@ def golden_signals_generic(b):
 SPAN = 'service="__APP__"'
 SPAN_SERVER = f'{SPAN},span_kind=~"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER",span_name!~"(?i)(http )?get /(actuator|q/health|q/metrics|health|livez|readyz|metrics).*"'
 SPAN_OUT = f'{SPAN},span_kind=~"SPAN_KIND_CLIENT|SPAN_KIND_PRODUCER"'
-NO_TRACES = "No traces yet: the app exports none to the platform collector (the golden-path templates send OTLP to Alloy)"
-NO_GRAPH = ("No calls from this service in Tempo's service graph: it exports no client spans, or calls nothing. "
+NO_TRACES = (f"No traced spans {IDLE} (probes excluded), or no traces at all: the app exports none to the platform "
+             "collector (the golden-path templates send OTLP to Alloy)")
+NO_GRAPH = (f"No calls from this service in Tempo's service graph {IDLE}: it called nothing, or exports no client spans. "
             "Note: span metrics carry no environment, so this view covers every environment")
 
 
 def dependencies(b, jvm):
+    calls = lambda by: f'sum by ({by}) (rate(traces_service_graph_request_total{{client="__APP__"}}[{W}]))'
+    failed = lambda by: f'sum by ({by}) (rate(traces_service_graph_request_failed_total{{client="__APP__"}}[{W}]))'
     b.row("Dependencies (what this service calls)")
-    b.ts("Downstream Calls / s", [(f'sum by (server) (rate(traces_service_graph_request_total{{client="__APP__"}}[{W}]))', "{{server}}")],
+    b.ts("Downstream Calls / s", [(calls("server"), "{{server}}")],
          "Calls per second to each dependency (database, cache, broker, other services) from Tempo's service graph. "
          "All environments together: span metrics carry no environment.", ds=MIMIR, unit="reqps", decimals=2, w=8,
          no_value=NO_GRAPH, legend="table")
-    b.ts("Downstream Failures", [
-        (f'sum by (server) (rate(traces_service_graph_request_failed_total{{client="__APP__"}}[{W}])) / sum by (server) (rate(traces_service_graph_request_total{{client="__APP__"}}[{W}]))', "{{server}}")],
-        "Share of calls to each dependency that failed (span status error).", ds=MIMIR, unit="percentunit", decimals=2, w=8,
-        no_value="No failed downstream calls", th=steps((None, GREEN), (0.01, RED)))
+    b.ts("Downstream Failures", [(f'{failed("server")} / {nonzero(calls("server"))}', "{{server}}")],
+         "Share of calls to each dependency that failed (span status error).", ds=MIMIR, unit="percentunit", decimals=2, w=8,
+         no_value=f"No failed downstream calls {IDLE}", th=steps((None, GREEN), (0.01, RED)))
     b.ts("Downstream Latency p95", [
-        (f'histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_client_seconds_bucket{{client="__APP__"}}[{W}])))', "{{server}}")],
+        (known(f'histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_client_seconds_bucket{{client="__APP__"}}[{W}])))'), "{{server}}")],
         "p95 of each dependency as this service waited for it (client side): the dependency that got slow.",
         ds=MIMIR, unit="s", decimals=3, w=8, no_value=NO_GRAPH, legend="table")
+    dep = "server, connection_type"
     b.table("Dependencies", [
-        (f'sum by (server, connection_type) (rate(traces_service_graph_request_total{{client="__APP__"}}[{W}]))', "Calls/s", MIMIR),
-        (f'(sum by (server, connection_type) (rate(traces_service_graph_request_failed_total{{client="__APP__"}}[{W}])) or sum by (server, connection_type) (rate(traces_service_graph_request_total{{client="__APP__"}}[{W}])) * 0) / sum by (server, connection_type) (rate(traces_service_graph_request_total{{client="__APP__"}}[{W}]))', "Failed", MIMIR),
-        (f'histogram_quantile(0.95, sum by (server, connection_type, le) (rate(traces_service_graph_request_client_seconds_bucket{{client="__APP__"}}[{W}])))', "p95", MIMIR)],
+        (calls(dep), "Calls/s", MIMIR),
+        (f'({failed(dep)} or {calls(dep)} * 0) / {nonzero(calls(dep))}', "Failed", MIMIR),
+        (known(f'histogram_quantile(0.95, sum by (server, connection_type, le) (rate(traces_service_graph_request_client_seconds_bucket{{client="__APP__"}}[{W}])))'), "p95", MIMIR)],
         "Every dependency with call rate, failure share and p95 (connection type: database, messaging_system, virtual_node "
         "for an uninstrumented peer).", w=12, ds=MIMIR, rename={"server": "Dependency", "connection_type": "Type"},
         sort=("Calls/s", True), no_value=NO_GRAPH,
@@ -905,12 +1012,12 @@ def dependencies(b, jvm):
                "p95": ("s", steps((None, GREEN), (0.25, AMBER), (1, RED)), "color-text")})
     b.table("Callers", [
         (f'sum by (client) (rate(traces_service_graph_request_total{{server="__APP__"}}[{W}]))', "Calls/s", MIMIR),
-        (f'histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_server_seconds_bucket{{server="__APP__"}}[{W}])))', "p95", MIMIR)],
+        (known(f'histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_server_seconds_bucket{{server="__APP__"}}[{W}])))'), "p95", MIMIR)],
         "Who calls this service ('user' = traffic from outside the traced services, e.g. the gateway or a browser).",
         w=12, ds=MIMIR, rename={"client": "Caller"}, sort=("Calls/s", True), no_value="No traced callers",
         units={"Calls/s": ("reqps", None, None), "p95": ("s", steps((None, GREEN), (0.5, AMBER), (1, RED)), "color-text")})
     b.ts("Outbound Operations p95", [
-        (f'histogram_quantile(0.95, sum by (span_name, le) (rate(traces_spanmetrics_latency_bucket{{{SPAN_OUT}}}[{W}])))', "{{span_name}}")],
+        (known(f'histogram_quantile(0.95, sum by (span_name, le) (rate(traces_spanmetrics_latency_bucket{{{SPAN_OUT}}}[{W}])))'), "{{span_name}}")],
         "p95 of each outbound operation (client/producer span): SQL statements, cache commands, HTTP calls, messages sent.",
         ds=MIMIR, unit="s", decimals=3, w=24, legend="table", no_value=NO_TRACES)
     if not jvm:
@@ -919,9 +1026,9 @@ def dependencies(b, jvm):
     b.ts("DB Queries / s by Operation", [(f'sum by (db_operation_name, db_collection_name) (rate({db}_count{{{SEL}}}[{W}]))', "{{db_operation_name}} {{db_collection_name}}")],
          "Database operations per second by statement type and table (OpenTelemetry db.client.operation.duration, from adhar-kit's JDBC instrumentation).",
          unit="ops", decimals=2, w=12, legend="table", no_value="No database client metrics in this app")
-    b.ts("DB Query Latency p95", [(f'histogram_quantile(0.95, sum by (db_operation_name, db_collection_name, le) (rate({db}_bucket{{{SEL}}}[{W}])))', "{{db_operation_name}} {{db_collection_name}}")],
+    b.ts("DB Query Latency p95", [(known(f'histogram_quantile(0.95, sum by (db_operation_name, db_collection_name, le) (rate({db}_bucket{{{SEL}}}[{W}])))'), "{{db_operation_name}} {{db_collection_name}}")],
          "p95 per statement type and table: the slow query, by name.", unit="s", decimals=4, w=12, legend="table",
-         no_value="No database client metrics in this app")
+         no_value=f"No database queries {IDLE}, or no database client metrics in this app")
     b.ts("DB Connection Pool (Hikari)", [
         (f'sum by (pool) (hikaricp_connections_active{{{SEL}}})', "{{pool}} active"),
         (f'sum by (pool) (hikaricp_connections_idle{{{SEL}}})', "{{pool}} idle"),
@@ -930,15 +1037,21 @@ def dependencies(b, jvm):
         "JDBC pool usage. Pending > 0 means threads are waiting for a connection.", decimals=0, w=12,
         no_value="No JDBC pool in this app")
     b.ts("Connection Acquire Time", [
-        (f'sum by (pool) (rate(hikaricp_connections_acquire_seconds_sum{{{SEL}}}[{W}])) / sum by (pool) (rate(hikaricp_connections_acquire_seconds_count{{{SEL}}}[{W}]))', "{{pool}} mean"),
+        (f'sum by (pool) (rate(hikaricp_connections_acquire_seconds_sum{{{SEL}}}[{W}])) / {nonzero(f"sum by (pool) (rate(hikaricp_connections_acquire_seconds_count{{{SEL}}}[{W}]))")}', "{{pool}} mean"),
         (f'sum by (pool) (increase(hikaricp_connections_timeout_total{{{SEL}}}[{W}]))', "{{pool}} timeouts")],
         "Mean time to borrow a connection, and acquisition timeouts.", unit="s", decimals=4, w=12, no_value="No JDBC pool in this app")
-    b.ts("Kafka Consumer Lag", [(f'max by (topic) (kafka_consumer_fetch_manager_records_lag_max{{{SEL}}})', "{{topic}}")],
-         "Max records behind per topic. Growing lag = consumers slower than producers.", decimals=0, w=8,
-         no_value="No Kafka consumer in this app")
+    # records-lag, not records-lag-max: the max is a windowed stat (30 s samples)
+    # that the Kafka client reports as NaN whenever the consumer received nothing
+    # in the window, i.e. for every idle consumer (transaction-service, GCP,
+    # 2026-10-27), and Micrometer passes the NaN through. records-lag is the
+    # partition's lag at its last fetch: 0 for a consumer that is caught up.
+    b.ts("Kafka Consumer Lag", [(f'max by (topic) (kafka_consumer_fetch_manager_records_lag{{{SEL}}})', "{{topic}}")],
+         "Records behind on the worst partition of each topic, as the consumer last measured it (0 = caught up). "
+         "Growing lag = consumers slower than producers.", decimals=0, w=8,
+         no_value="No Kafka consumer in this app, or it has no partition assigned")
     b.ts("Kafka Listener", [
         (f'sum by (result) (rate(spring_kafka_listener_seconds_count{{{SEL}}}[{W}]))', "{{result}} /s"),
-        (f'sum(rate(spring_kafka_listener_seconds_sum{{{SEL}}}[{W}])) / sum(rate(spring_kafka_listener_seconds_count{{{SEL}}}[{W}]))', "mean time (s)")],
+        (f'sum(rate(spring_kafka_listener_seconds_sum{{{SEL}}}[{W}])) / {nonzero(f"sum(rate(spring_kafka_listener_seconds_count{{{SEL}}}[{W}]))")}', "mean time (s)")],
         "@KafkaListener invocations per second by result, and mean processing time.", decimals=3, w=8,
         no_value="No @KafkaListener in this app", overrides=[co("failure /s", RED)])
     b.ts("Cache / Valkey Commands", [
@@ -947,7 +1060,7 @@ def dependencies(b, jvm):
         no_value="No Valkey/Redis client metrics in this app")
     b.ts("Outbound HTTP (client)", [
         (f'sum by (client_name, status) (rate(http_client_requests_seconds_count{{{SEL}}}[{W}]))', "{{client_name}} {{status}}"),
-        (f'histogram_quantile(0.95, sum by (client_name, le) (rate(http_client_requests_seconds_bucket{{{SEL}}}[{W}])))', "p95 {{client_name}}")],
+        (known(f'histogram_quantile(0.95, sum by (client_name, le) (rate(http_client_requests_seconds_bucket{{{SEL}}}[{W}])))'), "p95 {{client_name}}")],
         "HTTP calls this app makes (RestClient / WebClient), by target host and status, and their p95.", decimals=3, w=24,
         legend="table", no_value="No outbound HTTP client metrics in this app")
 
@@ -1017,8 +1130,8 @@ def business_section(b):
             hide=["container", "endpoint", "instance", "job", "namespace", "service", "environment", "application"],
             rename={"__name__": "Metric"}, no_value="No adhar_business_* metrics from this app yet")
     b.ts("Persistence (adhar-kit)", [
-        (f'sum(rate(adhar_persistence_query_duration_seconds_sum{{{SEL}}}[{W}])) / sum(rate(adhar_persistence_query_duration_seconds_count{{{SEL}}}[{W}]))', "mean query (s)"),
-        (f'sum(rate(adhar_persistence_transaction_duration_seconds_sum{{{SEL}}}[{W}])) / sum(rate(adhar_persistence_transaction_duration_seconds_count{{{SEL}}}[{W}]))', "mean transaction (s)"),
+        (f'sum(rate(adhar_persistence_query_duration_seconds_sum{{{SEL}}}[{W}])) / {nonzero(f"sum(rate(adhar_persistence_query_duration_seconds_count{{{SEL}}}[{W}]))")}', "mean query (s)"),
+        (f'sum(rate(adhar_persistence_transaction_duration_seconds_sum{{{SEL}}}[{W}])) / {nonzero(f"sum(rate(adhar_persistence_transaction_duration_seconds_count{{{SEL}}}[{W}]))")}', "mean transaction (s)"),
         (f'sum(increase(adhar_persistence_slow_queries_total{{{SEL}}}[{W}]))', "slow queries"),
         (f'sum(increase(adhar_persistence_errors_total{{{SEL}}}[{W}]))', "errors")],
         "adhar-kit's persistence layer: mean query and transaction time, slow queries and errors per interval.",
@@ -1179,10 +1292,11 @@ def traces_section(b, kind):
              "Server/consumer spans per second from Tempo's span metrics (in Mimir), by span status, probes excluded. "
              "All environments together: span metrics carry no environment.", ds=MIMIR, unit="reqps", decimals=2, w=8,
              no_value=NO_TRACES, overrides=[co("STATUS_CODE_ERROR", RED), co("STATUS_CODE_OK", GREEN)])
-        b.ts("Traced Error Ratio", [(f'(sum(rate(traces_spanmetrics_calls_total{{{SPAN_SERVER},status_code="STATUS_CODE_ERROR"}}[{W}])) or sum(rate(traces_spanmetrics_calls_total{{{SPAN_SERVER}}}[{W}])) * 0) / sum(rate(traces_spanmetrics_calls_total{{{SPAN_SERVER}}}[{W}]))', "error ratio")],
+        spans = f'sum(rate(traces_spanmetrics_calls_total{{{SPAN_SERVER}}}[{W}]))'
+        b.ts("Traced Error Ratio", [(f'(sum(rate(traces_spanmetrics_calls_total{{{SPAN_SERVER},status_code="STATUS_CODE_ERROR"}}[{W}])) or {spans} * 0) / {nonzero(spans)}', "error ratio")],
              "Share of server spans with error status.", ds=MIMIR, unit="percentunit", decimals=2, w=8, no_value=NO_TRACES,
              overrides=[co("error ratio", RED)])
-        b.ts("Traced Latency p95 by Operation", [(f'histogram_quantile(0.95, sum by (span_name, le) (rate(traces_spanmetrics_latency_bucket{{{SPAN_SERVER}}}[{W}])))', "{{span_name}}")],
+        b.ts("Traced Latency p95 by Operation", [(known(f'histogram_quantile(0.95, sum by (span_name, le) (rate(traces_spanmetrics_latency_bucket{{{SPAN_SERVER}}}[{W}])))'), "{{span_name}}")],
              "p95 span duration per operation.", ds=MIMIR, unit="s", decimals=3, w=8, legend="table", no_value=NO_TRACES)
         b.traces("Recent Traces", '{resource.service.name="__APP__" && kind=server}', "Latest server traces of this service. Click a trace ID to open it.")
         b.traces("Error Traces", '{resource.service.name="__APP__" && status=error}', "Latest traces containing an error span.",
@@ -1218,7 +1332,8 @@ def panels(kind):
     elif kind == "fullstack":
         frontend(b, server_side=True)
         golden_signals_scraped(b, title="Server: Golden Signals (RED)", collapsed=True,
-                               no_http="No server metrics: the TanStack server publishes http_server_requests_seconds on its metrics port (src/server/metrics.mjs, PodMonitor)")
+                               no_http=(f"No server requests {IDLE}, or no server metrics: the TanStack server publishes "
+                                        "http_server_requests_seconds on its metrics port (src/server/metrics.mjs, PodMonitor)"))
         node_runtime(b, title="Server: Node.js Runtime")
         dependencies(b, jvm=False)
     saturation(b)

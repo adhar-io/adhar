@@ -1,20 +1,16 @@
 # Penpot routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
 # Gateway (adhar-cert), replacing the chart's Ingress (disabled in values.yaml).
-# Requests to /penpot are forwarded to the penpot frontend service on port 8080.
-# config.publicUri is set to the external /penpot URL in values.yaml.
-#
-# SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
-# forwards to the original upstream(s): penpot:8080.
+# Everything goes to the penpot frontend (nginx, port 8080), which proxies the
+# API to the backend; there is no oauth2-proxy in front — Penpot signs people in
+# itself with native OIDC against Keycloak (values.yaml).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: penpot
   namespace: adhar-system
   annotations:
-    # After the oauth2-proxy (sso.yaml, wave 5): ArgoCD holds a wave until its
-    # resources are healthy, and a route whose backend Service does not exist
-    # yet is Degraded (ResolvedRefs=False) — at an earlier wave that deadlocks
-    # the sync on a fresh cluster and the proxy is never created.
+    # After the chart's Services (wave 0): a route whose backend Service does
+    # not exist yet is ResolvedRefs=False, which Argo CD reads as Degraded.
     argocd.argoproj.io/sync-wave: "6"
   labels:
     app.kubernetes.io/name: penpot
@@ -26,25 +22,31 @@ spec:
       namespace: adhar-system
   hostnames:
     - penpot.adhar.localtest.me
-  # Click-free sign-in (security/keycloak/manifests/sso-start.yaml). Penpot
-  # starts OIDC with a POST, which no redirect can make, so a bare load of `/`
-  # with no session goes to /adhar-sso/penpot.html on this host, which makes
-  # that POST and follows Keycloak's URL. The SPA's own routes are fragments
-  # (#/auth/login), so `/` is the only path a page load ever requests.
+  # Click-free sign-in (security/keycloak/manifests/sso-start.yaml, penpot.html).
+  # Penpot starts OIDC with a POST, which no redirect can make, so a page load of
+  # `/` goes to /adhar-sso/penpot.html on this host first. The SPA's own routes
+  # are fragments (#/workspace?…, #/auth/login), so `/` is the only path a page
+  # load ever requests, and the browser carries the fragment through the 302.
   rules:
     - matches:
         - path: {type: PathPrefix, value: /adhar-sso/}
       backendRefs:
         - name: adhar-sso-start
           port: 80
-    # Signed in (Penpot's `auth-token`), or the start page fell back to the
-    # login screen (`adhar_sso_penpot`, 5 min): straight to Penpot.
+    # Straight to Penpot only with the start page's marker (`adhar_sso_penpot`):
+    # it has just checked that the session is live (1 h), handed back the
+    # result of a sign-in (10 min) or fallen back to the login screen (5 min).
+    # Penpot's own `auth-token` is deliberately NOT enough: Penpot keeps
+    # answering a cookie whose session is gone (rebuilt cluster, new
+    # PENPOT_SECRET_KEY, session GC) as the anonymous user and never clears it,
+    # so trusting it parked people on the login page for up to the cookie's
+    # 7 days instead of signing them in.
     - matches:
         - path: {type: Exact, value: /}
           headers:
             - type: RegularExpression
               name: Cookie
-              value: '.*(auth-token|adhar_sso_penpot)=[^;]+.*'
+              value: '.*adhar_sso_penpot=[^;]+.*'
       backendRefs:
         - name: penpot
           port: 8080

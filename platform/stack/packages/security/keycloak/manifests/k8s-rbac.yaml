@@ -216,7 +216,8 @@ subjects:
 #
 # READ-ONLY on purpose. The Console mutates the platform through GitOps (a Gitea
 # commit that ArgoCD reconciles), never by writing these objects directly, so
-# nothing here needs create/update/delete.
+# nothing here needs create/update/delete. Function XRs are the one exception,
+# granted separately below.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -262,3 +263,51 @@ rules:
   - apiGroups: [tekton.dev]
     resources: [pipelines, pipelineruns, tasks, taskruns]
     verbs: [get, list, watch]
+  # Dapr: components, subscriptions, configurations, resiliency policies, HTTP
+  # endpoints, MCP servers and workflow access policies — the building blocks
+  # an application's sidecar is wired with. Developers and viewers could list
+  # none of them (Knative's kinds were already readable), so a Dapr view in the
+  # Console was admin-only. Read-only like everything above; the platform's
+  # Components take credentials through `secretKeyRef`, never inline values.
+  - apiGroups: [dapr.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+---
+# Function XRs, written directly: the Console's Develop → Functions page
+# creates, edits and deletes `Function` objects AS THE SIGNED-IN USER — their
+# own token, or the console ServiceAccount impersonating `oidc:<user>` with
+# their groups — so the user's groups are what the API server checks. With only
+# the read-only aggregation above, platform-developer got 403 on every create
+# and the page worked for platform-admin alone (2026-10-27).
+#
+# Bound to platform-developer, not aggregated into `edit`: aggregation would
+# also reach every per-namespace `admin` binding, i.e. every onboarded team in
+# its own namespace, which is a tenancy decision rather than this one. The
+# console ServiceAccount gets no write either: its own token only answers in
+# `K8S_AUTH_MODE=service` (local development), where a grant to it would be a
+# grant to whoever happens to be signed in.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-platform-function-edit
+  labels:
+    adhar.io/component: rbac
+rules:
+  - apiGroups: [platform.adhar.io]
+    resources: [functions]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-platform-developer-functions
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-platform-function-edit
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:platform-developer

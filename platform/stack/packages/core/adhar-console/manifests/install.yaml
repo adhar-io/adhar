@@ -282,6 +282,7 @@ rules:
   - costtrackers
   - databases
   - environments
+  - functions
   - gitops
   - graphdatabases
   - healths
@@ -433,7 +434,7 @@ spec:
         # upgraded it on any pod restart, and the console's own status card
         # reported "latest" against its build version. Bump this line to ship
         # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.160
+        image: ghcr.io/adhar-io/adhar-console:0.1.162
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -663,11 +664,17 @@ spec:
           # showed `timeoutSeconds: 1` while this file declared nothing. Harbor's
           # database was killed 29 times by exactly this class of probe.
           timeoutSeconds: 5
+        # 10s × 3: one replica serves every user, so a listener that has died
+        # inside a live process is a full outage until this fires — at 20s × 3
+        # the Gateway answered "upstream connect error … Connection refused"
+        # for a minute or more (2026-10-26). From 0.1.162 the server also exits
+        # on its own the moment its listener stops (server.ts).
         livenessProbe:
           httpGet:
             path: /healthz
             port: http
-          periodSeconds: 20
+          periodSeconds: 10
+          failureThreshold: 3
           timeoutSeconds: 3
         readinessProbe:
           httpGet:

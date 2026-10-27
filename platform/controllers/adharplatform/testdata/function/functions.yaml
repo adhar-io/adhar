@@ -1,0 +1,21 @@
+# The composition functions the Function composition runs, for
+# `crossplane render` (see README.md). Versions must match
+# platform/controlplane/configuration/functions/functions.yaml;
+# TestFunctionRenderFixturesTrackTheInstalledFunctions holds them together.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-go-templating
+  annotations:
+    render.crossplane.io/runtime-docker-pull-policy: IfNotPresent
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-go-templating:v0.12.1
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-auto-ready
+  annotations:
+    render.crossplane.io/runtime-docker-pull-policy: IfNotPresent
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-auto-ready:v0.6.5

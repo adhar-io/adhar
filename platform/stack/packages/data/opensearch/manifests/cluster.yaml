@@ -30,12 +30,47 @@ spec:
     smartScaler: true
   dashboards:
     additionalConfig:
+      opensearch_security.auth.default_redirect_auth_type: openid
+      opensearch_security.auth.multiple_auth_enabled: 'true'
+      opensearch_security.auth.type: '["basicauth","openid"]'
+      opensearch_security.cookie.password: ${ADHAR_COOKIE_PASSWORD}
+      opensearch_security.cookie.secure: 'true'
       opensearch_security.multitenancy.enabled: 'false'
+      opensearch_security.openid.base_redirect_url: https://opensearch.adhar.localtest.me:8443
+      opensearch_security.openid.client_id: opensearch
+      opensearch_security.openid.client_secret: ${ADHAR_OIDC_CLIENT_SECRET}
+      opensearch_security.openid.connect_url: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/.well-known/openid-configuration
+      opensearch_security.openid.logout_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/logout
+      opensearch_security.openid.scope: openid profile email
+      opensearch_security.ui.basicauth.login.subtitle: '"For the internal admin account while Keycloak is unavailable. Everyone else uses single sign-on."'
+      opensearch_security.ui.basicauth.login.title: Break-glass sign-in
+      opensearch_security.ui.openid.login.buttonname: Log in with single sign-on
+    additionalVolumes:
+    - name: adhar-ca
+      path: /etc/adhar-ca
+      secret:
+        items:
+        - key: tls.crt
+          path: adhar-gateway.crt
+        optional: true
+        secretName: adhar-cert
     affinity: {}
     annotations: {}
     basePath: ''
     enable: true
-    env: []
+    env:
+    - name: ADHAR_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          key: client_secret
+          name: opensearch-dashboards-oidc
+    - name: ADHAR_COOKIE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: opensearch-dashboards-cookie
+    - name: NODE_EXTRA_CA_CERTS
+      value: /etc/adhar-ca/adhar-gateway.crt
     imagePullPolicy: IfNotPresent
     imagePullSecrets: []
     labels: {}
@@ -70,7 +105,7 @@ spec:
       s3.client.default.path_style_access: 'true'
       s3.client.default.protocol: http
     additionalVolumes: []
-    drainDataNodes: true
+    drainDataNodes: false
     hostNetwork: false
     httpPort: 9200
     imagePullPolicy: IfNotPresent
@@ -90,15 +125,6 @@ spec:
       tlsConfig:
         insecureSkipVerify: true
     operatorClusterURL: ''
-    # repository-s3 is NOT bundled in the OpenSearch 3.x distribution, and the
-    # s3.client.* settings in additionalConfig above belong to it. Without the
-    # plugin the node rejects every one of them and refuses to start:
-    #   unknown setting [s3.client.default.endpoint]
-    #   unknown secure setting [s3.client.default.secret_key]
-    #   ... please check that any required plugins are installed
-    # It crash-looped 21 times on the 2026-10-04 Azure cluster, so OpenSearch
-    # never served and opensearch-dashboards sat in CrashLoopBackOff behind it.
-    # The snapshot repository below is the only reason these settings exist.
     pluginsList:
     - repository-s3
     podSecurityContext: {}
@@ -156,7 +182,8 @@ spec:
       adminCredentialsSecret:
         name: opensearch-admin-credentials
       adminSecret: {}
-      securityConfigSecret: {}
+      securityConfigSecret:
+        name: opensearch-securityconfig
 ---
 apiVersion: opensearch.org/v1
 kind: OpenSearchISMPolicy
@@ -228,6 +255,35 @@ spec:
     - '*'
 ---
 apiVersion: opensearch.org/v1
+kind: OpensearchRole
+metadata:
+  name: adhar-developer
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  clusterPermissions:
+  - cluster_composite_ops
+  - cluster_monitor
+  indexPermissions:
+  - allowedActions:
+    - crud
+    - create_index
+    - manage_aliases
+    - indices_monitor
+    - indices:admin/mappings/get
+    - indices:admin/get
+    - indices:admin/refresh*
+    indexPatterns:
+    - '*'
+---
+apiVersion: opensearch.org/v1
 kind: OpensearchUser
 metadata:
   name: adhar-monitoring
@@ -263,3 +319,64 @@ spec:
   - adhar-monitoring
   roles:
   - adhar-monitoring
+---
+apiVersion: opensearch.org/v1
+kind: OpensearchUserRoleBinding
+metadata:
+  name: adhar-platform-admins
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  backendRoles:
+  - platform-admin
+  - platform-engineer
+  roles:
+  - all_access
+  - security_rest_api_access
+---
+apiVersion: opensearch.org/v1
+kind: OpensearchUserRoleBinding
+metadata:
+  name: adhar-platform-developers
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  backendRoles:
+  - platform-developer
+  roles:
+  - adhar-developer
+  - kibana_user
+---
+apiVersion: opensearch.org/v1
+kind: OpensearchUserRoleBinding
+metadata:
+  name: adhar-platform-viewers
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: opensearch-cluster-3.3.5
+    app.kubernetes.io/version: 3.4.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  opensearchCluster:
+    name: opensearch
+  backendRoles:
+  - platform-viewer
+  roles:
+  - readall
+  - kibana_user

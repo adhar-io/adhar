@@ -1,6 +1,9 @@
 # Penpot values for Adhar. Ingress disabled -- routing is handled by the Cilium
-# Gateway API (adhar-gateway) via manifests/httproute.yaml. Penpot is served
-# on its own host (penpot.<host>) behind the Keycloak oauth2-proxy front.
+# Gateway API (adhar-gateway) via manifests/httproute.yaml.tmpl. Penpot is served
+# on its own host (penpot.<host>) and signs people in itself (native OIDC against
+# Keycloak, no oauth2-proxy); a page load with no checked session goes through
+# the same-origin start page (security/keycloak/manifests/sso-start.yaml,
+# penpot.html), which starts that OIDC login so nobody has to click.
 #
 # The 1.x Penpot chart does NOT bundle PostgreSQL/Valkey, so this package ships a
 # minimal in-namespace Postgres + Valkey (manifests/dependencies.yaml) that the
@@ -16,41 +19,54 @@ config:
   # login page). The client `penpot` is provisioned by the keycloak package from
   # manifests/keycloak-client.yaml and its secret mirrored into penpot-oidc.
   # Realm roles are not checked (roles: "") — any realm user may sign in and
-  # is auto-registered (enable-registration).
+  # is auto-registered (enable-registration): on a first sign-in the start page
+  # submits Penpot's own "Create account" step for the identity Keycloak just
+  # returned, so that click disappears too.
   providers:
     oidc:
       enabled: true
-      # PENPOT MUST TALK TO KEYCLOAK OVER ITS PUBLIC HTTPS URL, and both of the
-      # obvious alternatives are dead ends — recorded here because each cost a
-      # debugging cycle (this note used to live in the GENERATED manifest, where
-      # the next `generate-manifests.sh` deleted it):
+      # THE BROWSER USES KEYCLOAK'S PUBLIC URL; PENPOT'S OWN CALLS STAY IN THE
+      # CLUSTER — the split the console, adhar-ai and Tolgee use. All three URIs
+      # below are set, so Penpot (2.17.2 backend/src/app/auth/oidc.clj
+      # `prepare-oidc-provider`) skips discovery and never resolves, dials or
+      # TLS-verifies the public Keycloak host at all.
       #
-      #  1. In-cluster HTTP endpoints (http://keycloak.adhar-system.svc…). This is
-      #     the split the console and adhar-ai use, and Penpot REJECTS it: its HTTP
-      #     client validates every outbound URI against an SSRF blocklist and only
-      #     exempts calls that pass `skip-ssrf-check?`, which the OIDC provider
-      #     path does not. The login page then fails with
-      #         error=unable-to-auth&hint=uri+target+is+not+allowed
-      #     which names a URI, not a security policy.
+      # It used to be the public URL for everything, and that is what broke
+      # sign-in on GCP (2026-10-26): Penpot's backend redeems the authorization
+      # code with a server-side POST, and from inside the cluster
+      # https://keycloak.<host> is the Gateway's own load-balancer address, so
+      # the POST hairpinned through the Cilium Gateway's Envoy, which enforces
+      # network policy on L7-LB traffic and answered it itself —
+      #     unable to fetch access token … :response-status 403,
+      #     :response-body "Access denied\r\n"
+      # (Cilium's l7policy denial body; Keycloak never saw the request, and
+      # Hubble's HTTP drop counter on the node ticked in that minute). Penpot
+      # then lands on /#/auth/login?error=unable-to-auth, for which it
+      # deliberately shows NO message: the person just sees a login page.
+      # The public path also made Penpot depend on the JVM trusting the platform
+      # certificate (self-signed local Kind: PKIX failure, provider silently
+      # dropped) and on public DNS at boot.
       #
-      #  2. The public URL while the platform certificate is SELF-SIGNED. Penpot's
-      #     backend is a JVM and trusts only its bundled keystore, so provider
-      #     discovery dies with
-      #         javax.net.ssl.SSLHandshakeException: PKIX path building failed
-      #     and Penpot then starts happily with OIDC switched OFF — the only
-      #     symptom being a login page with no "Login with OpenID" button.
+      # The in-cluster split used to be refused: Penpot validates every outbound
+      # URI against an SSRF blocklist (10/8 included), so a bare
+      # http://keycloak.adhar-system.svc… failed with
+      #     error=unable-to-auth&hint=uri+target+is+not+allowed
+      # `PENPOT_SSRF_ALLOWED_HOSTS` (Penpot 2.15+, read here from 2.17.2
+      # backend/src/app/util/ssrf.clj: exact, case-insensitive host match) exempts
+      # named hosts — set in backend.extraEnvs below for exactly the Keycloak
+      # Service and nothing else.
       #
-      # So: public URL, and the platform certificate must be publicly trusted
-      # (cloud with ACME succeeded — see cmd/up/acme_preflight.go, which warns at
-      # bring-up when it will not be). On a self-signed platform — local Kind
-      # always, cloud until the DNS-01 challenge passes — Penpot OIDC stays off by
-      # design; password login remains, and the fix is to trust the platform CA in
-      # the JVM, not to reach for an adhar-controlplane URL.
-      #
-      # Trailing slash matters: Penpot URI-joins ".well-known/openid-configuration"
-      # onto this value, and without the slash RFC 3986 resolution drops the
-      # last path segment (".../realms/.well-known/…" → discovery fails).
+      # baseURI is still required to be set, but is not fetched once auth, token
+      # and user URIs are all given. Trailing slash kept for the day it is.
       baseURI: https://keycloak.adhar.localtest.me:8443/realms/adhar/
+      # Where the BROWSER is sent: the public URL, which Keycloak's session
+      # cookie belongs to.
+      authURI: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
+      # Server-to-server: code redemption and (fallback) userinfo. Keycloak's
+      # `hostname` is the public URL, so tokens fetched here still carry the
+      # public issuer.
+      tokenURI: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token
+      userURI: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/userinfo
       # the chart default here is the literal placeholder "scope1 scope2"
       scopes: "openid profile email"
       roles: ""
@@ -71,7 +87,27 @@ config:
         secretAccessKey: secretAccessKey
         endpointURIKey: endpointURI
   publicUri: "https://penpot.adhar.localtest.me:8443"
-  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification disable-secure-session-cookies"
+  # Every platform URL is HTTPS (local Kind included), so the session cookie
+  # keeps Penpot's default `Secure` attribute (`disable-secure-session-cookies`
+  # used to strip it). The exporter is unaffected: it sets its own auth-token
+  # cookie on its headless browser for http://penpot:8080 (exporter
+  # browser.cljs `create-cookies`), it never relays the backend's Set-Cookie.
+  # The chart template prepends a literal "$PENPOT_FLAGS " (Kubernetes expands
+  # only $(VAR)), which reaches the env and /js/config.js verbatim; both flag
+  # parsers ignore any word that does not start with enable-/disable-
+  # (common/src/app/common/flags.cljc `parse`), so it is cosmetic.
+  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification"
+  # PENPOT_SECRET_KEY encrypts every token Penpot issues (sessions, OIDC state,
+  # registration, password-recovery and invitation tokens). The chart ships a
+  # PUBLIC default key, with which anyone can mint or read those tokens, so the
+  # backend and exporter read one generated per cluster instead
+  # (manifests/secret-key.yaml, CreatedOnce). Replacing it signs everyone out
+  # of Penpot once; the start page then signs them straight back in through
+  # Keycloak (it checks the session instead of trusting the stale cookie).
+  apiSecretKey: ""
+  existingSecret: penpot-secret-key
+  secretKeys:
+    apiSecretKey: secretKey
   postgresql:
     host: "penpot-postgresql.adhar-system.svc.cluster.local"
     port: 5432
@@ -98,6 +134,14 @@ backend:
     type: ClusterIP
   resources:
     requests: {cpu: 100m, memory: 1536Mi}
+  # The OIDC split above (config.providers.oidc): the chart has no value for the
+  # JWKS URI or the SSRF allowlist. JWKS is fetched once at boot; if Keycloak is
+  # not answering then, Penpot falls back to the userinfo endpoint per login.
+  extraEnvs:
+    - name: PENPOT_OIDC_JWKS_URI
+      value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/certs
+    - name: PENPOT_SSRF_ALLOWED_HOSTS
+      value: keycloak.adhar-system.svc.cluster.local
 frontend:
   service:
     type: ClusterIP

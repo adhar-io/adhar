@@ -329,16 +329,23 @@ spec:
                         type: Bearer
                         credentials: {name: {{ $scrapeSecret }}, key: api-key}
             {{- if $collections }}
-            ---
-            # Create the declared collections. Named by a hash of the declaration
-            # so a changed list runs a new Job; an unchanged one is never re-run.
-            # The Job is not TTL-deleted — the provider would recreate it.
+            {{- /* The hash of the declaration names the collections Job, so a
+                   changed list runs a new Job and an unchanged one never re-runs.
+                   It is computed BEFORE the document starts: these actions sat
+                   between the YAML comment below and the object, and the right
+                   trim on the last one joined `apiVersion:` onto the comment line
+                   — the Object had no apiVersion and Crossplane composed nothing
+                   for the Vector (2026-10-26). The last action keeps its line
+                   break. */ -}}
             {{- $spec := list -}}
             {{- range $collections -}}
             {{- $c := . -}}
             {{- $spec = append $spec (dict "name" $c.name "vectors" (dict "size" (int (default 1 (get $c "vectorSize"))) "distance" (default "Cosine" (get $c "distance")) "on_disk" (default false (get $c "onDisk"))) "replication_factor" (int (default 1 (get $c "replicationFactor")))) -}}
             {{- end -}}
-            {{- $hash := trunc 8 (sha256sum (toJson $spec)) -}}
+            {{- $hash := trunc 8 (sha256sum (toJson $spec)) }}
+            ---
+            # Create the declared collections. The Job is not TTL-deleted — the
+            # provider would recreate it.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object
             metadata:

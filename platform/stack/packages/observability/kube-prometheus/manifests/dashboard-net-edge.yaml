@@ -243,7 +243,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(rate(coredns_dns_responses_total{job=\"coredns\", rcode=\"SERVFAIL\"}[5m])) / sum(rate(coredns_dns_responses_total{job=\"coredns\"}[5m]))",
+              "expr": "100 * sum(rate(coredns_dns_responses_total{job=\"coredns\", rcode=\"SERVFAIL\"}[5m])) / (sum(rate(coredns_dns_responses_total{job=\"coredns\"}[5m])) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -317,7 +317,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "histogram_quantile(0.99, sum by (le) (rate(coredns_dns_request_duration_seconds_bucket{job=\"coredns\"}[5m])))",
+              "expr": "(histogram_quantile(0.99, sum by (le) (rate(coredns_dns_request_duration_seconds_bucket{job=\"coredns\"}[5m]))) >= 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -390,7 +390,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(rate(coredns_cache_hits_total{job=\"coredns\"}[5m])) / (sum(rate(coredns_cache_hits_total{job=\"coredns\"}[5m])) + sum(rate(coredns_cache_misses_total{job=\"coredns\"}[5m])))",
+              "expr": "100 * sum(rate(coredns_cache_hits_total{job=\"coredns\"}[5m])) / ((sum(rate(coredns_cache_hits_total{job=\"coredns\"}[5m])) + sum(rate(coredns_cache_misses_total{job=\"coredns\"}[5m]))) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -1017,7 +1017,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, to) (rate(coredns_proxy_request_duration_seconds_bucket{job=\"coredns\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, to) (rate(coredns_proxy_request_duration_seconds_bucket{job=\"coredns\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{to}} p99",
                   "range": true,
                   "instant": false,
@@ -2312,7 +2312,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"cilium-envoy-.+\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"cilium-envoy-.+\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"cilium-envoy-.+\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"cilium-envoy-.+\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,

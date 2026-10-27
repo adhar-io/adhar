@@ -22,6 +22,8 @@ default is the provisioned `prometheus` UID); Loki panels use the provisioned
 import json
 import re
 
+from nanguard import guard_panels
+
 PROM = {"type": "prometheus", "uid": "${datasource}"}
 LOKI = {"type": "loki", "uid": "loki"}
 
@@ -521,7 +523,8 @@ class Dash:
             "id": None,
             "links": self.links,
             "liveNow": False,
-            "panels": self._folded(),
+            # No NaN: every PromQL target, hand-written or vendored (nanguard.py).
+            "panels": guard_panels(self._folded()),
             "refresh": self.refresh,
             "schemaVersion": 39,
             "tags": self.tags,

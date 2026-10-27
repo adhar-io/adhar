@@ -7,11 +7,11 @@
 #
 #   opensearch              ClusterIP  9200  REST API  <- consumers connect here
 #   opensearch-nodes        headless         9300      node discovery
-#   opensearch-dashboards   ClusterIP  5601  UI        <- HTTPRoute + oauth2-proxy
+#   opensearch-dashboards   ClusterIP  5601  UI        <- HTTPRoute (Keycloak OIDC in Dashboards)
 #
 # `opensearch-dashboards` is byte-identical to the Service the old plain chart
-# produced, so manifests/httproute.yaml and manifests/sso.yaml did not have to
-# change. The REST Service DID: it was `opensearch-cluster-master`, a name the
+# produced, so manifests/httproute.yaml.tmpl needed no change for it. The REST
+# Service DID: it was `opensearch-cluster-master`, a name the
 # plain chart invented from its StatefulSet, and the operator has no such
 # concept. Consumers were updated with it (data/open-metadata,
 # data/libredb-studio).
@@ -50,9 +50,23 @@ cluster:
     # operator sets it from a privileged init container.
     setVMMaxMapCount: true
 
-    # Relocate shards off a node before it is restarted or removed, instead of
-    # letting the restart take the replica with it.
-    drainDataNodes: true
+    # FALSE while the cluster has ONE data node, and that is not a preference.
+    #
+    # With drain on, operator 3.0.0 restarts a node by excluding it from shard
+    # allocation and waiting until it holds no shards
+    # (services.PreparePodForDelete -> CheckPodSafeToDelete). A lone node can
+    # never empty — there is nowhere for its primaries to go — so every rolling
+    # restart (a version bump, a securityconfig key, any pod-template change)
+    # stalls forever with `cluster.routing.allocation.exclude._name` naming the
+    # only node, and every index created after that (tomorrow's
+    # security-auditlog-*) cannot allocate and goes red. With drain off the
+    # operator restricts allocation to primaries, deletes the pod and
+    # re-enables allocation once it is back: a short outage, which is all a
+    # single node can offer anyway.
+    #
+    # Set it back to true together with a second data node (see `nodePools`);
+    # TestOpenSearchSingleDataNodeIsNeverDrained holds the two together.
+    drainDataNodes: false
 
     # Prometheus metrics, which this package did not actually have before.
     #
@@ -76,8 +90,17 @@ cluster:
       labels:
         adhar.io/component: observability
 
-    # repository-s3 is not bundled in OpenSearch 3.x, and the s3.client.*
-    # settings below belong to it — the node refuses to start without it.
+    # repository-s3 is NOT bundled in the OpenSearch 3.x distribution, and the
+    # s3.client.* settings in additionalConfig below belong to it. Without the
+    # plugin the node rejects every one of them and refuses to start:
+    #   unknown setting [s3.client.default.endpoint]
+    #   unknown secure setting [s3.client.default.secret_key]
+    #   ... please check that any required plugins are installed
+    # It crash-looped 21 times on the 2026-10-04 Azure cluster, so OpenSearch
+    # never served and opensearch-dashboards sat in CrashLoopBackOff behind it.
+    # The snapshot repository below is the only reason these settings exist.
+    # (This note used to be hand-written into the generated cluster.yaml, where
+    # the next generate-manifests.sh run would have dropped it.)
     pluginsList:
       - repository-s3
     additionalConfig:
@@ -189,9 +212,10 @@ cluster:
     basePath: ""
 
     tls:
-      # Plain HTTP inside the cluster: the oauth2-proxy in manifests/sso.yaml is
-      # the only client, TLS terminates at the Cilium Gateway, and the proxy's
-      # upstream is http://opensearch-dashboards:5601.
+      # Plain HTTP inside the cluster: TLS terminates at the Cilium Gateway,
+      # whose HTTPRoute (manifests/httproute.yaml.tmpl) forwards to
+      # http://opensearch-dashboards:5601. The console reaches the same Service
+      # directly.
       enable: false
       # Overrides a chart BUG, and it is not cosmetic. opensearch-cluster 3.3.5
       # ships `secret:` followed by an unclosed comment (`# name: "`), so the
@@ -202,10 +226,105 @@ cluster:
       # is the same intent and passes.
       secret: {}
 
+    # Each value is written VERBATIM after `key: ` into opensearch_dashboards.yml
+    # (operator 3.0.0, builders.NewDashboardsConfigMapForCR), so a value is YAML
+    # source: a list is written as a flow sequence and a sentence containing
+    # ": " must carry its own quotes.
     additionalConfig:
       # One tenant. Multi-tenancy adds a tenant picker and per-tenant index
       # plumbing for a cluster whose users all arrive through one Keycloak client.
       opensearch_security.multitenancy.enabled: "false"
+
+      # --- Sign-in: Keycloak OIDC, click-free (security-dashboards 3.8.0.0) ---
+      #
+      # This used to be the default `basicauth` behind an oauth2-proxy, which
+      # passed X-Forwarded-User to a Dashboards that never reads it: after the
+      # Keycloak round trip every request without a Dashboards session was sent
+      # to /app/login and its username/password form — a second login.
+      #
+      # Two auth types, because the second one is break-glass: `basicauth` is
+      # what the internal admin uses when Keycloak itself is down, and 3.8
+      # refuses a multi-type list without it. default_redirect_auth_type stops
+      # the two from meaning a chooser page: an unauthenticated page request
+      # (`/`, /app/*, /goto/*) goes straight into the OIDC flow
+      # (multi_auth.ts handleUnauthedRequest), which a person already signed
+      # in to Keycloak completes without seeing anything. The chooser is only
+      # drawn when asked for with ?auto_login=false, and /app/login itself
+      # — which Dashboards never auto-redirects — is redirected at the Gateway.
+      opensearch_security.auth.type: '["basicauth","openid"]'
+      opensearch_security.auth.multiple_auth_enabled: "true"
+      opensearch_security.auth.default_redirect_auth_type: openid
+      # Fetched server-side at START-UP; Dashboards does not start without it.
+      # The in-cluster address of the same realm: Keycloak's fixed hostname
+      # still hands back the PUBLIC authorization/token/end-session endpoints,
+      # which is what the browser must be sent to.
+      opensearch_security.openid.connect_url: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/.well-known/openid-configuration
+      # The `opensearch` client (manifests/sso.yaml). The SAME name is the
+      # backend's required_audience (manifests/security-config.yaml).
+      opensearch_security.openid.client_id: opensearch
+      # From the environment, never from git: OpenSearch Dashboards resolves
+      # ${VAR} in its yml after parsing it (osd-config read_config.ts) and
+      # refuses to start if VAR is unset. VAR is filled from the
+      # opensearch-dashboards-oidc Secret (env below).
+      opensearch_security.openid.client_secret: ${ADHAR_OIDC_CLIENT_SECRET}
+      # Without it Dashboards builds its redirect_uri from its own bind address
+      # (http://0.0.0.0:5601). The callback is <this>/auth/openid/login, which
+      # the Keycloak client must list; rewritten to the platform host at seed.
+      opensearch_security.openid.base_redirect_url: https://opensearch.adhar.localtest.me:8443
+      # No `groups` scope requested: the client carries the groups mapper itself
+      # (sso.yaml) and the reconciler adds the realm's `groups` default scope, so
+      # the claim is always there and nothing depends on a scope name.
+      opensearch_security.openid.scope: openid profile email
+      # Keycloak's end-session endpoint (the same value discovery reports).
+      # Dashboards adds id_token_hint and post_logout_redirect_uri=<base URL>,
+      # which the client's post.logout.redirect.uris allows.
+      opensearch_security.openid.logout_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/logout
+      # The session cookie is Secure (the browser only ever sees https) and is
+      # encrypted with a GENERATED password. The default is the published
+      # string `security_cookie_default_password`, which lets anyone holding a
+      # copy of the cookie decrypt it — and a break-glass basicauth session
+      # cookie carries the admin's credentials.
+      opensearch_security.cookie.secure: "true"
+      opensearch_security.cookie.password: ${ADHAR_COOKIE_PASSWORD}
+      # What the break-glass page (/app/login?auto_login=false) says.
+      opensearch_security.ui.openid.login.buttonname: Log in with single sign-on
+      opensearch_security.ui.basicauth.login.title: Break-glass sign-in
+      opensearch_security.ui.basicauth.login.subtitle: '"For the internal admin account while Keycloak is unavailable. Everyone else uses single sign-on."'
+
+    env:
+      # Referenced as ${...} by additionalConfig above. NOT optional: a pod
+      # without them cannot start, and that is the right failure — the
+      # alternative is a Dashboards running on an empty client secret.
+      - name: ADHAR_OIDC_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: opensearch-dashboards-oidc
+            key: client_secret
+      - name: ADHAR_COOKIE_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: opensearch-dashboards-cookie
+            key: password
+      # The token exchange and refresh go to Keycloak's PUBLIC token endpoint
+      # (the fixed hostname puts it in discovery). Node trusts Let's Encrypt on
+      # its own; on a platform serving the self-signed adhar-cert it needs that
+      # certificate as an extra anchor. NODE_EXTRA_CA_CERTS ADDS to Node's
+      # roots — unlike openid.root_ca, which would replace them and break the
+      # Let's Encrypt case. Same approach as Kargo and Coder (SSL_CERT_DIR).
+      - name: NODE_EXTRA_CA_CERTS
+        value: /etc/adhar-ca/adhar-gateway.crt
+
+    additionalVolumes:
+      - name: adhar-ca
+        path: /etc/adhar-ca
+        secret:
+          secretName: adhar-cert
+          # A missing file only makes Node log a warning; the Let's Encrypt
+          # case does not need it at all.
+          optional: true
+          items:
+            - key: tls.crt
+              path: adhar-gateway.crt
 
     service:
       type: ClusterIP
@@ -231,10 +350,20 @@ cluster:
       # read it.
       adminCredentialsSecret:
         name: opensearch-admin-credentials
-      # No securityConfigSecret: the image's security config is used as the base
-      # and the operator overwrites just the admin and kibanaserver hashes. A
-      # custom one would mean owning roles_mapping.yml by hand, including keeping
-      # the Dashboards user mapped to cluster monitoring.
+      # config.yml ONLY (manifests/security-config.yaml): the authentication
+      # domains — Keycloak tokens first, HTTP Basic for service accounts and
+      # break-glass. Everything else stays the image's (roles, action groups)
+      # or the operator's (internal_users.yml hashes, the REST-managed roles and
+      # mappings below). The operator merges it into
+      # opensearch-security-config-generated and applies it with securityadmin
+      # using the admin certificate, which no config.yml can lock out.
+      #
+      # Adding the FIRST key here changes the node pod template (the operator
+      # mounts every key of the generated secret into the nodes), so it costs
+      # one rolling restart — the reason drainDataNodes above must be false
+      # while there is one data node. Editing config.yml later does not.
+      securityConfigSecret:
+        name: opensearch-securityconfig
 
     tls:
       http:
@@ -250,9 +379,9 @@ cluster:
         rotateDaysBeforeExpiry: 30
 
   ingress:
-    # Never. Routing is Gateway API (manifests/httproute.yaml) behind the
-    # Keycloak oauth2-proxy; an Ingress here would publish the UI unauthenticated
-    # and there is no Ingress controller to serve it anyway.
+    # Never. Routing is Gateway API (manifests/httproute.yaml.tmpl), which also
+    # owns the click-free /app/login redirect; there is no Ingress controller
+    # to serve an Ingress anyway.
     opensearch:
       enabled: false
     dashboards:
@@ -279,6 +408,32 @@ roles:
         allowedActions:
           - "indices_monitor"
           - "indices:admin/mappings/get"
+  # platform-developer: read and write data in every index that is not a system
+  # index, create indices, manage aliases and mappings — but not delete
+  # indices, change cluster settings, snapshots, ISM or security. `*` is the
+  # right pattern: the security plugin protects system indices on its own
+  # (plugins.security.system_indices.* plus every index a plugin registers,
+  # SpecialIndices.isSystemIndex in security 3.8), whatever a role says.
+  # Dashboards' saved objects come from kibana_user, bound alongside.
+  - name: adhar-developer
+    clusterPermissions:
+      # bulk / mget / msearch / scroll and alias reads at the cluster level.
+      - cluster_composite_ops
+      # cluster health, stats and node info that Dev Tools and Index
+      # Management read.
+      - cluster_monitor
+    indexPermissions:
+      - indexPatterns:
+          - "*"
+        allowedActions:
+          # read + write (index, update, delete documents; put mapping).
+          - crud
+          - create_index
+          - manage_aliases
+          - indices_monitor
+          - "indices:admin/mappings/get"
+          - "indices:admin/get"
+          - "indices:admin/refresh*"
 
 users:
   # The scrape identity for the ServiceMonitor the operator generates. Its
@@ -295,6 +450,52 @@ usersRoleBinding:
       - adhar-monitoring
     roles:
       - adhar-monitoring
+
+  # --- Platform people (Keycloak) -------------------------------------------
+  # backendRoles are the Keycloak GROUP NAMES the `groups` claim carries
+  # (full.path=false), which the openid domain hands over as backend roles
+  # (roles_key: groups, manifests/security-config.yaml). Bindings are
+  # additive: the operator merges these into the existing mappings over REST
+  # and re-asserts them every 30s, so the image's own mappings (admin ->
+  # all_access, kibanaserver -> kibana_server) are kept.
+  #
+  # Tiers follow the rest of the platform (security/keycloak k8s-rbac.yaml):
+  # platform-engineer is the infrastructure admin tier and gets what
+  # platform-admin gets. The realm's `admin` group is already all_access
+  # through the image's default mapping (backend role `admin`).
+  #
+  # security 3.8 has no `security_manager` role. The Security plugin's REST API
+  # and Dashboards Security pages are opened by membership of a role listed in
+  # plugins.security.restapi.roles_enabled — all_access and
+  # security_rest_api_access in the operator's opensearch.yml. all_access
+  # already qualifies; security_rest_api_access is bound as well so the
+  # Security pages stay reachable if all_access is ever narrowed. (The
+  # permission-based security_rest_api_full_access is deliberately NOT used:
+  # its restapi:admin/* grants take effect only with
+  # plugins.security.restapi.admin.enabled, and the REST API refuses to map a
+  # role carrying them unless the caller is super-admin — the operator is not.)
+  - name: adhar-platform-admins
+    backendRoles:
+      - platform-admin
+      - platform-engineer
+    roles:
+      - all_access
+      - security_rest_api_access
+  - name: adhar-platform-developers
+    backendRoles:
+      - platform-developer
+    roles:
+      - adhar-developer
+      - kibana_user
+  - name: adhar-platform-viewers
+    backendRoles:
+      - platform-viewer
+    roles:
+      # Built-in: read on every non-system index, read-only cluster ops.
+      - readall
+      # Built-in: the Dashboards saved-objects index, so Discover and
+      # dashboards load.
+      - kibana_user
 
 # --- Index lifecycle ---------------------------------------------------------
 # An unmanaged OpenSearch grows until the disk runs out, and on node-local

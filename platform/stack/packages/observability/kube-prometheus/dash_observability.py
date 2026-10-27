@@ -605,10 +605,12 @@ def jvm():
                [T(f'sum by (level) (rate(logback_events_total{{{S}}}[$__rate_interval]))', "{{level}}")],
                unit="ops", overrides=[ov_color("error", RED), ov_color("warn", AMBER)]), 8),
            (ts("Kafka clients", "Records consumed / produced per second and consumer lag for services using the "
-               "Kafka client (Micrometer kafka_* metrics).",
+               "Kafka client (Micrometer kafka_* metrics). Lag is the worst partition's records-lag as the consumer "
+               "last measured it: 0 when caught up. (records-lag-max is a windowed max that reads NaN whenever the "
+               "consumer received nothing in the last 30 s, i.e. for every idle consumer.)",
                [T(f'sum by (job) (rate(kafka_consumer_fetch_manager_records_consumed_total{{{S}}}[$__rate_interval]))', "{{job}} consumed"),
                 T(f'sum by (job) (rate(kafka_producer_record_send_total{{{S}}}[$__rate_interval]))', "{{job}} produced"),
-                T(f'max by (job) (kafka_consumer_fetch_manager_records_lag_max{{{S}}})', "{{job}} max lag")],
+                T(f'max by (job) (kafka_consumer_fetch_manager_records_lag{{{S}}})', "{{job}} max lag")],
                unit="ops", overrides=[{"matcher": {"id": "byRegexp", "options": ".* max lag"},
                                        "properties": [{"id": "unit", "value": "short"}, {"id": "custom.axisPlacement", "value": "right"}]}]), 8),
            (logs("Errors (Loki)", "ERROR / WARN lines of the selected services' pods.",

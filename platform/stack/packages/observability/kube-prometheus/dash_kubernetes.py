@@ -126,7 +126,8 @@ def nodes():
            (ts("CPU busy by mode", "Share of all CPU time on the selected nodes spent in each mode (idle excluded). "
                "High iowait means processes wait for disk; high steal means the hypervisor is short of CPU.",
                [T(f'sum by (mode) (rate(node_cpu_seconds_total{{mode!="idle"}}[$__rate_interval]) * on (instance) group_left () {NODE_NE}) '
-                  f'/ scalar(sum(count without (cpu, mode) (node_cpu_seconds_total{{mode="idle"}}) * on (instance) group_left () {NODE_NE}))', "{{mode}}")],
+                  # one-to-many against the CPU count, not scalar(): scalar() of nothing is NaN
+                  f'/ on () group_left () (sum(count without (cpu, mode) (node_cpu_seconds_total{{mode="idle"}}) * on (instance) group_left () {NODE_NE}) > 0)', "{{mode}}")],
                unit="percentunit", stack=True, overrides=[ov_color("iowait", RED), ov_color("steal", PURPLE)]), 8),
            (ts("CPU busy per node", "1 - idle per node.",
                [T(ne('1 - avg without (cpu) (rate(node_cpu_seconds_total{mode="idle"}[$__rate_interval]))'), "{{nodename}}")],

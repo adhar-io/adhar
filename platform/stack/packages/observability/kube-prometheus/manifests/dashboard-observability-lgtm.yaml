@@ -916,7 +916,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "max by (slice) (prometheus_engine_query_duration_seconds{job=\"prometheus-kube-prometheus-prometheus\", quantile=\"0.99\"})",
+                  "expr": "max by (slice) ((prometheus_engine_query_duration_seconds{job=\"prometheus-kube-prometheus-prometheus\", quantile=\"0.99\"} >= 0))",
                   "legendFormat": "{{slice}}",
                   "range": true,
                   "instant": false,
@@ -1797,7 +1797,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, integration) (rate(alertmanager_notification_latency_seconds_bucket{job=\"prometheus-kube-prometheus-alertmanager\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, integration) (rate(alertmanager_notification_latency_seconds_bucket{job=\"prometheus-kube-prometheus-alertmanager\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{integration}}",
                   "range": true,
                   "instant": false,
@@ -2276,7 +2276,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le, job) (rate(cortex_request_duration_seconds_bucket{job=~\"adhar-system/(distributor|ingester|querier|query-frontend|query-scheduler|store-gateway|compactor)\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le, job) (rate(cortex_request_duration_seconds_bucket{job=~\"adhar-system/(distributor|ingester|querier|query-frontend|query-scheduler|store-gateway|compactor)\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{job}}",
                   "range": true,
                   "instant": false,
@@ -2836,7 +2836,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(loki_request_duration_seconds_bucket{job=\"adhar-system/loki\", route=~\"loki_api_v1_push|/logproto.Pusher/Push\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(loki_request_duration_seconds_bucket{job=\"adhar-system/loki\", route=~\"loki_api_v1_push|/logproto.Pusher/Push\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "push",
                   "range": true,
                   "instant": false,
@@ -2848,7 +2848,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(loki_request_duration_seconds_bucket{job=\"adhar-system/loki\", route=~\"loki_api_v1_query.*|loki_api_v1_series|loki_api_v1_label.*\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(loki_request_duration_seconds_bucket{job=\"adhar-system/loki\", route=~\"loki_api_v1_query.*|loki_api_v1_series|loki_api_v1_label.*\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "query",
                   "range": true,
                   "instant": false,
@@ -3600,7 +3600,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(6, histogram_quantile(0.99, sum by (le, route) (rate(tempo_request_duration_seconds_bucket{job=\"adhar-system/tempo\"}[$__rate_interval]))))",
+                  "expr": "topk(6, (histogram_quantile(0.99, sum by (le, route) (rate(tempo_request_duration_seconds_bucket{job=\"adhar-system/tempo\"}[$__rate_interval]))) >= 0))",
                   "legendFormat": "{{route}}",
                   "range": true,
                   "instant": false,
@@ -4015,7 +4015,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(8, histogram_quantile(0.99, sum by (le, handler) (rate(grafana_http_request_duration_seconds_bucket{job=\"prometheus-grafana\"}[$__rate_interval]))))",
+                  "expr": "topk(8, (histogram_quantile(0.99, sum by (le, handler) (rate(grafana_http_request_duration_seconds_bucket{job=\"prometheus-grafana\"}[$__rate_interval]))) >= 0))",
                   "legendFormat": "{{handler}}",
                   "range": true,
                   "instant": false,
@@ -4419,7 +4419,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"prometheus-prometheus-.+|alertmanager-.+|prometheus-grafana-.+|mimir-.+|loki-.+|tempo-.+\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"prometheus-prometheus-.+|alertmanager-.+|prometheus-grafana-.+|mimir-.+|loki-.+|tempo-.+\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"prometheus-prometheus-.+|alertmanager-.+|prometheus-grafana-.+|mimir-.+|loki-.+|tempo-.+\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"prometheus-prometheus-.+|alertmanager-.+|prometheus-grafana-.+|mimir-.+|loki-.+|tempo-.+\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,

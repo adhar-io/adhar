@@ -126,7 +126,7 @@ func TestEachDashboardTemplateCarriesOnlyItsKindsSections(t *testing.T) {
 	specs := map[string]spec{
 		"backend-jvm": {
 			rows:      []string{"Overview", "Golden Signals (RED)", "Dependencies (what this service calls)", "JVM", "Business Metrics (adhar-kit)", "Saturation & Resources", "Logs (Loki)", "Traces (Tempo)"},
-			want:      []string{scrapedRED, "jvm_memory_used_bytes", "hikaricp_connections_active", "kafka_consumer_fetch_manager_records_lag_max", "traces_service_graph_request_total", "adhar_business_"},
+			want:      []string{scrapedRED, "jvm_memory_used_bytes", "hikaricp_connections_active", "kafka_consumer_fetch_manager_records_lag{", "traces_service_graph_request_total", "adhar_business_"},
 			forbidden: []string{faro, "pattern ", "nodejs_", "go_goroutines", "service_name=\"cart\""},
 		},
 		"backend-generic": {

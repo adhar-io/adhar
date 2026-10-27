@@ -310,7 +310,7 @@ func TestTheComposedAppDashboardCoversEverySignal(t *testing.T) {
 	for row, wants := range map[string][]string{
 		"Golden Signals (RED)":                   {"http_server_requests_seconds_count", "http_server_requests_seconds_bucket", `status=~"5.."`, `status=~"4.."`, "histogram_quantile(0.99"},
 		"Saturation & Resources":                 {"container_cpu_usage_seconds_total", "container_memory_working_set_bytes", "kube_pod_container_resource_limits", "container_cpu_cfs_throttled_periods_total", "rollout_info_replicas_updated", "kube_horizontalpodautoscaler_status_desired_replicas"},
-		"Dependencies (what this service calls)": {"traces_service_graph_request_total", `client="cart"`, "db_client_operation_duration_seconds_bucket", "hikaricp_connections_active", "kafka_consumer_fetch_manager_records_lag_max", "traces_spanmetrics_latency_bucket"},
+		"Dependencies (what this service calls)": {"traces_service_graph_request_total", `client="cart"`, "db_client_operation_duration_seconds_bucket", "hikaricp_connections_active", "kafka_consumer_fetch_manager_records_lag{", "traces_spanmetrics_latency_bucket"},
 		"JVM":                                    {"jvm_memory_used_bytes", "jvm_gc_pause_seconds", "jvm_threads_states_threads", "jvm_memory_usage_after_gc"},
 		"Business Metrics (adhar-kit)":           {"$business_metric", "adhar_business_"},
 		"Logs (Loki)":                            {`app="cart"`, "loki"},

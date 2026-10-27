@@ -1,0 +1,58 @@
+# An event-driven function outside any environment namespace: every trigger
+# type, Dapr on, an explicit hostname and the caller's own env over the
+# platform's.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Function
+metadata:
+  name: thumbnails
+  namespace: team-media
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: function
+        provider: local
+  parameters:
+    displayName: Image thumbnailer
+    runtime: python313
+    image: ghcr.io/acme/thumbnails:1.4.0
+    imagePullSecrets: []
+    trigger: http
+    eventSource: ""
+    triggers:
+      - type: cron
+        name: nightly
+        schedule: "0 3 * * *"
+        timezone: Europe/Berlin
+        data: '{"sweep": true}'
+      - type: cloudevent
+        filter:
+          type: com.acme.media.uploaded
+          source: media
+        path: /events
+      - type: topic
+        pubsub: kafka-pubsub
+        topic: media.resized
+        deadLetterTopic: media.dead
+      - type: bucket
+        bucket: media
+        events: [created]
+    hostname: thumbs.media.example.org
+    port: 8000
+    minScale: 0
+    maxScale: 5
+    targetConcurrency: 10
+    containerConcurrency: 4
+    timeoutSeconds: 120
+    dapr:
+      enabled: false
+      appPort: 8001
+    env:
+      LOG_LEVEL: debug
+      OTEL_SERVICE_NAME: media-thumbnails
+    labels:
+      cost-center: media
+    organisation: acme
+    team: media
+    project: media-platform
+    environment: test

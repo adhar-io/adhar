@@ -7,12 +7,32 @@
 # (keycloak-client.yaml), keeps its session as a JWT in localStorage, and
 # serves the CLI and the runtime SDKs on the same host with API keys.
 #
-# ONE click remains on the way in. Tolgee's sign-in page draws a
-# "Log in with OAuth2" button whose URL carries a `state` the page generates and
-# keeps in localStorage, and the callback page rejects any return whose state it
-# did not store — so the edge cannot start the Keycloak flow on Tolgee's behalf
-# the way the Coder and Plane routes do. Keycloak already holds the session, so
-# the click returns without a password prompt.
+# Click-free sign-in (security/keycloak/manifests/sso-start.yaml, tolgee.html).
+# Tolgee's "Log in with OAuth2" button carries a `state` the sign-in page
+# generates and keeps in localStorage (`oauth2State`), and its callback page
+# rejects a return whose state it did not store, so a Gateway redirect cannot
+# start the flow on Tolgee's behalf the way the Coder and Plane routes do. A
+# page on THIS host can: a bare load of `/` or `/login` goes to
+# /adhar-sso/tolgee.html (same origin, so Tolgee's localStorage), which bounces
+# straight back to Tolgee when a live Tolgee session is already stored, and
+# otherwise writes the state exactly as the button does and goes to Keycloak —
+# which already holds the session and returns to Tolgee's own callback at once.
+#
+# Loop safety: the start page sets `adhar_sso_tolgee` (8 h once a session is
+# confirmed, 5 min while a sign-in is in flight or after a failure) and every
+# place it sends the browser — Tolgee's callback, `/projects`,
+# `/login?local=1` — is a path the redirect below never matches. A broken
+# Keycloak therefore costs one click on Tolgee's sign-in page, never a loop.
+#
+# Rule precedence (Gateway API): an Exact path beats a prefix, then a METHOD
+# match beats any number of header matches, then more header matches win, then
+# more query matches. So no rule here carries a method: a `method: GET` on the
+# redirect alone would outrank the cookie pass-through below and send every
+# load of `/` back to the start page.
+#
+# Break-glass: /login?local=1 always reaches Tolgee's own sign-in page (the
+# `admin` password login). Deep links, the API (/v2, /api) and the CLI/SDK
+# traffic are never redirected.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -69,6 +89,42 @@ spec:
             path:
               type: ReplaceFullPath
               replaceFullPath: /
+            port: {{ .Port }}
+            statusCode: 302
+    # The start page itself, served by the keycloak package's adhar-sso-start.
+    - matches:
+        - path: {type: PathPrefix, value: /adhar-sso/}
+      backendRefs:
+        - name: adhar-sso-start
+          port: 80
+    # Break-glass, and where the start page falls back to: Tolgee's own sign-in
+    # page with the password form.
+    - matches:
+        - path: {type: Exact, value: /login}
+          queryParams:
+            - {type: Exact, name: local, value: "1"}
+      backendRefs:
+        - name: tolgee
+          port: 8080
+    # The start page already ran: straight to Tolgee.
+    - matches:
+        - path: {type: Exact, value: /}
+          headers:
+            - {type: RegularExpression, name: Cookie, value: '.*adhar_sso_tolgee=[^;]+.*'}
+        - path: {type: Exact, value: /login}
+          headers:
+            - {type: RegularExpression, name: Cookie, value: '.*adhar_sso_tolgee=[^;]+.*'}
+      backendRefs:
+        - name: tolgee
+          port: 8080
+    # Any other load of the home or sign-in page starts the Keycloak sign-in.
+    - matches:
+        - path: {type: Exact, value: /}
+        - path: {type: Exact, value: /login}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path: {type: ReplaceFullPath, replaceFullPath: /adhar-sso/tolgee.html}
             port: {{ .Port }}
             statusCode: 302
     - matches:

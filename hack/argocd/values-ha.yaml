@@ -503,6 +503,61 @@ configs:
         health_status.message = "Waiting for a Ready condition"
       end
       return health_status
+    resource.customizations.health.platform.adhar.io_Function: |
+      health_status = {}
+      -- Crossplane composite for a Function: Synced says the composition ran,
+      -- Ready says the Knative Service, its edge and its event sources all
+      -- answer. Without this check Argo CD calls the Function Healthy the moment
+      -- it exists, so a promotion is verified against a function that has not
+      -- served a request.
+      if obj.status == nil or obj.status.conditions == nil then
+        health_status.status = "Progressing"
+        health_status.message = "Waiting for Crossplane to reconcile the composite"
+        return health_status
+      end
+      local ready = nil
+      local synced = nil
+      local service = nil
+      local edge = nil
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Ready" then ready = c end
+        if c.type == "Synced" then synced = c end
+        if c.type == "ServiceReady" then service = c end
+        if c.type == "EdgeReady" then edge = c end
+      end
+      -- A composition that cannot be rendered or applied is Degraded, not pending:
+      -- it will not resolve on its own, and a wave that waits for it waits forever.
+      if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+        health_status.status = "Degraded"
+        health_status.message = synced.message or "composition failed to reconcile"
+        return health_status
+      end
+      -- Knative holds Ready at Unknown while a revision rolls out and sets False
+      -- only once it has given up on one (image missing, container crashing,
+      -- progress deadline): waiting will not fix that, and neither will waiting
+      -- for a hostname another namespace holds.
+      if service ~= nil and service.status == "False" then
+        health_status.status = "Degraded"
+        health_status.message = service.message or service.reason or "the Knative Service is not ready"
+        return health_status
+      end
+      if edge ~= nil and edge.status == "False" and edge.reason == "HostClaimed" then
+        health_status.status = "Degraded"
+        health_status.message = edge.message or "the hostname is claimed by another namespace"
+        return health_status
+      end
+      if ready ~= nil and ready.status == "True" then
+        health_status.status = "Healthy"
+        health_status.message = obj.status.message or "the function is serving"
+        return health_status
+      end
+      health_status.status = "Progressing"
+      if ready ~= nil then
+        health_status.message = obj.status.message or ready.message or ready.reason or "composing"
+      else
+        health_status.message = "Waiting for a Ready condition"
+      end
+      return health_status
     resource.customizations.health.postgresql.cnpg.io_Cluster: |
       health_status = {}
       if obj.status ~= nil and obj.status.phase ~= nil then

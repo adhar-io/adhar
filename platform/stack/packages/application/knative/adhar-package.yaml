@@ -8,7 +8,7 @@ kind: AdharPackage
 name: knative
 category: application
 version: "v1.23.1"
-description: Knative Operator for installing Knative Serving and Eventing (scale-to-zero serverless workloads).
+description: Knative Operator plus Knative Serving (Kourier, ClusterIP behind the platform Gateway) and Eventing — the runtime behind the Function API.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -17,7 +17,7 @@ license: Apache-2.0
 homepage: https://knative.dev
 adharCompatibility:
   minVersion: "0.1.0"
-  notes: Manifests vendored from https://github.com/knative/operator/releases (no upstream Helm chart).
+  notes: Operator vendored from https://github.com/knative/operator/releases (no upstream Helm chart). The operator runs in adhar-system; Serving and Eventing run in knative-serving and knative-eventing (ADR-0011 exception, ADR-0027).
 dependencies: []
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar

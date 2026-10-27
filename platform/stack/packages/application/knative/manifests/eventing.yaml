@@ -1,6 +1,33 @@
+# Knative Eventing — what invokes a function besides HTTP (ADR-0027). Installed by
+# the operator into the namespace of THIS object: knative-eventing, for the same
+# reasons Serving is not in adhar-system (serving.yaml) — in adhar-system its
+# config-features/-logging/-observability/-leader-election overwrote Serving's
+# and Tekton's copies on every reconcile.
+#
+# What this installs, and what a Function trigger may use: Broker and Trigger
+# (the multi-tenant channel-based broker over InMemoryChannel — not durable, an
+# event in flight is lost if the dispatcher restarts), PingSource (cron
+# triggers), ApiServerSource, ContainerSource and SinkBinding.
+#
+# NOT installed: KafkaSource and the Kafka-backed broker and channel (spec.source
+# stays empty, so none of the optional sources is deployed). A function's
+# `topic` trigger is delivered by Dapr pub/sub through the function's own
+# sidecar (the Function composition), not by Knative Eventing.
 apiVersion: operator.knative.dev/v1beta1
 kind: KnativeEventing
 metadata:
   name: knative-eventing
-  namespace: adhar-system
-spec: {}
+  namespace: knative-eventing
+spec:
+  # Re-applied by the operator on every reconcile; keeps the ADR-0023 placement
+  # label on the namespace (namespaces.yaml declares the same).
+  namespace:
+    labels:
+      adhar.io/plane: control
+  high-availability:
+    replicas: 1
+  # Upstream ships minAvailable 80%: with one replica, zero allowed disruptions,
+  # which blocks every node drain (serving.yaml has the measurement).
+  podDisruptionBudgets:
+    - name: eventing-webhook
+      maxUnavailable: 1

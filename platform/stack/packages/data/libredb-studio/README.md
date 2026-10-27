@@ -67,6 +67,14 @@ package costs only its own connection). A connection whose `${VAR}` is
 undefined is skipped by Studio and the rest keep working — which is exactly what
 happens on a local cluster that runs the curated core.
 
+The mirrors for databases of OPTIONAL packages (PostHog, Metabase, OpenMetadata)
+carry `adhar.io/optional: "true"`, so a package that is switched off can never
+hold this package's sync at its wave -2 gate — open-metadata, off in production
+since 2026-10-24, left Studio undeployed for two days that way. Environment
+variables are read when the container starts: a connection whose package is
+turned on later appears after Studio's next restart
+(`kubectl -n adhar-system rollout restart deployment/libredb-studio`).
+
 | Connection | Type | Endpoint | Credentials from | Visible to |
 |---|---|---|---|---|
 | Gitea | postgres | `gitea-db-rw:5432/gitea` | `gitea-db-credentials` (bootstrap phase) | admin |

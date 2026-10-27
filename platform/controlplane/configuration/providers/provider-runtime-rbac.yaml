@@ -1,14 +1,54 @@
 ---
+# The runtime every package without a runtimeConfigRef gets: the cloud
+# providers (providers/cloud/provider-packages.yaml), the provider families
+# they pull in as dependencies, and every Function. Crossplane creates it
+# empty; it is declared here for enableServiceLinks alone.
+#
+# Every package runtime shares the adhar-system namespace (ADR-0011), so
+# Kubernetes injects a <SVC>_PORT variable per Service into it. Knative's
+# Service/webhook becomes WEBHOOK_PORT=tcp://<ip>:9090, which the upjet
+# providers read as their --webhook-port flag and exit on: with Knative
+# installed, all four GCP provider pods crash-looped 410 times on
+# `strconv.ParseFloat: parsing "tcp://10.110.228.193:9090"` and Crossplane
+# reported the providers unhealthy (2026-10-26).
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: default
+spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          enableServiceLinks: false
+          # Required by the CRD; Crossplane merges by this name into the
+          # runtime container it renders, so naming it changes nothing else.
+          containers:
+            - name: package-runtime
+---
 # Pin stable ServiceAccount names for the Kubernetes-native providers.
 # By default Crossplane derives the provider SA name from a hash of the package
 # reference (e.g. provider-kubernetes-f6665ef36536), which changes on upgrade and
 # cannot be referenced from a committed ClusterRoleBinding. A DeploymentRuntimeConfig
 # lets us fix the SA name so the RBAC below is stable across provider revisions.
+# A named runtime config replaces `default` entirely, so each repeats
+# enableServiceLinks: false.
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:
   name: provider-kubernetes
 spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          enableServiceLinks: false
+          # Required by the CRD; Crossplane merges by this name into the
+          # runtime container it renders, so naming it changes nothing else.
+          containers:
+            - name: package-runtime
   serviceAccountTemplate:
     metadata:
       name: provider-kubernetes
@@ -18,6 +58,16 @@ kind: DeploymentRuntimeConfig
 metadata:
   name: provider-helm
 spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          enableServiceLinks: false
+          # Required by the CRD; Crossplane merges by this name into the
+          # runtime container it renders, so naming it changes nothing else.
+          containers:
+            - name: package-runtime
   serviceAccountTemplate:
     metadata:
       name: provider-helm
@@ -63,6 +113,34 @@ rules:
   # Function composition emits a Knative Service via provider-kubernetes.
   - apiGroups: ["serving.knative.dev"]
     resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # ...and the edge in front of it (compositions/function): a DomainMapping for
+  # its public host, the HTTPRoute on adhar-gateway that sends that host to
+  # Kourier, and the ReferenceGrant in knative-serving that lets the route name
+  # Kourier's Service from the function's namespace.
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["domainmappings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "referencegrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The DomainMapping's ClusterDomainClaim is composed create-only, so a host
+  # another namespace holds is never taken over or released: no update, no
+  # delete. `patch` is the server-side dry run provider-kubernetes computes
+  # desired state with, even for an Object it may only create.
+  - apiGroups: ["networking.internal.knative.dev"]
+    resources: ["clusterdomainclaims"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # A Function's event sources: cron is a PingSource, cloudevent a Trigger on
+  # the namespace's Broker (created when absent), topic a Dapr Subscription.
+  - apiGroups: ["sources.knative.dev"]
+    resources: ["pingsources"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["eventing.knative.dev"]
+    resources: ["triggers", "brokers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["dapr.io"]
+    resources: ["subscriptions"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Agent workloads (compositions/agent): the AI-gateway policy that IS the
   # agent's grant, and the PrometheusRule that alerts on its declared budget.

@@ -782,7 +782,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * max by (namespace, strimzi_io_cluster, pod) (jvm_memory_used_bytes{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\", area=\"heap\"}) / max by (namespace, strimzi_io_cluster, pod) (jvm_memory_max_bytes{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\", area=\"heap\"})",
+              "expr": "100 * max by (namespace, strimzi_io_cluster, pod) (jvm_memory_used_bytes{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\", area=\"heap\"}) / (max by (namespace, strimzi_io_cluster, pod) (jvm_memory_max_bytes{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\", area=\"heap\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1949,7 +1949,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "max by (pod, request) (kafka_network_requestmetrics_totaltimems{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\", quantile=\"0.99\", request=~\"Produce|FetchConsumer|FetchFollower\"})",
+                  "expr": "max by (pod, request) ((kafka_network_requestmetrics_totaltimems{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\", quantile=\"0.99\", request=~\"Produce|FetchConsumer|FetchFollower\"} >= 0))",
                   "legendFormat": "{{pod}} {{request}}",
                   "range": true,
                   "instant": false,
@@ -3131,7 +3131,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (max by (namespace, strimzi_io_cluster, pod, topic, partition) (kafka_log_log_size{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\"}) or max by (namespace, strimzi_io_cluster, pod, __name__) ({__name__=~\"kafka_log_log_size_topic_.+\", namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\"})) / on (namespace, pod) label_replace(max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{job=\"kube-state-metrics\", namespace=~\"$namespace\", persistentvolumeclaim=~\"data-.+\"}), \"pod\", \"$1\", \"persistentvolumeclaim\", \"data-(?:0-)?(.+)\")",
+                  "expr": "100 * sum by (namespace, pod) (max by (namespace, strimzi_io_cluster, pod, topic, partition) (kafka_log_log_size{namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\"}) or max by (namespace, strimzi_io_cluster, pod, __name__) ({__name__=~\"kafka_log_log_size_topic_.+\", namespace=~\"$namespace\", strimzi_io_cluster=~\"$cluster\", pod=~\"$broker\"})) / on (namespace, pod) (label_replace(max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{job=\"kube-state-metrics\", namespace=~\"$namespace\", persistentvolumeclaim=~\"data-.+\"}), \"pod\", \"$1\", \"persistentvolumeclaim\", \"data-(?:0-)?(.+)\") > 0)",
                   "legendFormat": "{{pod}}",
                   "range": false,
                   "instant": true,

@@ -742,7 +742,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * max by (namespace, job, pod) (redis_memory_used_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}) / on (namespace, pod) group_left () (max by (namespace, pod) (redis_memory_max_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"} > 0) or sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=~\"$namespace\", pod=~\"$pod\", resource=\"memory\", container!=\"metrics\"}))",
+              "expr": "100 * max by (namespace, job, pod) (redis_memory_used_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}) / on (namespace, pod) group_left () ((max by (namespace, pod) (redis_memory_max_bytes{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"} > 0) or sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=~\"$namespace\", pod=~\"$pod\", resource=\"memory\", container!=\"metrics\"})) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1462,7 +1462,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (cmd, le) (rate(redis_commands_latencies_usec_bucket{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval]))) / 1e6",
+                  "expr": "(histogram_quantile(0.99, sum by (cmd, le) (rate(redis_commands_latencies_usec_bucket{namespace=~\"$namespace\", job=~\"$job\", pod=~\"$pod\"}[$__rate_interval]))) >= 0) / 1e6",
                   "legendFormat": "{{cmd}}",
                   "range": true,
                   "instant": false,

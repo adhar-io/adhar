@@ -1,0 +1,146 @@
+# What provider-kubernetes reports once xr-http.yaml's Function has converged:
+# pass it to `crossplane render --observed-resources` to see the second
+# reconcile, where the XR's status comes from the Knative Service.
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: orders-knative-service
+  namespace: dev
+  annotations:
+    crossplane.io/composition-resource-name: knative-service
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Available
+    - type: Synced
+      status: "True"
+      reason: ReconcileSuccess
+  atProvider:
+    manifest:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      metadata:
+        name: orders
+        namespace: dev
+      status:
+        observedGeneration: 2
+        url: http://orders.dev.svc.cluster.local
+        address:
+          url: http://orders.dev.svc.cluster.local
+        latestCreatedRevisionName: orders-00002
+        latestReadyRevisionName: orders-00002
+        conditions:
+          - type: ConfigurationsReady
+            status: "True"
+          - type: Ready
+            status: "True"
+          - type: RoutesReady
+            status: "True"
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: orders-domain-claim
+  namespace: dev
+  annotations:
+    crossplane.io/composition-resource-name: domain-claim
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Available
+  atProvider:
+    manifest:
+      apiVersion: networking.internal.knative.dev/v1alpha1
+      kind: ClusterDomainClaim
+      metadata:
+        name: orders.dev.cloud.example.com
+      spec:
+        namespace: dev
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: orders-domain-mapping
+  namespace: dev
+  annotations:
+    crossplane.io/composition-resource-name: domain-mapping
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Available
+  atProvider:
+    manifest:
+      apiVersion: serving.knative.dev/v1beta1
+      kind: DomainMapping
+      metadata:
+        name: orders.dev.cloud.example.com
+        namespace: dev
+      status:
+        url: http://orders.dev.cloud.example.com
+        conditions:
+          - type: DomainClaimed
+            status: "True"
+          - type: Ready
+            status: "True"
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: orders-route
+  namespace: dev
+  annotations:
+    crossplane.io/composition-resource-name: route
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Available
+  atProvider:
+    manifest:
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: orders
+        namespace: dev
+      status:
+        parents:
+          - controllerName: io.cilium/gateway-controller
+            parentRef:
+              name: adhar-gateway
+              namespace: adhar-system
+            conditions:
+              - type: Accepted
+                status: "True"
+                reason: Accepted
+              - type: ResolvedRefs
+                status: "True"
+                reason: ResolvedRefs
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: orders-route-grant
+  namespace: dev
+  annotations:
+    crossplane.io/composition-resource-name: route-grant
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Available
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: orders-ingress-policy
+  namespace: dev
+  annotations:
+    crossplane.io/composition-resource-name: ingress-policy
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Available

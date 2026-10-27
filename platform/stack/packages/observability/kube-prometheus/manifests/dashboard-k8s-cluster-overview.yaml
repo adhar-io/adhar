@@ -669,7 +669,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum(kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -742,7 +742,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -815,7 +815,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum(kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -888,7 +888,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum(container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -961,7 +961,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(kubelet_running_pods{node=~\"$node\"}) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"pods\"})",
+              "expr": "100 * sum(kubelet_running_pods{node=~\"$node\"}) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"pods\"}) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -1034,7 +1034,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum(kube_pod_status_ready{job=\"kube-state-metrics\", namespace=\"kube-system\", condition=\"true\", pod=~\"(etcd|kube-apiserver|kube-controller-manager|kube-scheduler|cloud-controller-manager).*\"}) / count(kube_pod_info{job=\"kube-state-metrics\", namespace=\"kube-system\", pod=~\"(etcd|kube-apiserver|kube-controller-manager|kube-scheduler|cloud-controller-manager).*\"})",
+              "expr": "100 * sum(kube_pod_status_ready{job=\"kube-state-metrics\", namespace=\"kube-system\", condition=\"true\", pod=~\"(etcd|kube-apiserver|kube-controller-manager|kube-scheduler|cloud-controller-manager).*\"}) / (count(kube_pod_info{job=\"kube-state-metrics\", namespace=\"kube-system\", pod=~\"(etcd|kube-apiserver|kube-controller-manager|kube-scheduler|cloud-controller-manager).*\"}) > 0)",
               "legendFormat": "",
               "range": true,
               "instant": false,
@@ -1120,7 +1120,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": false,
               "instant": true,
@@ -1196,7 +1196,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum by (node) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": false,
               "instant": true,
@@ -1272,7 +1272,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": false,
               "instant": true,
@@ -1348,7 +1348,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum by (node) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[$__rate_interval])) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "{{node}}",
               "range": false,
               "instant": true,
@@ -1463,7 +1463,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1476,7 +1476,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[5m])) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"})",
+              "expr": "100 * sum by (node) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}[5m])) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"cpu\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1502,7 +1502,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum by (node) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=~\"Pending|Running\"} == 1)) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -1515,7 +1515,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * sum by (node) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"})",
+              "expr": "100 * sum by (node) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", node=~\"$node\"}) / (sum by (node) (kube_node_status_allocatable{job=\"kube-state-metrics\", node=~\"$node\", resource=\"memory\"}) > 0)",
               "legendFormat": "",
               "range": false,
               "instant": true,
@@ -3873,7 +3873,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", namespace=~\"$namespace\"}) / sum by (namespace) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", namespace=~\"$namespace\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=\"Running\"} == 1))",
+                  "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", namespace=~\"$namespace\"}) / (sum by (namespace) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", namespace=~\"$namespace\", resource=\"memory\"} * on (namespace, pod) group_left () max by (namespace, pod) (kube_pod_status_phase{job=\"kube-state-metrics\", phase=\"Running\"} == 1)) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
@@ -4536,7 +4536,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "topk(15, 100 * max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"}))",
+                  "expr": "topk(15, 100 * max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / (kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"} > 0)))",
                   "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
                   "range": false,
                   "instant": true,
@@ -4831,7 +4831,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket{job=\"apiserver\", verb!~\"WATCH|CONNECT\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket{job=\"apiserver\", verb!~\"WATCH|CONNECT\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{verb}}",
                   "range": true,
                   "instant": false,
@@ -4931,7 +4931,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (operation, le) (rate(etcd_request_duration_seconds_bucket{job=\"apiserver\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (operation, le) (rate(etcd_request_duration_seconds_bucket{job=\"apiserver\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{operation}}",
                   "range": true,
                   "instant": false,
@@ -6845,7 +6845,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(namespace_cpu:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"cpu\",cluster=\"$cluster\"})",
+                  "expr": "sum(namespace_cpu:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"cpu\",cluster=\"$cluster\"}) > 0)",
                   "instant": true
                 }
               ],
@@ -6881,7 +6881,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(namespace_cpu:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"cpu\",cluster=\"$cluster\"})",
+                  "expr": "sum(namespace_cpu:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"cpu\",cluster=\"$cluster\"}) > 0)",
                   "instant": true
                 }
               ],
@@ -6917,7 +6917,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "1 - sum(:node_memory_MemAvailable_bytes:sum{cluster=\"$cluster\"}) / sum(node_memory_MemTotal_bytes{job=\"node-exporter\",cluster=\"$cluster\"})",
+                  "expr": "1 - sum(:node_memory_MemAvailable_bytes:sum{cluster=\"$cluster\"}) / (sum(node_memory_MemTotal_bytes{job=\"node-exporter\",cluster=\"$cluster\"}) > 0)",
                   "instant": true
                 }
               ],
@@ -6953,7 +6953,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(namespace_memory:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"memory\",cluster=\"$cluster\"})",
+                  "expr": "sum(namespace_memory:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"memory\",cluster=\"$cluster\"}) > 0)",
                   "instant": true
                 }
               ],
@@ -6989,7 +6989,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(namespace_memory:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) / sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"memory\",cluster=\"$cluster\"})",
+                  "expr": "sum(namespace_memory:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) / (sum(kube_node_status_allocatable{job=\"kube-state-metrics\",resource=\"memory\",cluster=\"$cluster\"}) > 0)",
                   "instant": true
                 }
               ],
@@ -7136,7 +7136,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\"})) by (namespace) / sum(namespace_cpu:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) by (namespace)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\"})) by (namespace) / (sum(namespace_cpu:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) by (namespace) > 0)",
                   "format": "table",
                   "instant": true
                 },
@@ -7154,7 +7154,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\"})) by (namespace) / sum(namespace_cpu:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) by (namespace)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate5m{cluster=\"$cluster\"})) by (namespace) / (sum(namespace_cpu:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) by (namespace) > 0)",
                   "format": "table",
                   "instant": true
                 }
@@ -7390,7 +7390,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(container_memory_rss{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", cluster=\"$cluster\", container!=\"\"})) by (namespace) / sum(namespace_memory:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) by (namespace)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(container_memory_rss{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", cluster=\"$cluster\", container!=\"\"})) by (namespace) / (sum(namespace_memory:kube_pod_container_resource_requests:sum{cluster=\"$cluster\"}) by (namespace) > 0)",
                   "format": "table",
                   "instant": true
                 },
@@ -7408,7 +7408,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(max by (cluster, namespace, pod, container)(container_memory_rss{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", cluster=\"$cluster\", container!=\"\"})) by (namespace) / sum(namespace_memory:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) by (namespace)",
+                  "expr": "sum(max by (cluster, namespace, pod, container)(container_memory_rss{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", cluster=\"$cluster\", container!=\"\"})) by (namespace) / (sum(namespace_memory:kube_pod_container_resource_limits:sum{cluster=\"$cluster\"}) by (namespace) > 0)",
                   "format": "table",
                   "instant": true
                 }

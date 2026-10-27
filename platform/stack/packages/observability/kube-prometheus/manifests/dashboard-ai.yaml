@@ -274,7 +274,7 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[30m])))",
+              "expr": "(histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[30m]))) >= 0)",
               "instant": true,
               "range": false,
               "refId": "A"
@@ -749,7 +749,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.50, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+                  "expr": "(histogram_quantile(0.50, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m]))) >= 0)",
                   "legendFormat": "p50",
                   "range": true,
                   "refId": "A"
@@ -760,7 +760,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.90, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+                  "expr": "(histogram_quantile(0.90, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m]))) >= 0)",
                   "legendFormat": "p90",
                   "range": true,
                   "refId": "B"
@@ -771,7 +771,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(adhar_ai_agent_run_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m]))) >= 0)",
                   "legendFormat": "p99",
                   "range": true,
                   "refId": "C"
@@ -966,7 +966,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.50, sum by (le) (rate(adhar_ai_agent_steps_bucket{job=\"adhar-ai-runtime\"}[10m])))",
+                  "expr": "(histogram_quantile(0.50, sum by (le) (rate(adhar_ai_agent_steps_bucket{job=\"adhar-ai-runtime\"}[10m]))) >= 0)",
                   "legendFormat": "p50",
                   "range": true,
                   "refId": "A"
@@ -977,7 +977,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_steps_bucket{job=\"adhar-ai-runtime\"}[10m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_steps_bucket{job=\"adhar-ai-runtime\"}[10m]))) >= 0)",
                   "legendFormat": "p95",
                   "range": true,
                   "refId": "B"
@@ -1202,7 +1202,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le, model) (rate(adhar_ai_llm_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, model) (rate(adhar_ai_llm_duration_seconds_bucket{job=\"adhar-ai-runtime\"}[5m]))) >= 0)",
                   "legendFormat": "{{model}}",
                   "range": true,
                   "refId": "A"
@@ -1538,7 +1538,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{job=~\".*agentgateway.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{job=~\".*agentgateway.*\"}[5m]))) >= 0)",
                   "legendFormat": "{{gen_ai_request_model}}",
                   "range": true,
                   "refId": "A"
@@ -1694,7 +1694,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le, mcp_domain) (rate(adhar_ai_tool_call_duration_seconds_bucket{job=~\"adhar-ai-mcp-.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, mcp_domain) (rate(adhar_ai_tool_call_duration_seconds_bucket{job=~\"adhar-ai-mcp-.*\"}[5m]))) >= 0)",
                   "legendFormat": "{{mcp_domain}}",
                   "range": true,
                   "refId": "A"
@@ -2109,7 +2109,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.50, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.50, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m]))) >= 0)",
                   "legendFormat": "p50",
                   "range": true,
                   "refId": "A"
@@ -2120,7 +2120,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m]))) >= 0)",
                   "legendFormat": "p95",
                   "range": true,
                   "refId": "B"
@@ -2131,7 +2131,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m]))) >= 0)",
                   "legendFormat": "p99",
                   "range": true,
                   "refId": "C"
@@ -2414,7 +2414,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_upstream_call_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(agentgateway_upstream_call_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m]))) >= 0)",
                   "legendFormat": "upstream p95",
                   "range": true,
                   "refId": "A"
@@ -2425,7 +2425,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_upstream_connect_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(agentgateway_upstream_connect_duration_seconds_bucket{job=~\".*agentgateway.*\"}[5m]))) >= 0)",
                   "legendFormat": "connect p95",
                   "range": true,
                   "refId": "B"
@@ -4049,7 +4049,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.50, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.50, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p50",
                   "range": true,
                   "refId": "A"
@@ -4060,7 +4060,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p95",
                   "range": true,
                   "refId": "B"
@@ -4071,7 +4071,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(agentgateway_request_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99",
                   "range": true,
                   "refId": "C"
@@ -4342,7 +4342,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_time_to_first_token_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_time_to_first_token_bucket{namespace=~\"$namespace\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{gen_ai_request_model}}",
                   "range": true,
                   "refId": "A"
@@ -4407,7 +4407,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{namespace=~\"$namespace\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "{{gen_ai_request_model}}",
                   "range": true,
                   "refId": "A"
@@ -4472,7 +4472,7 @@ data:
                     "uid": "${datasource}"
                   },
                   "editorMode": "code",
-                  "expr": "1 / clamp_min(histogram_quantile(0.50, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_time_per_output_token_bucket{namespace=~\"$namespace\"}[$__rate_interval]))), 1e-9)",
+                  "expr": "1 / clamp_min((histogram_quantile(0.50, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_time_per_output_token_bucket{namespace=~\"$namespace\"}[$__rate_interval]))) >= 0), 1e-9)",
                   "legendFormat": "{{gen_ai_request_model}}",
                   "range": true,
                   "refId": "A"

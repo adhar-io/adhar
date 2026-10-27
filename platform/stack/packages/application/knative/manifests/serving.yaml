@@ -1,14 +1,131 @@
+# Knative Serving — the HTTP runtime behind the platform's Function API
+# (ADR-0027). The operator (operator.yaml, in adhar-system) installs Serving into
+# the namespace of THIS object, so the namespace below is the placement decision.
+#
+# knative-serving, not adhar-system: the one remaining ADR-0011 exception
+# (packages/CONFLICTS.md). In adhar-system Serving collided with names other
+# packages hardcode, and no manifest rename can fix a name compiled into a binary:
+#   - its webhook and kpack's both run knative.dev/pkg's webhook under the
+#     component name `webhook`: same leader-election leases, same
+#     Secret/webhook-certs. kpack held every lease, so Serving's webhook never got
+#     a certificate and every Knative Service write was refused;
+#   - config-defaults/-tracing/-logging/-observability are Tekton's names as
+#     well; the operator re-applied Knative's copies over Tekton's on every
+#     reconcile, and Tekton's config webhook then failed Argo CD's diff;
+#   - its Service/webhook injected WEBHOOK_PORT=tcp://... into every platform pod
+#     (the GCP Crossplane providers crash-looped on it);
+#   - Kourier's bootstrap hardcodes the xDS address
+#     net-kourier-controller.knative-serving, so its gateway never started.
+# Moving an existing install is NOT a plain push: see ADR-0027 "Migration".
 apiVersion: operator.knative.dev/v1beta1
 kind: KnativeServing
 metadata:
   name: knative-serving
-  namespace: adhar-system
+  namespace: knative-serving
 spec:
+  # The operator re-applies its own copy of the Namespace on every reconcile;
+  # this keeps the ADR-0023 placement label on it (namespaces.yaml declares the
+  # same), so the plane-scoped admission policies treat Knative's system pods as
+  # platform services.
+  namespace:
+    labels:
+      adhar.io/plane: control
+  # One copy of each component, as everywhere on the platform; HA is the
+  # cluster's choice, not a package default.
+  high-availability:
+    replicas: 1
   ingress:
     istio:
       enabled: false
     kourier:
       enabled: true
+      # Never a LoadBalancer. A function is reached only through the platform
+      # Gateway — TLS, external-dns and the Gateway's policies — which routes each
+      # function's host to this Service (ADR-0027 "Edge contract"). As a
+      # LoadBalancer it was a second public edge with none of those: a billed GCP
+      # address (34.124.203.128, 2026-10-26) that bypassed TLS and SSO.
+      service-type: ClusterIP
   config:
     network:
       ingress-class: kourier.ingress.networking.knative.dev
+      # A function's public name is a DomainMapping, which needs a
+      # ClusterDomainClaim for its host. The Function composition creates the
+      # claim itself (create-only, so a host stays with the namespace that took
+      # it first); this covers a DomainMapping made by hand.
+      autocreate-cluster-domain-claims: "true"
+      # TLS terminates at the platform Gateway, so Kourier only ever sees plain
+      # HTTP; without this every URL Knative reports says http://.
+      default-external-scheme: https
+    domain:
+      # The default domain of a Knative Service that is not cluster-local:
+      # <name>.<namespace>.<host>. This is the stack's local host, which
+      # stageStack rewrites to the cluster's own when the stack is seeded — the
+      # same convention every other hostname in this tree follows.
+      adhar.localtest.me: ""
+    deployment:
+      # The controller resolves each image tag to a digest before it creates a
+      # revision. The platform's in-cluster Harbor serves a certificate signed by
+      # the platform CA, which the controller does not trust, so resolution fails
+      # (x509) and the revision never becomes ready. Pipelines and Kargo deploy by
+      # digest anyway. The first three are upstream's defaults.
+      registries-skipping-tag-resolving: "kind.local,ko.local,dev.local,harbor-core.adhar-system.svc.cluster.local"
+    observability:
+      # Off ("none") by default since Knative moved to OpenTelemetry: without
+      # this the components serve no /metrics and servicemonitor.yaml scrapes
+      # nothing. Served on each component's `metrics` port (9090).
+      metrics-protocol: prometheus
+  # Upstream's PodDisruptionBudgets are minAvailable 80%, written for HA. With one
+  # replica that is zero allowed disruptions: no node drain, kubeadm upgrade or
+  # autoscaler scale-down can evict these pods (all four read
+  # disruptionsAllowed=0 on the GCP cluster, 2026-10-27).
+  podDisruptionBudgets:
+    - name: activator-pdb
+      maxUnavailable: 1
+    - name: webhook-pdb
+      maxUnavailable: 1
+    - name: 3scale-kourier-gateway-pdb
+      maxUnavailable: 1
+  # Requests follow what the components use on a running platform (kubectl top,
+  # GCP, 2026-10-27, no functions deployed: activator 2m/44Mi, autoscaler
+  # 11m/37Mi, controller 3m/44Mi, net-kourier-controller 2m/72Mi); upstream
+  # reserves 700m of CPU for these four before a single function exists. The
+  # activator keeps 100m because its HPA scales on CPU utilisation of the
+  # request. Limits stay upstream's. The webhook and the Kourier gateway keep
+  # upstream's requests until they have run long enough to be measured.
+  workloads:
+    - name: activator
+      resources:
+        - container: activator
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: "1"
+            memory: 600Mi
+    - name: autoscaler
+      resources:
+        - container: autoscaler
+          requests:
+            cpu: 30m
+            memory: 64Mi
+          limits:
+            cpu: "1"
+            memory: 1000Mi
+    - name: controller
+      resources:
+        - container: controller
+          requests:
+            cpu: 30m
+            memory: 96Mi
+          limits:
+            cpu: "1"
+            memory: 1000Mi
+    - name: net-kourier-controller
+      resources:
+        - container: controller
+          requests:
+            cpu: 30m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 500Mi

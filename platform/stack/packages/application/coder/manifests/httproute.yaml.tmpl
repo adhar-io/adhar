@@ -7,6 +7,19 @@
 # NO oauth2-proxy in front (unlike most platform UIs): Coder authenticates
 # against Keycloak natively (values.yaml CODER_OIDC_*, manifests/keycloak-client.yaml)
 # and its CLI/agent traffic is token-based — a browser-login proxy would break it.
+#
+# Single sign-on without Coder's own sign-in page: a page a browser NAVIGATES to
+# goes to coder-sso (manifests/sso-edge.yaml), which asks Coder whether the
+# cookie it carries is a live session and, when it is not, starts Coder's own
+# Keycloak sign-in for that page. The cookie's presence cannot decide this here:
+# Coder keeps `coder_session_token` for a year while the session behind it ends
+# after 24 h idle. Break-glass password login: /login?local=1.
+#
+# Rule precedence (Gateway API, implemented by Cilium's route sort): an Exact
+# path outranks any prefix, a longer prefix a shorter one, then a rule with a
+# method, then the rule with MORE header matches. So a navigation to `/` takes
+# the first rule below (two headers) over the cookie rule (one), and /api/
+# beats the navigation rule's `/` prefix.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -23,13 +36,45 @@ spec:
   hostnames:
     - coder.adhar.localtest.me
   rules:
-    # Single sign-on, without Coder's own sign-in page. Coder draws a login page
-    # (password form + "Sign in with Keycloak") for anyone without a Coder
-    # session, so a person already signed in to Keycloak was asked to sign in
-    # again. Its OIDC start URL completes silently against that session instead
-    # (same pattern as Plane / LibreDB / JupyterHub). A request that CARRIES
-    # Coder's session cookie is served as before — the header match ranks above
-    # the path-only redirect below. Break-glass local login stays at /login.
+    # Page loads: the bare host, deep links (/workspaces, /@user/ws, …), and
+    # /login itself, which Coder's own redirects (path apps, OAuth2 authorize)
+    # also land on. Fetch Metadata is what a browser sends on a navigation and
+    # nothing else does — the CLI, agents, XHRs and websockets never match.
+    - matches:
+        - path:
+            type: Exact
+            value: /
+          method: GET
+          headers:
+            - name: Sec-Fetch-Mode
+              value: navigate
+            - name: Sec-Fetch-Dest
+              value: document
+        - path:
+            type: PathPrefix
+            value: /
+          method: GET
+          headers:
+            - name: Sec-Fetch-Mode
+              value: navigate
+            - name: Sec-Fetch-Dest
+              value: document
+      backendRefs:
+        - name: coder-sso
+          port: 80
+    # The API never passes through the edge — the OIDC callback Keycloak
+    # returns to is a navigation too, and must reach Coder whatever coder-sso is
+    # doing.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      backendRefs:
+        - name: coder
+          port: 80
+    # A browser without Fetch Metadata (Safari before 16.4): a GET / that
+    # carries Coder's session cookie is served by Coder, one that does not is
+    # sent into Coder's OIDC start. Both rank below the navigation rule.
     - matches:
         - path:
             type: Exact
@@ -57,6 +102,8 @@ spec:
             # 8443 gets a Location nothing listens on.
             port: {{ .Port }}
             statusCode: 302
+    # Everything else — the CLI, workspace agents, DERP, assets, the
+    # dashboard's API calls and websockets — goes straight to Coder.
     - matches:
         - path:
             type: PathPrefix

@@ -190,6 +190,8 @@ spec:
           value: groups
         - name: CODER_OIDC_USER_ROLE_MAPPING
           value: '{"platform-admin":["owner"],"admin":["owner"]}'
+        - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
+          value: "false"
         - name: CODER_DISABLE_PASSWORD_AUTH
           value: "false"
         - name: CODER_PG_USER

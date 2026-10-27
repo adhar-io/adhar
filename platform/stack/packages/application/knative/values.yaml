@@ -1,10 +1,7 @@
-# Kargo Helm Chart Values
-
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+# Knative "values"
+#
+# Knative has no Helm chart here: the Knative Operator is vendored from its
+# upstream release manifest (generate-manifests.sh), and Serving and Eventing are
+# configured through their CRs (manifests/serving.yaml, manifests/eventing.yaml),
+# which is where every setting lives. This file is kept for package-layout
+# consistency only.

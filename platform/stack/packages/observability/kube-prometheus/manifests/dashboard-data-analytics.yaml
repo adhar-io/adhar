@@ -1081,7 +1081,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(rate(opensearch_indices_indexing_index_time_seconds{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / sum(rate(opensearch_indices_indexing_index_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval]))",
+                  "expr": "sum(rate(opensearch_indices_indexing_index_time_seconds{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / (sum(rate(opensearch_indices_indexing_index_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) > 0)",
                   "legendFormat": "latency",
                   "range": true,
                   "instant": false,
@@ -1217,7 +1217,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(rate(opensearch_indices_search_query_time_seconds{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / sum(rate(opensearch_indices_search_query_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval]))",
+                  "expr": "sum(rate(opensearch_indices_search_query_time_seconds{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / (sum(rate(opensearch_indices_search_query_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) > 0)",
                   "legendFormat": "query latency",
                   "range": true,
                   "instant": false,
@@ -1229,7 +1229,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(rate(opensearch_indices_search_fetch_time_seconds{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / sum(rate(opensearch_indices_search_fetch_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval]))",
+                  "expr": "sum(rate(opensearch_indices_search_fetch_time_seconds{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / (sum(rate(opensearch_indices_search_fetch_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) > 0)",
                   "legendFormat": "fetch latency",
                   "range": true,
                   "instant": false,
@@ -1631,7 +1631,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * min by (node) (opensearch_fs_total_available_bytes{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"} / opensearch_fs_total_total_bytes{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"})",
+                  "expr": "100 * min by (node) (opensearch_fs_total_available_bytes{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"} / (opensearch_fs_total_total_bytes{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"} > 0))",
                   "legendFormat": "{{node}} free %",
                   "range": true,
                   "instant": false,
@@ -1828,7 +1828,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(rate(opensearch_indices_querycache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / (sum(rate(opensearch_indices_querycache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) + sum(rate(opensearch_indices_querycache_miss_number{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])))",
+                  "expr": "sum(rate(opensearch_indices_querycache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / ((sum(rate(opensearch_indices_querycache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) + sum(rate(opensearch_indices_querycache_miss_number{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval]))) > 0)",
                   "legendFormat": "query cache hit",
                   "range": true,
                   "instant": false,
@@ -1840,7 +1840,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "sum(rate(opensearch_indices_requestcache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / (sum(rate(opensearch_indices_requestcache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) + sum(rate(opensearch_indices_requestcache_miss_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])))",
+                  "expr": "sum(rate(opensearch_indices_requestcache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) / ((sum(rate(opensearch_indices_requestcache_hit_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval])) + sum(rate(opensearch_indices_requestcache_miss_count{job=\"opensearch-nodes\", cluster=~\"$os_cluster\", node=~\"$os_node\"}[$__rate_interval]))) > 0)",
                   "legendFormat": "request cache hit",
                   "range": true,
                   "instant": false,
@@ -2615,7 +2615,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "min by (hostname) (chi_clickhouse_metric_DiskFreeBytes{chi=~\"$chi\"} / chi_clickhouse_metric_DiskTotalBytes{chi=~\"$chi\"})",
+                  "expr": "min by (hostname) (chi_clickhouse_metric_DiskFreeBytes{chi=~\"$chi\"} / (chi_clickhouse_metric_DiskTotalBytes{chi=~\"$chi\"} > 0))",
                   "legendFormat": "{{hostname}} free",
                   "range": true,
                   "instant": false,
@@ -2882,7 +2882,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_sec_seconds_bucket{job=\"openmetadata\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(http_server_requests_sec_seconds_bucket{job=\"openmetadata\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99",
                   "range": true,
                   "instant": false,
@@ -3018,7 +3018,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "histogram_quantile(0.99, sum by (le) (rate(db_query_duration_seconds_bucket{job=\"openmetadata\"}[$__rate_interval])))",
+                  "expr": "(histogram_quantile(0.99, sum by (le) (rate(db_query_duration_seconds_bucket{job=\"openmetadata\"}[$__rate_interval]))) >= 0)",
                   "legendFormat": "p99",
                   "range": true,
                   "instant": false,
@@ -3836,7 +3836,7 @@ data:
                     "type": "prometheus",
                     "uid": "${datasource}"
                   },
-                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"rustfs.*|trino.*|mongodb.*|neo4j.*|airbyte.*|dagster.*|prefect.*|metabase.*|mlflow.*|hub-.*|jupyter-.*|libredb.*|kafka-ui.*|valkey-admin.*\", container!=\"\"}) / sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"rustfs.*|trino.*|mongodb.*|neo4j.*|airbyte.*|dagster.*|prefect.*|metabase.*|mlflow.*|hub-.*|jupyter-.*|libredb.*|kafka-ui.*|valkey-admin.*\", resource=\"memory\"})",
+                  "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"adhar-system\", pod=~\"rustfs.*|trino.*|mongodb.*|neo4j.*|airbyte.*|dagster.*|prefect.*|metabase.*|mlflow.*|hub-.*|jupyter-.*|libredb.*|kafka-ui.*|valkey-admin.*\", container!=\"\"}) / (sum by (namespace, pod) (kube_pod_container_resource_limits{job=\"kube-state-metrics\", namespace=\"adhar-system\", pod=~\"rustfs.*|trino.*|mongodb.*|neo4j.*|airbyte.*|dagster.*|prefect.*|metabase.*|mlflow.*|hub-.*|jupyter-.*|libredb.*|kafka-ui.*|valkey-admin.*\", resource=\"memory\"}) > 0)",
                   "legendFormat": "",
                   "range": false,
                   "instant": true,
