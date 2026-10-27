@@ -442,7 +442,12 @@ spec:
     - {name: subdirectory, type: string, default: ""}
     - {name: defaultJdk, type: string, default: "25"}
     - {name: defaultMaven, type: string, default: "3.9"}
-    - {name: defaultNode, type: string, default: "22"}
+    # 24, not 22: the build now ships the Node the tests ran on (buildpacks-build
+    # writes BP_NODE_VERSION from this result), and 24 is node-engine's own
+    # default, Active LTS, and the oldest line whose bundled npm passes the image
+    # scan — Node 22's npm 10.9.x carries eight HIGH findings beyond the five the
+    # gate excuses in npm 11 (Trivy 0.58.1, 2026-10-28; 30-scan-verify-pipeline.yaml).
+    - {name: defaultNode, type: string, default: "24"}
     - {name: defaultGo, type: string, default: "1.24"}
     - {name: defaultPython, type: string, default: "3.12"}
   workspaces:
@@ -450,9 +455,9 @@ spec:
   results:
     - {name: jdk, description: "JDK major the repository declares (project.toml BP_JVM_VERSION, .java-version, .sdkmanrc, .tool-versions, POM compiler release), else defaultJdk"}
     - {name: maven, description: "Maven version from .mvn/wrapper/maven-wrapper.properties (x.y.z), else defaultMaven (a tag family, not a pin)"}
-    - {name: node, description: "Node major from .nvmrc, .node-version, .tool-versions or package.json engines.node, else defaultNode"}
-    - {name: go, description: "Go minor from go.mod, else defaultGo"}
-    - {name: python, description: "Python minor from .python-version, runtime.txt or pyproject requires-python, else defaultPython"}
+    - {name: node, description: "Node major from project.toml BP_NODE_VERSION, .nvmrc, .node-version, .tool-versions or package.json engines.node, else defaultNode"}
+    - {name: go, description: "Go minor from project.toml BP_GO_VERSION or go.mod, else defaultGo"}
+    - {name: python, description: "Python minor from project.toml BP_CPYTHON_VERSION, .python-version, runtime.txt or pyproject requires-python, else defaultPython"}
     - {name: e2e, description: "true when the repository ships a Playwright suite (e2e/playwright.config.*); gates the e2e stage"}
     - {name: tolgee, description: "true when the repository carries a Tolgee CLI config (.tolgeerc, .tolgeerc.json/.yaml/.yml); gates the localise stage"}
   steps:
@@ -462,6 +467,15 @@ spec:
       script: |
         set -euo pipefail
         major() { sed -E 's/^[^0-9]*//; s/^(1\.)?([0-9]+).*/\2/'; }
+        minor() { sed -E 's/^[^0-9]*([0-9]+\.[0-9]+).*/\1/'; }
+        # The value project.toml's [[build.env]] gives NAME. The buildpack's own
+        # contract, so for every runtime it outranks the editor-level files,
+        # exactly as BP_JVM_VERSION does below: what the image is built with is
+        # what the tests run on.
+        bpenv() {
+          [ -f project.toml ] || return 0
+          awk -v n="$1" '$0 ~ "^[[:space:]]*name[[:space:]]*=[[:space:]]*\"" n "\"" {f=1; next} f && /^[[:space:]]*value/ {gsub(/.*=[[:space:]]*"?|"?[[:space:]]*$/, ""); print; exit}' project.toml || true
+        }
 
         jdk=""
         # project.toml [[build.env]] BP_JVM_VERSION is the buildpack's own
@@ -483,24 +497,24 @@ spec:
         src="maven wrapper"; [ -z "$maven" ] && { maven="$(params.defaultMaven)"; src="default family — no wrapper pin"; }
         echo "maven=$maven ($src)"
 
-        node=""
-        [ -f .nvmrc ]         && node=$(head -1 .nvmrc | major)
+        node=$(bpenv BP_NODE_VERSION | major)
+        [ -z "$node" ] && [ -f .nvmrc ]         && node=$(head -1 .nvmrc | major)
         [ -z "$node" ] && [ -f .node-version ] && node=$(head -1 .node-version | major)
         [ -z "$node" ] && [ -f .tool-versions ] && node=$(sed -nE 's/^nodejs[[:space:]]+(.*)$/\1/p' .tool-versions | head -1 | major)
         [ -z "$node" ] && [ -f package.json ] && node=$(sed -nE 's/.*"node"[[:space:]]*:[[:space:]]*"[^0-9]*([0-9]+).*/\1/p' package.json | head -1)
         src="repository"; [ -z "$node" ] && { node="$(params.defaultNode)"; src="default — the repository declares no Node"; }
         echo "node=$node ($src)"
 
-        go=""
-        [ -f go.mod ] && go=$(sed -nE 's/^go[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' go.mod | head -1)
-        src="go.mod"; [ -z "$go" ] && { go="$(params.defaultGo)"; src="default — no go.mod"; }
+        go=$(bpenv BP_GO_VERSION | minor)
+        [ -z "$go" ] && [ -f go.mod ] && go=$(sed -nE 's/^go[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' go.mod | head -1)
+        src="repository"; [ -z "$go" ] && { go="$(params.defaultGo)"; src="default — no go.mod"; }
         echo "go=$go ($src)"
 
         printf '%s' "$jdk"   > "$(results.jdk.path)"
         printf '%s' "$maven" > "$(results.maven.path)"
         printf '%s' "$node"  > "$(results.node.path)"
-        python=""
-        [ -f .python-version ] && python=$(head -1 .python-version | sed -E 's/^[^0-9]*([0-9]+\.[0-9]+).*/\1/')
+        python=$(bpenv BP_CPYTHON_VERSION | minor)
+        [ -z "$python" ] && [ -f .python-version ] && python=$(head -1 .python-version | sed -E 's/^[^0-9]*([0-9]+\.[0-9]+).*/\1/')
         [ -z "$python" ] && [ -f runtime.txt ] && python=$(sed -nE 's/^python-?([0-9]+\.[0-9]+).*/\1/p' runtime.txt | head -1)
         [ -z "$python" ] && [ -f pyproject.toml ] && python=$(sed -nE 's/^requires-python[[:space:]]*=[[:space:]]*"[^0-9]*([0-9]+\.[0-9]+).*/\1/p' pyproject.toml | head -1)
         src="repository"; [ -z "$python" ] && { python="$(params.defaultPython)"; src="default — the repository declares no Python"; }

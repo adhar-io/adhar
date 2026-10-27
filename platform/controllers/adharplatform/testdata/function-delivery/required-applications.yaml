@@ -1,0 +1,57 @@
+# The project's Applications as the project composition reads them (extra
+# resources): a Function (type: function), a Function recognised by its label
+# only, and an ordinary service — each with the status.delivery the
+# application composition publishes.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata: {name: test-func, namespace: adhar-system}
+spec:
+  parameters: {type: function, project: adhar, source: {repoURL: x}}
+status:
+  delivery:
+    promote: true
+    kargoProject: adhar
+    warehouse: test-func
+    image: harbor-core.adhar-system.svc.cluster.local/library/test-func
+    repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/test-func.git
+    path: deploy
+    targetRevision: main
+    soakTime: 0s
+    verification: {enabled: true, interval: 60s, count: 8, settleSeconds: 480, failureLimit: 1, errorRateThreshold: 0.01}
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata:
+  name: thumbnailer
+  namespace: adhar-system
+  labels: {adhar.io/workload: function}
+spec:
+  parameters: {project: adhar, source: {repoURL: x}}
+status:
+  delivery:
+    promote: true
+    kargoProject: adhar
+    warehouse: thumbnailer
+    image: harbor-core.adhar-system.svc.cluster.local/library/thumbnailer
+    repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/thumbnailer.git
+    path: deploy
+    targetRevision: main
+    soakTime: 0s
+    verification: {enabled: true, interval: 60s, count: 8, settleSeconds: 480, failureLimit: 1, errorRateQuery: "my_errors{namespace=\"$NAMESPACE\"}", errorRateThreshold: 0.05}
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata: {name: transaction-service, namespace: adhar-system}
+spec:
+  parameters: {type: service, project: adhar, source: {repoURL: x}}
+status:
+  delivery:
+    promote: true
+    kargoProject: adhar
+    warehouse: transaction-service
+    image: harbor-core.adhar-system.svc.cluster.local/library/transaction-service
+    repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/transaction-service.git
+    path: deploy
+    targetRevision: main
+    soakTime: 0s
+    verification: {enabled: true, interval: 60s, count: 8, settleSeconds: 480, failureLimit: 1, errorRateThreshold: 0.01}

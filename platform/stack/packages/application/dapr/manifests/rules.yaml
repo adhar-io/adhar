@@ -1,0 +1,131 @@
+# Alerts and recording rules for Dapr: the control plane, the sidecars every
+# Dapr app runs, and dapr-state (manifests/state-store.yaml).
+#
+# Metric names are Dapr 1.18.3's, read from its source (pkg/diagnostics,
+# pkg/{scheduler,placement,sentry,injector}/monitoring). daprd exports through
+# OpenCensus: a counter keeps the view's own name with no `_total` added
+# (dapr_http_server_request_count, dapr_component_pubsub_ingress_count), and
+# every histogram is in MILLISECONDS. Most sidecar series exist only once
+# something happened; an alert on them waits for the first event, it does not
+# fire on absence.
+#
+# There were none of these until 2026-10-27, which is how a scheduler with no
+# etcd leader (DaprSchedulerNoLeader) went unnoticed for 35 hours while its pod
+# read Ready. Routed, like everything else, to the Console's Notification Center
+# through the platform Alertmanager.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dapr
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+  labels:
+    adhar.io/component: dapr
+    app.kubernetes.io/name: dapr
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: adhar.delivery.dapr.control-plane
+      rules:
+        - alert: DaprSchedulerNoLeader
+          expr: max by (namespace, pod) (etcd_server_has_leader{job="scheduler", namespace="adhar-system"}) == 0
+          for: 5m
+          labels: {severity: critical, source: dapr}
+          annotations:
+            summary: "Dapr scheduler {{ $labels.pod }} has no etcd leader"
+            description: "The scheduler's embedded etcd cannot elect a leader, so the Jobs API, actor reminders and every Dapr Workflow are stopped — while /healthz stays green and the pod reads Ready. A one-member scheduler without a leader is one whose data directory still records an older, larger cluster (raft log at index 3, PreVote sent to members that do not exist): wipe its volume as application/dapr/README.md \"Recovering a leaderless scheduler\" describes."
+        - alert: DaprPlacementNoLeader
+          expr: max(dapr_placement_leader_status{job="placement", namespace="adhar-system"}) == 0
+          for: 5m
+          labels: {severity: critical, source: dapr}
+          annotations:
+            summary: "Dapr placement has no leader"
+            description: "No placement replica is the Raft leader, so no actor can be placed: every actor call fails, and so does every Workflow (workflows run on actors). `kubectl -n adhar-system logs dapr-placement-server-0` shows the election."
+        - alert: DaprControlPlaneDown
+          expr: |-
+            (sum by (job) (up{namespace="adhar-system", job=~"operator|placement|sentry|scheduler|sidecar-injector"}) == 0)
+            or absent(up{namespace="adhar-system", job="operator"})
+            or absent(up{namespace="adhar-system", job="placement"})
+            or absent(up{namespace="adhar-system", job="sentry"})
+            or absent(up{namespace="adhar-system", job="scheduler"})
+            or absent(up{namespace="adhar-system", job="sidecar-injector"})
+          for: 10m
+          labels: {severity: critical, source: dapr}
+          annotations:
+            summary: "Dapr {{ $labels.job }} is down"
+            description: "No {{ $labels.job }} target answers its metrics scrape (or none exists). sidecar-injector down: new pods start WITHOUT a sidecar, silently (the webhook fails open). sentry down: new sidecars get no certificate and running ones cannot renew theirs (24h). operator down: component and configuration changes stop reaching sidecars. placement or scheduler down: actors, reminders, jobs and workflows stop. `kubectl -n adhar-system get pods | grep dapr-`."
+        - alert: DaprIssuerCertExpiring
+          expr: (min(dapr_sentry_issuercert_expiry_timestamp{job="sentry"}) - time()) / 86400 < 30
+          for: 1h
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "Dapr's mTLS issuer certificate expires in {{ $value | humanize }} days"
+            description: "Sentry signs every sidecar's workload certificate with this issuer. When it expires, every sidecar-to-sidecar call in the cluster fails. Rotate it before then: `dapr mtls renew-certificate -k --valid-until <days> --restart`, or replace Secret adhar-system/dapr-trust-bundle and restart sentry, then the sidecars."
+        - alert: DaprCertSignFailures
+          expr: sum by (reason) (increase(dapr_sentry_cert_sign_failure_total{job="sentry"}[15m])) > 0
+          for: 15m
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "Dapr sentry keeps failing to sign workload certificates ({{ $labels.reason }})"
+            description: "A sidecar that cannot get a certificate cannot start, and a running one cannot renew it (24h TTL). Failures have continued for 15 minutes. `kubectl -n adhar-system logs deploy/dapr-sentry` names the failing request."
+        - alert: DaprSidecarInjectionFailed
+          expr: sum by (app_id, reason) (increase(dapr_injector_sidecar_injection_failed_total{job="sidecar-injector"}[15m])) > 0
+          for: 0m
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "Dapr could not inject the sidecar for app-id {{ $labels.app_id }} ({{ $labels.reason }})"
+            description: "The injector's webhook fails open (failurePolicy: Ignore), so the pod started WITHOUT daprd: every Dapr call it makes fails while the pod reads healthy. Fix the cause the reason names, then restart the workload."
+    - name: adhar.delivery.dapr.runtime
+      rules:
+        - alert: DaprComponentInitFailed
+          expr: sum by (namespace, app_id, component, componentName, reason) (increase(dapr_runtime_component_init_fail_total[15m])) > 0
+          for: 0m
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "Dapr component {{ $labels.componentName }} ({{ $labels.component }}) failed to initialise for {{ $labels.namespace }}/{{ $labels.app_id }}"
+            description: "Reason: {{ $labels.reason }}. A component that fails to initialise stops its sidecar, which restarts until the backing service answers; one that sets ignoreErrors leaves the app running WITHOUT it until the next restart. The daprd container's log names the error."
+        - alert: DaprCircuitBreakerOpen
+          expr: max by (namespace, app_id, name, policy, target, flow_direction) (dapr_resiliency_cb_state{status="open"}) == 1
+          for: 5m
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "Circuit breaker open on {{ $labels.target }} for {{ $labels.namespace }}/{{ $labels.app_id }}"
+            description: "Resiliency {{ $labels.name }} ({{ $labels.flow_direction }}) stopped calling {{ $labels.target }} after consecutive failures and has stayed open for 5 minutes; calls fail fast until it half-opens. Look at the target, not at the caller."
+        - alert: DaprPubsubDrops
+          expr: sum by (namespace, app_id, component, topic) (increase(dapr_component_pubsub_ingress_count{process_status="drop"}[15m])) > 0
+          for: 0m
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.app_id }} dropped messages from {{ $labels.component }}/{{ $labels.topic }}"
+            description: "Dapr discarded {{ $value | humanize }} delivered message(s) in 15 minutes: the app answered DROP, or the event could not be routed to any of its handlers. A drop is final — the broker does not redeliver it, and no dead-letter topic receives it."
+        - alert: DaprStateStoreDown
+          expr: max(redis_up{job="dapr-state", namespace="adhar-system"}) == 0 or absent(redis_up{job="dapr-state", namespace="adhar-system"})
+          for: 5m
+          labels: {severity: critical, source: dapr}
+          annotations:
+            summary: "dapr-state is down"
+            description: "Every environment's statestore, lockstore and configstore — and pubsub where the cluster runs no Kafka — live in adhar-system/dapr-state. Sidecars that start now fail on those components, and actors, workflows and state calls fail in running ones. `kubectl -n adhar-system get pods dapr-state-0` (its volume is node-local: a lost node is a lost store)."
+        - alert: DaprStateStoreMemoryHigh
+          expr: max(redis_memory_used_bytes{job="dapr-state", namespace="adhar-system"} / (redis_memory_max_bytes{job="dapr-state", namespace="adhar-system"} > 0)) > 0.8
+          for: 15m
+          labels: {severity: warning, source: dapr}
+          annotations:
+            summary: "dapr-state is at {{ $value | humanizePercentage }} of its maxmemory"
+            description: "The store runs noeviction: when it is full, every state write, lock and (Redis-streams) publish in every environment fails with OOM rather than losing data. Find the largest keys per database (`valkey-cli --bigkeys -n <db>`), then trim or raise maxmemory and the container limit together in manifests/state-store.yaml."
+    - name: adhar.delivery.dapr.recording
+      rules:
+        # Per app, per namespace: what the console and the dashboards read
+        # without re-aggregating every sidecar's series.
+        - record: dapr:http_requests:rate5m
+          expr: sum by (namespace, app_id, status) (rate(dapr_http_server_request_count[5m]))
+        # >= 0 drops the NaN an idle window yields instead of recording it.
+        - record: dapr:http_latency_ms:p95
+          expr: histogram_quantile(0.95, sum by (namespace, app_id, le) (rate(dapr_http_server_latency_bucket[5m]))) >= 0
+        - record: dapr:invocation_sent:rate5m
+          expr: sum by (namespace, app_id, dst_app_id, type) (rate(dapr_runtime_service_invocation_req_sent_total[5m]))
+        - record: dapr:pubsub_ingress:rate5m
+          expr: sum by (namespace, app_id, component, topic, process_status) (rate(dapr_component_pubsub_ingress_count[5m]))
+        - record: dapr:pubsub_egress:rate5m
+          expr: sum by (namespace, app_id, component, topic, success) (rate(dapr_component_pubsub_egress_count[5m]))
+        - record: dapr:state_ops:rate5m
+          expr: sum by (namespace, app_id, component, operation, success) (rate(dapr_component_state_count[5m]))

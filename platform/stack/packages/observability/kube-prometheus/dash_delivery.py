@@ -1,4 +1,4 @@
-"""Delivery folder: three dashboards in place of fifteen.
+"""Delivery folder: four dashboards in place of fifteen.
 
   GitOps & Promotion     Argo CD (applications, syncs, reconciliation, repo server, cluster
                          cache), Argo Rollouts, Kargo and Gitea — how a commit becomes a
@@ -6,7 +6,10 @@
   CI & Artifacts         Tekton pipelines / tasks / triggers, Argo Events, the image and
                          package registries (Harbor, Nexus) and kpack builds.
   Developer Platform     Crossplane (managed resources, compositions, functions), Coder
-                         workspaces and the Dapr control plane.
+                         workspaces and a summary of the Dapr control plane.
+  Dapr                   The Dapr runtime end to end: its control plane, every sidecar by
+                         namespace and app-id, service invocation, pub/sub, state, actors,
+                         workflows, resiliency, mTLS and the dapr-state store.
 
 Argo Workflows (2) and Terraform dashboards were dropped with their packages (disabled
 in every profile).
@@ -472,22 +475,402 @@ def dev_platform():
 
     d.row("Dapr control plane")
     d.line(8,
+           # The pods-ready tile above read 5/5 green for the 35 hours the scheduler had no
+           # etcd leader: Ready does not mean elected.
+           (_linked(stat("Scheduler leader", "Whether the Dapr scheduler's embedded etcd has a leader. Without one "
+                         "the Jobs API, actor reminders and every Workflow are stopped while the pod stays Ready. "
+                         "The Dapr dashboard (panel menu) has the whole runtime.",
+                         ['max(etcd_server_has_leader{job="scheduler"})'], mappings=DAPR_LEADER,
+                         th=steps((RED, None), (GREEN, 1)), no_value="not scraped"),
+                    "Dapr", UIDS["dapr"]), 4),
            (ts("Sidecar injections", "Sidecar injection requests per second handled by the injector.",
                [T('sum(rate(dapr_injector_sidecar_injection_requests_total{job="sidecar-injector"}[$__rate_interval]))', "requests")],
-               unit="ops"), 6),
+               unit="ops"), 5),
            (timeline("Placement leadership", "Whether a placement replica is the leader (Raft). No leader = actors "
                      "cannot be placed.",
                      [T('max by (pod) (dapr_placement_leader_status{job="placement"})', "{{pod}}")],
-                     vmap((0, "follower", GREY), (1, "leader", GREEN))), 6),
+                     vmap((0, "follower", GREY), (1, "leader", GREEN))), 5),
            (ts("Sentry certificates", "Workload certificate sign requests vs successes (mTLS between sidecars).",
                [T('sum(rate(dapr_sentry_cert_sign_request_received_total{job="sentry"}[$__rate_interval]))', "requests"),
                 T('sum(rate(dapr_sentry_cert_sign_success_total{job="sentry"}[$__rate_interval]))', "signed")],
-               unit="ops"), 6),
-           (stat("Issuer certificate expires in", "Days until Dapr's mTLS issuer certificate expires. When it does, "
-                 "every sidecar-to-sidecar call fails.",
-                 ['min(dapr_sentry_issuercert_expiry_timestamp{job="sentry"} - time()) / 86400'],
-                 unit="d", th=steps((RED, None), (AMBER, 30), (GREEN, 90)), decimals=0), 6))
+               unit="ops"), 5),
+           (_linked(stat("Issuer certificate expires in", "Days until Dapr's mTLS issuer certificate expires. When "
+                         "it does, every sidecar-to-sidecar call fails.",
+                         ['min(dapr_sentry_issuercert_expiry_timestamp{job="sentry"} - time()) / 86400'],
+                         unit="d", th=steps((RED, None), (AMBER, 30), (GREEN, 90)), decimals=0),
+                    "Dapr", UIDS["dapr"]), 5))
     d.line(8, *[(p, 8) for p in pods_resources("dapr-.+")])
+    return d
+
+
+# =============================================================================================
+# Dapr
+# =============================================================================================
+
+# What application/dapr/manifests/servicemonitor.yaml names things: its PodMonitor
+# dapr-sidecars scrapes every injected daprd (and copies the pod's dapr.io/app-id onto
+# every series as app_id), its ServiceMonitor names each control-plane job after the
+# component (operator, placement, scheduler, sentry, sidecar-injector), and dapr-state
+# is scraped as job dapr-state.
+DAPR_SIDECARS = 'job="adhar-system/dapr-sidecars"'
+DAPR_CP_PODS = "dapr-(operator|placement-server|scheduler-server|sentry|sidecar-injector).*"
+DAPR_LEADER = vmap((0, "NO LEADER", RED), (1, "leader", GREEN))
+
+
+def _linked(panel, title, uid):
+    """The panel with a link (its corner menu) to another built dashboard, keeping the time range."""
+    panel["links"] = [{"title": title, "url": f"/d/{uid}?${{__url_time_range}}", "targetBlank": False}]
+    return panel
+
+
+def dapr():
+    """Daprd publishes through OpenCensus: counters keep their view name (no _total added),
+    histograms are in milliseconds, and most series appear only once something happened
+    — an idle sidecar draws empty panels, not zeros. Names are Dapr 1.18.3's
+    (TestDaprPanelsAndRulesUseMetricsDaprPublishes)."""
+    S = f'{DAPR_SIDECARS}, namespace=~"$namespace", app_id=~"$app_id"'
+    ST = 'job="dapr-state"'
+
+    def rate(metric, by, extra=""):
+        sel = f"{S}, {extra}" if extra else S
+        return f'sum by ({by}) (rate({metric}{{{sel}}}[$__rate_interval]))'
+
+    def p95(metric, by, extra="", q="0.95"):
+        sel = f"{S}, {extra}" if extra else S
+        return f'histogram_quantile({q}, sum by (le, {by}) (rate({metric}{{{sel}}}[$__rate_interval])))'
+
+    def share(metric, bad, by):
+        """The share of `metric` matching `bad` (0 when nothing failed, absent when idle)."""
+        return f"({rate(metric, by, bad)} or {rate(metric, by)} * 0) / {rate(metric, by)}"
+
+    d = Dash(UIDS["dapr"], "Delivery / Dapr",
+             "The Dapr runtime end to end. Its control plane in adhar-system (the scheduler and its embedded etcd, "
+             "placement, sentry, the sidecar injector, the operator), then every sidecar by namespace and app-id: the "
+             "Dapr API, calls into the app, service invocation between apps, pub/sub, state, configuration, secrets, "
+             "bindings, actors, workflows, resiliency and mTLS — and the dapr-state store behind every environment's "
+             "components. Sidecar panels stay empty until an app runs one; application/dapr/README.md says how an "
+             "app opts in.",
+             tags("Delivery", "dapr"),
+             [ds_var(),
+              qvar("namespace", "Namespace", f'label_values(up{{{DAPR_SIDECARS}}}, namespace)', all_value=".*"),
+              qvar("app_id", "App ID", f'label_values(up{{{DAPR_SIDECARS}, namespace=~"$namespace"}}, app_id)',
+                   all_value=".*")],
+             links=links("Delivery"), collapse=1)
+
+    d.row("Dapr at a glance")
+    d.line(4,
+           (pods_ready_stat("Control plane", "Dapr operator, placement, scheduler, sentry and sidecar injector.",
+                            DAPR_CP_PODS), 3),
+           (stat("Scheduler leader", "Whether the scheduler's embedded etcd has a leader (etcd_server_has_leader). "
+                 "Without one the Jobs API, actor reminders and every Workflow are stopped, while the pod stays Ready "
+                 "(DaprSchedulerNoLeader).",
+                 ['max(etcd_server_has_leader{job="scheduler"})'], mappings=DAPR_LEADER,
+                 th=steps((RED, None), (GREEN, 1)), no_value="not scraped"), 3),
+           (stat("Placement leader", "Whether a placement replica is the Raft leader. Without one no actor can be "
+                 "placed, so actor calls and workflows fail (DaprPlacementNoLeader).",
+                 ['max(dapr_placement_leader_status{job="placement"})'], mappings=DAPR_LEADER,
+                 th=steps((RED, None), (GREEN, 1)), no_value="not scraped"), 3),
+           (stat("Sidecars up", "daprd sidecars Prometheus scrapes in every namespace (pods the injector labelled "
+                 "dapr.io/sidecar-injected), up / total.",
+                 [T(f'sum(up{{{DAPR_SIDECARS}}})', "up"), T(f'count(up{{{DAPR_SIDECARS}}})', "total")],
+                 color_mode="value", text_mode="value_and_name", no_value="no sidecars"), 3),
+           (stat("dapr-state", "The standalone Valkey behind every environment's state, locks, configuration and "
+                 "(without Kafka) pub/sub, from its redis_exporter (DaprStateStoreDown).",
+                 [f'max(redis_up{{{ST}}})'], mappings=vmap((0, "DOWN", RED), (1, "up", GREEN)),
+                 th=steps((RED, None), (GREEN, 1)), no_value="not scraped"), 3),
+           (stat("Issuer certificate", "Days until Dapr's mTLS issuer certificate expires; after it every "
+                 "sidecar-to-sidecar call fails (DaprIssuerCertExpiring fires under 30).",
+                 ['min(dapr_sentry_issuercert_expiry_timestamp{job="sentry"} - time()) / 86400'],
+                 unit="d", th=steps((RED, None), (AMBER, 30), (GREEN, 90)), decimals=0, no_value="not scraped"), 3),
+           (stat("Component init failures (1h)", "Components that failed to initialise in a sidecar in the last hour "
+                 "(DaprComponentInitFailed). The sidecar restarts on a failed component unless it sets ignoreErrors.",
+                 ['sum(increase(dapr_runtime_component_init_fail_total[1h])) or vector(0)'], th=OK_BAD, decimals=0), 3),
+           (stat("Open circuit breakers", "Resiliency circuit breakers that are open right now: calls to their target "
+                 "fail fast (DaprCircuitBreakerOpen).",
+                 ['count(dapr_resiliency_cb_state{status="open"} == 1) or vector(0)'], th=OK_BAD), 3))
+
+    d.row("Control plane")
+    d.line(8,
+           (timeline("Scheduler etcd leader", "Per scheduler pod: whether its embedded etcd has a leader. A one-member "
+                     "scheduler without one has a data directory that still records an older cluster — "
+                     "application/dapr/README.md, \"Recovering a leaderless scheduler\".",
+                     [T('max by (pod) (etcd_server_has_leader{job="scheduler"})', "{{pod}}")],
+                     vmap((0, "no leader", RED), (1, "leader", GREEN))), 6),
+           (ts("Sidecars connected to the scheduler", "daprd sidecars holding a stream to the scheduler, which hands "
+               "them their jobs, actor reminders and workflow timers when they fall due.",
+               [T('sum(dapr_scheduler_sidecars_connected{job="scheduler"})', "connected")], decimals=0), 6),
+           (ts("Scheduler jobs / s", "Jobs (Jobs API, actor reminders, workflow timers) created, triggered, failed and "
+               "undelivered per second, by type. Undelivered: no connected sidecar could take the trigger.",
+               [T('sum by (type) (rate(dapr_scheduler_jobs_created_total{job="scheduler"}[$__rate_interval]))', "created {{type}}"),
+                T('sum by (type) (rate(dapr_scheduler_jobs_triggered_total{job="scheduler"}[$__rate_interval]))', "triggered {{type}}"),
+                T('sum by (type) (rate(dapr_scheduler_jobs_failed_total{job="scheduler"}[$__rate_interval]))', "failed {{type}}"),
+                T('sum by (type) (rate(dapr_scheduler_jobs_undelivered_total{job="scheduler"}[$__rate_interval]))', "undelivered {{type}}")],
+               unit="ops", overrides=[ov_color("failed.*", RED), ov_color("undelivered.*", AMBER)]), 6),
+           (ts("Trigger latency p95", "95th percentile time from a job falling due to its delivery to a sidecar, by "
+               "type.",
+               [T('histogram_quantile(0.95, sum by (le, type) (rate(dapr_scheduler_trigger_latency_bucket{job="scheduler"}[$__rate_interval])))', "{{type}}")],
+               unit="ms"), 6))
+    d.line(8,
+           (timeline("Placement leadership", "Whether a placement replica is the Raft leader. No leader: no actor can "
+                     "be placed.",
+                     [T('max by (pod) (dapr_placement_leader_status{job="placement"})', "{{pod}}")],
+                     vmap((0, "follower", GREY), (1, "leader", GREEN))), 6),
+           (ts("Placement: hosts per namespace", "Sidecars reporting to placement, and those hosting actor types, per "
+               "namespace.",
+               [T('sum by (host_namespace) (dapr_placement_runtimes_total{job="placement"})', "{{host_namespace}} hosts"),
+                T('sum by (host_namespace) (dapr_placement_actor_runtimes_total{job="placement"})', "{{host_namespace}} actor hosts")],
+               decimals=0, overrides=[ov_dashed(".* actor hosts")]), 6),
+           (ts("Sentry certificates / s", "Workload certificate requests, signatures and failures (by reason). Every "
+               "sidecar renews its certificate within its 24h TTL.",
+               [T('sum(rate(dapr_sentry_cert_sign_request_received_total{job="sentry"}[$__rate_interval]))', "requests"),
+                T('sum(rate(dapr_sentry_cert_sign_success_total{job="sentry"}[$__rate_interval]))', "signed"),
+                T('sum by (reason) (rate(dapr_sentry_cert_sign_failure_total{job="sentry"}[$__rate_interval]))', "failed {{reason}}")],
+               unit="ops", overrides=[ov_color("failed.*", RED)]), 6),
+           (ts("Sidecar injections / s", "Pod admissions the injector saw, the sidecars it injected and the ones it "
+               "failed to inject. A failure is silent for the pod (the webhook fails open): it starts without daprd.",
+               [T('sum(rate(dapr_injector_sidecar_injection_requests_total{job="sidecar-injector"}[$__rate_interval]))', "requests"),
+                T('sum(rate(dapr_injector_sidecar_injection_succeeded_total{job="sidecar-injector"}[$__rate_interval]))', "injected"),
+                T('sum by (reason) (rate(dapr_injector_sidecar_injection_failed_total{job="sidecar-injector"}[$__rate_interval]))', "failed {{reason}}")],
+               unit="ops", overrides=[ov_color("failed.*", RED)]), 6))
+    d.line(8,
+           (ts("Scheduler etcd: proposals", "Raft proposals committed per second, failed per second (red) and "
+               "pending. Failures with no leader are the scheduler refusing every write.",
+               [T('sum(rate(etcd_server_proposals_committed_total{job="scheduler"}[$__rate_interval]))', "committed"),
+                T('sum(rate(etcd_server_proposals_failed_total{job="scheduler"}[$__rate_interval]))', "failed"),
+                T('sum(etcd_server_proposals_pending{job="scheduler"})', "pending")],
+               overrides=[ov_color("failed", RED)]), 8),
+           (ts("Scheduler etcd: database size", "Size of the scheduler's etcd database on its volume (16Gi). Jobs and "
+               "reminders live here.",
+               [T('max by (pod) (etcd_mvcc_db_total_size_in_bytes{job="scheduler"})', "{{pod}}")], unit="bytes"), 8),
+           (ts("Operator: app Services", "Services the operator created, updated and deleted for Dapr apps (one "
+               "<app-id>-dapr Service per app).",
+               [T('sum(rate(dapr_operator_service_created_total{job="operator"}[$__rate_interval]))', "created"),
+                T('sum(rate(dapr_operator_service_updated_total{job="operator"}[$__rate_interval]))', "updated"),
+                T('sum(rate(dapr_operator_service_deleted_total{job="operator"}[$__rate_interval]))', "deleted")],
+               unit="ops"), 8))
+    d.line(9, (pods_table("Control-plane pods", "Dapr's operator, placement, scheduler, sentry and sidecar injector "
+                          "(dapr-state has its own row).", DAPR_CP_PODS), 24))
+    d.line(8, *[(p, 8) for p in pods_resources(DAPR_CP_PODS)])
+
+    d.row("Sidecars: $namespace / $app_id")
+    d.line(8,
+           (ts("Dapr API requests / s", "Requests each app made to its sidecar's Dapr API, over HTTP and gRPC.",
+               [T(rate("dapr_http_server_request_count", "app_id"), "{{app_id}} http"),
+                T(rate("dapr_grpc_io_server_completed_rpcs", "app_id"), "{{app_id}} grpc")],
+               unit="reqps"), 8),
+           (ts("Dapr API latency p50 / p95", "Dapr API latency per app as the sidecar measures it (HTTP), p95 solid "
+               "and p50 dashed.",
+               [T(p95("dapr_http_server_latency_bucket", "app_id"), "{{app_id}} p95"),
+                T(p95("dapr_http_server_latency_bucket", "app_id", q="0.5"), "{{app_id}} p50")],
+               unit="ms", overrides=[ov_dashed(".* p50")]), 8),
+           (ts("Dapr API error ratio", "Share of each app's Dapr API calls that failed: HTTP 5xx and gRPC calls that did "
+               "not return OK. 0 when nothing failed; empty when the app made no calls.",
+               [T(share("dapr_http_server_request_count", 'status=~"5.."', "app_id"), "{{app_id}} http"),
+                T(share("dapr_grpc_io_server_completed_rpcs", 'grpc_server_status!="OK"', "app_id"), "{{app_id}} grpc")],
+               unit="percentunit", max=1), 8))
+    d.line(8,
+           (ts("Calls into the app / s", "Requests the sidecar made to its app (the app channel): service invocations "
+               "arriving from other apps, pub/sub deliveries, bindings and actor calls, by status.",
+               [T(rate("dapr_http_client_completed_count", "app_id, status"), "{{app_id}} {{status}}")],
+               unit="reqps", overrides=[ov_color(".* 5..", RED)]), 8),
+           (ts("App latency p95 (app channel)", "How long the app takes to answer its sidecar — the app's own time, "
+               "as Dapr sees it.",
+               [T(p95("dapr_http_client_roundtrip_latency_bucket", "app_id"), "{{app_id}}")], unit="ms"), 8),
+           (ts("Dapr errors by code", "Errors the Dapr API returned, by Dapr error code (recordErrorCodes is on in the "
+               "environments' adhar-dapr Configuration): which building block failed and why.",
+               [T(rate("dapr_error_code_total", "app_id, error_code"), "{{app_id}} {{error_code}}")],
+               unit="ops"), 8))
+    d.line(8,
+           (ts("Sidecar CPU", "CPU each app's daprd uses (its process_cpu_seconds_total).",
+               [T(rate("process_cpu_seconds_total", "app_id"), "{{app_id}}")], unit="cores"), 8),
+           (ts("Sidecar memory (RSS)", "Resident memory of each app's daprd.",
+               [T(f'sum by (app_id) (process_resident_memory_bytes{{{S}}})', "{{app_id}}")], unit="bytes"), 8),
+           (ts("Component initialisation", "Components each sidecar initialised and failed to initialise, by type "
+               "(per interval). A failure stops the sidecar unless the component sets ignoreErrors.",
+               [T(f'sum by (app_id, component) (increase(dapr_runtime_component_init_total{{{S}}}[$__rate_interval]))', "{{app_id}} {{component}}"),
+                T(f'sum by (app_id, componentName, reason) (increase(dapr_runtime_component_init_fail_total{{{S}}}[$__rate_interval]))', "{{app_id}} FAILED {{componentName}} ({{reason}})")],
+               draw="bars", decimals=0, overrides=[ov_color(".*FAILED.*", RED)]), 8))
+
+    d.row("Service invocation")
+    d.line(9, (table("Invocation edges (caller → callee)", "Every app-to-app call path seen in the last 5 minutes: "
+                     "requests per second, 95th percentile round trip as the caller measures it, and the share of "
+                     "responses that were not a success (HTTP 2xx, gRPC OK).",
+                     [f'sum by (app_id, dst_app_id) (rate(dapr_runtime_service_invocation_req_sent_total{{{S}}}[5m]))',
+                      f'max by (app_id, dst_app_id) (label_replace(histogram_quantile(0.95, sum by (app_id, src_app_id, le) '
+                      f'(rate(dapr_runtime_service_invocation_res_recv_latency_ms_bucket{{{S}}}[5m]))), "dst_app_id", "$1", "src_app_id", "(.*)"))',
+                      f'(sum by (app_id, dst_app_id) (label_replace(rate(dapr_runtime_service_invocation_res_recv_total{{{S}, status!~"0|2.."}}[5m]), "dst_app_id", "$1", "src_app_id", "(.*)")) '
+                      f'or sum by (app_id, dst_app_id) (label_replace(rate(dapr_runtime_service_invocation_res_recv_total{{{S}}}[5m]), "dst_app_id", "$1", "src_app_id", "(.*)")) * 0) '
+                      f'/ sum by (app_id, dst_app_id) (label_replace(rate(dapr_runtime_service_invocation_res_recv_total{{{S}}}[5m]), "dst_app_id", "$1", "src_app_id", "(.*)"))'],
+                     [("app_id", "Caller", None, None), ("dst_app_id", "Callee", None, None),
+                      ("Value #A", "Requests / s", "reqps", {"decimals": 2}),
+                      ("Value #B", "p95", "ms", {"decimals": 1}),
+                      ("Value #C", "Not OK", "percentunit",
+                       {"cell": "color-background", "th": steps((GREEN, None), (AMBER, 0.01), (RED, 0.05))})],
+                     sort=("Requests / s", True)), 24))
+    d.line(8,
+           (ts("Requests sent / s by edge", "Service invocations each app sent, by destination app.",
+               [T(rate("dapr_runtime_service_invocation_req_sent_total", "app_id, dst_app_id"), "{{app_id}} → {{dst_app_id}}")],
+               unit="reqps"), 12),
+           (ts("Responses received by status", "Responses each caller received, by the callee and its status (HTTP "
+               "code, or gRPC code with 0 = OK).",
+               [T(rate("dapr_runtime_service_invocation_res_recv_total", "app_id, src_app_id, status"),
+                  "{{app_id}} ← {{src_app_id}} {{status}}")],
+               unit="reqps", overrides=[ov_color(".* 5..$", RED)]), 12))
+
+    d.row("Pub/sub")
+    d.line(8,
+           (ts("Published / s", "Messages each app published, by pub/sub component and topic; failed publishes red. "
+               "Topics are namespaced on the wire (the environments' consumerID is \"{namespace}\").",
+               [T(rate("dapr_component_pubsub_egress_count", "app_id, component, topic, success"),
+                  "{{app_id}} → {{component}}/{{topic}} {{success}}")],
+               unit="ops", overrides=[ov_color(".* false", RED)]), 8),
+           (ts("Delivered / s by outcome", "Messages delivered to each app, by topic and what the app answered: "
+               "success, retry (amber, redelivered) or drop (red, gone — DaprPubsubDrops).",
+               [T(rate("dapr_component_pubsub_ingress_count", "app_id, topic, process_status"),
+                  "{{topic}} → {{app_id}} {{process_status}}")],
+               unit="ops", overrides=[ov_color(".* retry", AMBER), ov_color(".* drop", RED)]), 8),
+           (ts("App processing p95", "95th percentile time the app takes to handle a delivered message.",
+               [T(p95("dapr_component_pubsub_ingress_latencies_bucket", "app_id, topic"), "{{topic}} → {{app_id}}")],
+               unit="ms"), 8))
+    d.line(8,
+           (ts("Publish latency p95", "95th percentile time the broker takes to accept a publish.",
+               [T(p95("dapr_component_pubsub_egress_latencies_bucket", "app_id, component"), "{{app_id}} → {{component}}")],
+               unit="ms"), 8),
+           (ts("Drops and retries", "Deliveries the app asked to retry or dropped, per interval.",
+               [T(f'sum by (app_id, topic, process_status) (increase(dapr_component_pubsub_ingress_count{{{S}, '
+                  f'process_status=~"drop|retry"}}[$__rate_interval]))', "{{topic}} → {{app_id}} {{process_status}}")],
+               draw="bars", decimals=0, overrides=[ov_color(".* retry", AMBER), ov_color(".* drop", RED)]), 8),
+           (ts("Kafka consumer lag (Dapr groups)", "Messages waiting per Dapr consumer group on the platform's Kafka. A "
+               "Dapr app's group is <namespace>.<app-id>; empty where the environment's pub/sub is Redis streams.",
+               [T(r'sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~"(${namespace})\\.(${app_id})"})',
+                  "{{consumergroup}} {{topic}}")], decimals=0), 8))
+
+    d.row("State, configuration, secrets, locks & bindings")
+    d.line(8,
+           (ts("State operations / s", "State store operations per app, by operation; failed ones red. Actor and "
+               "workflow state goes through the same store.",
+               [T(rate("dapr_component_state_count", "app_id, operation, success"), "{{app_id}} {{operation}} {{success}}")],
+               unit="ops", overrides=[ov_color(".* false", RED)]), 8),
+           (ts("State latency p95", "95th percentile state store latency, by operation.",
+               [T(p95("dapr_component_state_latencies_bucket", "operation"), "{{operation}}")], unit="ms"), 8),
+           (ts("Configuration & secrets / s", "Configuration store and secret store calls per app, by operation; failed "
+               "ones red.",
+               [T(rate("dapr_component_configuration_count", "app_id, operation, success"), "{{app_id}} config {{operation}} {{success}}"),
+                T(rate("dapr_component_secret_count", "app_id, operation, success"), "{{app_id}} secret {{operation}} {{success}}")],
+               unit="ops", overrides=[ov_color(".* false", RED)]), 8))
+    d.line(8,
+           (ts("Lock errors", "Dapr publishes no lock-store metric; failed lock and unlock calls show here as Dapr "
+               "error codes.",
+               [T(rate("dapr_error_code_total", "app_id, error_code", 'error_code=~".*LOCK.*"'), "{{app_id}} {{error_code}}")],
+               unit="ops"), 8),
+           (ts("Bindings / s", "Input binding events delivered to each app and output binding calls it made; failed "
+               "ones red.",
+               [T(rate("dapr_component_input_binding_count", "app_id, component, success"), "in {{component}} → {{app_id}} {{success}}"),
+                T(rate("dapr_component_output_binding_count", "app_id, component, operation, success"),
+                  "out {{app_id}} → {{component}} {{operation}} {{success}}")],
+               unit="ops", overrides=[ov_color(".* false", RED)]), 8),
+           (ts("Jobs delivered to the app / s", "Jobs API triggers the scheduler handed to each app's sidecar, and the "
+               "ones that failed (red).",
+               [T(rate("dapr_component_job_success_count", "app_id"), "{{app_id}} delivered"),
+                T(rate("dapr_component_job_failure_count", "app_id"), "{{app_id}} failed")],
+               unit="ops", overrides=[ov_color(".* failed", RED)]), 8))
+
+    d.row("Actors")
+    d.line(8,
+           (ts("Pending actor calls", "Calls waiting for an actor's turn-based lock, by actor type. A queue that only "
+               "grows is one actor doing slow work while callers pile up.",
+               [T(f'sum by (app_id, actor_type) (dapr_runtime_actor_pending_actor_calls{{{S}}})', "{{app_id}} {{actor_type}}")],
+               decimals=0), 8),
+           (ts("Timers & reminders fired / s", "Actor timers and reminders fired, by actor type; failed ones red.",
+               [T(rate("dapr_runtime_actor_timers_fired_total", "app_id, actor_type, success"), "{{actor_type}} timer {{success}}"),
+                T(rate("dapr_runtime_actor_reminders_fired_total", "app_id, actor_type, success"), "{{actor_type}} reminder {{success}}")],
+               unit="ops", overrides=[ov_color(".* false", RED)]), 8),
+           (ts("Deactivations & rebalancing", "Actors deactivated (idle or moved), failed deactivations (red) and "
+               "placement rebalances, per second.",
+               [T(rate("dapr_runtime_actor_deactivated_total", "app_id, actor_type"), "{{actor_type}} deactivated"),
+                T(rate("dapr_runtime_actor_deactivated_failed_total", "app_id, actor_type"), "{{actor_type}} deactivation failed"),
+                T(rate("dapr_runtime_actor_rebalanced_total", "app_id, actor_type"), "{{actor_type}} rebalanced")],
+               unit="ops", overrides=[ov_color(".* failed", RED)]), 8))
+
+    d.row("Workflows")
+    d.line(8,
+           (ts("Workflow executions / s", "Workflow executions per app, by workflow and outcome.",
+               [T(rate("dapr_runtime_workflow_execution_count", "app_id, workflow_name, status"),
+                  "{{app_id}} {{workflow_name}} {{status}}")],
+               unit="ops", overrides=[ov_color(".* failed", RED)]), 8),
+           (ts("Workflow execution p95", "95th percentile time a workflow takes from start to completion.",
+               [T(p95("dapr_runtime_workflow_execution_latency_bucket", "workflow_name"), "{{workflow_name}}")],
+               unit="ms"), 8),
+           (ts("Workflow scheduling p95", "95th percentile delay between a workflow being scheduled and starting — "
+               "the scheduler and the actor runtime, not the workflow's code.",
+               [T(p95("dapr_runtime_workflow_scheduling_latency_bucket", "workflow_name"), "{{workflow_name}}")],
+               unit="ms"), 8))
+    d.line(8,
+           (ts("Activities / s", "Activity executions per app, by activity and outcome.",
+               [T(rate("dapr_runtime_workflow_activity_execution_count", "app_id, activity_name, status"),
+                  "{{app_id}} {{activity_name}} {{status}}")],
+               unit="ops", overrides=[ov_color(".* failed", RED)]), 8),
+           (ts("Activity p95", "95th percentile time an activity takes to run.",
+               [T(p95("dapr_runtime_workflow_activity_execution_latency_bucket", "activity_name"), "{{activity_name}}")],
+               unit="ms"), 8),
+           (ts("Workflow API operations / s", "Workflow management calls (start, get, raise event, terminate, purge) "
+               "by outcome.",
+               [T(rate("dapr_runtime_workflow_operation_count", "operation, status"), "{{operation}} {{status}}")],
+               unit="ops", overrides=[ov_color(".* failed", RED)]), 8))
+
+    d.row("Resiliency & circuit breakers")
+    d.line(8,
+           (timeline("Circuit breakers", "State of each circuit breaker per app and target: closed, half-open (testing "
+                     "with one request) or open (failing fast).",
+                     [T(f'max by (app_id, target) ((dapr_resiliency_cb_state{{{S}, status="open"}} * 2) '
+                        f'or dapr_resiliency_cb_state{{{S}, status="half-open"}} '
+                        f'or (dapr_resiliency_cb_state{{{S}, status="closed"}} * 0))', "{{app_id}} {{target}}")],
+                     vmap((0, "closed", GREEN), (1, "half-open", AMBER), (2, "OPEN", RED))), 12),
+           (ts("Policy activations / s", "Resiliency policies that acted (a retry, a timeout, a breaker changing "
+               "state), by app, policy and target.",
+               [T(rate("dapr_resiliency_activations_total", "app_id, policy, target"), "{{app_id}} {{policy}} {{target}}")],
+               unit="ops"), 12))
+    d.line(8,
+           (ts("Policy executions / s", "Calls wrapped by a resiliency policy, by policy type and direction.",
+               [T(rate("dapr_resiliency_count", "policy, flow_direction"), "{{policy}} {{flow_direction}}")],
+               unit="ops"), 12),
+           (table("Resiliencies loaded", "Which Resiliency resources each sidecar loaded at start. Every app in an "
+                  "environment should list adhar-default (compositions/env/local.yaml).",
+                  [f'max by (namespace, app_id, name) (dapr_resiliency_loaded{{{S}}})'],
+                  [("namespace", "Namespace", None, None), ("app_id", "App ID", None, None),
+                   ("name", "Resiliency", None, None), ("Value #A", "Loads", "short", {"decimals": 0})],
+                  sort=("App ID", False)), 12))
+
+    d.row("mTLS")
+    d.line(8,
+           (ts("Workload certificate rotations", "Sidecars rotating their workload certificate (24h TTL), and failed "
+               "rotations (red) — a sidecar that cannot rotate loses mTLS when its certificate expires.",
+               [T(f'sum by (app_id) (increase(dapr_runtime_mtls_workload_cert_rotated_total{{{S}}}[$__rate_interval]))', "{{app_id}} rotated"),
+                T(f'sum by (app_id, reason) (increase(dapr_runtime_mtls_workload_cert_rotated_fail_total{{{S}}}[$__rate_interval]))', "{{app_id}} failed {{reason}}")],
+               draw="bars", decimals=0, overrides=[ov_color(".* failed.*", RED)]), 8),
+           (ts("mTLS initialisation", "Sidecars that set up mTLS at start, and the ones that failed to (red).",
+               [T(f'sum by (app_id) (increase(dapr_runtime_mtls_init_total{{{S}}}[$__rate_interval]))', "{{app_id}} ok"),
+                T(f'sum by (app_id, reason) (increase(dapr_runtime_mtls_init_fail_total{{{S}}}[$__rate_interval]))', "{{app_id}} failed {{reason}}")],
+               draw="bars", decimals=0, overrides=[ov_color(".* failed.*", RED)]), 8),
+           (ts("Sentry signing failures", "Certificate requests sentry refused, by reason (DaprCertSignFailures).",
+               [T('sum by (reason) (rate(dapr_sentry_cert_sign_failure_total{job="sentry"}[$__rate_interval]))', "{{reason}}")],
+               unit="ops", overrides=[ov_color(".*", RED)]), 8))
+
+    d.row("dapr-state store")
+    d.line(8,
+           (ts("Memory vs maxmemory", "dapr-state's memory against its maxmemory (dashed). It runs noeviction: at the "
+               "line every state write, lock and Redis-streams publish fails (DaprStateStoreMemoryHigh at 80%).",
+               [T(f'max(redis_memory_used_bytes{{{ST}}})', "used"), T(f'max(redis_memory_max_bytes{{{ST}}})', "maxmemory")],
+               unit="bytes", overrides=[ov_dashed("maxmemory", RED)]), 8),
+           (ts("Keys per database", "Keys in each database: db0 the platform namespace, db1-3 dev/test/prod state, "
+               "locks and streams, db9-11 their configuration.",
+               [T(f'sum by (db) (redis_db_keys{{{ST}}})', "{{db}}")], decimals=0), 8),
+           (ts("Commands / s & clients", "Commands the store processes per second, and connected clients (every "
+               "sidecar holds connections per component).",
+               [T(f'sum(rate(redis_commands_processed_total{{{ST}}}[$__rate_interval]))', "commands / s"),
+                T(f'max(redis_connected_clients{{{ST}}})', "clients")],
+               overrides=[{"matcher": {"id": "byName", "options": "clients"},
+                           "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "decimals", "value": 0}]}]), 8))
     return d
 
 
@@ -495,4 +878,5 @@ DASHBOARDS = [
     ("delivery-gitops", "Delivery", gitops),
     ("delivery-ci", "Delivery", ci),
     ("delivery-dev-platform", "Delivery", dev_platform),
+    ("delivery-dapr", "Delivery", dapr),
 ]

@@ -1,0 +1,99 @@
+# The same Function once its repository has deploy/envs/{dev,test,prod}: every
+# stage branch seeded or promoted, each environment Synced, Healthy and running
+# its Function XR.
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-project
+  annotations:
+    crossplane.io/composition-resource-name: project
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+    - {type: Synced, status: "True", reason: ReconcileSuccess}
+  atProvider:
+    manifest:
+      apiVersion: platform.adhar.io/v1alpha1
+      kind: Project
+      metadata: {name: adhar, namespace: adhar-system}
+      status:
+        organisation: adhar
+        team: platform
+        imageRegistry: harbor-core.adhar-system.svc.cluster.local/library
+        environments:
+          - {name: dev, namespace: dev, tier: dev, autoPromote: true}
+          - {name: test, namespace: test, tier: test, autoPromote: true}
+          - {name: prod, namespace: prod, tier: prod, autoPromote: false}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-app-dev
+  annotations:
+    crossplane.io/composition-resource-name: app-dev
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+  atProvider:
+    manifest:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata: {name: adhar-test-func-dev, namespace: adhar-system}
+      status:
+        sync: {status: Synced}
+        health: {status: Healthy}
+        resources:
+          - {group: platform.adhar.io, version: v1alpha1, kind: Function, namespace: dev, name: test-func, status: Synced, health: {status: Healthy}}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-app-test
+  annotations:
+    crossplane.io/composition-resource-name: app-test
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+  atProvider:
+    manifest:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata: {name: adhar-test-func-test, namespace: adhar-system}
+      status:
+        sync: {status: Synced}
+        health: {status: Healthy}
+        resources:
+          - {group: platform.adhar.io, version: v1alpha1, kind: Function, namespace: test, name: test-func, status: Synced, health: {status: Healthy}}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-app-prod
+  annotations:
+    crossplane.io/composition-resource-name: app-prod
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+  atProvider:
+    manifest:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata: {name: adhar-test-func-prod, namespace: adhar-system}
+      status:
+        sync: {status: Synced}
+        health: {status: Healthy}
+        resources:
+          - {group: platform.adhar.io, version: v1alpha1, kind: Function, namespace: prod, name: test-func, status: Synced, health: {status: Healthy}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-func-stage-seed
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: stage-seed
+status:
+  succeeded: 1
+  conditions:
+    - {type: SuccessCriteriaMet, status: "True"}
+    - {type: Complete, status: "True"}

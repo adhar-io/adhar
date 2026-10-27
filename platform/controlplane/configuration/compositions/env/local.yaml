@@ -54,6 +54,31 @@ spec:
             {{- $mem := dig "memoryQuota" "8Gi" $p -}}
             {{- $pods := dig "podQuota" 20 $p -}}
             {{- $netpol := dig "enableNetworkPolicy" true $p -}}
+            {{- /* Dapr (see "Dapr building blocks" below): composed only where Dapr
+                   runs, i.e. its components CRD exists, so a cluster without the
+                   dapr package (the local profile) composes the environment it
+                   always did. The broker behind `pubsub` is the platform's Kafka
+                   when the cluster runs adhar-kafka (its bootstrap Service
+                   exists) and Redis streams on dapr-state otherwise, unless
+                   parameters.dapr.pubsub pins one. Both facts are read as
+                   required resources (ExtraResources below). */ -}}
+            {{- $daprP := dig "dapr" dict $p -}}
+            {{- $daprInstalled := gt (len (default (list) (getExtraResources . "daprComponentsCRD"))) 0 -}}
+            {{- $kafkaRunning := gt (len (default (list) (getExtraResources . "kafkaBootstrap"))) 0 -}}
+            {{- $daprOn := and (dig "enabled" true $daprP) $daprInstalled -}}
+            {{- $pubsub := dig "pubsub" "auto" $daprP -}}
+            {{- if eq $pubsub "auto" }}{{ $pubsub = ternary "kafka" "redis" $kafkaRunning }}{{ end -}}
+            {{- /* dapr-state databases (application/dapr/manifests/state-store.yaml,
+                   `databases 16`): 0 is the platform namespace's; 1/2/3 hold each
+                   tier's state, locks and streams; 9/10/11 each tier's
+                   configuration, apart because a configuration Get-all is
+                   KEYS * on its database. Dapr prefixes neither actor state nor
+                   configuration keys with the namespace, so the database is what
+                   keeps dev's actors out of prod's. */ -}}
+            {{- $daprStateDB := get (dict "dev" "1" "test" "2" "prod" "3") $tier | default "1" -}}
+            {{- $daprConfigDB := get (dict "dev" "9" "test" "10" "prod" "11") $tier | default "9" -}}
+            {{- $daprLabels := dict "adhar.io/organisation" $org "adhar.io/team" $team "adhar.io/environment" $env "app.kubernetes.io/part-of" "dapr" -}}
+            {{- if $project }}{{ $_ := set $daprLabels "adhar.io/project" $project }}{{ end -}}
             ---
             # Namespace (cluster-scoped) wrapped in a provider-kubernetes Object
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -247,6 +272,387 @@ spec:
                   subjects:
                     - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:org-%s-admin" $org | quote }} }
             ---
+            # What the Dapr block below reads from the cluster: whether Dapr runs
+            # here at all, and whether the platform's Kafka does.
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ExtraResources
+            requirements:
+              daprComponentsCRD:
+                apiVersion: apiextensions.k8s.io/v1
+                kind: CustomResourceDefinition
+                matchName: components.dapr.io
+              kafkaBootstrap:
+                apiVersion: v1
+                kind: Service
+                matchName: adhar-kafka-kafka-bootstrap
+                namespace: adhar-system
+            {{- if $daprOn }}
+            {{- /*
+              Dapr building blocks: the contract every app in an environment can
+              rely on (application/dapr/README.md). Five Components named the way
+              Adhar Kit and the Function composition expect them — pubsub,
+              statestore, lockstore, configstore, secretstore — the Configuration
+              apps name in dapr.io/config (adhar-dapr), and a default Resiliency.
+              None is scoped to app-ids: they are the environment's, for every
+              app in it; a team that wants a private one declares its own.
+
+              Isolation inside the shared stores, because Dapr prefixes little:
+                * pub/sub: consumerID "{namespace}" expands to <namespace>.<app-id>
+                  (one consumer group per app) AND, because the value names
+                  {namespace}, makes Dapr prefix every topic with the namespace on
+                  the wire (`orders` in dev is `devorders`): environments never
+                  read each other's events, on Kafka or on Redis streams;
+                * state: keyPrefix `namespace` (<namespace>.<app-id>||<key>);
+                * locks: keyPrefix "{namespace}" (lock||<namespace>.<app-id>||<id>);
+                * actor and workflow state and configuration keys carry no
+                  namespace: the tier's database keeps dev, test and prod apart.
+
+              Every metadata value Dapr expands at sidecar start ({namespace},
+              {appID}) is a literal here, not a template action.
+            */}}
+            ---
+            # Dapr pub/sub: the platform's Kafka, or Redis streams on dapr-state.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-pubsub
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Component
+                  metadata:
+                    name: pubsub
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    {{- if eq $pubsub "kafka" }}
+                    type: pubsub.kafka
+                    version: v1
+                    # Fatal, not ignoreErrors: a subscriber that started without its
+                    # broker would never subscribe and never say so. The sidecar
+                    # restarts until Kafka answers instead.
+                    initTimeout: 30s
+                    metadata:
+                      # The `plain` listener: PLAINTEXT, no authentication, open to
+                      # every namespace (Strimzi's own NetworkPolicy), as the Topic
+                      # composition's connection Secret describes it.
+                      - name: brokers
+                        value: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+                      - name: authType
+                        value: none
+                      # Dapr's default protocol version is 2.0.0, below the 2.1
+                      # floor Kafka 4 accepts (KIP-896; the cluster runs 4.3).
+                      # 3.9.0 is within what Dapr 1.18.3's client (sarama 1.48)
+                      # and the broker both speak.
+                      - name: version
+                        value: "3.9.0"
+                      - name: consumerID
+                        value: "{namespace}"
+                      # Like a Redis stream group: a subscriber's first start reads
+                      # what was published before it joined, rather than skipping it.
+                      - name: initialOffset
+                        value: oldest
+                    {{- else }}
+                    type: pubsub.redis
+                    version: v1
+                    initTimeout: 15s
+                    metadata:
+                      - name: redisHost
+                        value: dapr-state.adhar-system.svc.cluster.local:6379
+                      - name: redisDB
+                        value: {{ $daprStateDB | quote }}
+                      - name: consumerID
+                        value: "{namespace}"
+                      # Streams share the store's maxmemory (noeviction) with state:
+                      # cap each one so a topic nobody reads cannot stop every write.
+                      - name: maxLenApprox
+                        value: "10000"
+                    {{- end }}
+            ---
+            # Dapr state store, and the actor (and so Workflow) state store.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-statestore
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Component
+                  metadata:
+                    name: statestore
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    type: state.redis
+                    version: v1
+                    initTimeout: 15s
+                    metadata:
+                      - name: redisHost
+                        value: dapr-state.adhar-system.svc.cluster.local:6379
+                      - name: redisDB
+                        value: {{ $daprStateDB | quote }}
+                      - name: keyPrefix
+                        value: namespace
+                      - name: actorStateStore
+                        value: "true"
+            ---
+            # Dapr distributed lock store. ignoreErrors: an optional building block
+            # whose failure must not stop every other app's sidecar in the
+            # environment; a lock call then fails, and DaprComponentInitFailed fires.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-lockstore
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Component
+                  metadata:
+                    name: lockstore
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    type: lock.redis
+                    version: v1
+                    initTimeout: 15s
+                    ignoreErrors: true
+                    metadata:
+                      - name: redisHost
+                        value: dapr-state.adhar-system.svc.cluster.local:6379
+                      - name: redisDB
+                        value: {{ $daprStateDB | quote }}
+                      - name: keyPrefix
+                        value: "{namespace}"
+            ---
+            # Dapr configuration store: a database of its own per tier (see above).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-configstore
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Component
+                  metadata:
+                    name: configstore
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    type: configuration.redis
+                    version: v1
+                    initTimeout: 15s
+                    ignoreErrors: true
+                    metadata:
+                      - name: redisHost
+                        value: dapr-state.adhar-system.svc.cluster.local:6379
+                      - name: redisDB
+                        value: {{ $daprConfigDB | quote }}
+            ---
+            # Dapr secret store over this namespace's Secrets. It reads with the
+            # app pod's own ServiceAccount, so the API server is what scopes it:
+            # an app may read Secrets here once it binds dapr-secret-reader (below),
+            # and never another namespace's, whatever namespace a request names.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-secretstore
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Component
+                  metadata:
+                    name: secretstore
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    type: secretstores.kubernetes
+                    version: v1
+                    metadata:
+                      - name: defaultNamespace
+                        value: {{ $name }}
+            ---
+            # What an app's ServiceAccount is bound to before it reads Secrets
+            # through `secretstore` (README.md shows the RoleBinding). Not bound
+            # here: every pod in the namespace reading every Secret in it is not a
+            # default the platform hands out.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-secret-reader
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: Role
+                  metadata:
+                    name: dapr-secret-reader
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  rules:
+                    - apiGroups: [""]
+                      resources: ["secrets"]
+                      verbs: ["get", "list"]
+            ---
+            # The Configuration every app names in dapr.io/config. mTLS is not set:
+            # Configuration/daprsystem in adhar-system governs it cluster-wide.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-configuration
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Configuration
+                  metadata:
+                    name: adhar-dapr
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    tracing:
+                      # Every trace in dev and test; one in ten in production.
+                      # Dapr's own default (1 in 10,000) records almost nothing.
+                      samplingRate: {{ ternary "0.1" "1" (eq $tier "prod") | quote }}
+                      otel:
+                        # Alloy's OTLP intake forwards traces to Tempo.
+                        endpointAddress: alloy.adhar-system.svc.cluster.local:4317
+                        isSecure: false
+                        protocol: grpc
+                    metrics:
+                      enabled: true
+                      # dapr_error_code_total{error_code, category}: what failed,
+                      # not only that something did.
+                      recordErrorCodes: true
+                      http:
+                        # Unset, Dapr 1.18 still records the raw path of every
+                        # request (one series per order id). Low cardinality labels
+                        # a path by the first pattern below that matches it and
+                        # leaves the rest unlabelled. Patterns are Go ServeMux
+                        # patterns; Dapr adds the /v1.0/invoke/{app_id}/method
+                        # variant of each, so no pattern may use {app_id}.
+                        increasedCardinality: false
+                        pathMatching:
+                          - "/api/{version}/{resource}"
+                          - "/api/{version}/{resource}/{id}"
+                          - "/api/{version}/{resource}/{id}/{subresource}"
+                          - "/api/{version}/{rest...}"
+            ---
+            # Default resiliency for every app in the environment. Defaults only
+            # (Default*Policy names, no targets), so an app's own Resiliency with
+            # an explicit target overrides them. No retries of service invocation
+            # beyond Dapr's built-in ones: replaying a POST is the app's decision.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dapr-resiliency
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: dapr.io/v1alpha1
+                  kind: Resiliency
+                  metadata:
+                    name: adhar-default
+                    namespace: {{ $name }}
+                    labels:
+                      {{- range $k, $v := $daprLabels }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+                  spec:
+                    policies:
+                      timeouts:
+                        # An upper bound on one service invocation, not an SLO.
+                        DefaultAppTimeoutPolicy: 60s
+                        # The building blocks this environment provides, and only
+                        # those: a conversation (LLM) component is slower by design.
+                        DefaultStatestoreComponentOutboundTimeoutPolicy: 10s
+                        DefaultPubsubComponentOutboundTimeoutPolicy: 10s
+                        DefaultLockComponentOutboundTimeoutPolicy: 5s
+                        DefaultConfigurationComponentOutboundTimeoutPolicy: 5s
+                        DefaultSecretstoreComponentOutboundTimeoutPolicy: 5s
+                      retries:
+                        DefaultStatestoreComponentOutboundRetryPolicy:
+                          policy: exponential
+                          maxInterval: 2s
+                          maxRetries: 3
+                        DefaultPubsubComponentOutboundRetryPolicy:
+                          policy: exponential
+                          maxInterval: 2s
+                          maxRetries: 3
+                        # Delivering an event to the app: about a minute of backoff
+                        # before it goes to the subscription's dead-letter topic,
+                        # or back to the broker for redelivery.
+                        DefaultPubsubComponentInboundRetryPolicy:
+                          policy: exponential
+                          maxInterval: 15s
+                          maxRetries: 10
+                      circuitBreakers:
+                        # Five failures in a row: stop calling the app for 30s, then
+                        # let one request through to test it.
+                        DefaultAppCircuitBreakerPolicy:
+                          maxRequests: 1
+                          timeout: 30s
+                          trip: consecutiveFailures >= 5
+                    targets: {}
+            {{- end }}
+            ---
             # Publish the environment namespace back on the XR status.
             apiVersion: platform.adhar.io/v1alpha1
             kind: Environment
@@ -257,6 +663,17 @@ spec:
               ready: true
               namespace: {{ $name }}
               message: "Environment '{{ $name }}' provisioned"
+              dapr:
+                enabled: {{ $daprOn }}
+                {{- if $daprOn }}
+                pubsub: {{ $pubsub }}
+                configuration: adhar-dapr
+                message: {{ printf "pubsub on %s; state, locks and configuration on dapr-state (databases %s and %s)" (ternary "Kafka (adhar-kafka)" "Redis streams (dapr-state)" (eq $pubsub "kafka")) $daprStateDB $daprConfigDB | quote }}
+                {{- else if not $daprInstalled }}
+                message: "Dapr is not installed on this cluster (no components.dapr.io)"
+                {{- else }}
+                message: "parameters.dapr.enabled is false"
+                {{- end }}
     - step: ready
       functionRef:
         name: function-auto-ready

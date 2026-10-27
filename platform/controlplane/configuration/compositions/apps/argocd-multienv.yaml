@@ -121,11 +121,22 @@ spec:
             {{- if $wanted }}{{ range $projEnvNames }}{{ if not (has . $wanted) }}{{ $notListed = append $notListed . }}{{ end }}{{ end }}{{ end -}}
             {{- $ex := "${{" -}}
             {{- $ready := 0 -}}
+            {{- /* Environments that are not Healthy+Synced+deploying, and why (status message),
+                   and those that deploy nothing at all (the Overlays condition). */ -}}
+            {{- $envIssues := list -}}
+            {{- $undeployed := list -}}
             {{- $labels := dict "adhar.io/organisation" (dig "organisation" "adhar" $projStatus) "adhar.io/team" (dig "team" "platform" $projStatus) "adhar.io/project" $project "adhar.io/application" $name -}}
             {{- /* The application type, on every environment's Application and on its namespace,
                    where the ai-workload-isolation policy reads it. See compositions/apps/local.yaml
                    for the full account; here every environment gets the same labels. */ -}}
             {{- $type := default "service" $params.type -}}
+            {{- /* A Function — type `function`, or the label adhar.io/workload: function, which
+                   a scaffolder can stamp without a schema change — is one Knative Service per
+                   environment, delivered from the same <path>/envs/<env> overlays. Its pods
+                   are Knative revisions, `<name>-<generation>-deployment-<rs>-<pod>`, never
+                   `<name>-<rs>-<pod>`, so the dashboard below and the project's verification
+                   (compositions/project/local.yaml) select those. */ -}}
+            {{- $isFunction := or (eq $type "function") (eq (toString (dig "metadata" "labels" "adhar.io/workload" "" $xr)) "function") -}}
             {{- $ai := default (dict) $params.ai -}}
             {{- $_ := set $labels "platform.adhar.io/application-type" $type -}}
             {{- $nsLabels := dict "platform.adhar.io/application-type" $type -}}
@@ -635,6 +646,7 @@ spec:
             ]` -}}
             {{- /* END GENERATED APP DASHBOARD */ -}}
             {{- $podRe := printf "%s-[a-z0-9]{6,10}-[a-z0-9]{5}" $name -}}
+            {{- if $isFunction }}{{ $podRe = printf "%s-[0-9]{5}-deployment-[a-z0-9]{6,10}-[a-z0-9]{5}" $name }}{{ end -}}
             {{- /* `env` is the environment's NAMESPACE, labelled with its name: the project
                    decides where an environment lives (`<project>-<env>`, or `dev`/`test`/`prod`
                    for the platform's own `adhar` project). Grafana's custom variable spells a
@@ -759,13 +771,30 @@ spec:
             # something to sync before the first promotion writes to it. A
             # branch that exists is never touched: promotions own it from then
             # on. Idempotent, so the Job re-running after its TTL is harmless.
+            #
+            # A MISSING overlay (exit 3) or one that does not BUILD (exit 4) is a
+            # fact about the repository, not an outage: no retry creates a file.
+            # podFailurePolicy fails the Job on the first such exit and the
+            # Overlays condition (end of this template) names it on the XR. It
+            # used to die under `set -e`, restart six times, fail, and be
+            # recreated by Crossplane an hour later, for ever, while the XR read
+            # "3/3 environments healthy" (test-func, 2026-10-26: a function repo
+            # with a flat deploy/ and no envs/). Git and network faults still
+            # retry (backoffLimit).
+            #
+            # Named stage-seed, not stage-branches: a Job's pod template and
+            # failure policy are immutable, so changing them under the old name
+            # would fail Crossplane's apply on every XR whose previous Job still
+            # exists (each lives an hour after it finishes). Under a new
+            # composition resource name the old Job is garbage-collected and
+            # this one created fresh.
             apiVersion: batch/v1
             kind: Job
             metadata:
-              name: {{ printf "%s-stage-branches" $name | trunc 63 | trimSuffix "-" }}
+              name: {{ printf "%s-stage-seed" $name | trunc 63 | trimSuffix "-" }}
               namespace: {{ $xrns }}
               annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: stage-branches
+                gotemplating.fn.crossplane.io/composition-resource-name: stage-seed
                 # A Job reports completion, not Ready; it must not hold the XR.
                 gotemplating.fn.crossplane.io/ready: "True"
               labels:
@@ -775,9 +804,17 @@ spec:
             spec:
               backoffLimit: 6
               ttlSecondsAfterFinished: 3600
+              podFailurePolicy:
+                rules:
+                  # Rule 0: an overlay is missing. Rule 1: one does not build.
+                  - action: FailJob
+                    onExitCodes: {containerName: seed, operator: In, values: [3]}
+                  - action: FailJob
+                    onExitCodes: {containerName: seed, operator: In, values: [4]}
               template:
                 spec:
-                  restartPolicy: OnFailure
+                  # podFailurePolicy needs Never: each retry is a new pod.
+                  restartPolicy: Never
                   securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
                   containers:
                     - name: seed
@@ -804,29 +841,70 @@ spec:
                           AUTH="Authorization: Basic $(printf '%s:%s' "$GITEA_USER" "$GITEA_PASSWORD" | base64 | tr -d '\n')"
                           g() { git -c http.extraHeader="$AUTH" -c user.name=adhar -c user.email=adhar@adhar.io "$@"; }
                           g clone -q --depth 1 --branch "$REVISION" "$REPO" src
+                          missing=""; broken=""
                           for env in $ENVS; do
                             b="stage/$env"
                             if g ls-remote --exit-code --heads "$REPO" "$b" >/dev/null 2>&1; then
                               echo "$b exists; promotions own it"
                               continue
                             fi
+                            dir="src/$OVERLAYS/envs/$env"
+                            if [ ! -f "$dir/kustomization.yaml" ] && [ ! -f "$dir/kustomization.yml" ] && [ ! -f "$dir/Kustomization" ]; then
+                              echo "MISSING: $OVERLAYS/envs/$env has no kustomization on $REVISION; $b cannot be seeded"
+                              missing="$missing $env"
+                              continue
+                            fi
                             rm -rf out && mkdir out
-                            kustomize build "src/$OVERLAYS/envs/$env" > out/manifests.yaml
+                            if ! kustomize build "$dir" > out/manifests.yaml; then
+                              echo "BROKEN: $OVERLAYS/envs/$env does not build (kustomize's error above)"
+                              broken="$broken $env"
+                              continue
+                            fi
                             (cd out && git init -q -b "$b" && git add manifests.yaml \
                               && g commit -qm "seed $b from $REVISION [skip ci]" \
                               && g push -q "$REPO" "HEAD:refs/heads/$b")
                             echo "seeded $b"
                           done
+                          if [ -n "$missing" ]; then
+                            echo "no overlay for:$missing (add $OVERLAYS/envs/<env>/kustomization.yaml)"
+                            exit 3
+                          fi
+                          if [ -n "$broken" ]; then
+                            echo "overlays that do not build:$broken"
+                            exit 4
+                          fi
             {{- end }}
             {{- end }}
+            {{- /* What each environment actually runs. Healthy alone is not enough: Argo CD
+                   calls an Application with NO resources Healthy, and one it cannot even
+                   compare (a missing branch) Healthy too — test-func read "3/3
+                   environments healthy" with nothing deployed anywhere (2026-10-26).
+                   An environment counts only when it is Synced, Healthy and deploys
+                   something; the rest are named in the status message. */ -}}
             {{- range $envs }}
             {{- $env := . -}}
             {{- $envName := $env.name -}}
             {{- $ns := $env.namespace -}}
             {{- $appName := printf "%s-%s-%s" $project $name $envName -}}
             {{- $obsApp := default (dict) (get $observed (printf "app-%s" $envName)) -}}
-            {{- $obsHealth := dig "resource" "status" "atProvider" "manifest" "status" "health" "status" "" $obsApp -}}
-            {{- if eq $obsHealth "Healthy" }}{{- $ready = add1 $ready -}}{{- end }}
+            {{- $obsStatus := dig "resource" "status" "atProvider" "manifest" "status" (dict) $obsApp -}}
+            {{- $obsHealth := dig "health" "status" "" $obsStatus -}}
+            {{- $obsSync := dig "sync" "status" "" $obsStatus -}}
+            {{- $obsResources := len (dig "resources" (list) $obsStatus) -}}
+            {{- $obsCompare := "" -}}
+            {{- range (dig "conditions" (list) $obsStatus) }}{{ if eq (toString .type) "ComparisonError" }}{{ $obsCompare = toString .message }}{{ end }}{{ end -}}
+            {{- $obsSource := ternary (printf "stage/%s" $envName) (printf "%s/envs/%s" $path $envName) $promote -}}
+            {{- if and (eq $obsHealth "Healthy") (eq $obsSync "Synced") (gt $obsResources 0) -}}
+            {{-   $ready = add1 $ready -}}
+            {{- else if $obsCompare -}}
+            {{-   $envIssues = append $envIssues (printf "%s cannot be compared (%s)" $envName (trunc 160 $obsCompare)) -}}
+            {{-   $undeployed = append $undeployed $envName -}}
+            {{- else if and (eq $obsSync "Synced") (eq $obsResources 0) -}}
+            {{-   $envIssues = append $envIssues (printf "%s deploys nothing (%s renders no manifests)" $envName $obsSource) -}}
+            {{-   $undeployed = append $undeployed $envName -}}
+            {{- else if $obsStatus -}}
+            {{-   $envIssues = append $envIssues (printf "%s is %s/%s" $envName (default "Unknown" $obsSync) (default "Unknown" $obsHealth)) -}}
+            {{- end }}
             ---
             # Argo CD Application for one environment, under the project's AppProject.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -905,6 +983,29 @@ spec:
                         managedFieldsManagers: [kube-controller-manager]
             {{- end }}
             {{- end }}
+            {{- /* Overlays: what the seed Job (stage-seed) found in the repository. An
+                   overlay that is missing or does not build fails it on purpose
+                   (podFailurePolicy, rule 0 = missing, rule 1 = broken), so the XR can
+                   say WHICH, instead of a Job failing every hour behind a Ready XR. */ -}}
+            {{- $overlays := dict -}}
+            {{- if and $envs $promote -}}
+            {{-   $seedName := printf "%s-stage-seed" $name | trunc 63 | trimSuffix "-" -}}
+            {{-   $overlays = dict "status" "Unknown" "reason" "Seeding" "message" (printf "seeding stage/<env> from %s/envs/<env> on %s (Job %s/%s)" $path $revision $xrns $seedName) -}}
+            {{-   range (dig "stage-seed" "resource" "status" "conditions" (list) $observed) -}}
+            {{-     if and (eq (toString .type) "Complete") (eq (toString .status) "True") -}}
+            {{-       $overlays = dict "status" "True" "reason" "Seeded" "message" (printf "every environment has its rendered branch stage/<env>, seeded from %s/envs/<env>" $path) -}}
+            {{-     else if and (eq (toString .type) "Failed") (eq (toString .status) "True") -}}
+            {{-       $why := toString .message -}}
+            {{-       if and (eq (toString .reason) "PodFailurePolicy") (regexMatch "exit code 3( |$)" $why) -}}
+            {{-         $overlays = dict "status" "False" "reason" "OverlayMissing" "message" (printf "%s on %s has no %s/envs/<env> kustomization for an environment that has no stage branch yet%s, so nothing can deploy there: add the overlays (deploy/base + deploy/envs/<env>, as every template ships them); Job %s/%s names them" $repoURL $revision $path (ternary (printf " (not deploying: %s)" (join ", " $undeployed)) "" (gt (len $undeployed) 0)) $xrns $seedName) -}}
+            {{-       else if and (eq (toString .reason) "PodFailurePolicy") (regexMatch "exit code 4( |$)" $why) -}}
+            {{-         $overlays = dict "status" "False" "reason" "OverlayInvalid" "message" (printf "an overlay under %s/envs on %s does not build with kustomize; Job %s/%s has kustomize's error" $path $revision $xrns $seedName) -}}
+            {{-       else -}}
+            {{-         $overlays = dict "status" "False" "reason" "SeedFailed" "message" (printf "could not seed the stage branches (%s: %s); Crossplane recreates Job %s/%s an hour after it fails" (toString .reason) (trunc 160 $why) $xrns $seedName) -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{- end }}
             {{- if $envs }}
             ---
             # The retired per-application environment list: accepted (existing XRs
@@ -924,6 +1025,13 @@ spec:
                 reason: Inherited
                 message: {{ quote (printf "runs in project %q's environments: %s" $project (join ", " $projEnvNames)) }}
                 {{- end }}
+              {{- if $overlays }}
+              - type: Overlays
+                status: {{ get $overlays "status" | quote }}
+                reason: {{ get $overlays "reason" | quote }}
+                message: {{ get $overlays "message" | quote }}
+                target: Composite
+              {{- end }}
             {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
@@ -934,7 +1042,7 @@ spec:
               message: {{ quote (printf "waiting for project %q to publish its environments" $project) }}
               {{- else }}
               phase: {{ if eq $ready (len $envs) }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
-              message: {{ quote (printf "%d/%d environments healthy" $ready (len $envs)) }}
+              message: {{ quote (printf "%d/%d environments healthy%s" $ready (len $envs) (ternary (printf "; %s" (join "; " $envIssues)) "" (gt (len $envIssues) 0))) }}
               # Where this application runs: the project's environments, each with
               # its Argo CD Application and the project's shared Kargo Stage.
               environments:

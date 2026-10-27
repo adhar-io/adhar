@@ -27,11 +27,26 @@ spec:
   # a cookie, so there is nothing to tell a returning user apart by; re-running
   # the silent flow on the bare host costs one round trip and no click.
   # Break-glass access-key login stays at /rustfs/console/auth/login/.
+  #
+  # Browser DOCUMENT navigations only. Port 9001 serves the S3 API at the root
+  # as well as the console, and the console lists buckets with a SigV4-signed
+  # `GET /` from the page itself. Matched by path and method alone, that call was
+  # redirected here too; the browser kept its Authorization header across the
+  # same-origin redirect, RustFS checked a signature made for `/` against
+  # `/rustfs/admin/v3/oidc/authorize/default`, and the console showed "Unable to
+  # list S3 buckets — The request signature we calculated does not match"
+  # (2026-10-27). A fetch carries `Sec-Fetch-Mode: cors|same-origin`, so it now
+  # falls through to the proxy and RustFS untouched — and so does any S3 client.
   - matches:
     - path:
         type: Exact
         value: /
       method: GET
+      headers:
+      - name: Sec-Fetch-Mode
+        value: navigate
+      - name: Sec-Fetch-Dest
+        value: document
     filters:
     - type: RequestRedirect
       requestRedirect:
@@ -42,19 +57,9 @@ spec:
         # gets a Location nothing listens on.
         port: {{ .Port }}
         statusCode: 302
-  - matches:
-    - path:
-        type: Exact
-        value: /
-    filters:
-    - type: URLRewrite
-      urlRewrite:
-        path:
-          type: ReplaceFullPath
-          replaceFullPath: /rustfs/console/
-    backendRefs:
-    - name: rustfs-oauth2-proxy
-      port: 4180
+  # No rewrite of `/` to /rustfs/console/ any more: every navigation to `/` is
+  # redirected above, and what is left at `/` is S3 (ListBuckets), which a
+  # rewrite to the console's HTML would break the same way.
   - matches:
     - path:
         type: PathPrefix

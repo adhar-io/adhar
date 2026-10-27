@@ -224,10 +224,53 @@ func TestRustFSBareHostStartsTheKeycloakLogin(t *testing.T) {
 			t.Errorf("the rustfs route lacks %q", want)
 		}
 	}
-	// The redirect rule must come before the rewrite rule for the same path, or
-	// the rewrite serves the console's sign-in page first.
-	if strings.Index(route, "type: RequestRedirect") > strings.Index(route, "type: URLRewrite") {
-		t.Error("the rustfs bare-host rewrite precedes the OIDC redirect")
+	// The root is ALSO the S3 API: the console lists buckets with a signed
+	// `GET /` from the page. Only a browser document navigation may be
+	// redirected to the OIDC start, and nothing may rewrite `/`. A redirect
+	// matched by path and method alone sent that signed call to the authorize
+	// URL with its Authorization header intact, and the console showed
+	// "Unable to list S3 buckets — The request signature we calculated does
+	// not match" (2026-10-27).
+	var doc struct {
+		Spec struct {
+			Rules []struct {
+				Matches []struct {
+					Path    struct{ Type, Value string } `yaml:"path"`
+					Headers []struct{ Name, Value string } `yaml:"headers"`
+				} `yaml:"matches"`
+				Filters []struct {
+					Type string `yaml:"type"`
+				} `yaml:"filters"`
+			} `yaml:"rules"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(strings.ReplaceAll(route, "{{ .Port }}", "443")), &doc); err != nil {
+		t.Fatalf("parsing the rustfs route: %v", err)
+	}
+	for _, rule := range doc.Spec.Rules {
+		redirects, rewrites := false, false
+		for _, f := range rule.Filters {
+			redirects = redirects || f.Type == "RequestRedirect"
+			rewrites = rewrites || f.Type == "URLRewrite"
+		}
+		for _, m := range rule.Matches {
+			if m.Path.Value != "/" || m.Path.Type != "Exact" {
+				continue
+			}
+			if rewrites {
+				t.Error("the rustfs route rewrites `/`, which is also S3's ListBuckets")
+			}
+			if redirects {
+				h := map[string]string{}
+				for _, x := range m.Headers {
+					h[x.Name] = x.Value
+				}
+				if h["Sec-Fetch-Mode"] != "navigate" || h["Sec-Fetch-Dest"] != "document" {
+					t.Error("the rustfs bare-host OIDC redirect matches more than browser document navigations; " +
+						"the console's signed `GET /` (ListBuckets) is redirected and fails its signature check")
+				}
+			}
+		}
 	}
 	// The ESO-templated file must not grow the route back: its {{ }} would be
 	// read as Go template syntax if it were ever renamed to .tmpl.

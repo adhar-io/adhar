@@ -31,7 +31,7 @@ type tolgeeMatch struct {
 		Type  string `json:"type"`
 		Value string `json:"value"`
 	} `json:"path"`
-	Method      string                              `json:"method"`
+	Method      string                               `json:"method"`
 	Headers     []struct{ Type, Name, Value string } `json:"headers"`
 	QueryParams []struct{ Type, Name, Value string } `json:"queryParams"`
 }

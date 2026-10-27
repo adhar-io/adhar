@@ -1,16 +1,36 @@
+# State store (and actor state store) for Dapr apps in the PLATFORM namespace
+# (adhar-system). Environment namespaces get their own `statestore` from the
+# Environment composition (compositions/env/local.yaml), on the same store.
+#
+# dapr-state database 0 (manifests/state-store.yaml), not the shared
+# adhar-cache: adhar-cache runs in cluster mode, and a cluster refuses the
+# multi-key transactions every actor update and every Workflow save is made of
+# (CROSSSLOT), as well as the SELECT that keeps the platform namespace's data
+# apart from the environments'.
+#
+# keyPrefix `namespace`: state keys are `<namespace>.<app-id>||<key>`, so two
+# apps never share a key, here or in any environment. Actor state is not
+# prefixed by Dapr (`<app-id>||<type>||<id>||<key>`); the database is what keeps
+# it apart from the environments'.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
   name: statestore
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: dapr
   annotations:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   type: state.redis
   version: v1
+  initTimeout: 15s
   metadata:
     - name: redisHost
-      value: adhar-cache.adhar-system.svc.cluster.local:6379
+      value: dapr-state.adhar-system.svc.cluster.local:6379
+    - name: redisDB
+      value: "0"
+    - name: keyPrefix
+      value: namespace
     - name: actorStateStore
       value: "true"
-auth:
-  secretStore: kubernetes

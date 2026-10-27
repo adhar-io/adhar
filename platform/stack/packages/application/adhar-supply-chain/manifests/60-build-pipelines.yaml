@@ -133,12 +133,14 @@ spec:
   # a line — clone → toolchain → build → test — rather than fanning a second
   # edge from toolchain to test (the "connection line" the console drew, which
   # read as test depending on something other than the artifact it tests).
+  # node, go and python are rewritten by the `runtime` step when the builder
+  # does not ship the detected version, so they always name what the IMAGE runs.
   results:
     - {name: jdk, description: "the JDK major the build used, from detect-toolchain"}
     - {name: maven, description: the Maven version the build used}
-    - {name: node, description: the Node major the build used}
-    - {name: go, description: the Go version the build used}
-    - {name: python, description: the Python version the build used}
+    - {name: node, description: the Node major the image runs}
+    - {name: go, description: the Go version the image was built with}
+    - {name: python, description: the Python version the image runs}
     - {name: e2e, description: "true when the repository ships a Playwright suite, from detect-toolchain"}
   workspaces:
     - {name: source}
@@ -389,24 +391,80 @@ spec:
         if [ -n "${PLATFORM_SETTINGS:-}" ]; then
           printf '%s' "$PLATFORM_SETTINGS" > /platform/env/BP_MAVEN_SETTINGS_PATH
           echo "  BP_MAVEN_SETTINGS_PATH=$PLATFORM_SETTINGS (platform override)"
+        fi
 
-          # The platform's own Java libraries require JDK 25, and the buildpack
-          # defaults to 21.
-          #
-          # adhar-kit's parent POM enforces RequireJavaVersion [25,), so a
-          # service built on the buildpack default fails in maven-enforcer long
-          # after resolving its parent:
-          #   Rule 1: RequireJavaVersion failed with message: Detected JDK
-          #   version 21.0.12 (JAVA_HOME=/layers/paketo-buildpacks_bellsoft-
-          #   liberica/jdk) is not in the allowed range [25,).
-          # The release pipeline already builds the libraries on
-          # maven:3.9-eclipse-temurin-25 for exactly this reason; an application
-          # consuming them needs the same floor.
-          #
-          # A DEFAULT, not an override: unlike the registry, the JVM version is
-          # legitimately the application's choice, so an app that declared
-          # BP_JVM_VERSION in its project.toml keeps it. Only a repository that
-          # said nothing is moved off the buildpack default.
+        # ── The runtime the image ships is the one the tests ran on ─────────
+        # detect-toolchain read the repository's JDK, Node, Go and Python, and
+        # the test stage runs on exactly those (maven:…-temurin-<jdk>,
+        # node:<node>, golang:<go>, python:<python>). The image must ship the
+        # same ones. It did not: test-func's tests ran on Node 22 while its image
+        # shipped node-engine's own default, Node 24 (2026-10-25), and go-dist
+        # and cpython never read go.mod or .python-version at all.
+        #
+        # A DEFAULT, never an override, in the order BP_JVM_VERSION always used:
+        # a BP_*_VERSION the repository's project.toml declares was translated
+        # above and is kept; otherwise the version detect-toolchain read — the
+        # repository's own declaration, else the pipeline's last-resort default
+        # the tests ran on as well. Written only for a repository of that
+        # ecosystem, and listed in $RUNTIME_DEFAULTS so the `runtime` step can
+        # check the builder ships it before the lifecycle runs.
+        APP="${APPDIR%/}"
+        RUNTIME_DEFAULTS=/platform/adhar/runtime-defaults
+        mkdir -p /platform/adhar
+        : > "$RUNTIME_DEFAULTS"
+        runtime_default() {  # runtime_default VAR VERSION BUILDPACK RESULT-FILE
+          if [ -s "/platform/env/$1" ]; then
+            echo "  $1=$(cat "/platform/env/$1") (declared in project.toml)"
+          elif [ -n "$2" ]; then
+            printf '%s' "$2" > "/platform/env/$1"
+            printf '%s %s %s\n' "$1" "$3" "$4" >> "$RUNTIME_DEFAULTS"
+            echo "  $1=$2 (the version the tests run on, from detect-toolchain)"
+          fi
+        }
+        # Node. node-engine reads .nvmrc, .node-version and package.json engines
+        # ITSELF, and BP_NODE_VERSION would OVERRIDE them: `engines: >=20` would
+        # become exactly 20, whose bundled npm fails the image scan. So the
+        # default only fills the gap — nothing declared where node-engine looks
+        # (or only in .tool-versions, which it does not read).
+        if [ -f "$APP/package.json" ]; then
+          if [ ! -s /platform/env/BP_NODE_VERSION ] && { [ -f "$APP/.nvmrc" ] || [ -f "$APP/.node-version" ] || grep -Eq '"node"[[:space:]]*:' "$APP/package.json"; }; then
+            echo "  node: node-engine reads the repository's own .nvmrc / .node-version / engines.node"
+          else
+            runtime_default BP_NODE_VERSION "$(params.nodeVersion)" node-engine "$(results.node.path)"
+          fi
+        fi
+        # Go and Python: go-dist and cpython read nothing but their BP_*
+        # variable, so the image got the buildpack's default (Go 1.26, Python
+        # 3.11) whatever go.mod or .python-version said.
+        if [ -f "$APP/go.mod" ]; then
+          runtime_default BP_GO_VERSION "$(params.goVersion)" go-dist "$(results.go.path)"
+        fi
+        if [ -f "$APP/requirements.txt" ] || [ -f "$APP/pyproject.toml" ] || [ -f "$APP/Pipfile" ] || [ -f "$APP/setup.py" ] || [ -f "$APP/.python-version" ] || [ -f "$APP/runtime.txt" ]; then
+          runtime_default BP_CPYTHON_VERSION "$(params.pythonVersion)" cpython "$(results.python.path)"
+        fi
+
+        # The JDK, for every JVM build — Gradle, and Maven without the platform's
+        # Nexus, too; it used to be set only inside the Nexus block above, so
+        # those built on the buildpack default while their tests ran on 25.
+        #
+        # The platform's own Java libraries require JDK 25, and the buildpack
+        # defaults to 21.
+        #
+        # adhar-kit's parent POM enforces RequireJavaVersion [25,), so a
+        # service built on the buildpack default fails in maven-enforcer long
+        # after resolving its parent:
+        #   Rule 1: RequireJavaVersion failed with message: Detected JDK
+        #   version 21.0.12 (JAVA_HOME=/layers/paketo-buildpacks_bellsoft-
+        #   liberica/jdk) is not in the allowed range [25,).
+        # The release pipeline already builds the libraries on
+        # maven:3.9-eclipse-temurin-25 for exactly this reason; an application
+        # consuming them needs the same floor.
+        #
+        # A DEFAULT, not an override: unlike the registry, the JVM version is
+        # legitimately the application's choice, so an app that declared
+        # BP_JVM_VERSION in its project.toml keeps it. Only a repository that
+        # said nothing is moved off the buildpack default.
+        if [ -f "$APP/pom.xml" ] || [ -f "$APP/build.gradle" ] || [ -f "$APP/build.gradle.kts" ] || [ -f "$APP/gradlew" ]; then
           if [ -s /platform/env/BP_JVM_VERSION ]; then
             echo "  BP_JVM_VERSION=$(cat /platform/env/BP_JVM_VERSION) (declared in project.toml)"
           elif [ -n "$(params.jdkVersion)" ]; then
@@ -423,7 +481,7 @@ spec:
           # buildpack must use that one, not its bundled default. Only a full
           # x.y.z is a pin — detect-toolchain's family fallback (3.9) is for
           # image tags, and is not written here.
-          if [ ! -s /platform/env/BP_MAVEN_VERSION ] && printf '%s' "$(params.mavenVersion)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          if [ -f "$APP/pom.xml" ] && [ ! -s /platform/env/BP_MAVEN_VERSION ] && printf '%s' "$(params.mavenVersion)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             printf '%s' "$(params.mavenVersion)" > /platform/env/BP_MAVEN_VERSION
             echo "  BP_MAVEN_VERSION=$(params.mavenVersion) (pinned by the repository's Maven wrapper)"
           fi
@@ -436,6 +494,57 @@ spec:
         # container's own filesystem, the build step saw an empty emptyDir, and
         # the detector never saw BP_WEB_SERVER -- the nodejs order group won over
         # web-servers and the image came out with no process type.
+        - {name: cnb-platform, mountPath: /platform}
+    # The runtime versions prepare chose must be ones THIS builder ships. One it
+    # does not have fails the whole build ("failed to satisfy go dependency
+    # version constraint"): go.mod's `go 1.25.0` is a MINIMUM, and go-dist 2.11.0
+    # ships 1.26 and 1.27 only. Such a default is dropped so the buildpack picks
+    # its own, and the matching result is rewritten so the test stage runs on what
+    # the image ships — the same runtime either way, which is the point, and a
+    # WARNING in the log says so. A BP_*_VERSION the repository's project.toml
+    # declares is never touched: that is the repository's decision, and a wrong
+    # one should fail loudly. Runs in the builder (it reads the buildpacks' own
+    # buildpack.toml) and as root (the `toolchain` step wrote the results).
+    - name: runtime
+      image: $(params.builder)
+      securityContext: {runAsUser: 0}
+      script: |
+        #!/bin/bash
+        set -uo pipefail
+        LIST=/platform/adhar/runtime-defaults
+        CNB=/cnb/buildpacks
+        if [ ! -s "$LIST" ]; then
+          echo "no runtime versions chosen by the platform to check"
+          exit 0
+        fi
+        # The [[metadata.dependencies]] part of a buildpack.toml: the versions it
+        # ships, not the buildpack's own version line.
+        deps() { sed -n '/^[[:space:]]*\[\[metadata\.dependencies\]\]/,$p' "$1/buildpack.toml" 2>/dev/null; }
+        while read -r var bp result; do
+          [ -n "${var:-}" ] || continue
+          want=$(cat "/platform/env/$var" 2>/dev/null || true)
+          [ -n "$want" ] || continue
+          dirs=$(ls -d "$CNB/paketo-buildpacks_$bp"/*/ 2>/dev/null | sort -V || true)
+          if [ -z "$dirs" ]; then
+            echo "  $var=$want (this builder has no paketo-buildpacks/$bp to check it against)"
+            continue
+          fi
+          re="^[[:space:]]*version[[:space:]]*=[[:space:]]*\"$(printf '%s' "$want" | sed 's/[.]/\\./g')[.\"]"
+          shipped=no
+          for d in $dirs; do deps "$d" | grep -Eq "$re" && shipped=yes; done
+          if [ "$shipped" = yes ]; then
+            echo "  $var=$want: shipped by paketo-buildpacks/$bp"
+            continue
+          fi
+          newest=$(printf '%s\n' $dirs | tail -1)
+          offered=$(deps "$newest" | sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([0-9]+\.[0-9]+)\.[0-9]+".*/\1/p' | sort -uV | tr '\n' ' ')
+          def=$(sed -nE '/^[[:space:]]*\[metadata\.default-versions\]/,/^[[:space:]]*\[/ s/^[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*=[[:space:]]*"([0-9][0-9.]*).*/\1/p' "$newest/buildpack.toml" | head -1 | sed -E 's/[.]+$//')
+          rm -f "/platform/env/$var"
+          echo "WARNING: $var=$want — the version the tests were to run on — is not one this builder's paketo-buildpacks/$bp ships (${offered:-none listed}); the image is built on its default${def:+ $def}${def:+, and the test stage follows it}"
+          if [ -n "$def" ]; then printf '%s' "$def" > "$result"; fi
+        done < "$LIST"
+        exit 0
+      volumeMounts:
         - {name: cnb-platform, mountPath: /platform}
     - name: build
       image: $(params.builder)

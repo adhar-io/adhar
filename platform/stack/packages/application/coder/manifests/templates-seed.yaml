@@ -14,6 +14,320 @@
 # it on every sync. Runs after admin-setup.yaml (wave 10) because it signs in
 # with the generated owner.
 ---
+# The template-seed script the coder-templates-seed Job runs (see the Job).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-templates-seed
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+data:
+  run.sh: |
+    set -eu
+
+    # 1. Wait for the API (migrations first) and for the first user.
+    for i in $(seq 1 120); do
+      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CODER_URL}/api/v2/users/first" 2>/dev/null || echo 000)
+      [ "${code}" = "200" ] && break
+      echo "waiting for the Coder API + first user (${i}, http ${code})"
+      sleep 5
+    done
+
+    # 2. Password login for the bootstrap owner -> session token for the CLI.
+    CODER_SESSION_TOKEN=$(curl -sf --max-time 15 -X POST "${CODER_URL}/api/v2/users/login" \
+      -H 'content-type: application/json' \
+      -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+      | sed -n 's/.*"session_token":"\([^"]*\)".*/\1/p')
+    if [ -z "${CODER_SESSION_TOKEN}" ]; then
+      echo "could not sign in as ${ADMIN_EMAIL}; failing so the Job retries"
+      exit 1
+    fi
+    export CODER_SESSION_TOKEN
+
+    # 3. Idempotency, but revision-aware.
+    #
+    #    The old guard was "template exists -> exit 0", which meant a
+    #    cluster seeded before the IDE apps existed could never gain
+    #    them: the starter ships code-server ONLY, so opening IntelliJ
+    #    answered `404 - Application Not Found`. The description
+    #    carries ${IDE_REVISION}; when it already matches there is
+    #    genuinely nothing to do, and an operator editing the template
+    #    from the UI still wins because pushing a new version never
+    #    touches their running workspaces (those stay on the version
+    #    they were built from until someone updates them).
+    TPL_JSON=$(/opt/coder templates list -o json 2>/dev/null || echo '[]')
+    if echo "${TPL_JSON}" | grep -q "\"name\": *\"${TEMPLATE_NAME}\""; then
+      if echo "${TPL_JSON}" | grep -q "${IDE_REVISION}"; then
+        echo "template ${TEMPLATE_NAME} is already at ${IDE_REVISION}; nothing to do"
+        exit 0
+      fi
+      echo "template ${TEMPLATE_NAME} predates ${IDE_REVISION}; pushing a new version with the IDE apps"
+    fi
+
+    # 4. Materialise the embedded starter.
+    rm -rf /tmp/tpl && mkdir -p /tmp/tpl
+    /opt/coder templates init --id kubernetes /tmp/tpl/${TEMPLATE_NAME}
+
+    # 5. Add the desktop IDEs.
+    #
+    #    The starter defines exactly one app — browser code-server —
+    #    so IntelliJ had nothing to resolve to. These two are
+    #    `external`, i.e. deep links handed to the local machine
+    #    rather than proxied through Coder, so they cannot 404 on the
+    #    workspace proxy and need no extra ports on the agent. They
+    #    do require the matching client locally: JetBrains Gateway (or
+    #    Toolbox) for IntelliJ, and the Coder extension for VS Code.
+    #
+    #    No `share` on them: the coder provider rejects `external`
+    #    together with `share` ("external": conflicts with share),
+    #    which made `terraform plan` fail on every push — the seed
+    #    Job crash-looped and a fresh platform had NO template, i.e.
+    #    no Cloud Dev Environment at all (2026-09-15). External apps
+    #    are deep links, so the owner-only sharing is implicit.
+    # 5a. One workspace per repository.
+    #
+    #    The Console's "open this repo in an IDE" used to append
+    #    `?folder=/home/coder/<repo>` to whatever workspace was
+    #    running, and nothing had ever cloned the repo there — so
+    #    code-server answered "Workspace does not exist". Now a
+    #    workspace KNOWS its repository: the `git_repo` parameter is
+    #    cloned into /home/coder/<name> on every start (idempotent),
+    #    and both IDE apps open that folder. An empty parameter is
+    #    the plain home-directory workspace it always was.
+    cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-repo.tf <<'TF'
+    # ─── Added by the Adhar platform: the repository this workspace is for ───
+
+    data "coder_parameter" "git_repo" {
+      name         = "git_repo"
+      display_name = "Repository"
+      description  = "HTTPS clone URL. Checked out into /home/coder/<name> on every start; leave empty for a plain workspace."
+      type         = "string"
+      default      = ""
+      mutable      = true
+      order        = 10
+    }
+
+    locals {
+      repo_name        = data.coder_parameter.git_repo.value == "" ? "" : basename(trimsuffix(data.coder_parameter.git_repo.value, ".git"))
+      workspace_folder = local.repo_name == "" ? "/home/coder" : "/home/coder/${local.repo_name}"
+    }
+
+    # Gitea through Coder's external auth (values.yaml
+    # CODER_EXTERNAL_AUTH_0_*). Declared so Coder's own pages offer
+    # the link when a workspace is created, instead of the first
+    # clone discovering it: until a person has linked Gitea, git's
+    # GIT_ASKPASS (pointed at Coder) prints "Open the following URL
+    # to authenticate with Git" and waits for good, and the editor
+    # opened on a folder that did not exist (2026-10-27). Optional:
+    # a plain workspace needs no Gitea, and the Console links it
+    # before it opens a repository.
+    data "coder_external_auth" "gitea" {
+      id       = "gitea"
+      optional = true
+    }
+
+    resource "coder_script" "clone_repo" {
+      agent_id           = coder_agent.main.id
+      display_name       = "Clone repository"
+      icon               = "/icon/git.svg"
+      run_on_start       = true
+      start_blocks_login = false
+      script             = <<-EOT
+        #!/bin/sh
+        set -eu
+
+        # Git identity, from the person who owns this workspace.
+        #
+        # Without it the very first `git commit` in the IDE dies with
+        # "Author identity unknown. *** Please tell me who you are."
+        # — a dead end inside a freshly-created environment, and one
+        # nobody should have to fix by hand every time. Set, not
+        # forced: --global writes ~/.gitconfig on the persistent home
+        # volume, so anyone who prefers a different name or e-mail
+        # edits it once and it survives every later start (the
+        # guards below never overwrite an existing value).
+        # The username comes from the AGENT'S ENVIRONMENT, not from
+        # HCL.
+        #
+        # An HCL conditional picking full_name over name was tried and
+        # wrote the literal string `default` into ~/.gitconfig
+        # (verified 2026-09-25) — every commit in every cloud
+        # environment would have been authored by "default". The same
+        # `.name` attribute renders correctly OUTSIDE a ternary (the
+        # IDE deep links below prove it: owner=adhar-admin), so the
+        # conditional is what misrendered.
+        #
+        # CODER_WORKSPACE_OWNER_NAME is exported by the agent into
+        # every session it starts and was verified to hold the real
+        # username. A bare $VAR also passes through HCL untouched
+        # (only a dollar-brace sequence interpolates), so there is
+        # nothing left to escape and nothing left to get wrong.
+        OWNER="$CODER_WORKSPACE_OWNER_NAME"
+        [ -n "$OWNER" ] || OWNER=coder
+        git config --global --get user.name  >/dev/null 2>&1 || \
+          git config --global user.name "$OWNER"
+        git config --global --get user.email >/dev/null 2>&1 || \
+          git config --global user.email '${data.coder_workspace_owner.me.email}'
+        # No credential helper is configured on purpose. git falls
+        # back to GIT_ASKPASS, which the agent points at Coder — so
+        # each fetch/push is answered with the person's own live Gitea
+        # token instead of a copy cached on the volume. A `store`
+        # helper would write that token to disk in plain text and keep
+        # serving it after the person's access was revoked.
+        #
+        # Stop git from refusing the checkout when the home volume's
+        # ownership does not match (a restored PVC, a changed fsGroup).
+        git config --global --add safe.directory '*'
+
+        # Open the workspace, not the Welcome tab.
+        #
+        # Both IDE apps already pass ?folder=<workspace_folder>, so
+        # code-server opens the right directory — but VS Code still
+        # draws "Get Started" over it on every connect, because
+        # workbench.startupEditor defaults to welcomePage. Clicking
+        # into a Cloud Development Environment and landing on a
+        # marketing page is indistinguishable from the environment not
+        # having opened the project at all.
+        #
+        # Written ONLY when the file does not exist: this is the
+        # person's own settings file on a persistent home volume, and
+        # a start-up script that rewrites it every time would undo
+        # their editor preferences once a day.
+        # printf, not a heredoc: this script is itself inside a
+        # quoted heredoc that a later `sed` de-indents by 14 columns,
+        # and a plain `<<JSON` terminator must sit at column 0 — it
+        # would be shifted and the heredoc would never close.
+        CS_SETTINGS="$HOME/.local/share/code-server/User/settings.json"
+        if [ ! -f "$CS_SETTINGS" ]; then
+          mkdir -p "$(dirname "$CS_SETTINGS")"
+          printf '%s\n' '{' '  "workbench.startupEditor": "none"' '}' > "$CS_SETTINGS"
+          echo "code-server: startupEditor set to none"
+        fi
+
+        REPO='${data.coder_parameter.git_repo.value}'
+        [ -n "$REPO" ] || exit 0
+        DEST='${local.workspace_folder}'
+        if [ -d "$DEST/.git" ]; then
+          echo "repository already checked out at $DEST"
+          exit 0
+        fi
+        # GIT_ASKPASS is exported into this session by the agent and
+        # resolves to the person's Gitea token via Coder's external
+        # auth provider (values.yaml CODER_EXTERNAL_AUTH_0_*), so a
+        # PRIVATE repository clones here too. A public one still
+        # clones when nobody has authorised Gitea yet, which is why
+        # this is not fatal on failure: the workspace must come up
+        # either way so the person can fix it from the terminal.
+        # A placeholder left by an earlier start that could not
+        # clone is removed first, or git refuses the non-empty
+        # destination.
+        if [ -f "$DEST/README-ADHAR.md" ]; then
+          rm -f "$DEST/README-ADHAR.md"
+          rmdir "$DEST" 2>/dev/null || true
+        fi
+        echo "cloning $REPO into $DEST"
+        # Bounded: with Gitea not linked yet, GIT_ASKPASS waits for
+        # the person indefinitely and the editor opened on nothing.
+        # Two minutes covers a large repository over the in-cluster
+        # Service; after that the folder explains what to do.
+        if ! timeout 120 git clone "$REPO" "$DEST"; then
+          echo "clone failed — if $REPO is private, link Gitea once"
+          echo "under Coder -> Account -> External Authentication,"
+          echo "then re-run: git clone $REPO $DEST"
+          mkdir -p "$DEST"
+          printf '%s\n' "# Not checked out yet" "" \
+            "Coder could not clone $REPO into this folder." "" \
+            "If the repository is private, link your Gitea account once:" \
+            "Coder -> your avatar -> Account -> External Authentication -> Gitea." \
+            "Then, in a terminal (this file must go first):" "" \
+            "    rm README-ADHAR.md && git clone $REPO ." "" \
+            "Restarting the workspace clones it automatically." > "$DEST/README-ADHAR.md"
+        fi
+      EOT
+    }
+    TF
+    sed -i 's/^              //' /tmp/tpl/${TEMPLATE_NAME}/adhar-repo.tf
+    # The starter's code-server app opens /home/coder; point it at the
+    # repository folder instead (a locals reference, so an empty
+    # parameter still opens home).
+    sed -i 's|url          = "http://localhost:13337?folder=/home/coder"|url          = "http://localhost:13337?folder=${local.workspace_folder}"|' /tmp/tpl/${TEMPLATE_NAME}/main.tf
+    grep -q 'folder=${local.workspace_folder}' /tmp/tpl/${TEMPLATE_NAME}/main.tf || { echo "starter changed shape: code-server url not patched"; exit 1; }
+
+    cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf <<'TF'
+    # ─── Added by the Adhar platform: desktop IDE entry points ───
+
+    resource "coder_app" "jetbrains_gateway" {
+      agent_id     = coder_agent.main.id
+      slug         = "jetbrains-gateway"
+      display_name = "IntelliJ IDEA"
+      icon         = "/icon/intellij.svg"
+      external     = true
+      order        = 1
+
+      # Opens JetBrains Gateway and points it at this workspace. IU =
+      # IntelliJ IDEA Ultimate; Gateway offers to download the backend
+      # on first connect.
+      url = join("", [
+        "jetbrains-gateway://connect#type=coder",
+        "&workspace=", data.coder_workspace.me.name,
+        "&agent=main",
+        "&owner=", data.coder_workspace_owner.me.name,
+        "&url=", data.coder_workspace.me.access_url,
+        "&token=$SESSION_TOKEN",
+        "&ide_product_code=IU",
+        "&folder=", local.workspace_folder,
+      ])
+    }
+
+    resource "coder_app" "vscode_desktop" {
+      agent_id     = coder_agent.main.id
+      slug         = "vscode-desktop"
+      display_name = "VS Code Desktop"
+      icon         = "/icon/code.svg"
+      external     = true
+      order        = 2
+
+      url = join("", [
+        "vscode://coder.coder-remote/open?owner=", data.coder_workspace_owner.me.name,
+        "&workspace=", data.coder_workspace.me.name,
+        "&agent=main",
+        "&url=", data.coder_workspace.me.access_url,
+        "&token=$SESSION_TOKEN",
+        "&folder=", local.workspace_folder,
+      ])
+    }
+    TF
+    # The heredoc above is indented for readability; strip it so
+    # Terraform sees column-0 HCL.
+    sed -i 's/^              //' /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf
+
+    # 6. Push, then stamp the revision so step 3 can recognise it.
+    /opt/coder templates push "${TEMPLATE_NAME}" \
+      --directory "/tmp/tpl/${TEMPLATE_NAME}" \
+      --variable "namespace=${WORKSPACE_NAMESPACE}" \
+      --variable "use_kubeconfig=false" \
+      --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo), git identity + Gitea push credentials, code-server + IntelliJ IDEA + VS Code Desktop, no Welcome tab, 1h idle autostop" \
+      --yes
+    # Stop an idle workspace after an hour, and stamp the revision so
+    # step 3 can recognise it.
+    #
+    # --default-ttl is the deadline from start; --activity-bump pushes
+    # that deadline to now+1h on every bit of activity Coder sees
+    # (agent traffic, an open IDE session, a terminal). Together they
+    # mean "stops one hour after the person stops working", not "stops
+    # one hour after it started" — the second would kill a workspace
+    # out from under someone mid-afternoon. A stopped workspace keeps
+    # its home volume, so restarting it is a boot, not a rebuild.
+    #
+    # Both flags are in the AGPL CLI. Dormancy and auto-deletion are
+    # enterprise-only and deliberately not used here.
+    /opt/coder templates edit "${TEMPLATE_NAME}" \
+      --description "Adhar cloud development environment (${IDE_REVISION})" \
+      --default-ttl 1h \
+      --activity-bump 1h \
+      --yes || echo "could not stamp the description/TTL; the next sync will re-push"
+    echo "template ${TEMPLATE_NAME} pushed at ${IDE_REVISION}"
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -59,282 +373,19 @@ spec:
             # description carries this marker, which is how the Job decides
             # between "leave the operator's template alone" and "push a new
             # version because the platform now ships more IDEs".
+            # v7: Gitea external auth declared, the clone bounded with a README
+            # in the folder when it cannot run (2026-10-27).
             - name: IDE_REVISION
-              value: adhar-ide-v6
-          command: [/bin/sh, -c]
-          args:
-            - |
-              set -eu
-
-              # 1. Wait for the API (migrations first) and for the first user.
-              for i in $(seq 1 120); do
-                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CODER_URL}/api/v2/users/first" 2>/dev/null || echo 000)
-                [ "${code}" = "200" ] && break
-                echo "waiting for the Coder API + first user (${i}, http ${code})"
-                sleep 5
-              done
-
-              # 2. Password login for the bootstrap owner -> session token for the CLI.
-              CODER_SESSION_TOKEN=$(curl -sf --max-time 15 -X POST "${CODER_URL}/api/v2/users/login" \
-                -H 'content-type: application/json' \
-                -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
-                | sed -n 's/.*"session_token":"\([^"]*\)".*/\1/p')
-              if [ -z "${CODER_SESSION_TOKEN}" ]; then
-                echo "could not sign in as ${ADMIN_EMAIL}; failing so the Job retries"
-                exit 1
-              fi
-              export CODER_SESSION_TOKEN
-
-              # 3. Idempotency, but revision-aware.
-              #
-              #    The old guard was "template exists -> exit 0", which meant a
-              #    cluster seeded before the IDE apps existed could never gain
-              #    them: the starter ships code-server ONLY, so opening IntelliJ
-              #    answered `404 - Application Not Found`. The description
-              #    carries ${IDE_REVISION}; when it already matches there is
-              #    genuinely nothing to do, and an operator editing the template
-              #    from the UI still wins because pushing a new version never
-              #    touches their running workspaces (those stay on the version
-              #    they were built from until someone updates them).
-              TPL_JSON=$(/opt/coder templates list -o json 2>/dev/null || echo '[]')
-              if echo "${TPL_JSON}" | grep -q "\"name\": *\"${TEMPLATE_NAME}\""; then
-                if echo "${TPL_JSON}" | grep -q "${IDE_REVISION}"; then
-                  echo "template ${TEMPLATE_NAME} is already at ${IDE_REVISION}; nothing to do"
-                  exit 0
-                fi
-                echo "template ${TEMPLATE_NAME} predates ${IDE_REVISION}; pushing a new version with the IDE apps"
-              fi
-
-              # 4. Materialise the embedded starter.
-              rm -rf /tmp/tpl && mkdir -p /tmp/tpl
-              /opt/coder templates init --id kubernetes /tmp/tpl/${TEMPLATE_NAME}
-
-              # 5. Add the desktop IDEs.
-              #
-              #    The starter defines exactly one app — browser code-server —
-              #    so IntelliJ had nothing to resolve to. These two are
-              #    `external`, i.e. deep links handed to the local machine
-              #    rather than proxied through Coder, so they cannot 404 on the
-              #    workspace proxy and need no extra ports on the agent. They
-              #    do require the matching client locally: JetBrains Gateway (or
-              #    Toolbox) for IntelliJ, and the Coder extension for VS Code.
-              #
-              #    No `share` on them: the coder provider rejects `external`
-              #    together with `share` ("external": conflicts with share),
-              #    which made `terraform plan` fail on every push — the seed
-              #    Job crash-looped and a fresh platform had NO template, i.e.
-              #    no Cloud Dev Environment at all (2026-09-15). External apps
-              #    are deep links, so the owner-only sharing is implicit.
-              # 5a. One workspace per repository.
-              #
-              #    The Console's "open this repo in an IDE" used to append
-              #    `?folder=/home/coder/<repo>` to whatever workspace was
-              #    running, and nothing had ever cloned the repo there — so
-              #    code-server answered "Workspace does not exist". Now a
-              #    workspace KNOWS its repository: the `git_repo` parameter is
-              #    cloned into /home/coder/<name> on every start (idempotent),
-              #    and both IDE apps open that folder. An empty parameter is
-              #    the plain home-directory workspace it always was.
-              cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-repo.tf <<'TF'
-              # ─── Added by the Adhar platform: the repository this workspace is for ───
-
-              data "coder_parameter" "git_repo" {
-                name         = "git_repo"
-                display_name = "Repository"
-                description  = "HTTPS clone URL. Checked out into /home/coder/<name> on every start; leave empty for a plain workspace."
-                type         = "string"
-                default      = ""
-                mutable      = true
-                order        = 10
-              }
-
-              locals {
-                repo_name        = data.coder_parameter.git_repo.value == "" ? "" : basename(trimsuffix(data.coder_parameter.git_repo.value, ".git"))
-                workspace_folder = local.repo_name == "" ? "/home/coder" : "/home/coder/${local.repo_name}"
-              }
-
-              resource "coder_script" "clone_repo" {
-                agent_id           = coder_agent.main.id
-                display_name       = "Clone repository"
-                icon               = "/icon/git.svg"
-                run_on_start       = true
-                start_blocks_login = false
-                script             = <<-EOT
-                  #!/bin/sh
-                  set -eu
-
-                  # Git identity, from the person who owns this workspace.
-                  #
-                  # Without it the very first `git commit` in the IDE dies with
-                  # "Author identity unknown. *** Please tell me who you are."
-                  # — a dead end inside a freshly-created environment, and one
-                  # nobody should have to fix by hand every time. Set, not
-                  # forced: --global writes ~/.gitconfig on the persistent home
-                  # volume, so anyone who prefers a different name or e-mail
-                  # edits it once and it survives every later start (the
-                  # guards below never overwrite an existing value).
-                  # The username comes from the AGENT'S ENVIRONMENT, not from
-                  # HCL.
-                  #
-                  # An HCL conditional picking full_name over name was tried and
-                  # wrote the literal string `default` into ~/.gitconfig
-                  # (verified 2026-09-25) — every commit in every cloud
-                  # environment would have been authored by "default". The same
-                  # `.name` attribute renders correctly OUTSIDE a ternary (the
-                  # IDE deep links below prove it: owner=adhar-admin), so the
-                  # conditional is what misrendered.
-                  #
-                  # CODER_WORKSPACE_OWNER_NAME is exported by the agent into
-                  # every session it starts and was verified to hold the real
-                  # username. A bare $VAR also passes through HCL untouched
-                  # (only a dollar-brace sequence interpolates), so there is
-                  # nothing left to escape and nothing left to get wrong.
-                  OWNER="$CODER_WORKSPACE_OWNER_NAME"
-                  [ -n "$OWNER" ] || OWNER=coder
-                  git config --global --get user.name  >/dev/null 2>&1 || \
-                    git config --global user.name "$OWNER"
-                  git config --global --get user.email >/dev/null 2>&1 || \
-                    git config --global user.email '${data.coder_workspace_owner.me.email}'
-                  # No credential helper is configured on purpose. git falls
-                  # back to GIT_ASKPASS, which the agent points at Coder — so
-                  # each fetch/push is answered with the person's own live Gitea
-                  # token instead of a copy cached on the volume. A `store`
-                  # helper would write that token to disk in plain text and keep
-                  # serving it after the person's access was revoked.
-                  #
-                  # Stop git from refusing the checkout when the home volume's
-                  # ownership does not match (a restored PVC, a changed fsGroup).
-                  git config --global --add safe.directory '*'
-
-                  # Open the workspace, not the Welcome tab.
-                  #
-                  # Both IDE apps already pass ?folder=<workspace_folder>, so
-                  # code-server opens the right directory — but VS Code still
-                  # draws "Get Started" over it on every connect, because
-                  # workbench.startupEditor defaults to welcomePage. Clicking
-                  # into a Cloud Development Environment and landing on a
-                  # marketing page is indistinguishable from the environment not
-                  # having opened the project at all.
-                  #
-                  # Written ONLY when the file does not exist: this is the
-                  # person's own settings file on a persistent home volume, and
-                  # a start-up script that rewrites it every time would undo
-                  # their editor preferences once a day.
-                  # printf, not a heredoc: this script is itself inside a
-                  # quoted heredoc that a later `sed` de-indents by 14 columns,
-                  # and a plain `<<JSON` terminator must sit at column 0 — it
-                  # would be shifted and the heredoc would never close.
-                  CS_SETTINGS="$HOME/.local/share/code-server/User/settings.json"
-                  if [ ! -f "$CS_SETTINGS" ]; then
-                    mkdir -p "$(dirname "$CS_SETTINGS")"
-                    printf '%s\n' '{' '  "workbench.startupEditor": "none"' '}' > "$CS_SETTINGS"
-                    echo "code-server: startupEditor set to none"
-                  fi
-
-                  REPO='${data.coder_parameter.git_repo.value}'
-                  [ -n "$REPO" ] || exit 0
-                  DEST='${local.workspace_folder}'
-                  if [ -d "$DEST/.git" ]; then
-                    echo "repository already checked out at $DEST"
-                    exit 0
-                  fi
-                  # GIT_ASKPASS is exported into this session by the agent and
-                  # resolves to the person's Gitea token via Coder's external
-                  # auth provider (values.yaml CODER_EXTERNAL_AUTH_0_*), so a
-                  # PRIVATE repository clones here too. A public one still
-                  # clones when nobody has authorised Gitea yet, which is why
-                  # this is not fatal on failure: the workspace must come up
-                  # either way so the person can fix it from the terminal.
-                  echo "cloning $REPO into $DEST"
-                  if ! git clone "$REPO" "$DEST"; then
-                    echo "clone failed — if $REPO is private, authorise Gitea"
-                    echo "once under Coder -> Account -> External Authentication,"
-                    echo "then re-run: git clone $REPO $DEST"
-                  fi
-                EOT
-              }
-              TF
-              sed -i 's/^              //' /tmp/tpl/${TEMPLATE_NAME}/adhar-repo.tf
-              # The starter's code-server app opens /home/coder; point it at the
-              # repository folder instead (a locals reference, so an empty
-              # parameter still opens home).
-              sed -i 's|url          = "http://localhost:13337?folder=/home/coder"|url          = "http://localhost:13337?folder=${local.workspace_folder}"|' /tmp/tpl/${TEMPLATE_NAME}/main.tf
-              grep -q 'folder=${local.workspace_folder}' /tmp/tpl/${TEMPLATE_NAME}/main.tf || { echo "starter changed shape: code-server url not patched"; exit 1; }
-
-              cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf <<'TF'
-              # ─── Added by the Adhar platform: desktop IDE entry points ───
-
-              resource "coder_app" "jetbrains_gateway" {
-                agent_id     = coder_agent.main.id
-                slug         = "jetbrains-gateway"
-                display_name = "IntelliJ IDEA"
-                icon         = "/icon/intellij.svg"
-                external     = true
-                order        = 1
-
-                # Opens JetBrains Gateway and points it at this workspace. IU =
-                # IntelliJ IDEA Ultimate; Gateway offers to download the backend
-                # on first connect.
-                url = join("", [
-                  "jetbrains-gateway://connect#type=coder",
-                  "&workspace=", data.coder_workspace.me.name,
-                  "&agent=main",
-                  "&owner=", data.coder_workspace_owner.me.name,
-                  "&url=", data.coder_workspace.me.access_url,
-                  "&token=$SESSION_TOKEN",
-                  "&ide_product_code=IU",
-                  "&folder=", local.workspace_folder,
-                ])
-              }
-
-              resource "coder_app" "vscode_desktop" {
-                agent_id     = coder_agent.main.id
-                slug         = "vscode-desktop"
-                display_name = "VS Code Desktop"
-                icon         = "/icon/code.svg"
-                external     = true
-                order        = 2
-
-                url = join("", [
-                  "vscode://coder.coder-remote/open?owner=", data.coder_workspace_owner.me.name,
-                  "&workspace=", data.coder_workspace.me.name,
-                  "&agent=main",
-                  "&url=", data.coder_workspace.me.access_url,
-                  "&token=$SESSION_TOKEN",
-                  "&folder=", local.workspace_folder,
-                ])
-              }
-              TF
-              # The heredoc above is indented for readability; strip it so
-              # Terraform sees column-0 HCL.
-              sed -i 's/^              //' /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf
-
-              # 6. Push, then stamp the revision so step 3 can recognise it.
-              /opt/coder templates push "${TEMPLATE_NAME}" \
-                --directory "/tmp/tpl/${TEMPLATE_NAME}" \
-                --variable "namespace=${WORKSPACE_NAMESPACE}" \
-                --variable "use_kubeconfig=false" \
-                --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo), git identity + Gitea push credentials, code-server + IntelliJ IDEA + VS Code Desktop, no Welcome tab, 1h idle autostop" \
-                --yes
-              # Stop an idle workspace after an hour, and stamp the revision so
-              # step 3 can recognise it.
-              #
-              # --default-ttl is the deadline from start; --activity-bump pushes
-              # that deadline to now+1h on every bit of activity Coder sees
-              # (agent traffic, an open IDE session, a terminal). Together they
-              # mean "stops one hour after the person stops working", not "stops
-              # one hour after it started" — the second would kill a workspace
-              # out from under someone mid-afternoon. A stopped workspace keeps
-              # its home volume, so restarting it is a boot, not a rebuild.
-              #
-              # Both flags are in the AGPL CLI. Dormancy and auto-deletion are
-              # enterprise-only and deliberately not used here.
-              /opt/coder templates edit "${TEMPLATE_NAME}" \
-                --description "Adhar cloud development environment (${IDE_REVISION})" \
-                --default-ttl 1h \
-                --activity-bump 1h \
-                --yes || echo "could not stamp the description/TTL; the next sync will re-push"
-              echo "template ${TEMPLATE_NAME} pushed at ${IDE_REVISION}"
+              value: adhar-ide-v7
+          # The script lives in ConfigMap coder-templates-seed (above): Argo CD
+          # leaves PostSync hooks out of sync status, so a change made only inside
+          # this Job never re-ran it (the v7 template sat unpublished, 2026-10-27).
+          command: [/bin/sh, /opt/coder-templates-seed/run.sh]
+          volumeMounts:
+            - {name: script, mountPath: /opt/coder-templates-seed, readOnly: true}
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {memory: 512Mi}
+      volumes:
+        - name: script
+          configMap: {name: coder-templates-seed}

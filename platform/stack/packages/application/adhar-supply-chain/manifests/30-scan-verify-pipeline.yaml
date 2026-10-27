@@ -9,9 +9,11 @@
 # Harbor is adhar-controlplane HTTP, so trivy/cosign are told the registry is non-TLS and
 # given the same admin credential the build SA uses.
 ---
-# The ONE excused finding class: Go stdlib CVEs in buildpack-provided binaries.
+# The TWO excused finding classes, both in buildpack-provided layers the
+# application did not write: (1) Go stdlib CVEs in buildpack binaries, (2) the
+# npm CLI that node-engine bundles in the Node.js launch layer (below the first).
 #
-# Every buildpack-built image carries several Go binaries the platform did not
+# (1) Every buildpack-built image carries several Go binaries the platform did not
 # write — the CNB lifecycle launcher and one exec.d helper per buildpack
 # (bellsoft-liberica, ca-certificates, spring-boot, nginx, ...). They are libpak
 # programs that read environment variables, compute JAVA_TOOL_OPTIONS or a
@@ -43,6 +45,28 @@
 # with zero findings left, while the Java service still exits 1 on its nine
 # CRITICAL dependency vulnerabilities, which are the platform's to fix and are
 # untouched by this.
+#
+# (2) The npm CLI inside the Node.js launch layer. paketo's node-engine installs
+# node AND the npm release that ships with it into ONE layer
+# (layers/paketo-buildpacks_node-engine/node), marked launch so the image can run
+# node — and npm comes along, because node-engine has no option to leave it out.
+# The image never executes it: npm-start's process is `sh start.sh`, which runs
+# the start script's command (`node index.js`) directly. npm's own dependencies
+# then carry five HIGH findings no Node release fixes. Measured with Trivy 0.58.1
+# on the npm each Node line bundles (2026-10-28): 24.22.1 (npm 11.19.1) and
+# 26.12.1 (npm 11.20.0) carry exactly these five and nothing else, while 22.23.4
+# (npm 10.9.9) and 20.20.2 (npm 10.8.2) carry these plus 8 and 17 more — so
+# "pick another Node" is not a fix, and a function on Node 24 (test-func,
+# harbor …/library/test-func@sha256:68b5adbc…) was refused for build tooling it
+# never runs. The real fix is keeping npm out of the runtime image, which needs
+# a build path that is not node-engine.
+#
+# Scoped by exact PATH (no PURL, no glob): Trivy matches `paths` against each
+# finding's target and PkgPath, so ONLY the copy under node-engine's npm is
+# excused. Verified on that image (5 HIGH → 0) and on a synthetic tree where
+# the same three packages at the same versions sit in the application's
+# node_modules (npm-install's launch-modules, /workspace/node_modules) and in
+# corepack: all fifteen of those findings still fail the gate.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -89,6 +113,42 @@ data:
           TLS chain; the buildpack exec.d helpers make no network connections.
           Fixed in Go 1.27.3, which no published Paketo buildpack is built with.
         expired_at: 2026-11-30
+      # Class (2): the npm CLI node-engine bundles next to node. Exact paths,
+      # so the same packages in the application's own node_modules — or
+      # anywhere else in the image — are still gated.
+      - id: CVE-2026-102276
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/brace-expansion/package.json"]
+        statement: >-
+          brace-expansion bundled in the npm CLI that node-engine installs next
+          to node. The image runs node directly (npm-start's start.sh); npm is
+          build tooling the running application never executes, and every Node
+          release the builder offers bundles an affected copy.
+        expired_at: 2027-01-31
+      - id: CVE-2026-102278
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/brace-expansion/package.json"]
+        statement: >-
+          brace-expansion bundled in the npm CLI that node-engine installs next
+          to node; the same unexecuted build tooling as CVE-2026-102276.
+        expired_at: 2027-01-31
+      - id: CVE-2026-109869
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/undici/package.json"]
+        statement: >-
+          undici bundled in the npm CLI (npm's own registry client), not an
+          undici the application imports; the running process is node, never
+          npm. Fixed in undici 6.29.1, which no npm that Node ships bundles yet.
+        expired_at: 2027-01-31
+      - id: CVE-2026-19534
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/undici/package.json"]
+        statement: >-
+          undici bundled in the npm CLI (npm's own registry client); the same
+          unexecuted build tooling as CVE-2026-109869.
+        expired_at: 2027-01-31
+      - id: CVE-2026-93748
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/http-cache-semantics/package.json"]
+        statement: >-
+          http-cache-semantics bundled in the npm CLI for npm's own HTTP cache;
+          the running application never executes npm. No fixed release exists.
+        expired_at: 2027-01-31
 ---
 # Image vulnerability scan.
 #

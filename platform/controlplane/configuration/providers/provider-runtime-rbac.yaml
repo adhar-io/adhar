@@ -142,6 +142,14 @@ rules:
   - apiGroups: ["dapr.io"]
     resources: ["subscriptions"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Every environment's Dapr building blocks (compositions/env/local.yaml): the
+  # pubsub / statestore / lockstore / configstore / secretstore Components, the
+  # adhar-dapr Configuration its apps name in dapr.io/config, and the default
+  # Resiliency. Without these the Objects sit at "forbidden" and an app that
+  # names adhar-dapr has a sidecar that cannot load its configuration.
+  - apiGroups: ["dapr.io"]
+    resources: ["components", "configurations", "resiliencies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Agent workloads (compositions/agent): the AI-gateway policy that IS the
   # agent's grant, and the PrometheusRule that alerts on its declared budget.
   # This is the identity that actually applies composed Objects, so the grant
@@ -223,6 +231,21 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles"]
     resourceNames: ["admin", "edit", "view"]
+    verbs: ["bind"]
+  # The project composition's resilience gate binds two more roles the
+  # provider does not itself hold: the Kargo verification Jobs' ClusterRole
+  # (pods, pods/log read; jobs deletecollection) and the gate runner's Role.
+  # Both RoleBindings were refused with "attempting to grant RBAC permissions
+  # not currently held" and Project adhar sat at "Unready resources:
+  # resilience-gate-kargo-jobs, resilience-gate-runner" (2026-10-26). Pinned by
+  # name for the same reason as above.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["adhar-kargo-verification-jobs"]
+    verbs: ["bind"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles"]
+    resourceNames: ["adhar-resilience-gate"]
     verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

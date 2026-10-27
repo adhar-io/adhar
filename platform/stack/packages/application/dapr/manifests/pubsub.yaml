@@ -1,23 +1,42 @@
+# Pub/sub for Dapr apps in the PLATFORM namespace (adhar-system).
+#
+# Environment namespaces get their own `pubsub` from the Environment
+# composition (compositions/env/local.yaml): Kafka when the cluster runs
+# adhar-kafka, Redis streams on dapr-state otherwise. This one is the platform
+# namespace's, and it is Redis streams on dapr-state, database 0, because that
+# store ships in this package: nothing here depends on another package being
+# enabled.
+#
+# It used to point at `redis-master:6379` with a `redis` Secret — the bitnami
+# chart's defaults, copied from Dapr's quickstart. Neither existed (the redis
+# package is off in every profile), so a sidecar in this namespace would have
+# failed to start on this component.
+#
+# `consumerID: "{namespace}"` is load-bearing twice over (README.md, "Pub/sub"):
+# Dapr expands it to <namespace>.<app-id>, so every app is its own consumer
+# group, and a value that names {namespace} makes Dapr prefix every topic with
+# the namespace on the wire, so a topic here never meets an environment's.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
   name: pubsub
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: dapr
   annotations:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   type: pubsub.redis
   version: v1
+  initTimeout: 15s
   metadata:
-    # These settings will work out of the box if you use `helm install
-    # bitnami/redis`.  If you have your own setup, replace
-    # `redis-master:6379` with your own Redis master address, and the
-    # Redis password with your own Secret's name. For more information,
-    # see https://docs.dapr.io/operations/components/component-secrets .
     - name: redisHost
-      value: redis-master:6379
-    - name: redisPassword
-      secretKeyRef:
-        name: redis
-        key: redis-password
-auth:
-  secretStore: kubernetes
+      value: dapr-state.adhar-system.svc.cluster.local:6379
+    - name: redisDB
+      value: "0"
+    - name: consumerID
+      value: "{namespace}"
+    # Streams share the store's 160 MB with state (noeviction): cap each one so
+    # a topic nobody consumes cannot fill it and stop every state write.
+    - name: maxLenApprox
+      value: "10000"

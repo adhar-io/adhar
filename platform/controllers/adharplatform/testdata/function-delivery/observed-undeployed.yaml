@@ -1,0 +1,108 @@
+# test-func as it was on 2026-10-26: a repository with a flat deploy/ and no
+# deploy/envs, so stage/dev is an EMPTY branch Kargo created (Synced, Healthy,
+# no resources), stage/test and stage/prod do not exist (ComparisonError), and
+# the seed Job failed on the missing overlay. Each object carries the
+# composition resource name Crossplane hands the function.
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-project
+  annotations:
+    crossplane.io/composition-resource-name: project
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+    - {type: Synced, status: "True", reason: ReconcileSuccess}
+  atProvider:
+    manifest:
+      apiVersion: platform.adhar.io/v1alpha1
+      kind: Project
+      metadata: {name: adhar, namespace: adhar-system}
+      status:
+        organisation: adhar
+        team: platform
+        imageRegistry: harbor-core.adhar-system.svc.cluster.local/library
+        environments:
+          - {name: dev, namespace: dev, tier: dev, autoPromote: true}
+          - {name: test, namespace: test, tier: test, autoPromote: true}
+          - {name: prod, namespace: prod, tier: prod, autoPromote: false}
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-app-dev
+  annotations:
+    crossplane.io/composition-resource-name: app-dev
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+  atProvider:
+    manifest:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata: {name: adhar-test-func-dev, namespace: adhar-system}
+      status:
+        sync: {status: Synced, revision: 90ad96f1558a}
+        health: {status: Healthy}
+        resources: []
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-app-test
+  annotations:
+    crossplane.io/composition-resource-name: app-test
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+  atProvider:
+    manifest:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata: {name: adhar-test-func-test, namespace: adhar-system}
+      status:
+        sync: {status: Unknown}
+        health: {status: Healthy}
+        conditions:
+          - type: ComparisonError
+            message: "Failed to load target state: failed to generate manifest for source 1 of 1: rpc error: code = Unknown desc = unable to resolve 'stage/test' to a commit SHA"
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: test-func-app-prod
+  annotations:
+    crossplane.io/composition-resource-name: app-prod
+status:
+  conditions:
+    - {type: Ready, status: "True", reason: Available}
+  atProvider:
+    manifest:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata: {name: adhar-test-func-prod, namespace: adhar-system}
+      status:
+        sync: {status: Unknown}
+        health: {status: Healthy}
+        conditions:
+          - type: ComparisonError
+            message: "Failed to load target state: failed to generate manifest for source 1 of 1: rpc error: code = Unknown desc = unable to resolve 'stage/prod' to a commit SHA"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-func-stage-seed
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: stage-seed
+status:
+  failed: 1
+  conditions:
+    - type: FailureTarget
+      status: "True"
+      reason: PodFailurePolicy
+      message: Container seed for pod adhar-system/test-func-stage-seed-x7k2p failed with exit code 3 matching FailJob rule at index 0
+    - type: Failed
+      status: "True"
+      reason: PodFailurePolicy
+      message: Container seed for pod adhar-system/test-func-stage-seed-x7k2p failed with exit code 3 matching FailJob rule at index 0

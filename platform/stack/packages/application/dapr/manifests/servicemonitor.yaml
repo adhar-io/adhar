@@ -1,14 +1,25 @@
-# Dapr Prometheus monitors
-# Not emitted by the chart (dapr-1.17.9 renders no ServiceMonitor). Two monitors:
-#   1. control plane — every system Service (dapr-api/operator, dapr-placement-server,
-#      dapr-sentry, dapr-sidecar-injector, dapr-scheduler-server) declares a
-#      "metrics" port (9090) serving dapr_* metrics at /metrics. dapr-webhook has
-#      no such port and is skipped automatically.
-#   2. sidecars — the injector labels every injected pod dapr.io/sidecar-injected=true
-#      and the daprd container exposes port "dapr-metrics" (9090); pods live in any
+# Dapr Prometheus monitors. The chart renders none (dapr 1.18.3, values.yaml
+# global.prometheus: every control-plane binary and every daprd serve their
+# metrics on port 9090). Prometheus selects every ServiceMonitor and PodMonitor
+# ({} selectors), so these are scraped as-is. What reads them: the Grafana
+# dashboards Delivery / Dapr and Delivery / Developer Platform (built by
+# observability/kube-prometheus/dash_delivery.py) and manifests/rules.yaml.
+#
+#   1. dapr-control-plane: every system Service declares a "metrics" port.
+#      dapr-webhook has none and is skipped by the port match. The scheduler has
+#      TWO Services in front of one pod (the StatefulSet's headless
+#      dapr-scheduler-server, and dapr-scheduler-server-a, the address sidecars
+#      dial), so without the drop below every scheduler series was scraped
+#      twice: 2,722 series under job="scheduler", and every sum over them
+#      doubled.
+#   2. dapr-sidecars: the injector labels every injected pod
+#      dapr.io/sidecar-injected=true and names the daprd metrics port
+#      "dapr-metrics" (9090, or whatever dapr.io/metrics-port says: Knative
+#      functions use 9095 because the queue-proxy holds 9090). Pods live in any
 #      namespace, so the PodMonitor selects cluster-wide.
-# Prometheus selectors are empty ({}), so both are scraped as-is and feed the
-# Dapr System Services / Dapr Sidecar Grafana dashboards.
+#   3. dapr-state: the redis_exporter beside the store every environment's
+#      state, locks, configuration and (without Kafka) pub/sub live in. It puts
+#      the store on the Data / Valkey dashboard and feeds DaprStateStore* alerts.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -36,6 +47,17 @@ spec:
       interval: 60s
       scrapeTimeout: 30s
       honorLabels: true
+      relabelings:
+        # One scrape per scheduler pod: keep the headless Service, drop the -a one.
+        - sourceLabels: [__meta_kubernetes_service_name]
+          regex: dapr-scheduler-server-a
+          action: drop
+      metricRelabelings:
+        # The scheduler's embedded etcd publishes ~120 families; the debugging
+        # ones are etcd internals nothing here reads.
+        - sourceLabels: [__name__]
+          regex: etcd_debugging_.*
+          action: drop
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
@@ -59,4 +81,36 @@ spec:
       path: /metrics
       interval: 60s
       scrapeTimeout: 30s
+      # daprd's own app_id and namespace tags win over the target's.
       honorLabels: true
+      relabelings:
+        # daprd tags its dapr_* series with app_id but not its process_* and
+        # go_* ones, and `up` has nothing to say which app a sidecar serves:
+        # copy the injector's pod label so every series of a sidecar carries it.
+        - sourceLabels: [__meta_kubernetes_pod_label_dapr_io_app_id]
+          targetLabel: app_id
+          action: replace
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: dapr-state
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: dapr-state
+    app.kubernetes.io/part-of: dapr
+    app.kubernetes.io/managed-by: adhar
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dapr-state
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

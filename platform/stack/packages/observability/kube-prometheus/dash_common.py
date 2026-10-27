@@ -49,6 +49,7 @@ UIDS = {
     "gitops": "adhar-gitops",
     "ci": "adhar-ci",
     "dev-platform": "adhar-dev-platform",
+    "dapr": "adhar-dapr",
     # Security
     "policy": "adhar-policy",
     "runtime-security": "adhar-runtime-security",

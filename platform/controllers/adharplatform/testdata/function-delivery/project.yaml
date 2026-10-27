@@ -1,0 +1,16 @@
+# Project `adhar` for the project composition: its shared promotion chain
+# verifies every application, the Function among them, per environment.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Project
+metadata:
+  name: adhar
+  namespace: adhar-system
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: project
+  parameters:
+    name: adhar
+    organisation: adhar
+    team: platform

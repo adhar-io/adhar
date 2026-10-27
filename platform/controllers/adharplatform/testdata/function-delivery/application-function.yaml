@@ -1,0 +1,26 @@
+# A Function delivered as an Application (type: function), the way the console
+# creates one from a function-* template: its repository carries
+# deploy/base/function.yaml and deploy/envs/{dev,test,prod}, and every
+# environment of project `adhar` runs it. Rendered by function_delivery_test.go
+# in-process and through `crossplane render` with the observed-*.yaml files.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata:
+  name: test-func
+  namespace: adhar-system
+  labels:
+    adhar.io/dashboard-type: backend-generic
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: apps
+        topology: multi-env
+  parameters:
+    type: function
+    project: adhar
+    displayName: test-func
+    source:
+      repoURL: https://gitea.cloud.example.com/adhar/test-func.git
+      path: deploy
+      targetRevision: main

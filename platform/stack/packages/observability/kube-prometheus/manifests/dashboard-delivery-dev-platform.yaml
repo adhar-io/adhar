@@ -3313,6 +3313,99 @@ data:
           },
           "panels": [
             {
+              "type": "stat",
+              "title": "Scheduler leader",
+              "description": "Whether the Dapr scheduler's embedded etcd has a leader. Without one the Jobs API, actor reminders and every Workflow are stopped while the pod stays Ready. The Dapr dashboard (panel menu) has the whole runtime.",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "max(etcd_server_has_leader{job=\"scheduler\"})",
+                  "legendFormat": "",
+                  "range": true,
+                  "instant": false,
+                  "editorMode": "code",
+                  "refId": "A"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short",
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "red",
+                        "value": null
+                      },
+                      {
+                        "color": "green",
+                        "value": 1
+                      }
+                    ]
+                  },
+                  "mappings": [
+                    {
+                      "type": "value",
+                      "options": {
+                        "0": {
+                          "text": "NO LEADER",
+                          "color": "red",
+                          "index": 0
+                        },
+                        "1": {
+                          "text": "leader",
+                          "color": "green",
+                          "index": 1
+                        }
+                      }
+                    }
+                  ],
+                  "noValue": "not scraped"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "center",
+                "textMode": "auto",
+                "orientation": "auto",
+                "wideLayout": true,
+                "showPercentChange": false,
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                }
+              },
+              "links": [
+                {
+                  "title": "Dapr",
+                  "url": "/d/adhar-dapr?${__url_time_range}",
+                  "targetBlank": false
+                }
+              ],
+              "id": 34,
+              "gridPos": {
+                "h": 8,
+                "w": 4,
+                "x": 0,
+                "y": 9
+              }
+            },
+            {
               "type": "timeseries",
               "title": "Sidecar injections",
               "description": "Sidecar injection requests per second handled by the injector.",
@@ -3396,11 +3489,11 @@ data:
                   "sort": "desc"
                 }
               },
-              "id": 34,
+              "id": 35,
               "gridPos": {
                 "h": 8,
-                "w": 6,
-                "x": 0,
+                "w": 5,
+                "x": 4,
                 "y": 9
               }
             },
@@ -3484,11 +3577,11 @@ data:
                   "sort": "none"
                 }
               },
-              "id": 35,
+              "id": 36,
               "gridPos": {
                 "h": 8,
-                "w": 6,
-                "x": 6,
+                "w": 5,
+                "x": 9,
                 "y": 9
               }
             },
@@ -3588,11 +3681,11 @@ data:
                   "sort": "desc"
                 }
               },
-              "id": 36,
+              "id": 37,
               "gridPos": {
                 "h": 8,
-                "w": 6,
-                "x": 12,
+                "w": 5,
+                "x": 14,
                 "y": 9
               }
             },
@@ -3662,11 +3755,18 @@ data:
                   "values": false
                 }
               },
-              "id": 37,
+              "links": [
+                {
+                  "title": "Dapr",
+                  "url": "/d/adhar-dapr?${__url_time_range}",
+                  "targetBlank": false
+                }
+              ],
+              "id": 38,
               "gridPos": {
                 "h": 8,
-                "w": 6,
-                "x": 18,
+                "w": 5,
+                "x": 19,
                 "y": 9
               }
             },
@@ -3800,7 +3900,7 @@ data:
                   "sort": "desc"
                 }
               },
-              "id": 38,
+              "id": 39,
               "gridPos": {
                 "h": 8,
                 "w": 8,
@@ -3945,7 +4045,7 @@ data:
                   "sort": "desc"
                 }
               },
-              "id": 39,
+              "id": 40,
               "gridPos": {
                 "h": 8,
                 "w": 8,
@@ -4066,7 +4166,7 @@ data:
                   "sort": "desc"
                 }
               },
-              "id": 40,
+              "id": 41,
               "gridPos": {
                 "h": 8,
                 "w": 8,

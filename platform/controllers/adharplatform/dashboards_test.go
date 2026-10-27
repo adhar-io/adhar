@@ -245,6 +245,7 @@ var dashboardCoverage = map[string][]string{
 	"delivery-gitops":         {"argo-rollout", "kargo"},
 	"delivery-ci":             {"tekton", "argo-events", "harbor", "nexus", "buildpack"},
 	"delivery-dev-platform":   {"crossplane", "coder", "dapr"},
+	"delivery-dapr":           {"dapr"},
 	"security-policy":         {"kyverno", "trivy"},
 	"security-runtime":        {"falco", "tetragon"},
 	"security-identity":       {"keycloak", "external-secrets", "openbao", "cert-manager"},

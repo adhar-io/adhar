@@ -95,6 +95,153 @@ roleRef:
   name: coder-gitea-external-auth
   apiGroup: rbac.authorization.k8s.io
 ---
+# The registration script the coder-gitea-oauth-app Job runs (see the Job).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-gitea-oauth-app
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+data:
+  run.sh: |
+    set -eu
+
+    NS=adhar-system
+    K8S=https://kubernetes.default.svc
+    SA=/var/run/secrets/kubernetes.io/serviceaccount
+    KTOK=$(cat "${SA}/token")
+    REDIRECT="${CODER_PUBLIC_URL}/external-auth/gitea/callback"
+
+    # Small helper: JSON string field out of a flat object. Good
+    # enough here and avoids depending on jq being in the image.
+    field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" | head -1; }
+
+    # ---- 1. Wait for the Gitea API -------------------------------
+    ok=""
+    for i in $(seq 1 60); do
+      if curl -sf --max-time 10 -H "Authorization: token ${GITEA_TOKEN}" \
+           "${GITEA_API}/api/v1/version" >/dev/null 2>&1; then ok=1; break; fi
+      echo "waiting for the Gitea API (${i})"
+      sleep 5
+    done
+    [ -n "${ok}" ] || { echo "Gitea API not reachable; failing so the Job retries"; exit 1; }
+
+    # ---- 2. Already done? ----------------------------------------
+    # Idempotency has to hold on BOTH sides: the Secret must exist and
+    # the app it names must still be registered in Gitea. Checking
+    # only the Secret would leave Coder pointing at an application
+    # someone deleted; checking only Gitea would re-create the app on
+    # every sync and invalidate everyone's tokens (the secret is
+    # returned once, at creation, and never again).
+    EXISTING=$(curl -s --max-time 10 --cacert "${SA}/ca.crt" \
+                 -H "Authorization: Bearer ${KTOK}" \
+                 "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}" 2>/dev/null || true)
+    HAVE_ID=$(printf '%s' "${EXISTING}" | sed -n 's/.*"CODER_EXTERNAL_AUTH_0_CLIENT_ID":"\([^"]*\)".*/\1/p' | head -1)
+    if [ -n "${HAVE_ID}" ]; then
+      HAVE_ID=$(printf '%s' "${HAVE_ID}" | base64 -d 2>/dev/null || true)
+    fi
+    APPS=$(curl -s --max-time 15 -H "Authorization: token ${GITEA_TOKEN}" \
+             "${GITEA_API}/api/v1/user/applications/oauth2" 2>/dev/null || echo '[]')
+    if [ -n "${HAVE_ID}" ] && printf '%s' "${APPS}" | grep -q "\"${HAVE_ID}\""; then
+      # Keep the application consent-free (step 4 says why). A PATCH keeps the
+      # client id and secret, so no token anyone holds is invalidated.
+      APP_ID=$(printf '%s' "${APPS}" | tr '}' '\n' | grep -F "\"${HAVE_ID}\"" \
+                 | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)
+      if [ -n "${APP_ID}" ]; then
+        curl -sf --max-time 20 -X PATCH \
+          -H "Authorization: token ${GITEA_TOKEN}" -H 'content-type: application/json' \
+          -d "{\"name\":\"${OAUTH_APP_NAME}\",\"redirect_uris\":[\"${REDIRECT}\"],\"confidential_client\":true,\"skip_secondary_authorization\":true}" \
+          "${GITEA_API}/api/v1/user/applications/oauth2/${APP_ID}" >/dev/null \
+          || { echo "could not mark application ${APP_ID} consent-free; failing so the Job retries"; exit 1; }
+      fi
+      echo "Gitea OAuth2 application ${HAVE_ID} already registered and published; consent screen off"
+      exit 0
+    fi
+
+    # ---- 3. Remove a stale application of the same name -----------
+    # Only reached when the Secret is missing or dangling, so no
+    # working token is being thrown away.
+    printf '%s' "${APPS}" \
+      | tr '}' '\n' \
+      | grep -F "\"${OAUTH_APP_NAME}\"" \
+      | sed -n 's/.*"id":\([0-9]*\).*/\1/p' \
+      | while read -r id; do
+          [ -n "${id}" ] || continue
+          echo "deleting stale Gitea OAuth2 application ${id}"
+          curl -s -X DELETE --max-time 15 -H "Authorization: token ${GITEA_TOKEN}" \
+            "${GITEA_API}/api/v1/user/applications/oauth2/${id}" >/dev/null 2>&1 || true
+        done
+
+    # ---- 4. Register the application -----------------------------
+    # skip_secondary_authorization: no "Authorize application?" page. Gitea signs
+    # the person in through Keycloak already, so with the consent page gone the
+    # whole link (Coder → Gitea → Coder) completes without a click. Without it a
+    # workspace's first `git clone` waited on a link nobody was shown — the
+    # startup script printed "Open the following URL to authenticate with Git"
+    # and the editor opened on an empty folder (2026-10-27).
+    echo "registering Gitea OAuth2 application for Coder (redirect ${REDIRECT})"
+    APP=$(curl -sf --max-time 20 -X POST \
+            -H "Authorization: token ${GITEA_TOKEN}" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"${OAUTH_APP_NAME}\",\"redirect_uris\":[\"${REDIRECT}\"],\"confidential_client\":true,\"skip_secondary_authorization\":true}" \
+            "${GITEA_API}/api/v1/user/applications/oauth2") || {
+      echo "could not create the OAuth2 application; failing so the Job retries"; exit 1; }
+
+    CID=$(printf '%s' "${APP}" | field client_id)
+    CSEC=$(printf '%s' "${APP}" | field client_secret)
+    if [ -z "${CID}" ] || [ -z "${CSEC}" ]; then
+      echo "Gitea did not return client_id/client_secret; response shape changed"
+      exit 1
+    fi
+
+    # ---- 5. Publish the COMPLETE provider config -----------------
+    # Every key is an env var name, because values.yaml consumes this
+    # Secret with `envFrom`. Nothing about the provider lives in the
+    # Deployment, so Coder never sees a half-configured one.
+    b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+
+    # TOKEN_URL / VALIDATE_URL are called by the Coder POD, so they use
+    # the adhar-controlplane Service: the public host would leave the cluster
+    # and come back through the Gateway, and would need Coder's Go HTTP
+    # client to trust the Gateway certificate. Gitea validates
+    # `redirect_uri` from the request body rather than the Host header,
+    # so a code minted against the public AUTH_URL redeems here fine.
+    #
+    # REGEX is matched against the git remote URL and must cover BOTH
+    # spellings in use: workspaces clone over the adhar-controlplane Service,
+    # while a desktop IDE or a pasted URL uses the public host. The
+    # bare word `gitea` covers both and cannot go stale when the
+    # platform domain changes.
+    BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"app.kubernetes.io/part-of":"coder"}},"type":"Opaque","data":{"CODER_EXTERNAL_AUTH_0_ID":"%s","CODER_EXTERNAL_AUTH_0_TYPE":"%s","CODER_EXTERNAL_AUTH_0_DISPLAY_NAME":"%s","CODER_EXTERNAL_AUTH_0_DISPLAY_ICON":"%s","CODER_EXTERNAL_AUTH_0_CLIENT_ID":"%s","CODER_EXTERNAL_AUTH_0_CLIENT_SECRET":"%s","CODER_EXTERNAL_AUTH_0_AUTH_URL":"%s","CODER_EXTERNAL_AUTH_0_TOKEN_URL":"%s","CODER_EXTERNAL_AUTH_0_VALIDATE_URL":"%s","CODER_EXTERNAL_AUTH_0_SCOPES":"%s","CODER_EXTERNAL_AUTH_0_REGEX":"%s"}}' \
+             "${TARGET_SECRET}" "${NS}" \
+             "$(b64 gitea)" \
+             "$(b64 gitea)" \
+             "$(b64 Gitea)" \
+             "$(b64 /icon/gitea.svg)" \
+             "$(b64 "${CID}")" \
+             "$(b64 "${CSEC}")" \
+             "$(b64 "${GITEA_PUBLIC_URL}/login/oauth/authorize")" \
+             "$(b64 "${GITEA_API}/login/oauth/access_token")" \
+             "$(b64 "${GITEA_API}/api/v1/user")" \
+             "$(b64 'read:user,write:repository')" \
+             "$(b64 gitea)")
+
+    code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 20 --cacert "${SA}/ca.crt" \
+             -H "Authorization: Bearer ${KTOK}" -H 'content-type: application/json' \
+             -X POST -d "${BODY}" "${K8S}/api/v1/namespaces/${NS}/secrets")
+    if [ "${code}" = "409" ]; then
+      # Replace the dangling Secret from step 2.
+      code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 20 --cacert "${SA}/ca.crt" \
+               -H "Authorization: Bearer ${KTOK}" -H 'content-type: application/json' \
+               -X PUT -d "${BODY}" "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}")
+    fi
+    case "${code}" in
+      20*) echo "published ${TARGET_SECRET} (client id ${CID})" ;;
+      *)   echo "could not write ${TARGET_SECRET} (http ${code})"; head -c 400 /tmp/out; exit 1 ;;
+    esac
+
+    echo "Gitea external auth registered; manifests/oidc-reload.yaml will restart Coder to load it"
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -151,129 +298,16 @@ spec:
               value: coder-gitea-oauth
             - name: GITEA_TOKEN
               valueFrom: {secretKeyRef: {name: gitea-credential, key: token}}
-          command: [/bin/sh, -c]
-          args:
-            - |
-              set -eu
-
-              NS=adhar-system
-              K8S=https://kubernetes.default.svc
-              SA=/var/run/secrets/kubernetes.io/serviceaccount
-              KTOK=$(cat "${SA}/token")
-              REDIRECT="${CODER_PUBLIC_URL}/external-auth/gitea/callback"
-
-              # Small helper: JSON string field out of a flat object. Good
-              # enough here and avoids depending on jq being in the image.
-              field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" | head -1; }
-
-              # ---- 1. Wait for the Gitea API -------------------------------
-              ok=""
-              for i in $(seq 1 60); do
-                if curl -sf --max-time 10 -H "Authorization: token ${GITEA_TOKEN}" \
-                     "${GITEA_API}/api/v1/version" >/dev/null 2>&1; then ok=1; break; fi
-                echo "waiting for the Gitea API (${i})"
-                sleep 5
-              done
-              [ -n "${ok}" ] || { echo "Gitea API not reachable; failing so the Job retries"; exit 1; }
-
-              # ---- 2. Already done? ----------------------------------------
-              # Idempotency has to hold on BOTH sides: the Secret must exist and
-              # the app it names must still be registered in Gitea. Checking
-              # only the Secret would leave Coder pointing at an application
-              # someone deleted; checking only Gitea would re-create the app on
-              # every sync and invalidate everyone's tokens (the secret is
-              # returned once, at creation, and never again).
-              EXISTING=$(curl -s --max-time 10 --cacert "${SA}/ca.crt" \
-                           -H "Authorization: Bearer ${KTOK}" \
-                           "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}" 2>/dev/null || true)
-              HAVE_ID=$(printf '%s' "${EXISTING}" | sed -n 's/.*"CODER_EXTERNAL_AUTH_0_CLIENT_ID":"\([^"]*\)".*/\1/p' | head -1)
-              if [ -n "${HAVE_ID}" ]; then
-                HAVE_ID=$(printf '%s' "${HAVE_ID}" | base64 -d 2>/dev/null || true)
-              fi
-              APPS=$(curl -s --max-time 15 -H "Authorization: token ${GITEA_TOKEN}" \
-                       "${GITEA_API}/api/v1/user/applications/oauth2" 2>/dev/null || echo '[]')
-              if [ -n "${HAVE_ID}" ] && printf '%s' "${APPS}" | grep -q "\"${HAVE_ID}\""; then
-                echo "Gitea OAuth2 application ${HAVE_ID} already registered and published; nothing to do"
-                exit 0
-              fi
-
-              # ---- 3. Remove a stale application of the same name -----------
-              # Only reached when the Secret is missing or dangling, so no
-              # working token is being thrown away.
-              printf '%s' "${APPS}" \
-                | tr '}' '\n' \
-                | grep -F "\"${OAUTH_APP_NAME}\"" \
-                | sed -n 's/.*"id":\([0-9]*\).*/\1/p' \
-                | while read -r id; do
-                    [ -n "${id}" ] || continue
-                    echo "deleting stale Gitea OAuth2 application ${id}"
-                    curl -s -X DELETE --max-time 15 -H "Authorization: token ${GITEA_TOKEN}" \
-                      "${GITEA_API}/api/v1/user/applications/oauth2/${id}" >/dev/null 2>&1 || true
-                  done
-
-              # ---- 4. Register the application -----------------------------
-              echo "registering Gitea OAuth2 application for Coder (redirect ${REDIRECT})"
-              APP=$(curl -sf --max-time 20 -X POST \
-                      -H "Authorization: token ${GITEA_TOKEN}" \
-                      -H 'content-type: application/json' \
-                      -d "{\"name\":\"${OAUTH_APP_NAME}\",\"redirect_uris\":[\"${REDIRECT}\"],\"confidential_client\":true}" \
-                      "${GITEA_API}/api/v1/user/applications/oauth2") || {
-                echo "could not create the OAuth2 application; failing so the Job retries"; exit 1; }
-
-              CID=$(printf '%s' "${APP}" | field client_id)
-              CSEC=$(printf '%s' "${APP}" | field client_secret)
-              if [ -z "${CID}" ] || [ -z "${CSEC}" ]; then
-                echo "Gitea did not return client_id/client_secret; response shape changed"
-                exit 1
-              fi
-
-              # ---- 5. Publish the COMPLETE provider config -----------------
-              # Every key is an env var name, because values.yaml consumes this
-              # Secret with `envFrom`. Nothing about the provider lives in the
-              # Deployment, so Coder never sees a half-configured one.
-              b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
-
-              # TOKEN_URL / VALIDATE_URL are called by the Coder POD, so they use
-              # the adhar-controlplane Service: the public host would leave the cluster
-              # and come back through the Gateway, and would need Coder's Go HTTP
-              # client to trust the Gateway certificate. Gitea validates
-              # `redirect_uri` from the request body rather than the Host header,
-              # so a code minted against the public AUTH_URL redeems here fine.
-              #
-              # REGEX is matched against the git remote URL and must cover BOTH
-              # spellings in use: workspaces clone over the adhar-controlplane Service,
-              # while a desktop IDE or a pasted URL uses the public host. The
-              # bare word `gitea` covers both and cannot go stale when the
-              # platform domain changes.
-              BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"app.kubernetes.io/part-of":"coder"}},"type":"Opaque","data":{"CODER_EXTERNAL_AUTH_0_ID":"%s","CODER_EXTERNAL_AUTH_0_TYPE":"%s","CODER_EXTERNAL_AUTH_0_DISPLAY_NAME":"%s","CODER_EXTERNAL_AUTH_0_DISPLAY_ICON":"%s","CODER_EXTERNAL_AUTH_0_CLIENT_ID":"%s","CODER_EXTERNAL_AUTH_0_CLIENT_SECRET":"%s","CODER_EXTERNAL_AUTH_0_AUTH_URL":"%s","CODER_EXTERNAL_AUTH_0_TOKEN_URL":"%s","CODER_EXTERNAL_AUTH_0_VALIDATE_URL":"%s","CODER_EXTERNAL_AUTH_0_SCOPES":"%s","CODER_EXTERNAL_AUTH_0_REGEX":"%s"}}' \
-                       "${TARGET_SECRET}" "${NS}" \
-                       "$(b64 gitea)" \
-                       "$(b64 gitea)" \
-                       "$(b64 Gitea)" \
-                       "$(b64 /icon/gitea.svg)" \
-                       "$(b64 "${CID}")" \
-                       "$(b64 "${CSEC}")" \
-                       "$(b64 "${GITEA_PUBLIC_URL}/login/oauth/authorize")" \
-                       "$(b64 "${GITEA_API}/login/oauth/access_token")" \
-                       "$(b64 "${GITEA_API}/api/v1/user")" \
-                       "$(b64 'read:user,write:repository')" \
-                       "$(b64 gitea)")
-
-              code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 20 --cacert "${SA}/ca.crt" \
-                       -H "Authorization: Bearer ${KTOK}" -H 'content-type: application/json' \
-                       -X POST -d "${BODY}" "${K8S}/api/v1/namespaces/${NS}/secrets")
-              if [ "${code}" = "409" ]; then
-                # Replace the dangling Secret from step 2.
-                code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 20 --cacert "${SA}/ca.crt" \
-                         -H "Authorization: Bearer ${KTOK}" -H 'content-type: application/json' \
-                         -X PUT -d "${BODY}" "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}")
-              fi
-              case "${code}" in
-                20*) echo "published ${TARGET_SECRET} (client id ${CID})" ;;
-                *)   echo "could not write ${TARGET_SECRET} (http ${code})"; head -c 400 /tmp/out; exit 1 ;;
-              esac
-
-              echo "Gitea external auth registered; manifests/oidc-reload.yaml will restart Coder to load it"
+          # The script lives in ConfigMap coder-gitea-oauth-app (above): Argo CD leaves
+          # PostSync hooks out of sync status, so a change made only inside this Job
+          # never re-ran it. A change to the tracked ConfigMap marks the app OutOfSync,
+          # the sync that follows runs every hook again.
+          command: [/bin/sh, /opt/coder-gitea-oauth/run.sh]
+          volumeMounts:
+            - {name: script, mountPath: /opt/coder-gitea-oauth, readOnly: true}
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {memory: 256Mi}
+      volumes:
+        - name: script
+          configMap: {name: coder-gitea-oauth-app}

@@ -79,6 +79,12 @@ spec:
                    (status.delivery, written by compositions/apps/argocd-multienv.yaml
                    once it has observed this project's environments). */ -}}
             {{- $apps := dict -}}
+            {{- /* Which of them are Functions (type `function`, or the label
+                   adhar.io/workload: function): read from the Application itself, so
+                   the application composition's status.delivery — whose schema is
+                   strict — needs no new field. Their environment checks are Knative's
+                   (the analysis below). */ -}}
+            {{- $functions := dict -}}
             {{- range (default (list) (getExtraResources . "applications")) -}}
             {{-   $a := default (dict) .resource -}}
             {{-   $am := default (dict) (get $a "metadata") -}}
@@ -87,6 +93,9 @@ spec:
             {{-   $d := dig "status" "delivery" (dict) $a -}}
             {{-   if and (eq (get $am "namespace") $xrns) (eq $ap $xr.metadata.name) (not (get $am "deletionTimestamp")) (eq (toString (get $d "promote")) "true") (get $d "image") (get $d "repoURL") -}}
             {{-     $_ := set $apps (get $am "name") $d -}}
+            {{-     if or (eq (toString (dig "spec" "parameters" "type" "" $a)) "function") (eq (toString (dig "metadata" "labels" "adhar.io/workload" "" $a)) "function") -}}
+            {{-       $_ := set $functions (get $am "name") true -}}
+            {{-     end -}}
             {{-   end -}}
             {{- end -}}
             {{- $appNames := keys $apps | sortAlpha -}}
@@ -702,6 +711,74 @@ spec:
                              it — never on a release that is merely in progress. */ -}}
                       {{- $vs := int (default 480 (get $v "settleSeconds")) -}}
                       {{- $pods := printf "%s-[a-z0-9]+-[a-z0-9]+" $app }}
+                      {{- if get $functions $app }}
+                      {{- /* A FUNCTION (Knative). It has no Rollout, so rollout_info says
+                             nothing, and its pods are revisions named
+                             <app>-<5-digit generation>-deployment-<rs>-<pod>, which the
+                             <app>-<rs>-<pod> pattern never matches: every check passed
+                             without measuring anything. And it legitimately has NO pod
+                             while scaled to zero, so each check below passes on silence
+                             and fails only on evidence that the release is broken. */ -}}
+                      {{- $kpods := printf "%s-[0-9]{5}-deployment-[a-z0-9]+-[a-z0-9]+" $app -}}
+                      {{- $argoApp := printf "%s-%s-%s" $name $app $en }}
+                      # The Function's own verdict: Argo CD's health check for
+                      # platform.adhar.io/Function reads its ServiceReady/EdgeReady
+                      # conditions (Degraded = Knative gave up on the revision, or the
+                      # host is claimed elsewhere). Degraded fails now; anything but
+                      # Healthy for the whole settle window fails too.
+                      - name: {{ quote (printf "%s-function-healthy" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (printf "(count(argocd_app_info{name=\"%s\",health_status=\"Degraded\"} == 1) or vector(0)) + min_over_time(((count(argocd_app_info{name=\"%s\",health_status!=\"Healthy\"} == 1)) or vector(0))[%ds:30s])" $argoApp $argoApp $vs) }}
+                      # A revision pod still not Ready once older than the settle
+                      # window. Pods Knative is terminating (scale-down) are not counted.
+                      - name: {{ quote (printf "%s-pods-ready" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (printf "count((kube_pod_status_ready{namespace=\"%s\",pod=~\"%s\",condition=\"false\"} == 1) and on(namespace, pod) ((time() - kube_pod_created{namespace=\"%s\",pod=~\"%s\"}) > %d) unless on(namespace, pod) kube_pod_deletion_timestamp{namespace=\"%s\",pod=~\"%s\"}) or vector(0)" $ens $kpods $ens $kpods $vs $ens $kpods) }}
+                      # A crash loop: any restart of a revision's containers.
+                      - name: {{ quote (printf "%s-no-restarts" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (printf "sum(increase(kube_pod_container_status_restarts_total{namespace=\"%s\",pod=~\"%s\",container!=\"POD\"}[5m])) or vector(0)" $ens $kpods) }}
+                      # 5xx share, unless the application names its own query: what
+                      # Knative's activator answered for this function (it fronts a
+                      # function scaled to zero and one with little spare capacity;
+                      # knative-serving's ServiceMonitor scrapes it). No traffic is
+                      # no evidence, and passes.
+                      - name: {{ quote (printf "%s-error-rate" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: {{ quote (printf "result[0] < %v" (default 0.01 (get $v "errorRateThreshold"))) }}
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            {{- with (get $v "errorRateQuery") }}
+                            query: {{ quote (replace "$NAMESPACE" $ens .) }}
+                            {{- else }}
+                            query: {{ quote (printf "(sum(rate(http_server_request_duration_seconds_count{job=\"activator\",k8s_namespace_name=\"%s\",kn_service_name=\"%s\",http_response_status_code=~\"5..\"}[5m])) / (sum(rate(http_server_request_duration_seconds_count{job=\"activator\",k8s_namespace_name=\"%s\",kn_service_name=\"%s\"}[5m])) > 0)) or vector(0)" $ens $app $ens $app) }}
+                            {{- end }}
+                      {{- else }}
                       # Argo Rollouts labels a finished canary "Completed" and a stable one "Healthy".
                       - name: {{ quote (printf "%s-rollout-healthy" $app) }}
                         initialDelay: {{ $vd }}
@@ -745,7 +822,13 @@ spec:
                             address: {{ $prom }}
                             query: {{ quote (replace "$NAMESPACE" $ens .) }}
                       {{- end }}
-                      {{- if eq $tier "test" }}
+                      {{- end }}
+                      {{- /* Not for a Function: the resilience runner's gate mode waits for a
+                             Rollout or Deployment named <app> and fails without one, and a
+                             Knative Service has neither — so every function would be held in
+                             test for ever. Its checks above are its gate until the runner
+                             learns Knative workloads. */ -}}
+                      {{- if and (eq $tier "test") (not (get $functions $app)) }}
                       # THE PROMOTION GATE. In the environment before prod, a build
                       # is verified only once the application's own load test and
                       # chaos suite pass against it here: this Job starts the
