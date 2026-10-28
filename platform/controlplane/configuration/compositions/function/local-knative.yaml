@@ -249,6 +249,17 @@ spec:
                   "OTEL_EXPORTER_OTLP_ENDPOINT" $otlp
                   "OTEL_SERVICE_NAME" $name
                   "OTEL_RESOURCE_ATTRIBUTES" (printf "deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s" $env $env $ns) -}}
+            {{- /* A JVM function must fit the 512Mi an environment's LimitRange
+                   gives a container that names no limit. Paketo's memory
+                   calculator reserves 250 threads x 1M of stack and a 240M code
+                   cache before any heap: 567M with metaspace, so every revision
+                   exited with "unable to calculate memory configuration" and
+                   the Function never served (Azure, 2026-10-28). 50 threads and
+                   a 64M code cache leave ~330M of heap; the caller's env wins. */ -}}
+            {{- if hasPrefix "java" $runtime -}}
+            {{-   $_ := set $envVars "BPL_JVM_THREAD_COUNT" "50" -}}
+            {{-   $_ := set $envVars "JAVA_TOOL_OPTIONS" "-XX:ReservedCodeCacheSize=64M" -}}
+            {{- end -}}
             {{- range $k, $v := (dig "env" (dict) $p) -}}
             {{-   if has $k (list "PORT" "K_SERVICE" "K_CONFIGURATION" "K_REVISION") -}}
             {{-     fail (printf "env %s is set by Knative and refused by its admission webhook; the port is parameters.port" $k) -}}

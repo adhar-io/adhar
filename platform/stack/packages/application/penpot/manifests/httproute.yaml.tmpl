@@ -27,9 +27,31 @@ spec:
   # `/` goes to /adhar-sso/penpot.html on this host first. The SPA's own routes
   # are fragments (#/workspace?…, #/auth/login), so `/` is the only path a page
   # load ever requests, and the browser carries the fragment through the 302.
+  #
+  # FRAMING. The Adhar Console embeds Penpot's viewer (a share link,
+  # /#/view?file-id=…&share-id=…) in an iframe. Penpot's nginx sends
+  # `X-Frame-Options: SAMEORIGIN` on every response (2.17.2
+  # docker/images/files/nginx-security-headers.conf, `always`), and
+  # console.<host> is not penpot.<host>'s origin, so the browser refused the
+  # frame. Every rule that serves content therefore swaps that header for
+  # `Content-Security-Policy: frame-ancestors 'self' https://console.<host>`:
+  # Penpot and the console may frame it, nothing else may (the start page
+  # below included, which sent no framing header at all). Penpot sends no CSP
+  # of its own, so `set` replaces nothing. The redirect rule needs neither: a
+  # 302 is never rendered in a frame. The host is the local convention,
+  # rewritten to the platform's at seed time. Cilium 1.20 translates the filter
+  # into Envoy response_headers_to_remove / response_headers_to_add
+  # (OVERWRITE_IF_EXISTS_OR_ADD). Guard: TestPenpotRouteLetsOnlyTheConsoleFrameIt.
   rules:
     - matches:
         - path: {type: PathPrefix, value: /adhar-sso/}
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            remove: [X-Frame-Options]
+            set:
+              - name: Content-Security-Policy
+                value: "frame-ancestors 'self' https://console.adhar.localtest.me:8443"
       backendRefs:
         - name: adhar-sso-start
           port: 80
@@ -47,6 +69,13 @@ spec:
             - type: RegularExpression
               name: Cookie
               value: '.*adhar_sso_penpot=[^;]+.*'
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            remove: [X-Frame-Options]
+            set:
+              - name: Content-Security-Policy
+                value: "frame-ancestors 'self' https://console.adhar.localtest.me:8443"
       backendRefs:
         - name: penpot
           port: 8080
@@ -62,6 +91,13 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            remove: [X-Frame-Options]
+            set:
+              - name: Content-Security-Policy
+                value: "frame-ancestors 'self' https://console.adhar.localtest.me:8443"
       backendRefs:
         - name: penpot
           port: 8080

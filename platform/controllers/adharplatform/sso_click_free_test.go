@@ -235,7 +235,7 @@ func TestRustFSBareHostStartsTheKeycloakLogin(t *testing.T) {
 		Spec struct {
 			Rules []struct {
 				Matches []struct {
-					Path    struct{ Type, Value string } `yaml:"path"`
+					Path    struct{ Type, Value string }   `yaml:"path"`
 					Headers []struct{ Name, Value string } `yaml:"headers"`
 				} `yaml:"matches"`
 				Filters []struct {

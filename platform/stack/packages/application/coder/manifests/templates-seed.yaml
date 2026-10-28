@@ -112,19 +112,14 @@ data:
       workspace_folder = local.repo_name == "" ? "/home/coder" : "/home/coder/${local.repo_name}"
     }
 
-    # Gitea through Coder's external auth (values.yaml
-    # CODER_EXTERNAL_AUTH_0_*). Declared so Coder's own pages offer
-    # the link when a workspace is created, instead of the first
-    # clone discovering it: until a person has linked Gitea, git's
-    # GIT_ASKPASS (pointed at Coder) prints "Open the following URL
-    # to authenticate with Git" and waits for good, and the editor
-    # opened on a folder that did not exist (2026-10-27). Optional:
-    # a plain workspace needs no Gitea, and the Console links it
-    # before it opens a repository.
-    data "coder_external_auth" "gitea" {
-      id       = "gitea"
-      optional = true
-    }
+    # No `data "coder_external_auth" "gitea"` here, on purpose. Coder
+    # refuses to PUSH a template naming a provider it has not loaded,
+    # and on a fresh platform the provider arrives only when
+    # oidc-reload (wave 13) restarts Coder — after this seed (wave 12)
+    # — so the seed crash-looped, the reload never ran, and the
+    # platform had no template at all (Azure, 2026-10-28). The Console
+    # links a person's Gitea account before it opens a repository, and
+    # the bounded clone below explains the link when it is missing.
 
     resource "coder_script" "clone_repo" {
       agent_id           = coder_agent.main.id
@@ -373,10 +368,12 @@ spec:
             # description carries this marker, which is how the Job decides
             # between "leave the operator's template alone" and "push a new
             # version because the platform now ships more IDEs".
-            # v7: Gitea external auth declared, the clone bounded with a README
-            # in the folder when it cannot run (2026-10-27).
+            # v7: the clone bounded with a README in the folder when it cannot
+            # run (2026-10-27). v8: no coder_external_auth declaration — Coder
+            # refuses the push until the provider is loaded, which on a fresh
+            # platform deadlocked this seed against oidc-reload (2026-10-28).
             - name: IDE_REVISION
-              value: adhar-ide-v7
+              value: adhar-ide-v8
           # The script lives in ConfigMap coder-templates-seed (above): Argo CD
           # leaves PostSync hooks out of sync status, so a change made only inside
           # this Job never re-ran it (the v7 template sat unpublished, 2026-10-27).

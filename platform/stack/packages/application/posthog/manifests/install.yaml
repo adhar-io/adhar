@@ -5603,16 +5603,18 @@ spec:
         - name: WEB_CONCURRENCY
           value: "2"
         - name: CELERY_MAX_MEMORY_PER_CHILD
-          value: "524288"
+          value: "393216"
         # Celery forks one child per CPU unless WEB_CONCURRENCY is set: eight
         # on an 8-vCPU node reached ~2 GiB and was OOMKilled 8x (2026-10-22).
-        # Two children + a 1Gi request; see values.yaml `worker:`.
+        # A 2Gi limit was still OOMKilled 41x in 4.5 h (2026-10-28): the main
+        # process + RedBeat scheduler hold 1.97 GiB before any child runs and
+        # each working child adds ~550 MiB; see values.yaml `worker:`.
         resources:
           requests:
             cpu: 100m
-            memory: 1Gi
+            memory: 2560Mi
           limits:
-            memory: 2Gi
+            memory: 4Gi
       initContainers:
       - name: wait-for-service-dependencies
         image: busybox:1.34

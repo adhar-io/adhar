@@ -160,7 +160,7 @@ spec:
             - name: PENPOT_PUBLIC_URI
               value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_FLAGS
-              value: "$PENPOT_FLAGS enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification"
+              value: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification enable-access-tokens enable-webhooks"
             - name: PENPOT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -377,7 +377,7 @@ spec:
             runAsUser: 1001
           env:
             - name: PENPOT_FLAGS
-              value: "$PENPOT_FLAGS enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification"
+              value: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification enable-access-tokens enable-webhooks"
             - name: PENPOT_PUBLIC_URI
               value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_BACKEND_URI

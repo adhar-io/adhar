@@ -106,8 +106,18 @@ spec:
               # the release that push fired died at `build` with
               # CreateContainerConfigError and nothing retried it. The push IS the
               # trigger, so the wait belongs here, not as a stage in the pipeline.
+              #
+              # ...and until Nexus SERVES what the release resolves through. The
+              # credential is published as soon as Nexus boots, minutes before
+              # nexus-config has created maven-public and the npm repositories;
+              # a release fired in that gap failed at its first Nexus call and
+              # sat until the 1h pipeline timeout (Azure, 2026-10-27). Same probe
+              # as bootstrap-library-releases (release.yaml).
               for i in $(seq 1 120); do
-                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
+                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && \
+                  url=$(kubectl get secret nexus-credentials -n adhar-system -o jsonpath='{.data.url}' | base64 -d) && \
+                  [ "$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${url%/}/repository/maven-public/junit/junit/4.13.2/junit-4.13.2.pom")" = "200" ] && \
+                  { echo "Nexus is serving maven-public"; exit 0; }
                 sleep 10
               done
               # NOT FATAL. Mirroring the repository is this Job's actual purpose
@@ -120,7 +130,7 @@ spec:
               # created in Gitea at all — no repo, no webhook, no pipeline, and
               # nothing on screen to explain why. A missing release is a retry;
               # a missing repository is the library story gone.
-              echo "nexus-credentials not published within 20 minutes — mirroring anyway."
+              echo "Nexus not serving maven-public within 20 minutes — mirroring anyway."
               echo "The repositories will exist and the webhook will fire; the release"
               echo "pipeline stays pending on nexus-credentials and runs when Nexus is up."
               exit 0
@@ -198,8 +208,18 @@ spec:
               # the release that push fired died at `build` with
               # CreateContainerConfigError and nothing retried it. The push IS the
               # trigger, so the wait belongs here, not as a stage in the pipeline.
+              #
+              # ...and until Nexus SERVES what the release resolves through. The
+              # credential is published as soon as Nexus boots, minutes before
+              # nexus-config has created maven-public and the npm repositories;
+              # a release fired in that gap failed at its first Nexus call and
+              # sat until the 1h pipeline timeout (Azure, 2026-10-27). Same probe
+              # as bootstrap-library-releases (release.yaml).
               for i in $(seq 1 120); do
-                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
+                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && \
+                  url=$(kubectl get secret nexus-credentials -n adhar-system -o jsonpath='{.data.url}' | base64 -d) && \
+                  [ "$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${url%/}/repository/maven-public/junit/junit/4.13.2/junit-4.13.2.pom")" = "200" ] && \
+                  { echo "Nexus is serving maven-public"; exit 0; }
                 sleep 10
               done
               # NOT FATAL. Mirroring the repository is this Job's actual purpose
@@ -212,7 +232,7 @@ spec:
               # created in Gitea at all — no repo, no webhook, no pipeline, and
               # nothing on screen to explain why. A missing release is a retry;
               # a missing repository is the library story gone.
-              echo "nexus-credentials not published within 20 minutes — mirroring anyway."
+              echo "Nexus not serving maven-public within 20 minutes — mirroring anyway."
               echo "The repositories will exist and the webhook will fire; the release"
               echo "pipeline stays pending on nexus-credentials and runs when Nexus is up."
               exit 0

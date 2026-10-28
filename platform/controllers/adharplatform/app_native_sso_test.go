@@ -290,15 +290,23 @@ func TestLibraryMirrorsWaitForNexusCredentialsBeforePushing(t *testing.T) {
 		}
 	}
 	mirror := withoutComments(readStackFile(t, "application/adhar-libraries/manifests/mirror.yaml"))
-	loops := regexp.MustCompile(`for i in \$\(seq 1 (\d+)\); do\n\s*kubectl get secret nexus-credentials[^\n]*\n\s*sleep (\d+)`).FindAllStringSubmatch(mirror, -1)
+	// The credential alone is not enough: Nexus publishes it as soon as it
+	// boots, minutes before nexus-config has created maven-public, and a release
+	// fired in that gap failed at its first Nexus call and sat until the 1h
+	// pipeline timeout (Azure, 2026-10-27). Each wait loop must also see Nexus
+	// SERVE maven-public before the push goes out.
+	loops := regexp.MustCompile(`(?s)for i in \$\(seq 1 (\d+)\); do\n\s*kubectl get secret nexus-credentials[^\n]*\n(.*?)\n\s*sleep (\d+)\n\s*done`).FindAllStringSubmatch(mirror, -1)
 	if len(loops) != 2 {
 		t.Fatalf("expected both mirror Jobs to wait for nexus-credentials, found %d wait loops", len(loops))
 	}
 	for _, m := range loops {
 		n, _ := strconv.Atoi(m[1])
-		step, _ := strconv.Atoi(m[2])
+		step, _ := strconv.Atoi(m[3])
 		if n*step < 15*60 {
-			t.Errorf("a mirror Job waits only %ds for nexus-credentials; the 2026-10-09 gap was over nine minutes, wait at least fifteen", n*step)
+			t.Errorf("a mirror Job waits only %ds for Nexus; the 2026-10-09 gap was over nine minutes, wait at least fifteen", n*step)
+		}
+		if !strings.Contains(m[2], "/repository/maven-public/") || !strings.Contains(m[2], `= "200"`) {
+			t.Error("a mirror Job's wait ends on the nexus-credentials Secret alone; it must also see Nexus serve maven-public (HTTP 200) before pushing")
 		}
 	}
 }

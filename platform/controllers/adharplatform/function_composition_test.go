@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"text/template"
@@ -371,6 +373,44 @@ func TestFunctionComposesTheKnativeServiceContract(t *testing.T) {
 	secrets, _ := dig(ksvc, "spec", "template", "spec", "imagePullSecrets").([]any)
 	if len(secrets) != 1 || dig(secrets[0].(map[string]any), "name") != "harbor-dockercfg" {
 		t.Errorf("imagePullSecrets = %v, want harbor-dockercfg", secrets)
+	}
+}
+
+// A JVM function must start inside the 512Mi an environment's LimitRange gives
+// a container that names no limit. Paketo's memory calculator reserves its
+// fixed regions before any heap — direct memory, metaspace (~55M for a small
+// Quarkus or Spring app), the code cache and a stack per expected thread — and
+// at its defaults (250 threads, a 240M code cache) that was 567M: every
+// revision of a Java function exited with "unable to calculate memory
+// configuration" and its URL answered 404 (Azure, 2026-10-28).
+func TestJavaFunctionsFitTheEnvironmentsDefaultMemoryLimit(t *testing.T) {
+	const limitMi, directMi, metaspaceMi, minHeapMi = 512, 10, 55, 256
+	for _, runtime := range []string{"java21", "java25"} {
+		env := fnEnv(t, fnManifest(t, fnMustRender(t, fnWithParams(fnXR(t, "xr-http.yaml"), map[string]any{"runtime": runtime}), fnCluster(t, ""), nil), fnServiceObject))
+		threads, err := strconv.Atoi(env["BPL_JVM_THREAD_COUNT"])
+		if err != nil {
+			t.Errorf("%s: BPL_JVM_THREAD_COUNT = %q; the calculator then reserves stack for 250 threads", runtime, env["BPL_JVM_THREAD_COUNT"])
+			continue
+		}
+		m := regexp.MustCompile(`-XX:ReservedCodeCacheSize=(\d+)M`).FindStringSubmatch(env["JAVA_TOOL_OPTIONS"])
+		if m == nil {
+			t.Errorf("%s: JAVA_TOOL_OPTIONS = %q names no code cache; the calculator reserves 240M", runtime, env["JAVA_TOOL_OPTIONS"])
+			continue
+		}
+		codeCache, _ := strconv.Atoi(m[1])
+		if fixed := directMi + metaspaceMi + codeCache + threads; limitMi-fixed < minHeapMi {
+			t.Errorf("%s: %dM of fixed JVM regions leaves %dM of heap in %dMi; a function needs at least %dM",
+				runtime, fixed, limitMi-fixed, limitMi, minHeapMi)
+		}
+	}
+	// Not a JVM: nothing to tune.
+	if env := fnEnv(t, fnManifest(t, fnMustRender(t, fnXR(t, "xr-http.yaml"), fnCluster(t, ""), nil), fnServiceObject)); env["BPL_JVM_THREAD_COUNT"] != "" || env["JAVA_TOOL_OPTIONS"] != "" {
+		t.Errorf("a node22 function was given JVM settings: %q / %q", env["BPL_JVM_THREAD_COUNT"], env["JAVA_TOOL_OPTIONS"])
+	}
+	// The function's own env still wins.
+	xr := fnWithParams(fnXR(t, "xr-http.yaml"), map[string]any{"runtime": "java25", "env": map[string]any{"BPL_JVM_THREAD_COUNT": "120"}})
+	if got := fnEnv(t, fnManifest(t, fnMustRender(t, xr, fnCluster(t, ""), nil), fnServiceObject))["BPL_JVM_THREAD_COUNT"]; got != "120" {
+		t.Errorf("BPL_JVM_THREAD_COUNT = %q, want the function's own 120", got)
 	}
 }
 

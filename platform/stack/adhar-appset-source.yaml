@@ -20,6 +20,9 @@
 #     would take every platform Application with it.
 #   - the CLI still applies the same file directly during `adhar up`, so the
 #     ApplicationSet exists before Argo CD has synced this Application.
+#   - `adhar.io/category: core`, the label every package carries. Without it the
+#     console read this Application as a team's app and listed it in the
+#     Delivery Flow beside the apps teams build (2026-10-28).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -28,6 +31,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: adhar
     adhar.io/component: platform-stack
+    adhar.io/category: core
 spec:
   project: default
   source:

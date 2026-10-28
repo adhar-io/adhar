@@ -1,0 +1,420 @@
+# The Adhar Console's API access to Penpot.
+#
+# The console's Design pages call Penpot's RPC API (POST
+# /api/main/methods/<command>) through the in-cluster frontend Service. Penpot
+# accepts a session cookie or an ACCESS TOKEN (`Authorization: Token …`); it
+# does not accept a Keycloak token, and nothing provisioned an access token, so
+# the console could only link to Penpot. This file gives the console its own
+# Penpot identity:
+#
+#   1. a robot profile, "Adhar Console" <adhar-console@adhar.local>, whose
+#      password is generated once per cluster (ESO, CreatedOnce) into Secret
+#      penpot-console-robot;
+#   2. the PostSync Job below signs the robot in through Penpot's RPC API
+#      (registering it the first time), mints an access token with no expiry
+#      and makes sure the robot owns a team named "Adhar" — the robot only ever
+#      sees teams it belongs to, so this is the team the console works in;
+#   3. it publishes Secret penpot-api-token, which the console Deployment lists
+#      in `envFrom` (optional, core/adhar-console manifests/install.yaml):
+#        PENPOT_TOKEN    the access token (sent as `Authorization: Token …`)
+#        PENPOT_TEAM_ID  the "Adhar" team's id
+#        PENPOT_URL      http://penpot.adhar-system.svc.cluster.local:8080
+#                        (the frontend nginx: it proxies /api to the backend
+#                        and resolves /assets redirects server-side);
+#   4. `envFrom` is read once, when a container starts, so the Job restarts the
+#      console when the Secret changed after the console pod started — once on
+#      a fresh cluster, again only if the token is ever replaced.
+#
+# Idempotent: a token that still answers is kept (no sign-in, no restart). A
+# token Penpot refuses (401: revoked, or PENPOT_SECRET_KEY replaced — that key
+# signs every access token) is replaced, and older tokens of the same name are
+# revoked. Requires `enable-access-tokens` in config.flags (values.yaml): the
+# backend compiles token authentication out without it.
+#
+# The script lives in ConfigMap penpot-console-token, NOT in the Job: Argo CD
+# leaves hooks out of the app's sync status, so a change made only inside a
+# hook never re-runs it. A change to the tracked ConfigMap makes the app
+# OutOfSync, and the sync that follows runs the hook again. Everything the
+# script does is decided inside it (its defaults), not in the Job's env, for
+# the same reason. Guards: penpot_console_api_test.go.
+#
+# Plain .yaml on purpose: the ESO template directive must survive seeding.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: penpot-console-robot
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 32
+  digits: 6
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# CreatedOnce: the robot registers with this password the first time the Job
+# runs, and Penpot has no way to reset another profile's password without the
+# old one. If this Secret is ever regenerated (deleted, or the package switched
+# off and on while Penpot's database survived), the Job fails and its log says
+# how to recover. `adhar get secrets -p penpot` prints it, so an operator can
+# sign in as the robot (to invite people into its "Adhar" team, for example).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: penpot-console-robot
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 30s
+  target:
+    name: penpot-console-robot
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: penpot
+      data:
+        email: adhar-console@adhar.local
+        password: '{{ .password }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: penpot-console-robot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: penpot-console-token
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: penpot-console-token
+  namespace: adhar-system
+rules:
+  # Read and rewrite the token Secret. `create` cannot be narrowed to a name
+  # (RBAC ignores resourceNames on create), so it is a rule of its own.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["penpot-api-token"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  # Restart the console when the Secret changed under a running pod. `watch`
+  # is what `kubectl rollout status` needs (it watches by name).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["adhar-console"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: penpot-console-token
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: penpot-console-token
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: penpot-console-token
+  apiGroup: rbac.authorization.k8s.io
+---
+# The script the penpot-console-token Job runs (see the Job). It never prints a
+# token or a password: request bodies go to curl on stdin, credentials in a
+# header file, and jq reads secrets from the environment, so none of them is
+# ever on a command line either.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: penpot-console-token
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: penpot-console-token
+    app.kubernetes.io/part-of: penpot
+data:
+  run.sh: |
+    set -eu -o pipefail
+    # Byte-order string comparison for the timestamps in step 7.
+    export LC_ALL=C
+
+    # Everything is decided here, not in the Job's env (see the file header).
+    # The overrides exist for the offline test (penpot_console_api_test.go).
+    NS=${NAMESPACE:-adhar-system}
+    PENPOT_URL=${PENPOT_URL:-http://penpot.adhar-system.svc.cluster.local:8080}
+    SECRET=${TOKEN_SECRET:-penpot-api-token}
+    CONSOLE=${CONSOLE_DEPLOYMENT:-adhar-console}
+    TOKEN_NAME=${TOKEN_NAME:-Adhar Console}
+    TEAM_NAME=${TEAM_NAME:-Adhar}
+    ROBOT_NAME=${ROBOT_NAME:-Adhar Console}
+    KUBECTL=${KUBECTL:-kubectl}
+    TRIES=${WAIT_TRIES:-180}
+    PAUSE=${WAIT_SECONDS:-5}
+    ROLLOUT_TIMEOUT=${ROLLOUT_TIMEOUT:-600s}
+    API=${PENPOT_URL%/}/api/main/methods
+    export ROBOT_NAME PENPOT_URL
+
+    : "${ROBOT_EMAIL:?ROBOT_EMAIL is not set (Secret penpot-console-robot, key email)}"
+    : "${ROBOT_PASSWORD:?ROBOT_PASSWORD is not set (Secret penpot-console-robot, key password)}"
+
+    umask 077
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+
+    log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+    fail() { log "ERROR: $*"; exit 1; }
+
+    # rpc COMMAND JSON [HEADER-FILE] — one Penpot RPC call. Sets $code; the
+    # answer is in $work/body and its headers in $work/headers.
+    rpc() {
+      local args=(-sS -o "$work/body" -D "$work/headers" -w '%{http_code}' --max-time 30
+                  -H 'Content-Type: application/json' -H 'Accept: application/json')
+      if [ -n "${3:-}" ]; then args+=(-H "@$3"); fi
+      : >"$work/body"
+      code=$(printf '%s' "$2" | curl "${args[@]}" --data-binary @- "$API/$1" 2>"$work/curl.err") || code=000
+    }
+    # The error code in a failed answer ({"type": …, "code": …}).
+    why() { jq -r '.code // .type // empty' "$work/body" 2>/dev/null || true; }
+
+    # ---- 1. Wait for the API, through the URL the console uses ------------
+    # An anonymous get-profile answers 200 (the zero profile) once the backend
+    # is up behind the frontend.
+    for i in $(seq 1 "$TRIES"); do
+      rpc get-profile '{}'
+      [ "$code" = 200 ] && break
+      log "waiting for the Penpot API at $API (http $code, $i/$TRIES)"
+      sleep "$PAUSE"
+    done
+    [ "$code" = 200 ] || fail "the Penpot API at $API never answered; failing so the Job retries"
+
+    # ---- 2. The published Secret, if there is one -------------------------
+    if ! $KUBECTL -n "$NS" get secret "$SECRET" -o json >"$work/secret.json" 2>"$work/kerr"; then
+      grep -q NotFound "$work/kerr" || fail "cannot read Secret $SECRET: $(head -c 300 "$work/kerr")"
+      echo '{}' >"$work/secret.json"
+    fi
+    field() { jq -r --arg k "$1" '.data[$k] // empty' "$work/secret.json" | base64 -d 2>/dev/null || true; }
+    token=$(field PENPOT_TOKEN)
+    team=$(field PENPOT_TEAM_ID)
+    url=$(field PENPOT_URL)
+    minted=""
+    token_id=""
+
+    # ---- 3. Keep a token that still works ---------------------------------
+    if [ -n "$token" ]; then
+      printf 'Authorization: Token %s\n' "$token" >"$work/token.hdr"
+      rpc get-teams '{}' "$work/token.hdr"
+      case "$code" in
+        200) log "the published token still works; keeping it" ;;
+        401|403) log "Penpot refuses the published token (http $code, $(why)); replacing it"; token="" ;;
+        *) fail "get-teams answered http $code ($(why)); not replacing a token over an error that is not about the token" ;;
+      esac
+    fi
+
+    # ---- 4. Otherwise sign the robot in (registering it once) and mint ----
+    session_header() {
+      local cookie
+      cookie=$(tr -d '\r' <"$work/headers" | sed -n 's/^[Ss]et-[Cc]ookie: auth-token=\([^;]*\).*/\1/p' | tail -n 1)
+      [ -n "$cookie" ] || return 1
+      printf 'Authorization: Bearer %s\n' "$cookie" >"$work/session.hdr"
+    }
+    login() { rpc login-with-password "$(jq -nc '{email: env.ROBOT_EMAIL, password: env.ROBOT_PASSWORD}')"; }
+
+    if [ -z "$token" ]; then
+      login
+      if [ "$code" != 200 ]; then
+        # An unknown email and a wrong password are the same answer
+        # (wrong-credentials); registration tells them apart.
+        [ "$code" = 400 ] && [ "$(why)" = wrong-credentials ] || fail "login-with-password answered http $code ($(why))"
+        rpc prepare-register-profile "$(jq -nc '{fullname: env.ROBOT_NAME, email: env.ROBOT_EMAIL, password: env.ROBOT_PASSWORD}')"
+        if [ "$code" != 200 ]; then
+          if [ "$(why)" = email-already-exists ]; then
+            fail "the robot $ROBOT_EMAIL exists in Penpot but refuses the password in Secret penpot-console-robot: that Secret was regenerated after the robot registered (the Secret deleted, or penpot switched off and on while its database survived). Penpot cannot reset another profile's password. Restore the old Secret, or free the address so a new robot registers on the next sync: kubectl -n $NS exec penpot-postgresql-0 -- psql -U penpot -d penpot -c \"UPDATE profile SET email = 'retired-' || id || '@adhar.local' WHERE email = '$ROBOT_EMAIL'\" (the old robot's teams keep their other members; the console then works in a new \"$TEAM_NAME\" team)"
+          fi
+          fail "prepare-register-profile answered http $code ($(why))"
+        fi
+        REGISTRATION=$(jq -r '.token // empty' "$work/body")
+        [ -n "$REGISTRATION" ] || fail "prepare-register-profile returned no token"
+        export REGISTRATION
+        rpc register-profile "$(jq -nc '{token: env.REGISTRATION}')"
+        unset REGISTRATION
+        [ "$code" = 200 ] || fail "register-profile answered http $code ($(why))"
+        log "registered the robot profile $ROBOT_EMAIL"
+        login
+        [ "$code" = 200 ] || fail "the robot registered but cannot sign in (http $code, $(why)); is disable-email-verification still in PENPOT_FLAGS?"
+      fi
+      session_header || fail "login-with-password set no auth-token cookie"
+
+      rpc create-access-token "$(jq -nc --arg n "$TOKEN_NAME" '{name: $n}')" "$work/session.hdr"
+      [ "$code" = 200 ] || fail "create-access-token answered http $code ($(why))"
+      token=$(jq -r '.token // empty' "$work/body")
+      token_id=$(jq -r '.id // empty' "$work/body")
+      [ -n "$token" ] || fail "create-access-token returned no token"
+      printf 'Authorization: Token %s\n' "$token" >"$work/token.hdr"
+      rpc get-teams '{}' "$work/token.hdr"
+      [ "$code" = 200 ] || fail "Penpot refuses the token it just minted (http $code, $(why)); is enable-access-tokens in PENPOT_FLAGS on penpot-backend?"
+      minted=1
+      log "minted a new access token ($token_id) for $ROBOT_EMAIL"
+    fi
+
+    # ---- 5. The team the console works in ---------------------------------
+    # get-teams just answered with the token. Prefer the team already
+    # published (even if renamed), then one named $TEAM_NAME; never the
+    # robot's personal default team.
+    cp "$work/body" "$work/teams.json"
+    team_id=$(jq -r --arg id "$team" --arg name "$TEAM_NAME" '
+      [ .[] | select(.isDefault != true) ] as $t
+      | ([ $t[] | select(.id == $id) ] + [ $t[] | select(.name == $name) ]) | .[0].id // empty' "$work/teams.json")
+    if [ -z "$team_id" ]; then
+      rpc create-team "$(jq -nc --arg n "$TEAM_NAME" '{name: $n}')" "$work/token.hdr"
+      [ "$code" = 200 ] || fail "create-team answered http $code ($(why))"
+      team_id=$(jq -r '.id // empty' "$work/body")
+      [ -n "$team_id" ] || fail "create-team returned no id"
+      log "created the team \"$TEAM_NAME\" ($team_id)"
+    fi
+
+    # ---- 6. Publish (only what changed) -----------------------------------
+    if [ -n "$minted" ] || [ "$team_id" != "$team" ] || [ "$url" != "$PENPOT_URL" ]; then
+      PUBLISH_TOKEN=$token PUBLISH_TEAM=$team_id
+      export PUBLISH_TOKEN PUBLISH_TEAM
+      jq -n --arg ns "$NS" --arg name "$SECRET" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+          apiVersion: "v1", kind: "Secret", type: "Opaque",
+          metadata: {name: $name, namespace: $ns,
+            labels: {"app.kubernetes.io/part-of": "penpot", "adhar.io/package-name": "penpot"},
+            annotations: {"adhar.io/changed-at": $at}},
+          data: {PENPOT_TOKEN: (env.PUBLISH_TOKEN | @base64),
+                 PENPOT_TEAM_ID: (env.PUBLISH_TEAM | @base64),
+                 PENPOT_URL: (env.PENPOT_URL | @base64)}}' >"$work/secret.out.json"
+      $KUBECTL apply --server-side --force-conflicts --field-manager=penpot-console-token -f - <"$work/secret.out.json" >/dev/null \
+        || fail "could not write Secret $SECRET"
+      log "published $SECRET (team $team_id)"
+    else
+      log "$SECRET is up to date (team $team_id)"
+    fi
+
+    # Revoke what the new token replaces — after publishing, so the console is
+    # never left holding nothing that works.
+    if [ -n "$minted" ]; then
+      rpc get-access-tokens '{}' "$work/session.hdr"
+      if [ "$code" = 200 ]; then
+        jq -r --arg n "$TOKEN_NAME" --arg keep "$token_id" '.[] | select(.name == $n and .id != $keep) | .id' "$work/body" >"$work/stale"
+        while read -r id; do
+          rpc delete-access-token "$(jq -nc --arg id "$id" '{id: $id}')" "$work/session.hdr"
+          case "$code" in
+            200|204) log "revoked the superseded token $id" ;;
+            *) log "warning: could not revoke the superseded token $id (http $code)" ;;
+          esac
+        done <"$work/stale"
+      else
+        log "warning: could not list the robot's tokens (http $code); superseded ones stay valid"
+      fi
+    fi
+
+    # ---- 7. Restart the console if it started before the Secret changed ----
+    if ! $KUBECTL -n "$NS" get deployment "$CONSOLE" -o json >"$work/console.json" 2>/dev/null; then
+      log "$CONSOLE is not deployed here; nothing to reload"
+      exit 0
+    fi
+    # A console whose manifest does not list the Secret yet would restart for
+    # nothing; the rollout that adds the envFrom loads it.
+    if ! jq -e --arg s "$SECRET" '[.spec.template.spec.containers[].envFrom[]?.secretRef.name] | index($s) != null' "$work/console.json" >/dev/null; then
+      log "$CONSOLE does not load $SECRET (envFrom) yet; the rollout that adds it will"
+      exit 0
+    fi
+    $KUBECTL -n "$NS" get secret "$SECRET" -o json >"$work/secret.json" || fail "cannot read back Secret $SECRET"
+    changed=$(jq -r '.metadata.annotations["adhar.io/changed-at"] // empty' "$work/secret.json")
+    if [ -z "$changed" ]; then
+      log "warning: $SECRET carries no adhar.io/changed-at; leaving $CONSOLE alone"
+      exit 0
+    fi
+    # Let a rollout already under way (another package's reload, an image
+    # bump) finish first: its new pod reads the Secret as it is now. Restarts
+    # stay rare — only a console whose running pod predates the change, never
+    # twice for one change — because each is a cold start of the platform's
+    # one console pod (cluster-wide watch caches, the knowledge graph).
+    $KUBECTL -n "$NS" rollout status deployment "$CONSOLE" --timeout="$ROLLOUT_TIMEOUT" >/dev/null 2>&1 \
+      || log "warning: $CONSOLE is still rolling out; deciding on the pods that are running"
+    $KUBECTL -n "$NS" get pods -l app=console --field-selector=status.phase=Running -o json >"$work/pods.json" \
+      || fail "cannot list the $CONSOLE pods"
+    # A replaced pod stays Running while it drains (preStop + grace period);
+    # it is on its way out and must not trigger a second restart.
+    oldest=$(jq -r '[.items[] | select(.metadata.deletionTimestamp == null) | .status.startTime // empty] | sort | .[0] // empty' "$work/pods.json")
+    if [ -z "$oldest" ]; then
+      log "no $CONSOLE pod is running; it reads $SECRET when it starts"
+    elif [[ "$oldest" > "$changed" ]]; then
+      log "$CONSOLE started at $oldest, after $SECRET changed ($changed); nothing to reload"
+    else
+      log "restarting $CONSOLE: its pod started at $oldest, before $SECRET changed ($changed)"
+      $KUBECTL -n "$NS" rollout restart deployment "$CONSOLE" >/dev/null || fail "could not restart $CONSOLE"
+      $KUBECTL -n "$NS" rollout status deployment "$CONSOLE" --timeout="$ROLLOUT_TIMEOUT" >/dev/null 2>&1 \
+        || log "warning: $CONSOLE has not finished rolling out"
+    fi
+    log "done"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: penpot-console-token
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  # OnFailure restarts back off (10 s doubling to 5 min), so a failure that
+  # needs a person — a robot whose password Secret was regenerated — is
+  # retried for ~10 min per sync attempt, not in a tight loop.
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: penpot-console-token
+        app.kubernetes.io/part-of: penpot
+    spec:
+      serviceAccountName: penpot-console-token
+      restartPolicy: OnFailure
+      # One Service per package in a shared namespace (packages/CONFLICTS.md).
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+      containers:
+        - name: console-token
+          image: docker.io/alpine/k8s:1.31.0
+          # The script lives in ConfigMap penpot-console-token (above): a change
+          # made only inside this hook would never re-run it.
+          command: [/bin/bash, /opt/penpot-console-token/run.sh]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: ROBOT_EMAIL
+              valueFrom: {secretKeyRef: {name: penpot-console-robot, key: email}}
+            - name: ROBOT_PASSWORD
+              valueFrom: {secretKeyRef: {name: penpot-console-robot, key: password}}
+          volumeMounts:
+            - {name: script, mountPath: /opt/penpot-console-token, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: script
+          configMap: {name: penpot-console-token}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}

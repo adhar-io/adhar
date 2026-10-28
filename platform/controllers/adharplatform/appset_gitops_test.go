@@ -89,6 +89,28 @@ func TestPlatformApplicationSetSourceCannotCascadeADelete(t *testing.T) {
 	}
 }
 
+// The console tells platform packages from the apps teams build by the
+// `adhar.io/category` label alone, and every ApplicationSet-generated package
+// carries one. The source Application is created outside the ApplicationSet,
+// and without the label it was listed in the Delivery Flow as a team's app.
+func TestThePlatformApplicationSetSourceIsFiledAsPlatform(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "stack", "adhar-appset-source.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app struct {
+		Metadata struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+	}
+	if err := yaml.Unmarshal(raw, &app); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(app.Metadata.Labels["adhar.io/category"]) == "" {
+		t.Error("adhar-platform-applicationset has no adhar.io/category label; the console files it as a team's app")
+	}
+}
+
 func TestTheConsoleCommitsToTheSeededApplicationSet(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "stack", "packages", "core", "adhar-console", "manifests", "install.yaml"))
 	if err != nil {

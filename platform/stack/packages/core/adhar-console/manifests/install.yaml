@@ -396,14 +396,25 @@ spec:
   # only has to be longer than a cold start on a busy cluster.
   progressDeadlineSeconds: 600
   replicas: 1
-  # Replace in place: one replica gains nothing from a surge pod except a
-  # few seconds of overlap, and on a fully requested cluster the surge pod
-  # can never schedule, so the rollout would wait forever on the old one.
+  # Surge; never replace in place. `maxSurge: 0, maxUnavailable: 1` stopped
+  # the ONLY pod before its successor existed, so every rollout left the
+  # `console` Service with no endpoint until the new pod passed /readyz, and
+  # the Gateway answered "no healthy upstream" for the whole start: ~15s on a
+  # quiet cluster, up to three minutes on a busy one (progressDeadlineSeconds
+  # above). Rollouts are routine: an image bump, and every `rollout restart`
+  # from the hooks that feed the console its env (oidc-reload here, plane
+  # console-reload, strapi console-token, nexus config, credential rotation).
+  # One sync of this app on Azure produced two such windows 16s apart
+  # (2026-10-28). The old objection, "on a fully requested cluster the surge
+  # pod can never schedule", is the better failure: the old pod keeps serving
+  # while the new one is Pending (the node autoscaler, where it runs, adds a
+  # node for it), and a stuck rollout shows as ProgressDeadlineExceeded rather
+  # than as an outage. Guard: TestTheConsoleKeepsAnEndpointThroughARollout.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: console
@@ -412,6 +423,11 @@ spec:
       labels:
         app: console
     spec:
+      # 5s preStop (below) + the server's own 25s drain deadline
+      # (SHUTDOWN_DEADLINE_MS in server.ts) + margin. The countdown includes
+      # the preStop, so at the default 30s the kubelet's SIGKILL would race a
+      # drain that was about to finish.
+      terminationGracePeriodSeconds: 35
       initContainers:
       - name: ca-bundle
         image: busybox:1.36
@@ -434,7 +450,7 @@ spec:
         # upgraded it on any pod restart, and the console's own status card
         # reported "latest" against its build version. Bump this line to ship
         # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.164
+        image: ghcr.io/adhar-io/adhar-console:0.1.165
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -461,6 +477,11 @@ spec:
           value: https://kubernetes.default.svc
         - name: DENO_CERT
           value: /shared/ca-bundle.crt
+        # V8 does not read the container's memory limit; without a cap its heap
+        # grows until the kernel OOM-kills the pod. Two thirds of the limit
+        # (resources below) leaves room for Deno's native buffers.
+        - name: DENO_V8_FLAGS
+          value: --max-old-space-size=1024
         - name: AI_BASE_URL
           value: http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
         - name: AI_MODEL
@@ -643,13 +664,30 @@ spec:
         - secretRef:
             name: strapi-api-token
             optional: true
+        # Penpot's RPC API: PENPOT_TOKEN (an access token of the "Adhar
+        # Console" robot, sent as `Authorization: Token …`), PENPOT_TEAM_ID (the
+        # robot's "Adhar" team) and PENPOT_URL, published by the penpot package
+        # (application/penpot manifests/console-token.yaml), which also
+        # restarts the console once when the Secret changes after it started.
+        # Optional: penpot is off in the local profile. PENPOT_URL is also set
+        # in env above (same value), and env wins over envFrom.
+        - secretRef:
+            name: penpot-api-token
+            optional: true
+        # Memory sized from the live working set, with room for a spike. The
+        # console holds platform-wide watches and the knowledge graph, so it
+        # idles at ~470Mi; under a 768Mi limit one burst of ~300Mi was an
+        # OOMKill (exit 137), and with a single replica every restart is a
+        # window of "no healthy upstream" at the Gateway (Azure, 2026-10-27).
+        # DENO_V8_FLAGS (env above) caps the JS heap below this limit so V8
+        # collects hard before the kernel kills the pod.
         resources:
           requests:
             cpu: 100m
-            memory: 256Mi
+            memory: 512Mi
           limits:
             cpu: '1'
-            memory: 768Mi
+            memory: 1536Mi
         startupProbe:
           httpGet:
             path: /healthz
@@ -682,6 +720,17 @@ spec:
             port: http
           periodSeconds: 10
           timeoutSeconds: 5
+        # Keep accepting for a few seconds after the pod is marked terminating.
+        # The server closes its listener on SIGTERM (server.ts drain), but the
+        # Gateway's Envoy drops the endpoint only once Cilium has processed the
+        # EndpointSlice update; a request routed in that gap was refused
+        # ("upstream connect error … connection refused") even though the
+        # replacement pod was already Ready. The kubelet's native sleep action
+        # (GA in 1.34) needs no shell in the image.
+        lifecycle:
+          preStop:
+            sleep:
+              seconds: 5
         volumeMounts:
         - name: ca-bundle
           mountPath: /shared

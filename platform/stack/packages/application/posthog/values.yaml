@@ -310,15 +310,24 @@ events:
 # and evicted once, holding the posthog app at Progressing. Two children is
 # plenty for the platform's own task volume and makes the footprint independent
 # of the node size; CELERY_MAX_MEMORY_PER_CHILD (KiB) recycles a child that leaks.
+# Still OOMKilled 41 times in 4.5 h at 2Gi (Azure, 2026-10-28), and the cause
+# was the floor, not the children: before any child runs, the Celery main
+# process and the RedBeat scheduler (a second full Django interpreter) hold
+# 1.97 GiB of anonymous memory, and each working child dirties ~550 MiB more
+# (pod peak 2.93 GiB). CELERY_MAX_MEMORY_PER_CHILD is compared with ru_maxrss,
+# which in a forked child already includes the ~1 GiB it shares with its
+# parent, so any value below that replaces a child after EVERY task — which is
+# what it does here, and what bounds the ~550 MiB. Limit 4Gi; the request is
+# the measured working range (2.0-2.7 GiB).
 worker:
   env:
     - name: WEB_CONCURRENCY
       value: "2"
     - name: CELERY_MAX_MEMORY_PER_CHILD
-      value: "524288"
+      value: "393216"
   resources:
-    requests: {cpu: 100m, memory: 1Gi}
-    limits: {memory: 2Gi}
+    requests: {cpu: 100m, memory: 2560Mi}
+    limits: {memory: 4Gi}
 plugins:
   enabled: false
 

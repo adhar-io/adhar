@@ -125,8 +125,11 @@ spec:
               done
               [ -n "$ok" ] || { echo "$SECRET not ready; retries next sync"; exit 0; }
               SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
-              POD_TS=$(kubectl -n "$NS" get pods -l app=console -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
-              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+              # Newest console pod, compared by the digits of the RFC 3339 stamps:
+              # busybox `date -d` rejects them, the test errored, and every strapi
+              # sync restarted the console (see adhar-console oidc-reload.yaml).
+              POD_TS=$(kubectl -n "$NS" get pods -l app=console -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}' 2>/dev/null | sort | tail -n 1 || true)
+              if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
                 echo "console pod is newer than $SECRET; nothing to do."; exit 0
               fi
               kubectl -n "$NS" rollout restart deployment "$DEPLOY"

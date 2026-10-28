@@ -33,7 +33,7 @@ func TestPlaneUsesThePlatformsOwnImages(t *testing.T) {
 
 	seen := map[string]int{}
 	tags := map[string]bool{}
-	for _, name := range []string{"manifests/install.yaml", "manifests/instance-setup.yaml"} {
+	for _, name := range []string{"manifests/install.yaml", "manifests/instance-setup.yaml", "manifests/project-access.yaml"} {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -53,8 +53,8 @@ func TestPlaneUsesThePlatformsOwnImages(t *testing.T) {
 			}
 		}
 	}
-	if seen["backend"] < 5 {
-		t.Errorf("found %d backend image references, expected at least 5 (api, worker, beat-worker, migrator, instance setup) — "+
+	if seen["backend"] < 6 {
+		t.Errorf("found %d backend image references, expected at least 6 (api, worker, beat-worker, migrator, instance setup, project access) — "+
 			"a missed one leaves components on different builds", seen["backend"])
 	}
 	for _, img := range []string{"frontend", "admin", "space", "live"} {

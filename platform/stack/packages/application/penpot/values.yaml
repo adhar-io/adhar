@@ -93,10 +93,21 @@ config:
   # cookie on its headless browser for http://penpot:8080 (exporter
   # browser.cljs `create-cookies`), it never relays the backend's Set-Cookie.
   # The chart template prepends a literal "$PENPOT_FLAGS " (Kubernetes expands
-  # only $(VAR)), which reaches the env and /js/config.js verbatim; both flag
-  # parsers ignore any word that does not start with enable-/disable-
-  # (common/src/app/common/flags.cljc `parse`), so it is cosmetic.
-  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification"
+  # only $(VAR)), which used to reach the env and /js/config.js verbatim.
+  # Harmless to both flag parsers (common/src/app/common/flags.cljc `parse`
+  # skips any word without an enable-/disable- prefix), but it is not a flag,
+  # so post-render.py strips it.
+  #
+  # enable-access-tokens: the Adhar Console calls Penpot's RPC API as a robot
+  # profile with `Authorization: Token …` (manifests/console-token.yaml mints
+  # it into Secret penpot-api-token). Without the flag the backend compiles
+  # token authentication out entirely (2.17.2 backend/src/app/http/
+  # access_token.clj `authz`), so every token is answered as anonymous: 401.
+  # It also shows the Access Tokens section in each person's profile.
+  # enable-webhooks: per-team webhooks (team settings → Webhooks). Delivery
+  # goes through Penpot's SSRF filter (loggers/webhooks.clj), which refuses
+  # in-cluster addresses unless PENPOT_SSRF_ALLOWED_HOSTS names the host.
+  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification enable-access-tokens enable-webhooks"
   # PENPOT_SECRET_KEY encrypts every token Penpot issues (sessions, OIDC state,
   # registration, password-recovery and invitation tokens). The chart ships a
   # PUBLIC default key, with which anyone can mint or read those tokens, so the

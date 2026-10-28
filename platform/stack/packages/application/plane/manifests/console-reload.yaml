@@ -112,11 +112,16 @@ spec:
 
               # 3. Restart ONLY if the running pod predates the Secret — i.e. it
               #    started with PLANE_URL unset and fell back to the public
-              #    hostname. Idempotent via timestamp comparison.
+              #    hostname. Idempotent via timestamp comparison — of the NEWEST
+              #    console pod, by the digits of the RFC 3339 stamps: busybox
+              #    `date -d` in this image rejects them, the test errored, and
+              #    every plane sync restarted the console (see adhar-console
+              #    oidc-reload.yaml, 2026-10-28).
               SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
               POD_TS=$(kubectl -n "$NS" get pods -l app=console \
-                         -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
-              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+                         -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}' 2>/dev/null \
+                         | sort | tail -n 1 || true)
+              if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
                 echo "console pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
                 exit 0
               fi

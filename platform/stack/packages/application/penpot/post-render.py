@@ -17,6 +17,12 @@ JWKS fetch — to the IN-CLUSTER Keycloak Service, which is what this waits for
 missing at boot no longer disables SSO (Penpot falls back to userinfo), so
 the wait only keeps ID-token verification local. It is bounded: if Keycloak
 never answers (SSO switched off), Penpot still starts.
+
+Drop the literal "$PENPOT_FLAGS " the chart prepends to config.flags on the
+backend and the frontend. Kubernetes expands only $(VAR), so the placeholder
+reached the env — and the frontend's /js/config.js — verbatim. Both flag
+parsers skip it, but it is not a flag, and reading the live env should show
+exactly what values.yaml asks for (enable-access-tokens included).
 """
 import sys
 
@@ -65,13 +71,35 @@ INIT = """      serviceAccountName: penpot
 """
 
 
-def main(path):
-    s = open(path).read()
+# Both Deployments that read PENPOT_FLAGS (backend, frontend) render it as
+#   - name: PENPOT_FLAGS
+#     value: "$PENPOT_FLAGS <config.flags>"
+FLAGS_ENV = "- name: PENPOT_FLAGS\n"
+FLAGS_PLACEHOLDER = 'value: "$PENPOT_FLAGS '
+
+
+def wait_for_keycloak(s, path):
     if MARKER in s:
-        return
+        return s
     if s.count(ANCHOR) != 1:
         sys.exit(f"post-render: backend pod spec anchor not found exactly once in {path}; the chart changed")
-    open(path, "w").write(s.replace(ANCHOR, INIT))
+    return s.replace(ANCHOR, INIT)
+
+
+def strip_flags_placeholder(s, path):
+    if s.count(FLAGS_ENV) != 2:
+        sys.exit(f"post-render: PENPOT_FLAGS is not set on exactly the backend and the frontend in {path}; the chart changed")
+    s = s.replace(FLAGS_PLACEHOLDER, 'value: "')
+    if "$PENPOT_FLAGS" in s:
+        sys.exit(f"post-render: a literal $PENPOT_FLAGS is left in {path}; the chart changed how it renders config.flags")
+    return s
+
+
+def main(path):
+    s = open(path).read()
+    out = strip_flags_placeholder(wait_for_keycloak(s, path), path)
+    if out != s:
+        open(path, "w").write(out)
 
 
 if __name__ == "__main__":

@@ -36,11 +36,12 @@ func TestLargeMemoryRequestsAreJustifiedByMeasurement(t *testing.T) {
 	ceiling := resource.MustParse("1Gi")
 	// container -> why it legitimately holds more than 1 GiB
 	justified := map[string]string{
-		"posthog-web":    "measured 4.4 GiB working set (Django + plugins); the knob to cut it is PostHog's, not the request",
-		"posthog-events": "measured 4.4 GiB working set (plugin-server heap)",
-		"nexus":          "Sonatype's floor is ~2.7 GiB heap+direct; a 1 GiB heap starved boot",
-		"penpot-backend": "measured 1.5-1.6 GiB working set (JVM); at the 64Mi default it was evicted 5x on 2026-10-22",
-		"trivy-operator": "informer caches measured 1.1 GiB steady, 1.7 GiB peak (2026-10-22)",
+		"posthog-web":     "measured 4.4 GiB working set (Django + plugins); the knob to cut it is PostHog's, not the request",
+		"posthog-events":  "measured 4.4 GiB working set (plugin-server heap)",
+		"posthog-workers": "parent + RedBeat scheduler hold 1.97 GiB before any child runs; 2.0-2.7 GiB working, 2.93 GiB peak (Azure, 2026-10-28)",
+		"nexus":           "Sonatype's floor is ~2.7 GiB heap+direct; a 1 GiB heap starved boot",
+		"penpot-backend":  "measured 1.5-1.6 GiB working set (JVM); at the 64Mi default it was evicted 5x on 2026-10-22",
+		"trivy-operator":  "informer caches measured 1.1 GiB steady, 1.7 GiB peak (2026-10-22)",
 	}
 	forEachPackageWorkload(t, func(pkg, file, kind, name string, spec map[string]any) {
 		for _, c := range containersOf(spec) {

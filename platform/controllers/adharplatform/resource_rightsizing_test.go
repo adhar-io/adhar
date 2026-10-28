@@ -1,9 +1,11 @@
 package adharplatform
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,7 +74,7 @@ func TestMeasuredMemoryRequestsStayRightSized(t *testing.T) {
 		{file: "application/plane/manifests/install.yaml", kind: "Deployment", name: "plane-worker-wl", container: "plane-worker",
 			floor: "512Mi", values: []string{"worker", "memoryRequest"}},
 		{file: "application/posthog/manifests/install.yaml", kind: "Deployment", name: "posthog-worker-default", container: "posthog-workers",
-			floor: "1Gi", values: []string{"worker", "resources", "requests", "memory"}},
+			floor: "2Gi", values: []string{"worker", "resources", "requests", "memory"}},
 		{file: "application/posthog/manifests/install.yaml", kind: "Deployment", name: "posthog-web", container: "posthog-web",
 			floor: "4Gi", values: []string{"web", "resources", "requests", "memory"}},
 		{file: "application/posthog/manifests/install.yaml", kind: "Deployment", name: "posthog-events", container: "posthog-events",
@@ -182,6 +184,78 @@ func TestPostHogWorkerBoundsItsCeleryConcurrency(t *testing.T) {
 		return
 	}
 	t.Fatal("no posthog-worker-default Deployment found; update this guard")
+}
+
+// Bounding the children is not enough: the limit must hold the floor under
+// them. Measured in the pod (Azure, 2026-10-28): the Celery main process and
+// the RedBeat scheduler — a second full Django interpreter — hold 1.97 GiB of
+// anonymous memory before any child runs, and a working child dirties ~550 MiB
+// of its own. A 2Gi limit was OOMKilled 41 times in 4.5 hours.
+//
+// The per-child figure holds only while each child is replaced after every
+// task. Celery compares CELERY_MAX_MEMORY_PER_CHILD with ru_maxrss, which in a
+// forked child already counts the ~1 GiB it shares with its parent, so any
+// value below that recycles per task; above it, a child lives on and nothing
+// here describes what it grows to.
+func TestPostHogWorkerLimitHoldsTheFloorAndItsChildren(t *testing.T) {
+	const (
+		parentAndScheduler = 1970 << 20
+		perWorkingChild    = 560 << 20
+		inheritedRSSKiB    = 1 << 20
+	)
+	read := func(env []interface{}, name string) int64 {
+		for _, e := range env {
+			if m, _ := e.(map[string]interface{}); m["name"] == name {
+				n, err := strconv.ParseInt(fmt.Sprint(m["value"]), 10, 64)
+				if err != nil {
+					t.Fatalf("posthog worker %s=%v is not a number", name, m["value"])
+				}
+				return n
+			}
+		}
+		t.Fatalf("posthog worker sets no %s; update this guard", name)
+		return 0
+	}
+	body := readStackFile(t, "application/posthog/manifests/install.yaml")
+	for _, doc := range regexp.MustCompile(`(?m)^---\s*$`).Split(body, -1) {
+		var obj map[string]interface{}
+		if yaml.Unmarshal([]byte(doc), &obj) != nil || obj["kind"] != "Deployment" || dig(obj, "metadata", "name") != "posthog-worker-default" {
+			continue
+		}
+		spec, _ := obj["spec"].(map[string]interface{})
+		for _, c := range containersOf(spec) {
+			if c["name"] != "posthog-workers" {
+				continue
+			}
+			env, _ := c["env"].([]interface{})
+			children, recycleKiB := read(env, "WEB_CONCURRENCY"), read(env, "CELERY_MAX_MEMORY_PER_CHILD")
+			if recycleKiB >= inheritedRSSKiB {
+				t.Errorf("CELERY_MAX_MEMORY_PER_CHILD=%d KiB is above the ~1 GiB a forked child inherits: children are no longer "+
+					"replaced after every task, and the per-child figure this limit was sized from no longer holds", recycleKiB)
+			}
+			limit, _ := dig(c, "resources", "limits", "memory").(string)
+			if limit == "" {
+				t.Fatal("posthog-worker-default has no memory limit; update this guard")
+			}
+			// A fifth on top: the 2.93 GiB peak was over two minutes, not a day.
+			need := resource.NewQuantity((parentAndScheduler+children*perWorkingChild)*6/5, resource.BinarySI)
+			if have := resource.MustParse(limit); have.Cmp(*need) < 0 {
+				t.Errorf("posthog-worker-default limit %s cannot hold the 1.97 GiB parent and scheduler plus %d working children "+
+					"of ~560 MiB with a fifth to spare (needs %s); it is OOMKilled under its own floor", limit, children, need)
+			}
+			var v map[string]interface{}
+			if err := yaml.Unmarshal([]byte(readStackFile(t, "application/posthog/values.yaml")), &v); err != nil {
+				t.Fatal(err)
+			}
+			valuesEnv, _ := dig(v, "worker", "env").([]interface{})
+			if read(valuesEnv, "CELERY_MAX_MEMORY_PER_CHILD") != recycleKiB || read(valuesEnv, "WEB_CONCURRENCY") != children ||
+				dig(v, "worker", "resources", "limits", "memory") != limit {
+				t.Error("posthog values.yaml worker disagrees with the manifest's concurrency, recycle line or limit; regenerating would revert the fix")
+			}
+			return
+		}
+	}
+	t.Fatal("no posthog-worker-default Deployment with a posthog-workers container found; update this guard")
 }
 
 // A CronJob under concurrencyPolicy: Forbid with no activeDeadlineSeconds is a

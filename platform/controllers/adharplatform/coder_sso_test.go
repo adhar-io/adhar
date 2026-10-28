@@ -500,3 +500,17 @@ func TestCoderOffersKeycloakNotItsDefaultGitHubLogin(t *testing.T) {
 		}
 	}
 }
+
+// The template seed (PostSync wave 12) pushes before oidc-reload (wave 13)
+// restarts Coder with its Gitea provider, and Coder refuses to push a template
+// that names a provider it has not loaded ("external auth provider \"gitea\" is
+// not configured"). Declaring one deadlocked a fresh platform: the seed
+// crash-looped, the reload behind it never ran, and there was no template at
+// all (Azure, 2026-10-28).
+func TestCoderTemplateNamesNoProviderTheSeedRunsBefore(t *testing.T) {
+	seed := withoutComments(readStackFile(t, "application/coder/manifests/templates-seed.yaml"))
+	if strings.Contains(seed, `data "coder_external_auth"`) {
+		t.Error("the seeded Coder template declares a coder_external_auth provider; the seed runs before " +
+			"oidc-reload loads it, so `coder templates push` fails and the platform gets no template")
+	}
+}
