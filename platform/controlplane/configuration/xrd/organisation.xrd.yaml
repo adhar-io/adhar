@@ -3,11 +3,12 @@
 #   Organisation → Team → Project → Application → Environment → Release
 #
 # An organisation is the unit of isolation between customers of the platform.
-# The Console creates one when a tenant signs up (and owns the Keycloak groups
-# `org-<slug>` / `org-<slug>-admin` and their membership — identity stays with
-# the Console); everything the organisation is GRANTED is composed from this
-# object: its home namespace and quota, RBAC for those two groups, and its
-# Gitea organisation. Teams and projects reference it by `name`.
+# The Console creates one when a tenant signs up, together with the Keycloak
+# groups `org-<slug>` (members) and `org-<slug>-admin` (administrators, who are
+# members too), whose membership it keeps in Keycloak and nowhere else;
+# everything the organisation is GRANTED is composed from this object: its home
+# namespace and quota, RBAC for those two groups, and its Gitea organisation.
+# Teams and projects reference it by `name`.
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
@@ -46,9 +47,15 @@ spec:
                   properties:
                     name:
                       type: string
-                      description: Organisation slug. Also the home namespace, the Gitea organisation and the Keycloak group suffix (`org-<name>`).
+                      description: Organisation slug. Also the home namespace, the Gitea organisation and the Keycloak group suffix (`org-<name>`, `org-<name>-admin`). It may not end in `-admin`, or its member group would be the admin group of the organisation named without the suffix.
                       pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
                       maxLength: 40
+                      # Ratcheting keeps an existing object with such a name
+                      # valid; the Console refuses the slug before it creates
+                      # anything.
+                      x-kubernetes-validations:
+                        - rule: "!self.endsWith('-admin')"
+                          message: an organisation name may not end in -admin; org-<name> would be the admin group of another organisation
                     displayName:
                       type: string
                       default: ""

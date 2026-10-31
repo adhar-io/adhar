@@ -113,7 +113,8 @@ func TestAWSShippedConfigsBuildTheSameMachines(t *testing.T) {
 				pub, priv := cfg.subnetCIDRs()
 				got := []interface{}{cfg.controlPlaneType(spec), cfg.workerType(spec.NodeGroups[0].InstanceType, "", false),
 					spec.NodeGroups[0].Replicas, cfg.DiskSizeGB, cfg.DiskType, cfg.vpcCIDR(), pub, priv, len(cfg.AvailabilityZones), cfg.Region}
-				want := []interface{}{"r6i.large", "r6i.xlarge", 2, int32(256), "gp3", "10.0.0.0/16", "10.0.1.0/24", "10.0.2.0/24", 0, "ap-southeast-1"}
+				// m6i.xlarge since 2026-10-30 (was r6i.large, 2 vCPU — below MinControlPlaneVCPU).
+				want := []interface{}{"m6i.xlarge", "r6i.xlarge", 2, int32(256), "gp3", "10.0.0.0/16", "10.0.1.0/24", "10.0.2.0/24", 0, "ap-southeast-1"}
 				for i := range want {
 					if got[i] != want[i] {
 						t.Errorf("resolved %v, built %v before", got, want)

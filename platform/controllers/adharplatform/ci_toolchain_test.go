@@ -102,8 +102,29 @@ func TestARetriedBuildStartsFromTheCheckout(t *testing.T) {
 	if prepare < 0 || buildStep < 0 || prepare > buildStep {
 		t.Fatal("buildpacks-build no longer has a prepare step before the lifecycle; update this guard")
 	}
-	if !strings.Contains(build[prepare:buildStep], `rm -rf "$(workspaces.source.path)/$(params.subdirectory)/node_modules"`) {
+	if !strings.Contains(build[prepare:buildStep], `rm -rf "$APP/node_modules"`) {
 		t.Error("prepare does not remove node_modules, so a retried build fails on `mkdir node_modules: file exists` instead of its real cause")
+	}
+	// The lifecycle rewrites its app directory (Paketo's JVM buildpacks replace
+	// the project with the built artifact), and test-auto and source-scan run on
+	// the shared workspace after this task: building there left them the
+	// artifact, so JVM tests never ran and source-scan read dependency jars as
+	// source (AWS, 2026-10-30). The build must use a private copy.
+	if !strings.Contains(build[prepare:buildStep], `cp -a "$(workspaces.source.path)/." "$APP_ROOT/"`) {
+		t.Error("prepare does not copy the checkout to the lifecycle's private app directory")
+	}
+	if strings.Contains(build, `"-app=$(workspaces.source.path)`) {
+		t.Error("the CNB lifecycle builds in the shared workspace; test-auto and source-scan then see the built artifact, not the source")
+	}
+	// ...and that copy must sit where images were ALWAYS built. The app path is
+	// baked into the image and into layers reused from the previous image:
+	// building at /build-app gave JVM images CNB_APP_DIR=/build-app over a
+	// reused JRE layer still pointing at /workspace/source, and they exited 82
+	// at start (AWS, 2026-10-31).
+	if !strings.Contains(build, `"-app=/workspace/source/$(params.subdirectory)"`) ||
+		!strings.Contains(build, "- {name: build-app, mountPath: /workspace/source}") ||
+		!strings.Contains(build, "- {name: source, mountPath: /workspace/checkout}") {
+		t.Error("the lifecycle no longer builds at /workspace/source on a private copy; reused layers would point at a different app path")
 	}
 }
 

@@ -992,4 +992,4 @@ Failure signatures with root-cause probes and recovery steps: [Troubleshooting](
 | Build on the Crossplane APIs | [Control Plane](CONTROL_PLANE.md) |
 | Understand the design and its decisions | [Architecture](ARCHITECTURE.md) and the [ADRs](adr/README.md) |
 
-Community: [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) · [Discussions](https://github.com/adhar-io/adhar/discussions) · [Issues](https://github.com/adhar-io/adhar/issues)
+Community: [Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg) · [Discussions](https://github.com/adhar-io/adhar/discussions) · [Issues](https://github.com/adhar-io/adhar/issues)

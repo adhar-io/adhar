@@ -27,9 +27,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
+  # `watch`: `kubectl rollout status` watches the Deployment; without it the
+  # wait logs "Failed to watch … unknown" and sits out its whole timeout.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -86,10 +88,22 @@ spec:
                 exit 0
               fi
 
+              # Restart only if the running hub predates the Secret. The NEWEST
+              # hub pod decides (pods list in name order, so items[0] can be the
+              # one a rollout is replacing), compared by the digits of the RFC
+              # 3339 stamps: busybox `date -d` in this image rejects them, the
+              # test errored, and every sync of jupyterhub restarted the hub
+              # (adhar-console oidc-reload.yaml, 2026-10-28). A pod list that
+              # FAILS ends the hook — read as "no pod", an API timeout restarted
+              # the hub; only a list that succeeded with no started pod does.
               SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
-              POD_TS=$(kubectl -n "$NS" get pods -l component=hub \
-                         -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
-              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+              if ! STARTED=$(kubectl -n "$NS" get pods -l component=hub \
+                               -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}'); then
+                echo "cannot list the hub pods; leaving the hub as-is (retries next sync)"
+                exit 0
+              fi
+              POD_TS=$(printf '%s\n' "$STARTED" | sort | tail -n 1)
+              if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
                 echo "hub pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
                 exit 0
               fi

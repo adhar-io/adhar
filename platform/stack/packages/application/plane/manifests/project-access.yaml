@@ -156,6 +156,7 @@ spec:
               envFrom:
                 - configMapRef: {name: plane-app-vars}
                 - secretRef: {name: plane-app-secrets}
+                - secretRef: {name: plane-generated-keys}
                 - secretRef: {name: plane-doc-store-secrets}
               env:
                 # The workspace and key label plane-instance-setup creates.

@@ -14,14 +14,18 @@
 #      (registering it the first time), mints an access token with no expiry
 #      and makes sure the robot owns a team named "Adhar" — the robot only ever
 #      sees teams it belongs to, so this is the team the console works in;
-#   3. it publishes Secret penpot-api-token, which the console Deployment lists
-#      in `envFrom` (optional, core/adhar-console manifests/install.yaml):
+#   3. it publishes Secret penpot-api-token:
 #        PENPOT_TOKEN    the access token (sent as `Authorization: Token …`)
 #        PENPOT_TEAM_ID  the "Adhar" team's id
 #        PENPOT_URL      http://penpot.adhar-system.svc.cluster.local:8080
 #                        (the frontend nginx: it proxies /api to the backend
-#                        and resolves /assets redirects server-side);
-#   4. `envFrom` is read once, when a container starts, so the Job restarts the
+#                        and resolves /assets redirects server-side).
+#      The console Deployment (core/adhar-console manifests/install.yaml)
+#      reads PENPOT_TOKEN and PENPOT_TEAM_ID from it by key (env secretKeyRef,
+#      optional) and carries PENPOT_URL as a literal. Never `envFrom`: that
+#      imports every key, so this Job's ServiceAccount, which may patch the
+#      Secret, could set any of the console's variables;
+#   4. env is read once, when a container starts, so the Job restarts the
 #      console when the Secret changed after the console pod started — once on
 #      a fresh cluster, again only if the token is ever replaced.
 #
@@ -56,8 +60,10 @@ spec:
 # CreatedOnce: the robot registers with this password the first time the Job
 # runs, and Penpot has no way to reset another profile's password without the
 # old one. If this Secret is ever regenerated (deleted, or the package switched
-# off and on while Penpot's database survived), the Job fails and its log says
-# how to recover. `adhar get secrets -p penpot` prints it, so an operator can
+# off and on while Penpot's database survived), the robot cannot sign in: the
+# Job logs "ACTION REQUIRED" with how to recover and ends without failing the
+# sync, and the console goes without Penpot until someone does it.
+# `adhar get secrets -p penpot` prints it, so an operator can
 # sign in as the robot (to invite people into its "Adhar" team, for example).
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -98,15 +104,18 @@ metadata:
   name: penpot-console-token
   namespace: adhar-system
 rules:
-  # Read and rewrite the token Secret. `create` cannot be narrowed to a name
-  # (RBAC ignores resourceNames on create), so it is a rule of its own.
+  # Read and write the token Secret — that one, `create` included. The script
+  # writes it only with server-side apply: a PATCH to the object's own URL,
+  # and when the object does not exist yet the API server authorises the
+  # create that implies WITH the object's name (k8s.io/apiserver
+  # endpoints/handlers/patch.go, createAuthorizerAttributes), so resourceNames
+  # applies. Only a POST create, which carries no name, cannot be narrowed —
+  # and nothing here makes one. Unnamed, `create` let this ServiceAccount make
+  # any Secret in adhar-system.
   - apiGroups: [""]
     resources: ["secrets"]
     resourceNames: ["penpot-api-token"]
-    verbs: ["get", "patch", "update"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["create"]
+    verbs: ["get", "create", "patch", "update"]
   # Restart the console when the Secret changed under a running pod. `watch`
   # is what `kubectl rollout status` needs (it watches by name).
   - apiGroups: ["apps"]
@@ -173,7 +182,19 @@ data:
     trap 'rm -rf "$work"' EXIT
 
     log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+    # An outage — Penpot or the API server not answering — fails the Job,
+    # which is restarted with back-off: a retry is what fixes it.
     fail() { log "ERROR: $*"; exit 1; }
+    # A problem only a person can fix ends the Job SUCCESSFULLY, loudly. This
+    # is a PostSync hook: a failed Job fails the sync, and the ApplicationSet
+    # retries a failed sync forever (retry.limit -1) by replaying the SAME
+    # revision, so no later penpot push, the fix included, would deploy.
+    # Every caller runs before step 6: nothing has been published.
+    needs_person() {
+      log "ACTION REQUIRED: $*"
+      log "left $SECRET and $CONSOLE as they are; the console goes without Penpot until this is fixed, then sync the penpot Application to run this Job again"
+      exit 0
+    }
 
     # rpc COMMAND JSON [HEADER-FILE] — one Penpot RPC call. Sets $code; the
     # answer is in $work/body and its headers in $work/headers.
@@ -186,6 +207,15 @@ data:
     }
     # The error code in a failed answer ({"type": …, "code": …}).
     why() { jq -r '.code // .type // empty' "$work/body" 2>/dev/null || true; }
+    # rpc_failed WHAT [HINT] — an answer other than the one expected. None at
+    # all, 429 or 5xx is Penpot down or busy: fail, and the Job retries. Any
+    # other answer is Penpot refusing on purpose, which no retry changes.
+    rpc_failed() {
+      case "$code" in
+        000|429|5??) fail "$1 answered http $code ($(why)); failing so the Job retries" ;;
+        *) needs_person "$1 answered http $code ($(why))${2:+ — $2}" ;;
+      esac
+    }
 
     # ---- 1. Wait for the API, through the URL the console uses ------------
     # An anonymous get-profile answers 200 (the zero profile) once the backend
@@ -196,7 +226,11 @@ data:
       log "waiting for the Penpot API at $API (http $code, $i/$TRIES)"
       sleep "$PAUSE"
     done
-    [ "$code" = 200 ] || fail "the Penpot API at $API never answered; failing so the Job retries"
+    # Penpot still starting is no answer or a 5xx from the frontend's proxy,
+    # and fails the Job. Any other answer after the whole wait (a 404, a
+    # redirect to a sign-in page) is a URL that is not Penpot's API, which no
+    # retry fixes.
+    [ "$code" = 200 ] || rpc_failed "get-profile at $API" "is $PENPOT_URL still Penpot's frontend Service?"
 
     # ---- 2. The published Secret, if there is one -------------------------
     if ! $KUBECTL -n "$NS" get secret "$SECRET" -o json >"$work/secret.json" 2>"$work/kerr"; then
@@ -217,7 +251,7 @@ data:
       case "$code" in
         200) log "the published token still works; keeping it" ;;
         401|403) log "Penpot refuses the published token (http $code, $(why)); replacing it"; token="" ;;
-        *) fail "get-teams answered http $code ($(why)); not replacing a token over an error that is not about the token" ;;
+        *) rpc_failed get-teams "not replacing a token over an error that is not about the token" ;;
       esac
     fi
 
@@ -235,34 +269,34 @@ data:
       if [ "$code" != 200 ]; then
         # An unknown email and a wrong password are the same answer
         # (wrong-credentials); registration tells them apart.
-        [ "$code" = 400 ] && [ "$(why)" = wrong-credentials ] || fail "login-with-password answered http $code ($(why))"
+        [ "$code" = 400 ] && [ "$(why)" = wrong-credentials ] || rpc_failed login-with-password
         rpc prepare-register-profile "$(jq -nc '{fullname: env.ROBOT_NAME, email: env.ROBOT_EMAIL, password: env.ROBOT_PASSWORD}')"
         if [ "$code" != 200 ]; then
           if [ "$(why)" = email-already-exists ]; then
-            fail "the robot $ROBOT_EMAIL exists in Penpot but refuses the password in Secret penpot-console-robot: that Secret was regenerated after the robot registered (the Secret deleted, or penpot switched off and on while its database survived). Penpot cannot reset another profile's password. Restore the old Secret, or free the address so a new robot registers on the next sync: kubectl -n $NS exec penpot-postgresql-0 -- psql -U penpot -d penpot -c \"UPDATE profile SET email = 'retired-' || id || '@adhar.local' WHERE email = '$ROBOT_EMAIL'\" (the old robot's teams keep their other members; the console then works in a new \"$TEAM_NAME\" team)"
+            needs_person "the robot $ROBOT_EMAIL exists in Penpot but refuses the password in Secret penpot-console-robot: that Secret was regenerated after the robot registered (the Secret deleted, or penpot switched off and on while its database survived). Penpot cannot reset another profile's password. Restore the old Secret, or free the address so a new robot registers on the next sync: kubectl -n $NS exec penpot-postgresql-0 -- psql -U penpot -d penpot -c \"UPDATE profile SET email = 'retired-' || id || '@adhar.local' WHERE email = '$ROBOT_EMAIL'\" (the old robot's teams keep their other members; the console then works in a new \"$TEAM_NAME\" team)"
           fi
-          fail "prepare-register-profile answered http $code ($(why))"
+          rpc_failed prepare-register-profile "the robot cannot register: is enable-registration still in PENPOT_FLAGS?"
         fi
         REGISTRATION=$(jq -r '.token // empty' "$work/body")
-        [ -n "$REGISTRATION" ] || fail "prepare-register-profile returned no token"
+        [ -n "$REGISTRATION" ] || needs_person "prepare-register-profile answered 200 without a registration token"
         export REGISTRATION
         rpc register-profile "$(jq -nc '{token: env.REGISTRATION}')"
         unset REGISTRATION
-        [ "$code" = 200 ] || fail "register-profile answered http $code ($(why))"
+        [ "$code" = 200 ] || rpc_failed register-profile "the robot cannot register"
         log "registered the robot profile $ROBOT_EMAIL"
         login
-        [ "$code" = 200 ] || fail "the robot registered but cannot sign in (http $code, $(why)); is disable-email-verification still in PENPOT_FLAGS?"
+        [ "$code" = 200 ] || rpc_failed "login-with-password (just after registering)" "the robot registered but cannot sign in: is disable-email-verification still in PENPOT_FLAGS?"
       fi
-      session_header || fail "login-with-password set no auth-token cookie"
+      session_header || needs_person "login-with-password set no auth-token cookie"
 
       rpc create-access-token "$(jq -nc --arg n "$TOKEN_NAME" '{name: $n}')" "$work/session.hdr"
-      [ "$code" = 200 ] || fail "create-access-token answered http $code ($(why))"
+      [ "$code" = 200 ] || rpc_failed create-access-token
       token=$(jq -r '.token // empty' "$work/body")
       token_id=$(jq -r '.id // empty' "$work/body")
-      [ -n "$token" ] || fail "create-access-token returned no token"
+      [ -n "$token" ] || needs_person "create-access-token answered 200 without a token"
       printf 'Authorization: Token %s\n' "$token" >"$work/token.hdr"
       rpc get-teams '{}' "$work/token.hdr"
-      [ "$code" = 200 ] || fail "Penpot refuses the token it just minted (http $code, $(why)); is enable-access-tokens in PENPOT_FLAGS on penpot-backend?"
+      [ "$code" = 200 ] || rpc_failed "get-teams with the token just minted" "Penpot refuses its own token: is enable-access-tokens in PENPOT_FLAGS on penpot-backend?"
       minted=1
       log "minted a new access token ($token_id) for $ROBOT_EMAIL"
     fi
@@ -277,9 +311,9 @@ data:
       | ([ $t[] | select(.id == $id) ] + [ $t[] | select(.name == $name) ]) | .[0].id // empty' "$work/teams.json")
     if [ -z "$team_id" ]; then
       rpc create-team "$(jq -nc --arg n "$TEAM_NAME" '{name: $n}')" "$work/token.hdr"
-      [ "$code" = 200 ] || fail "create-team answered http $code ($(why))"
+      [ "$code" = 200 ] || rpc_failed create-team
       team_id=$(jq -r '.id // empty' "$work/body")
-      [ -n "$team_id" ] || fail "create-team returned no id"
+      [ -n "$team_id" ] || needs_person "create-team answered 200 without an id"
       log "created the team \"$TEAM_NAME\" ($team_id)"
     fi
 
@@ -325,10 +359,11 @@ data:
       log "$CONSOLE is not deployed here; nothing to reload"
       exit 0
     fi
-    # A console whose manifest does not list the Secret yet would restart for
-    # nothing; the rollout that adds the envFrom loads it.
-    if ! jq -e --arg s "$SECRET" '[.spec.template.spec.containers[].envFrom[]?.secretRef.name] | index($s) != null' "$work/console.json" >/dev/null; then
-      log "$CONSOLE does not load $SECRET (envFrom) yet; the rollout that adds it will"
+    # A console whose manifest does not read the Secret yet would restart for
+    # nothing; the rollout that adds the reference loads it. The console reads
+    # it key by key (env secretKeyRef), never through envFrom.
+    if ! jq -e --arg s "$SECRET" '[.spec.template.spec.containers[].env[]?.valueFrom.secretKeyRef.name] | index($s) != null' "$work/console.json" >/dev/null; then
+      log "$CONSOLE does not read $SECRET (env secretKeyRef) yet; the rollout that adds it will"
       exit 0
     fi
     $KUBECTL -n "$NS" get secret "$SECRET" -o json >"$work/secret.json" || fail "cannot read back Secret $SECRET"
@@ -370,9 +405,11 @@ metadata:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  # OnFailure restarts back off (10 s doubling to 5 min), so a failure that
-  # needs a person — a robot whose password Secret was regenerated — is
-  # retried for ~10 min per sync attempt, not in a tight loop.
+  # Only an outage fails the script (Penpot or the API server not answering);
+  # a problem that needs a person — a robot whose password Secret was
+  # regenerated — ends it successfully with "ACTION REQUIRED" in the log, so
+  # it never wedges the app's syncs. OnFailure restarts back off (10 s
+  # doubling to 5 min), retrying an outage for ~10 min per sync attempt.
   backoffLimit: 6
   template:
     metadata:

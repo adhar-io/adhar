@@ -29,8 +29,6 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/version: "1.4.1"
 stringData:
-  SECRET_KEY: "60gp0byfz2dvffa45cxl20p1scy9xbpf6d8c5y0geejgkyp1b5"
-  LIVE_SERVER_SECRET_KEY: "htbqvBJAgpm9bzvf3r4urJer0ENReatceh"
   REDIS_URL: "redis://plane-redis.adhar-system.svc.cluster.local:6379/"
   DATABASE_URL: "postgresql://plane:plane@plane-pgdb.adhar-system.svc.cluster.local/plane"
   AMQP_URL: "amqp://plane:plane@plane-rabbitmq.adhar-system.svc.cluster.local/"
@@ -70,7 +68,6 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/version: "1.4.1"
 stringData:
-  LIVE_SERVER_SECRET_KEY: "htbqvBJAgpm9bzvf3r4urJer0ENReatceh"
   REDIS_URL: "redis://plane-redis.adhar-system.svc.cluster.local:6379/"
 ---
 # Source: plane-ce/templates/config-secrets/pgdb.yaml
@@ -378,6 +375,11 @@ spec:
           limits:
             memory: "1000Mi"
             cpu: "500m"
+        volumeMounts:
+        - {name: caddyfile, mountPath: /etc/caddy/Caddyfile, subPath: admin.Caddyfile}
+      volumes:
+      - name: caddyfile
+        configMap: {name: plane-caddyfiles}
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
 ---
@@ -433,6 +435,8 @@ spec:
           - secretRef:
               name: plane-app-secrets
               optional: false
+          - secretRef:
+              name: plane-generated-keys
           - secretRef:
               name: plane-doc-store-secrets
               optional: false
@@ -504,6 +508,8 @@ spec:
                 name: plane-app-secrets
                 optional: false
           - secretRef:
+              name: plane-generated-keys
+          - secretRef:
               name: plane-doc-store-secrets
               optional: false
           - secretRef:
@@ -562,6 +568,8 @@ spec:
           - secretRef:
               name: plane-live-secrets
               optional: false
+          - secretRef:
+              name: plane-generated-keys
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
 ---
@@ -673,10 +681,13 @@ spec:
         volumeMounts:
         - {name: auto-sso-index, mountPath: /usr/share/caddy/html/index.html, subPath: index.html}
         - {name: auto-sso-script, mountPath: /usr/share/caddy/html/adhar-auto-sso.js, subPath: auto-sso.js}
+        - {name: caddyfile, mountPath: /etc/caddy/Caddyfile, subPath: web.Caddyfile}
       volumes:
       - {name: auto-sso-index, emptyDir: {}}
       - name: auto-sso-script
         configMap: {name: plane-web-auto-sso}
+      - name: caddyfile
+        configMap: {name: plane-caddyfiles}
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
 ---
@@ -732,6 +743,8 @@ spec:
           - secretRef:
               name: plane-app-secrets
               optional: false
+          - secretRef:
+              name: plane-generated-keys
           - secretRef:
               name: plane-doc-store-secrets
               optional: false
@@ -961,6 +974,8 @@ spec:
               name: plane-app-secrets
               optional: false
           - secretRef:
+              name: plane-generated-keys
+          - secretRef:
               name:  plane-doc-store-secrets
               optional: false
           - secretRef:
@@ -1009,3 +1024,64 @@ data:
         }).catch(function () {});
       } catch (e) {}
     })();
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plane-caddyfiles
+  namespace: adhar-system
+data:
+  web.Caddyfile: |
+    {
+    	servers {
+    		trusted_proxies static private_ranges
+    	}
+    }
+
+    :3000 {
+    	root * /usr/share/caddy/html
+
+    	# Security headers (HSTS is set at the TLS terminator)
+    	header {
+    		X-Frame-Options "DENY"
+    		X-Content-Type-Options "nosniff"
+    		X-XSS-Protection "1; mode=block"
+    	}
+
+    	# SPA fallback
+    	try_files {path} /index.html
+    	file_server
+
+    	# Access logs to stdout (default in Caddy)
+    	log {
+    		output stdout
+    		format console
+    	}
+    }
+  admin.Caddyfile: |
+    {
+    	servers {
+    		trusted_proxies static private_ranges
+    	}
+    }
+
+    :3000 {
+    	root * /usr/share/caddy/html
+
+    	# Security headers (HSTS is set at the TLS terminator)
+    	header {
+    		X-Frame-Options "DENY"
+    		X-Content-Type-Options "nosniff"
+    		X-XSS-Protection "1; mode=block"
+    	}
+
+    	# SPA fallback: the admin build is served from /god-mode
+    	try_files {path} /god-mode/index.html
+    	file_server
+
+    	# Access logs to stdout (default in Caddy)
+    	log {
+    		output stdout
+    		format console
+    	}
+    }

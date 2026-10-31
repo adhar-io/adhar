@@ -1,9 +1,13 @@
-# The tenant root. ONE organisation exists per platform and it is created by the
-# platform, not by a team — everything else (teams, projects, environments,
-# applications) hangs off it (ADR-0026, the tenancy model in docs/).
+# The tenant root — everything else (teams, projects, environments,
+# applications) hangs off an organisation (ADR-0026, the tenancy model in docs/).
+# The platform seeds its own, `adhar`; any signed-in user may create another
+# from the Console's organisation switcher (self-service onboarding, granted by
+# RBAC `create organizations.console.adhar.io`), which declares one of these.
 #
-# Creating it gives you: a home namespace with its own quota, the Keycloak group
-# `ws-org-<name>`, and the Gitea organisation that will hold the tenant's
+# Creating it gives you: a home namespace with its own quota, RBAC there for the
+# Keycloak groups `org-<name>` (members: view) and `org-<name>-admin`
+# (administrators: admin — the Console creates both groups and keeps their
+# membership), and the Gitea organisation that will hold the tenant's
 # repositories. Projects carry their own quotas; the ones here apply to the
 # organisation's HOME namespace only.
 apiVersion: platform.adhar.io/v1alpha1

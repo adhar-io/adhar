@@ -32,8 +32,10 @@
 # image. That is how a git push reaches the cluster — build automatic, deploy
 # through GitOps.
 #
-# Every build is pushed under TWO tags — `:latest` and `:<commit sha>` — so an
-# image is addressable by the exact commit it came from.
+# Every build of main is pushed under TWO tags — `:latest` and `:<commit sha>` —
+# so an image is addressable by the exact commit it came from. A pull-request
+# build is pushed under its head SHA only (tag-latest "false"): unmerged code
+# must not become what an unpinned environment pulls next.
 #
 # The same EventListener also handles PULL REQUESTS labelled `preview`: it builds
 # the PR head branch, tags the image with the PR head SHA, scans and signs it, and
@@ -161,6 +163,9 @@ spec:
     # PR builds must not write back to main — the preview deploys the image
     # directly at its head SHA, and promotion only happens on merge.
     - {name: writeback, type: string, default: "true"}
+    # Nor may they move :latest (see buildpacks-build's tag-latest): it is what
+    # an environment no promotion has pinned resolves for each new pod.
+    - {name: tag-latest, type: string, default: "true"}
   workspaces:
     - {name: shared}
   # Read by the Console. Absent when the task that produces them did not run.
@@ -212,8 +217,10 @@ spec:
       taskRef: {name: buildpacks-build}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
-        # Pushes <image>:latest AND <image>:<revision>.
+        # Pushes <image>:<revision>, and <image>:latest unless tag-latest is
+        # "false" (a pull request's build).
         - {name: extra-tag, value: "$(params.revision)"}
+        - {name: tag-latest, value: "$(params.tag-latest)"}
         - {name: jdkVersion, value: "$(tasks.toolchain.results.jdk)"}
         - {name: mavenVersion, value: "$(tasks.toolchain.results.maven)"}
         - {name: nodeVersion, value: "$(tasks.toolchain.results.node)"}
@@ -421,7 +428,8 @@ spec:
                 resources: {requests: {storage: 2Gi}}
 ---
 # Pull-request builds: the same app-ci Pipeline, checking out the PR head branch,
-# tagging the image with the PR head SHA, and NOT writing back to main. This is
+# tagging the image with the PR head SHA alone (never :latest), and NOT writing
+# back to main. This is
 # what makes per-PR preview environments (ADR-0017) deploy real code: the preview
 # ApplicationSet pins <image>:<head sha>, which exists only because this ran.
 apiVersion: triggers.tekton.dev/v1beta1
@@ -480,6 +488,8 @@ spec:
           - {name: revision, value: $(tt.params.revision)}
           - {name: git-ref, value: $(tt.params.git-ref)}
           - {name: writeback, value: "false"}
+          # Unmerged code must not become :latest.
+          - {name: tag-latest, value: "false"}
         workspaces:
           - name: shared
             volumeClaimTemplate:

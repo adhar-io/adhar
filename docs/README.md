@@ -97,6 +97,6 @@ One design document has no ADR: [CLI command landscape](design/cli-command-lands
 
 | Channel | Use for |
 |---------|---------|
-| [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) | Questions, real-time help |
+| [Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg) | Questions, real-time help |
 | [GitHub Issues](https://github.com/adhar-io/adhar/issues) | Bugs, feature requests |
 | [GitHub Discussions](https://github.com/adhar-io/adhar/discussions) | Ideas, design conversations |

@@ -1,6 +1,8 @@
 # A team inside the organisation. This is the onboarding unit and the isolation
 # unit: a person is given access by being added to the team's Keycloak group
-# (`ws-team-<name>`), and everything the team owns is labelled with it.
+# (`ws-team-<organisation>.<name>`, here `ws-team-acme.payments` — the
+# organisation is in the name because another one may have a `payments` team
+# too), and everything the team owns is labelled with it.
 #
 # The Gitea team of the same name is created with `giteaPermission` on the
 # repositories granted to it. Teams hold no quota of their own — their projects

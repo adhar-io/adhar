@@ -11,9 +11,19 @@
 # admin as break-glass) before Keycloak exists.
 #
 # Fix: a PostSync hook that waits for the secret, then restarts Grafana ONLY if the
-# running pod is actually missing the OAuth client secret env. That makes it
-# idempotent — on steady-state syncs (Grafana already has the creds) it is a no-op,
-# so there is no restart loop.
+# running pod started before the Secret existed. That makes it idempotent — on
+# steady-state syncs (Grafana already has the creds) it is a no-op, so there is
+# no restart loop.
+#
+# It used to ask the pod instead (`kubectl exec … test -n "$GF_AUTH_…"`), and
+# that restarted Grafana on EVERY sync of kube-prometheus: this Role has never
+# granted pods/exec, the exec was refused, its stderr went to /dev/null, and the
+# refusal read as "the env is missing" (AWS, 2026-10-30: Secret 15:42:04, pod
+# 15:43:20, restarted anyway at 15:47:16). The question is answered from
+# timestamps now, the way the console's reload hooks answer it: grafana-oidc is
+# written by External Secrets only once BOTH keys resolve, so its
+# creationTimestamp is the moment the credential became available, and a pod
+# that started after it has it in its env.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -27,15 +37,24 @@ metadata:
   name: grafana-oidc-reload
   namespace: adhar-system
 rules:
+  # Exactly what the script touches, by name (as penpot's console-token Role
+  # does): it reads one Secret, lists Grafana's pods, and restarts and waits on
+  # one Deployment. Unnamed, these rules read every Secret in adhar-system and
+  # could patch any Deployment in it.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list"]
+    resourceNames: ["grafana-oidc"]
+    verbs: ["get"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list"]
+    verbs: ["list"]
+  # `watch`: `kubectl rollout status` watches the Deployment (by name, so
+  # resourceNames applies); without it the wait logs "Failed to watch …
+  # unknown" and only notices progress on its backoff relists.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    resourceNames: ["prometheus-grafana"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -101,17 +120,29 @@ spec:
                 exit 0
               fi
 
-              # 2. Only restart if the RUNNING Grafana pod is missing the client
-              #    secret env (i.e. it started before the secret existed). This keeps
-              #    the hook idempotent and avoids a restart on every sync.
-              POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=grafana \
-                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-              if [ -n "$POD" ]; then
-                if kubectl -n "$NS" exec "$POD" -c grafana -- \
-                     sh -c 'test -n "$GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET"' 2>/dev/null; then
-                  echo "Grafana already has the OAuth client secret; nothing to do."
-                  exit 0
-                fi
+              # 2. Only restart if the running Grafana predates the Secret (i.e. it
+              #    started with the OAuth env missing). The NEWEST Grafana pod
+              #    decides (pods list in name order, so the first can be the one
+              #    a rollout is replacing), compared by the digits of the RFC
+              #    3339 stamps: busybox `date -d` rejects them (adhar-console
+              #    oidc-reload.yaml, 2026-10-28). The pod list is read on its
+              #    own and a list that FAILS ends the hook — read as "no pod",
+              #    an API timeout restarted Grafana; only a list that succeeded
+              #    with no started pod restarts it.
+              #    Guard: TestRestartHooksNeverRestartOnAFailedPodList.
+              #    The selector is the Deployment's own: `name=grafana` alone
+              #    also selects OnCall's Grafana (instance=oncall), whose start
+              #    time then answered for this one.
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              if ! STARTED=$(kubectl -n "$NS" get pods -l app.kubernetes.io/instance=prometheus,app.kubernetes.io/name=grafana \
+                               -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}'); then
+                echo "cannot list the Grafana pods; leaving Grafana as-is (retries next sync)"
+                exit 0
+              fi
+              POD_TS=$(printf '%s\n' "$STARTED" | sort | tail -n 1)
+              if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
+                echo "Grafana pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
+                exit 0
               fi
 
               echo "Restarting $DEPLOY to load Keycloak OAuth env..."

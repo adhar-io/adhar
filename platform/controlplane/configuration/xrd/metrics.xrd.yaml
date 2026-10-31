@@ -43,10 +43,14 @@ spec:
                 properties:
                   enabled:
                     type: boolean
+                  # PrometheusRule rules as written (alert, expr, for, labels,
+                  # annotations); without preserve-unknown-fields an object with
+                  # no properties is pruned empty by the API server.
                   rules:
                     type: array
                     items:
                       type: object
+                      x-kubernetes-preserve-unknown-fields: true
               providerConfigRef:
                 type: object
                 properties:

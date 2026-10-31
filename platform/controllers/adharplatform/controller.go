@@ -43,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	kubeevents "k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -110,6 +111,14 @@ type AdharPlatformReconciler struct {
 	// working configuration and the normal one locally: publishing is advisory
 	// and every call site tolerates its absence.
 	Events *events.Publisher
+
+	// Recorder writes Kubernetes Events on the AdharPlatform for the repairs
+	// the controller makes on its own, so `kubectl describe adharplatform`
+	// says what was done and why. Nil is a working configuration.
+	Recorder kubeevents.EventRecorder
+	// gatewayRoutesScannedAt is when reconcileCiliumGatewayControllers last
+	// listed the HTTPRoutes; see gatewayRouteScanInterval.
+	gatewayRoutesScannedAt time.Time
 
 	// lastFailureReason/lastFailureMessage describe the most recent reconcile
 	// failure; they are surfaced on the aggregate Ready condition and cleared
@@ -226,6 +235,11 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// never refreshes in the platform namespace; see gateway_secret_sync.go.
 	if err := r.reconcileGatewaySecretSync(ctx); err != nil {
 		log.FromContext(ctx).Info("Could not refresh Cilium's synced Gateway secrets", "error", err)
+	}
+	// An API-server restart can leave the cilium-operator running without its
+	// Gateway API controllers, so new routes are never programmed; see gateway.go.
+	if err := r.reconcileCiliumGatewayControllers(ctx, &localBuild); err != nil {
+		log.FromContext(ctx).Info("Could not check that Cilium answers the platform Gateway's routes", "error", err)
 	}
 	// CI workspaces need a volume that follows the pod; see globals.CIStorageClass.
 	if err := r.reconcileCIStorageClass(ctx); err != nil {

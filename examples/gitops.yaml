@@ -34,7 +34,7 @@ spec:
           policies:
             - "p, proj:payments-fleet:payments-deployer, applications, sync, payments-fleet/*, allow"
           groups:
-            - ws-team-payments
+            - ws-team-acme.payments
     applicationSets:
       - name: payments-every-cluster
         generators:

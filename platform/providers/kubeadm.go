@@ -12,11 +12,13 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -253,7 +255,7 @@ echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.
 apt-get $APT_WAIT update
 apt-get $APT_WAIT install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
-
+%[5]s
 # Pre-pull the CNI images the platform bootstrap cannot start without. Detached
 # and best-effort: node prep returns immediately, the download overlaps the
 # kubeadm join and the control plane coming up, and a failure here only means
@@ -263,7 +265,32 @@ nohup sh -c 'for img in %[3]s; do ctr -n k8s.io images pull --hosts-dir /etc/con
 
 mkdir -p "$(dirname %[2]s)"
 touch %[2]s
-`, k8sMinor, KubeadmCloudInitMarker, strings.Join(CriticalPathImages, " "), aptLockWait)
+`, k8sMinor, KubeadmCloudInitMarker, strings.Join(CriticalPathImages, " "), aptLockWait, nodePrepAuthnConfig(k8sMinor))
+}
+
+// nodePrepAuthnConfig is node prep's step that writes the API server's
+// issuer-less authentication config, or nothing for a minor whose API server
+// cannot read it (authenticationConfigAtInit). KubeadmInitMaster starts the
+// API server on this file when it exists, so trusting Keycloak later is a
+// rewrite the API server reloads, not a new flag and a restart under a
+// platform that is busy syncing (APIServerOIDCScript).
+//
+// Written on every node, and inert anywhere but a control plane. Never
+// replaced once present: by then it may carry Keycloak's issuer.
+func nodePrepAuthnConfig(k8sMinor string) string {
+	if !authenticationConfigAtInit(k8sMinor) {
+		return ""
+	}
+	return fmt.Sprintf(`
+# The API server's authentication config, with no token issuer yet: kubeadm
+# init points the API server at it, and the day-2 OIDC step rewrites it once
+# Keycloak serves. Never replaced once present (it may carry the issuer).
+mkdir -p %[1]s
+if [ ! -s %[2]s ]; then
+  cat >%[2]s <<'ADHAR_AUTHN_EOF'
+%[3]sADHAR_AUTHN_EOF
+fi
+`, apiServerAuthnDir, apiServerAuthnFile, issuerlessAuthenticationConfigYAML())
 }
 
 // ClusterStateDir returns (creating if needed) the local directory holding
@@ -543,20 +570,14 @@ func nodeNameArg(nodeName ...string) string {
 //
 // The kubelet had registered ip-10-0-1-164.ap-southeast-1.compute.internal;
 // kubeadm was looking for ip-10-0-1-164. Both sides have to agree.
+//
+// The API server starts with --authentication-config when node prep wrote its
+// file (kubeadmInitCommand), so the day-2 OIDC step never has to restart it.
 func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR string, apiServerExtraArgs map[string]string, nodeName ...string) (string, error) {
 	if podCIDR == "" {
 		podCIDR = KubeadmPodCIDR
 	}
-	initCmd := fmt.Sprintf(
-		"test -f /etc/kubernetes/admin.conf || kubeadm init "+
-			"--pod-network-cidr=%s "+
-			"--skip-phases=addon/kube-proxy "+
-			"--control-plane-endpoint=%s "+
-			"--apiserver-cert-extra-sans=%s,%s",
-		podCIDR, publicIP, publicIP, privateIP)
-	if name := nodeNameArg(nodeName...); name != "" {
-		initCmd += " --node-name=" + name
-	}
+	initCmd := kubeadmInitCommand(publicIP, privateIP, podCIDR, nodeNameArg(nodeName...), apiServerExtraArgs)
 	if out, err := SSHRun(signer, user, publicIP, initCmd, 15*time.Minute); err != nil {
 		return "", fmt.Errorf("kubeadm init failed: %w (output: %s)", err, LastLines(out, 15))
 	}
@@ -587,6 +608,104 @@ func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR str
 		return "", fmt.Errorf("failed to create kubeadm join token: %w", err)
 	}
 	return strings.TrimSpace(joinCmd), nil
+}
+
+// kubeadmInitConfigPath holds kubeadmInitConfigYAML on the control plane, next
+// to node prep's marker. It stays after init as the record of how the node was
+// built.
+const kubeadmInitConfigPath = "/var/lib/adhar/kubeadm-init.yaml"
+
+// kubeadmInitCommand is the idempotent `kubeadm init` command line.
+//
+// When node prep wrote the issuer-less authentication config, init runs from
+// kubeadmInitConfigYAML, so the API server starts with --authentication-config;
+// otherwise it runs from flags, exactly as it did before. The choice is made ON
+// THE NODE by that file's presence, so an API server is never pointed at a file
+// that is not there: it would not start, and `kubeadm init` would fail with it.
+func kubeadmInitCommand(publicIP, privateIP, podCIDR, nodeName string, apiServerExtraArgs map[string]string) string {
+	flags := fmt.Sprintf(
+		"kubeadm init "+
+			"--pod-network-cidr=%s "+
+			"--skip-phases=addon/kube-proxy "+
+			"--control-plane-endpoint=%s "+
+			"--apiserver-cert-extra-sans=%s,%s",
+		podCIDR, publicIP, publicIP, privateIP)
+	if nodeName != "" {
+		flags += " --node-name=" + nodeName
+	}
+	if apiServerArgsRuleOutAuthnConfig(apiServerExtraArgs) {
+		return "test -f /etc/kubernetes/admin.conf || " + flags
+	}
+	// base64, like the day-2 script: a multi-line YAML document must reach the
+	// node's shell through `sudo bash -c '…'` untouched.
+	cfg := base64.StdEncoding.EncodeToString([]byte(kubeadmInitConfigYAML(publicIP, privateIP, podCIDR, nodeName)))
+	return fmt.Sprintf(
+		"if [ -f /etc/kubernetes/admin.conf ]; then :; "+
+			"elif [ -s %[1]s ]; then mkdir -p %[2]s && echo %[3]s | base64 -d >%[4]s && kubeadm init --config=%[4]s; "+
+			"else %[5]s; fi",
+		apiServerAuthnFile, path.Dir(kubeadmInitConfigPath), cfg, kubeadmInitConfigPath, flags)
+}
+
+// apiServerArgsRuleOutAuthnConfig reports whether API server flags a caller
+// asked for cannot be combined with --authentication-config: the legacy
+// --oidc-* flags (the API server refuses to start with both) or an
+// --authentication-config of the caller's own.
+func apiServerArgsRuleOutAuthnConfig(args map[string]string) bool {
+	for name := range args {
+		if strings.HasPrefix(name, "oidc-") || name == "authentication-config" {
+			return true
+		}
+	}
+	return false
+}
+
+// kubeadmInitConfigYAML is the kubeadm configuration for `kubeadm init
+// --config`: what the flag form passes, plus the API server's
+// --authentication-config and a read-only hostPath mount for it.
+//
+//   - The mount is the DIRECTORY, not the file. The day-2 step renames a new
+//     file into place, and a bind-mounted file keeps showing the container the
+//     inode it was mounted with: the API server would never see the issuer.
+//   - kubeadm stores this ClusterConfiguration in the cluster, so the flag
+//     survives `kubeadm upgrade apply` (KubeadmUpgradeCluster), which
+//     regenerates the manifest and drops anything edited into it afterwards.
+//   - kubeadm refuses to mix --config with most flags, so everything is here:
+//     skipPhases for --skip-phases (kubeadm records proxy.disabled from it, as
+//     it does from the flag) and nodeRegistration.name for --node-name.
+func kubeadmInitConfigYAML(publicIP, privateIP, podCIDR, nodeName string) string {
+	sans := []string{publicIP}
+	if privateIP != "" && privateIP != publicIP {
+		sans = append(sans, privateIP)
+	}
+	var b strings.Builder
+	b.WriteString("# Written by adhar (platform/providers/kubeadm.go) for `kubeadm init --config`.\n")
+	b.WriteString("apiVersion: kubeadm.k8s.io/v1beta4\n")
+	b.WriteString("kind: InitConfiguration\n")
+	b.WriteString("skipPhases:\n")
+	b.WriteString("  - addon/kube-proxy\n")
+	if nodeName != "" {
+		fmt.Fprintf(&b, "nodeRegistration:\n  name: %q\n", nodeName)
+	}
+	b.WriteString("---\n")
+	b.WriteString("apiVersion: kubeadm.k8s.io/v1beta4\n")
+	b.WriteString("kind: ClusterConfiguration\n")
+	fmt.Fprintf(&b, "controlPlaneEndpoint: %q\n", publicIP)
+	fmt.Fprintf(&b, "networking:\n  podSubnet: %q\n", podCIDR)
+	b.WriteString("apiServer:\n")
+	b.WriteString("  certSANs:\n")
+	for _, san := range sans {
+		fmt.Fprintf(&b, "    - %q\n", san)
+	}
+	b.WriteString("  extraArgs:\n")
+	b.WriteString("    - name: authentication-config\n")
+	fmt.Fprintf(&b, "      value: %s\n", apiServerAuthnFile)
+	b.WriteString("  extraVolumes:\n")
+	b.WriteString("    - name: adhar-authn\n")
+	fmt.Fprintf(&b, "      hostPath: %s\n", apiServerAuthnDir)
+	fmt.Fprintf(&b, "      mountPath: %s\n", apiServerAuthnDir)
+	b.WriteString("      readOnly: true\n")
+	b.WriteString("      pathType: DirectoryOrCreate\n")
+	return b.String()
 }
 
 // KubeadmJoinWorker joins a worker node to the cluster (idempotent).

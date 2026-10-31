@@ -21,6 +21,19 @@
 #
 # Every other SSO-consuming package already ships this Job (coder, adhar-console,
 # jupyterhub, headlamp, grafana). adhar-ai was the one that did not.
+#
+# Unlike those, this one ASKS THE PROCESS, and has to: the other hooks compare
+# the pod's start with their Secret's creationTimestamp, but this key is added
+# to keycloak-clients — a Secret Keycloak's realm Job created earlier — by
+# oidc-client.yaml, so no stamp on that Secret says when the KEY arrived (AWS,
+# 2026-10-30: created 15:40:46, ADHAR_AI_CLIENT_SECRET added 15:57:34; a pod
+# started in between is "newer than the Secret" and has no client secret). The
+# managedFields time of the writer is no substitute either: keycloak-clients is
+# patched every five minutes (keycloak-client-reconcile refreshes
+# ARGOCD_SESSION_TOKEN), so a key owned by that writer would look new forever.
+# What the hook must not do is take a FAILED question for the answer "missing":
+# the exec prints its answer, and a refused or timed-out exec, like a pod list
+# that fails, ends the hook instead of restarting the runtime.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -34,18 +47,28 @@ metadata:
   name: adhar-ai-oidc-reload
   namespace: adhar-system
 rules:
+  # By name where RBAC can: it reads one Secret and restarts and waits on one
+  # Deployment. Unnamed, these rules read every Secret in adhar-system and
+  # could patch any Deployment in it. Pods cannot be named (the runtime's pod
+  # name is generated), so listing them and exec'ing into the one it picked
+  # stay unnamed.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list"]
+    resourceNames: ["keycloak-clients"]
+    verbs: ["get"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
+  # `watch`: `kubectl rollout status` watches the Deployment (by name, so
+  # resourceNames applies); without it the wait logs "Failed to watch …
+  # unknown" and only notices progress on its backoff relists.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    resourceNames: ["adhar-ai-runtime"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -120,15 +143,35 @@ spec:
 
               # 2. Restart ONLY if the RUNNING pod is actually missing the env, so
               #    a steady-state sync is a no-op rather than a restart loop.
-              POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=adhar-ai-runtime \
-                      --field-selector=status.phase=Running \
-                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+              #    The NEWEST Running pod is asked (pods list in name order, so
+              #    the first can be the one a rollout is replacing). The pod list
+              #    is read on its own and a list that FAILS ends the hook — read
+              #    as "no pod", an API timeout restarted the runtime; only a list
+              #    that succeeded with no Running pod restarts it.
+              #    Guard: TestRestartHooksNeverRestartOnAFailedPodList.
+              if ! RUNNING=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=adhar-ai-runtime \
+                               --field-selector=status.phase=Running \
+                               -o jsonpath='{range .items[*]}{.status.startTime}{" "}{.metadata.name}{"\n"}{end}'); then
+                echo "cannot list the runtime pods; leaving the runtime as-is (next sync retries)"
+                exit 0
+              fi
+              POD=$(printf '%s\n' "$RUNNING" | sort | tail -n 1 | cut -d' ' -f2)
               if [ -n "$POD" ]; then
-                if kubectl -n "$NS" exec "$POD" -- \
-                     sh -c 'test -n "$ADHAR_AI_OIDC_CLIENT_SECRET"' 2>/dev/null; then
-                  echo "the runtime already holds its client secret; nothing to do."
+                # The answer is PRINTED, not read off the exit status: a refused
+                # or timed-out exec exits non-zero exactly like a failed `test`,
+                # and the old hook read both as "missing" and restarted — the way
+                # Grafana's, whose exec was always refused, restarted Grafana on
+                # every sync. Guard: TestRestartHooksNeverReadAFailedExecAsMissing.
+                if ! HELD=$(kubectl -n "$NS" exec "$POD" -- \
+                              sh -c 'if [ -n "${ADHAR_AI_OIDC_CLIENT_SECRET:-}" ]; then echo held; else echo missing; fi'); then
+                  echo "cannot ask $POD for its env; leaving the runtime as-is (next sync retries)"
                   exit 0
                 fi
+                case "$HELD" in
+                  held) echo "the runtime ($POD) already holds its client secret; nothing to do."; exit 0 ;;
+                  missing) echo "the runtime ($POD) started without its client secret" ;;
+                  *) echo "unexpected answer from $POD ('$HELD'); leaving the runtime as-is"; exit 0 ;;
+                esac
               fi
 
               echo "Restarting $DEPLOY so it can mint its own tokens..."

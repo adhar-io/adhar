@@ -1,8 +1,21 @@
 package adharplatform
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 // The paved road's promotion chain, end to end: a build lands in dev, is
@@ -373,6 +386,380 @@ func TestEachEnvironmentSyncsItsOwnRenderedBranch(t *testing.T) {
 	if strings.Contains(proj, "path: ./src\n                              targetBranch") {
 		t.Error("a promotion still pushes the shared source branch")
 	}
+}
+
+// Only the FIRST environment, the project's one Stage that takes freight
+// straight from the Warehouse, is seeded from its overlay. Every later
+// stage/<env> starts with no objects and waits for its first promotion: seeded
+// from overlays that ask for :latest, test and prod ran builds nobody had
+// promoted, and prod went live on one nobody had released (reactapp on Azure,
+// 2026-10-28). The script is RUN as rendered, with git and kustomize stood in
+// for, and every branch it pushes is read the way Argo CD reads it.
+func TestOnlyTheFirstEnvironmentIsSeededWithAWorkload(t *testing.T) {
+	docs := renderGoTemplate(t, fdApplicationRequest(t, "observed-deployed.yaml"), "compositions", "apps", "argocd-multienv.yaml")
+	script, env := seedJobScript(t, fdJob(t, docs))
+	if env["ENVS"] != "dev test prod" {
+		t.Fatalf("the seed Job's ENVS is %q, want the project's promotion order \"dev test prod\"", env["ENVS"])
+	}
+	overlays := func(envs ...string) map[string]string {
+		files := map[string]string{}
+		for _, e := range envs {
+			files["deploy/envs/"+e+"/kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: [../../base]\n"
+		}
+		return files
+	}
+	brokenTest := overlays("dev", "prod")
+	brokenTest["deploy/envs/test/kustomization.yaml"] = "BROKEN"
+	for _, c := range []struct {
+		name, envs, existing string
+		files                map[string]string
+		code                 int
+		workload, awaiting   []string
+	}{
+		{"a new application", "dev test prod", "", overlays("dev", "test", "prod"), 0, []string{"dev"}, []string{"test", "prod"}},
+		{"a later overlay is still built, and a broken one fails the Job", "dev test prod", "", brokenTest, 4, []string{"dev"}, []string{"prod"}},
+		{"the first environment's branch already exists", "dev test prod", "stage/dev", overlays("dev", "test", "prod"), 0, nil, []string{"test", "prod"}},
+		{"the first environment is the project's first, whatever its name", "staging prod", "", overlays("staging", "prod"), 0, []string{"staging"}, []string{"prod"}},
+		{"existing branches belong to the promotions", "dev test prod", "stage/dev stage/test stage/prod", overlays("dev", "test", "prod"), 0, nil, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			run := map[string]string{}
+			for k, v := range env {
+				run[k] = v
+			}
+			run["ENVS"] = c.envs
+			code, pushed, out := runSeedScript(t, script, run, c.files, c.existing)
+			if code != c.code {
+				t.Fatalf("the seed script exited %d, want %d:\n%s", code, c.code, out)
+			}
+			var branches []string
+			for b := range pushed {
+				branches = append(branches, b)
+			}
+			sort.Strings(branches)
+			if len(branches) != len(c.workload)+len(c.awaiting) {
+				t.Errorf("the seed script pushed %v, want stage/<env> for %v and %v:\n%s", branches, c.workload, c.awaiting, out)
+			}
+			for _, e := range c.workload {
+				b := pushed["stage/"+e]
+				if objs := argoCDObjects(t, b.manifests); len(objs) == 0 || objs[0].GetKind() != "Rollout" {
+					t.Errorf("stage/%s was not seeded from its overlay:\n%s", e, b.manifests)
+				}
+				if b.message != "seed stage/"+e+" from main [skip ci]" {
+					t.Errorf("stage/%s was committed as %q", e, b.message)
+				}
+			}
+			for _, e := range c.awaiting {
+				b, ok := pushed["stage/"+e]
+				if !ok {
+					t.Errorf("stage/%s was not created, so its Argo CD Application cannot even compare until the first promotion", e)
+					continue
+				}
+				if objs := argoCDObjects(t, b.manifests); len(objs) != 0 {
+					t.Errorf("stage/%s deploys %d object(s) before anything was promoted into %s:\n%s", e, len(objs), e, b.manifests)
+				}
+				if b.message != "seed stage/"+e+": awaiting first promotion [skip ci]" {
+					t.Errorf("stage/%s was committed as %q", e, b.message)
+				}
+			}
+		})
+	}
+}
+
+// A later environment still on its seed branch awaits its first promotion. It
+// is named, not counted, and does not keep the application from Healthy: prod
+// may wait for a Release indefinitely. A promotion always syncs (Argo CD keeps
+// it in status.history), so a promoted environment that renders nothing still
+// reads "deploys nothing", as does an empty FIRST environment, which the seed
+// fills from its overlay.
+func TestALaterEnvironmentAwaitsItsFirstPromotion(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		empty        map[string]bool // environment -> it has synced before
+		phase, about string
+	}{
+		{"test and prod before their first promotion", map[string]bool{"test": false, "prod": false}, "Healthy",
+			"1/3 environments healthy; test awaits its first promotion; prod awaits its first promotion (by a Release)"},
+		{"a promoted environment that renders nothing", map[string]bool{"test": true, "prod": false}, "Progressing",
+			"1/3 environments healthy; test deploys nothing (stage/test renders no manifests); prod awaits its first promotion (by a Release)"},
+		{"an empty first environment", map[string]bool{"dev": false}, "Progressing",
+			"2/3 environments healthy; dev deploys nothing (stage/dev renders no manifests)"},
+		{"nothing deployed anywhere", map[string]bool{"dev": false, "test": false, "prod": false}, "Pending",
+			"0/3 environments healthy; dev deploys nothing (stage/dev renders no manifests); test awaits its first promotion; prod awaits its first promotion (by a Release)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			observed := observedWithEmptyEnvironments(t, c.empty)
+			xr := readYAMLDocs(t, filepath.Join(fdFixtureDir, "application-function.yaml"))[0]
+			st := docOfKind(renderGoTemplate(t, map[string]any{"observed": map[string]any{
+				"composite": map[string]any{"resource": xr}, "resources": fnObserved(t, observed),
+			}}, "compositions", "apps", "argocd-multienv.yaml"), "Application")
+			if dig(st, "status", "phase") != c.phase || dig(st, "status", "message") != c.about {
+				t.Errorf("status is %v / %q, want %s / %q", dig(st, "status", "phase"), dig(st, "status", "message"), c.phase, c.about)
+			}
+		})
+	}
+
+	// The same through the real function containers, as Crossplane runs them.
+	t.Run("crossplane render", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("-short: skipping `crossplane render`, which starts the function containers")
+		}
+		bin, err := exec.LookPath("crossplane")
+		if err != nil {
+			t.Skip("the crossplane CLI is not installed; the in-process renders still ran")
+		}
+		if err := exec.Command("docker", "info").Run(); err != nil {
+			t.Skip("Docker is not available; `crossplane render` runs each function in a container")
+		}
+		var file bytes.Buffer
+		for _, d := range observedWithEmptyEnvironments(t, map[string]bool{"test": false, "prod": false}) {
+			b, err := yaml.Marshal(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			file.WriteString("---\n")
+			file.Write(b)
+		}
+		observed := filepath.Join(t.TempDir(), "observed-awaiting.yaml")
+		if err := os.WriteFile(observed, file.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var stdout, stderr bytes.Buffer
+		cmd := exec.Command(bin, "render", filepath.Join(fdFixtureDir, "application-function.yaml"),
+			filepath.Join(controlPlaneDir(t), "compositions", "apps", "argocd-multienv.yaml"),
+			filepath.Join(fnFixtureDir, "functions.yaml"), "--observed-resources="+observed)
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("crossplane render: %v\n%s", err, stderr.String())
+		}
+		for _, d := range strings.Split(stdout.String(), "\n---") {
+			var m map[string]any
+			if yaml.Unmarshal([]byte(d), &m) != nil || m["kind"] != "Application" || m["apiVersion"] != "platform.adhar.io/v1alpha1" {
+				continue
+			}
+			if dig(m, "status", "phase") != "Healthy" || dig(m, "status", "message") !=
+				"1/3 environments healthy; test awaits its first promotion; prod awaits its first promotion (by a Release)" {
+				t.Errorf("rendered status = %v / %q", dig(m, "status", "phase"), dig(m, "status", "message"))
+			}
+			return
+		}
+		t.Fatal("crossplane render returned no Application XR")
+	})
+}
+
+// :latest is what an environment no promotion has pinned resolves for each new
+// pod, so only a build of main may move it. A pull request's preview build
+// pushed :latest too, before any gate, so once signed it reached such an
+// environment through the next scale-up or eviction. The build step is RUN,
+// with the lifecycle stood in for, to see which names it exports.
+func TestAPullRequestBuildLeavesLatestAlone(t *testing.T) {
+	const image, sha = "harbor-core.adhar-system.svc.cluster.local/library/app", "0123456789abcdef0123456789abcdef01234567"
+	task := findDoc(t, docsOf(t, supplyChain+"60-build-pipelines.yaml"), "Task", "buildpacks-build")
+	if got := taskParams(sgDig(task, "spec").(map[string]any))["tag-latest"]; got != "true" {
+		t.Errorf("buildpacks-build's tag-latest defaults to %q; a bare build must still move :latest", got)
+	}
+	var script string
+	for _, raw := range sgDig(task, "spec", "steps").([]any) {
+		if s := raw.(map[string]any); s["name"] == "build" {
+			script = fmt.Sprint(sgDig(s, "args", 0))
+		}
+	}
+	if !strings.Contains(script, "exec /cnb/lifecycle/creator") {
+		t.Fatal("buildpacks-build's build step no longer execs the lifecycle; update this guard")
+	}
+	sh, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash on PATH")
+	}
+	exported := func(tagLatest string) []string {
+		t.Helper()
+		bin := t.TempDir()
+		writeFiles(t, bin, map[string]string{"creator": "#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done\n"})
+		if err := os.Chmod(filepath.Join(bin, "creator"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		s := strings.NewReplacer("$(params.image)", image, "$(params.extra-tag)", sha, "$(params.tag-latest)", tagLatest,
+			"$(params.subdirectory)", "", "$(workspaces.source.path)", "/workspace/source",
+			"/cnb/lifecycle/creator", filepath.Join(bin, "creator")).Replace(script)
+		out, err := exec.Command(sh, "-c", s).CombinedOutput()
+		if err != nil {
+			t.Fatalf("the build step failed with tag-latest=%s: %v\n%s", tagLatest, err, out)
+		}
+		return strings.Split(strings.TrimSpace(string(out)), "\n")
+	}
+	main := exported("true")
+	if main[len(main)-1] != image+":latest" || !strings.Contains(strings.Join(main, " "), "-tag="+image+":"+sha) {
+		t.Errorf("a build of main exports %v, want %s:latest tagged %s too, exactly as before", main, image, sha)
+	}
+	pr := exported("false")
+	if pr[len(pr)-1] != image+":"+sha || strings.Contains(strings.Join(pr, " "), ":latest") {
+		t.Errorf("a build with tag-latest=false exports %v, want %s:%s alone", pr, image, sha)
+	}
+
+	ci := docsOf(t, supplyChain+"70-app-ci.yaml")
+	pipeline := findDoc(t, ci, "Pipeline", "app-ci")
+	if got := taskParams(sgDig(pipeline, "spec").(map[string]any))["tag-latest"]; got != "true" {
+		t.Errorf("app-ci's tag-latest defaults to %q, want \"true\" for builds of main", got)
+	}
+	build := pipelineTasks(t, pipeline, "tasks")["build"]
+	if sgDig(build, "taskRef", "name") != "buildpacks-build" || taskParams(build)["tag-latest"] != "$(params.tag-latest)" {
+		t.Errorf("app-ci's build does not hand tag-latest to buildpacks-build: %v", build["params"])
+	}
+	previews := 0
+	for _, d := range ci {
+		if d["kind"] != "TriggerTemplate" {
+			continue
+		}
+		run := sgDig(d, "spec", "resourcetemplates", 0)
+		tagLatest := taskParams(sgDig(run, "spec").(map[string]any))["tag-latest"]
+		if sgDig(run, "metadata", "labels", "adhar.io/preview") == "true" {
+			previews++
+			if tagLatest != "false" {
+				t.Errorf("TriggerTemplate %v builds previews with tag-latest=%q; a pull request moves :latest", sgDig(d, "metadata", "name"), tagLatest)
+			}
+		} else if tagLatest == "false" {
+			t.Errorf("TriggerTemplate %v builds main with tag-latest=false; :latest would stop following main", sgDig(d, "metadata", "name"))
+		}
+	}
+	if previews == 0 {
+		t.Error("no TriggerTemplate in 70-app-ci.yaml runs labelled adhar.io/preview; update this guard")
+	}
+}
+
+type seededBranch struct{ manifests, message string }
+
+// seedJobScript returns the seed Job's script and its literal environment.
+func seedJobScript(t *testing.T, job map[string]any) (string, map[string]string) {
+	t.Helper()
+	cs, _ := dig(job, "spec", "template", "spec", "containers").([]any)
+	if len(cs) != 1 {
+		t.Fatalf("the seed Job has %d containers, want 1", len(cs))
+	}
+	c := cs[0].(map[string]any)
+	env := map[string]string{}
+	for _, raw := range c["env"].([]any) {
+		if e := raw.(map[string]any); e["value"] != nil {
+			env[fmt.Sprint(e["name"])] = fmt.Sprint(e["value"])
+		}
+	}
+	return fmt.Sprint(sgDig(c, "args", 0)), env
+}
+
+// runSeedScript runs the seed script with git and kustomize stood in for: a
+// clone copies src, ls-remote finds the branches `existing` names, and a push
+// files the commit (manifests.yaml and its message) under its branch.
+// kustomize renders what every template's overlay renders, a Rollout on
+// :latest, and fails an overlay marked BROKEN.
+func runSeedScript(t *testing.T, script string, env, src map[string]string, existing string) (int, map[string]seededBranch, string) {
+	t.Helper()
+	bin, checkout, pushes := t.TempDir(), t.TempDir(), t.TempDir()
+	writeFiles(t, checkout, src)
+	writeFiles(t, bin, map[string]string{
+		"git": `#!/bin/sh
+while [ "$1" = "-c" ]; do shift 2; done
+cmd="$1"; shift
+for a in "$@"; do last="$a"; done
+case "$cmd" in
+  clone) cp -R "$FAKE_SRC" "$last" ;;
+  ls-remote) case " $FAKE_BRANCHES " in *" $last "*) exit 0 ;; *) exit 2 ;; esac ;;
+  commit) printf '%s' "$last" > .seed-message ;;
+  push) to="$FAKE_PUSHES/${last#HEAD:refs/heads/}"; mkdir -p "$to" && cp manifests.yaml .seed-message "$to/" ;;
+esac
+exit 0
+`,
+		"kustomize": `#!/bin/sh
+grep -q BROKEN "$2/kustomization.yaml" && { echo "Error: accumulating resources" >&2; exit 1; }
+printf 'apiVersion: argoproj.io/v1alpha1\nkind: Rollout\nmetadata:\n  name: app\nspec:\n  template:\n    spec:\n      containers:\n        - name: app\n          image: harbor-core.adhar-system.svc.cluster.local/library/app:latest\n'
+`,
+	})
+	for _, f := range []string{"git", "kustomize"} {
+		if err := os.Chmod(filepath.Join(bin, f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = os.Environ()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+	cmd.Env = append(cmd.Env, "PATH="+bin+":"+os.Getenv("PATH"), "HOME="+t.TempDir(), "TMPDIR="+t.TempDir(),
+		"GITEA_USER=u", "GITEA_PASSWORD=p", "FAKE_SRC="+checkout, "FAKE_BRANCHES="+existing, "FAKE_PUSHES="+pushes)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatal(err)
+		}
+		code = exit.ExitCode()
+	}
+	pushed := map[string]seededBranch{}
+	err := filepath.WalkDir(pushes, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() != "manifests.yaml" {
+			return err
+		}
+		branch, _ := filepath.Rel(pushes, filepath.Dir(p))
+		manifests, _ := os.ReadFile(p)
+		message, _ := os.ReadFile(filepath.Join(filepath.Dir(p), ".seed-message"))
+		pushed[filepath.ToSlash(branch)] = seededBranch{string(manifests), string(message)}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code, pushed, out.String()
+}
+
+// argoCDObjects reads a rendered branch the way Argo CD's repo-server reads a
+// directory source (reposerver/repository splitYAMLOrJSON): a document that
+// decodes to null, empty or only comments, is skipped, not an error. An
+// Application with no objects compares Synced and Healthy, and auto-sync acts
+// only on OutOfSync, so an empty branch is left alone.
+func argoCDObjects(t *testing.T, manifests string) []*unstructured.Unstructured {
+	t.Helper()
+	d := k8syaml.NewYAMLOrJSONDecoder(strings.NewReader(manifests), 4096)
+	var objs []*unstructured.Unstructured
+	for {
+		u := &unstructured.Unstructured{}
+		if err := d.Decode(&u); err != nil {
+			if errors.Is(err, io.EOF) {
+				return objs
+			}
+			t.Fatalf("Argo CD could not read the branch (%v):\n%s", err, manifests)
+		}
+		if u != nil {
+			objs = append(objs, u)
+		}
+	}
+}
+
+// observedWithEmptyEnvironments is observed-deployed.yaml with the named
+// environments' Argo CD Applications Synced and Healthy with no resources, and
+// a sync in their history when the value is true.
+func observedWithEmptyEnvironments(t *testing.T, empty map[string]bool) []map[string]any {
+	t.Helper()
+	docs := readYAMLDocs(t, filepath.Join(fdFixtureDir, "observed-deployed.yaml"))
+	seen := 0
+	for _, d := range docs {
+		name, _ := dig(d, "metadata", "annotations", "crossplane.io/composition-resource-name").(string)
+		env, isApp := strings.CutPrefix(name, "app-")
+		synced, ok := empty[env]
+		if !isApp || !ok {
+			continue
+		}
+		status := map[string]any{"sync": map[string]any{"status": "Synced", "revision": "5eed5eed"},
+			"health": map[string]any{"status": "Healthy"}, "resources": []any{}}
+		if synced {
+			status["history"] = []any{map[string]any{"id": 0, "revision": "9c0ffee0"}}
+		}
+		dig(d, "status", "atProvider", "manifest").(map[string]any)["status"] = status
+		seen++
+	}
+	if seen != len(empty) {
+		t.Fatalf("observed-deployed.yaml has no Argo CD Application for some of %v", empty)
+	}
+	return docs
 }
 
 // The Performance Center suite repository holds k6 tests, not an application.

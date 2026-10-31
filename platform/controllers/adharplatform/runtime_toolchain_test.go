@@ -108,7 +108,9 @@ func substitute(script string, vars map[string]string, results, platform, cnb st
 	}
 	script = tektonResultRef.ReplaceAllString(script, results+"/$1")
 	script = strings.ReplaceAll(script, "/cnb/buildpacks", cnb)
-	return strings.ReplaceAll(script, "/platform", platform)
+	script = strings.ReplaceAll(script, "/platform", platform)
+	// The lifecycle's private copy of the checkout (an emptyDir in the cluster).
+	return strings.ReplaceAll(script, "/workspace/source", platform+".build-app")
 }
 
 func writeFiles(t *testing.T, dir string, files map[string]string) {

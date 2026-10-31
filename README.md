@@ -14,7 +14,7 @@
 [![Crossplane](https://img.shields.io/badge/crossplane-2.3%2B-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkwzIDdWMTdMMTIgMjJMMjEgMTdWN0wxMiAyWiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://www.crossplane.io)
 [![Go Version](https://img.shields.io/badge/go-1.26%2B-blue?logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?logo=apache)](LICENSE)
-[![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+[![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg)
 
 <h3>Adhar • Built with ❤️ for developers!</h3>
 
@@ -330,7 +330,7 @@ Full reference, including day-2 operations and the limits that actually bite:
 
 | Channel | Purpose | Link |
 |---------|---------|------|
-| 💬 **Slack** | Real-time chat & support | [Join Workspace](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) |
+| 💬 **Slack** | Real-time chat & support | [Join Workspace](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg) |
 | 🐛 **GitHub Issues** | Bug reports & feature requests | [Open Issue](https://github.com/adhar-io/adhar/issues) |
 | 📖 **Documentation** | Comprehensive guides | [docs/README.md](docs/README.md) |
 | 💡 **Discussions** | Ideas, questions & feedback | [GitHub Discussions](https://github.com/adhar-io/adhar/discussions) |
@@ -489,7 +489,7 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 
 **Adhar • Built with ❤️ for developers!**
 
-[🎯 Get Started](docs/GETTING_STARTED.md) • [📖 Documentation](docs/README.md) • [🗺️ Roadmap](docs/ROADMAP.md) • [🤝 Contribute](CONTRIBUTING.md) • [💬 Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) • [🐛 Issues](https://github.com/adhar-io/adhar/issues)
+[🎯 Get Started](docs/GETTING_STARTED.md) • [📖 Documentation](docs/README.md) • [🗺️ Roadmap](docs/ROADMAP.md) • [🤝 Contribute](CONTRIBUTING.md) • [💬 Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg) • [🐛 Issues](https://github.com/adhar-io/adhar/issues)
 
 © 2026 Anvita Systems Pvt Ltd • Licensed under [Apache License 2.0](LICENSE)
 

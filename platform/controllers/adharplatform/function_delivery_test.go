@@ -63,11 +63,11 @@ func fdConditions(docs []map[string]any) map[string]map[string]any {
 func fdJob(t *testing.T, docs []map[string]any) map[string]any {
 	t.Helper()
 	for _, d := range docs {
-		if d["kind"] == "Job" && dig(d, "metadata", "annotations", "gotemplating.fn.crossplane.io/composition-resource-name") == "stage-seed" {
+		if d["kind"] == "Job" && dig(d, "metadata", "annotations", "gotemplating.fn.crossplane.io/composition-resource-name") == "stage-init" {
 			return d
 		}
 	}
-	t.Fatal("the Application composition no longer composes the stage-seed Job")
+	t.Fatal("the Application composition no longer composes the stage-init Job")
 	return nil
 }
 
@@ -108,7 +108,7 @@ func TestAMissingOverlayIsAnXRConditionNotAnHourlyCrash(t *testing.T) {
 		t.Fatalf("a missing overlay is reported as %v, want Overlays=False/OverlayMissing", ov)
 	}
 	for _, want := range []string{"http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/test-func.git on main",
-		"deploy/envs/<env>", "not deploying: dev, test, prod", "adhar-system/test-func-stage-seed"} {
+		"deploy/envs/<env>", "not deploying: dev, test, prod", "adhar-system/test-func-stage-init"} {
 		if !strings.Contains(fmt.Sprint(ov["message"]), want) {
 			t.Errorf("the Overlays message lacks %q: %v", want, ov["message"])
 		}
@@ -121,8 +121,8 @@ func TestAMissingOverlayIsAnXRConditionNotAnHourlyCrash(t *testing.T) {
 	// The Job fails on its first missing/broken overlay instead of retrying, and
 	// is new under a new name (its pod template is immutable).
 	job := fdJob(t, docs)
-	if dig(job, "metadata", "name") != "test-func-stage-seed" {
-		t.Errorf("the seed Job is %v, want test-func-stage-seed", dig(job, "metadata", "name"))
+	if dig(job, "metadata", "name") != "test-func-stage-init" {
+		t.Errorf("the seed Job is %v, want test-func-stage-init", dig(job, "metadata", "name"))
 	}
 	if p := dig(job, "spec", "template", "spec", "restartPolicy"); p != "Never" {
 		t.Errorf("the seed Job's restartPolicy is %v; podFailurePolicy requires Never", p)
@@ -368,7 +368,7 @@ func TestFunctionDeliveryRendersWithCrossplane(t *testing.T) {
 	for _, d := range docs {
 		if d["kind"] == "Job" {
 			seen = true
-			if dig(d, "metadata", "name") != "test-func-stage-seed" || dig(d, "spec", "podFailurePolicy") == nil {
+			if dig(d, "metadata", "name") != "test-func-stage-init" || dig(d, "spec", "podFailurePolicy") == nil {
 				t.Errorf("rendered seed Job = %v", d["metadata"])
 			}
 		}

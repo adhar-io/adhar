@@ -2,7 +2,7 @@
 
 Welcome to the project, and thanks for considering contributing to this project. 
 
-If you have any questions or need clarifications on topics covered here, please feel free to reach out to us on the [#adhar](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) channel on Adhar Slack.
+If you have any questions or need clarifications on topics covered here, please feel free to reach out to us on the [#adhar](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg) channel on Adhar Slack.
 
 ## Setting up a development environment
 

@@ -493,58 +493,8 @@ func keys(m map[string]bool) []string {
 	return out
 }
 
-// The chart-bundled ClickHouse operator (0.19.0) can fail its first Service
-// reconcile and never retry, holding the posthog sync at wave 0 for ever
-// (2026-10-09). The unstick hook must run IN that wave — a PostSync hook would
-// be gated on the very CHI it repairs — and must be the operator restart that
-// was verified to clear it.
-func TestPostHogUnstickHookRunsAlongsideTheClickHouseInstallation(t *testing.T) {
-	install := readStackFile(t, "application/posthog/manifests/install.yaml")
-	unstick := readStackFile(t, "application/posthog/manifests/clickhouse-unstick.yaml")
-	chiWave := -1
-	dec := yaml.NewDecoder(strings.NewReader(install))
-	for {
-		var doc map[string]any
-		if err := dec.Decode(&doc); err != nil {
-			break
-		}
-		if doc != nil && doc["kind"] == "ClickHouseInstallation" {
-			ann, _ := doc["metadata"].(map[string]any)["annotations"].(map[string]any)
-			chiWave, _ = strconv.Atoi(toString(ann["argocd.argoproj.io/sync-wave"]))
-		}
-	}
-	if chiWave < 0 {
-		t.Fatal("no ClickHouseInstallation with a sync-wave in posthog's install.yaml")
-	}
-	dec = yaml.NewDecoder(strings.NewReader(unstick))
-	found := false
-	for {
-		var doc map[string]any
-		if err := dec.Decode(&doc); err != nil {
-			break
-		}
-		if doc == nil || doc["kind"] != "Job" {
-			continue
-		}
-		found = true
-		ann, _ := doc["metadata"].(map[string]any)["annotations"].(map[string]any)
-		if ann["argocd.argoproj.io/hook"] != "Sync" {
-			t.Errorf("the unstick Job is a %v hook; only a Sync hook runs while the wave is still open", ann["argocd.argoproj.io/hook"])
-		}
-		if w, _ := strconv.Atoi(toString(ann["argocd.argoproj.io/sync-wave"])); w > chiWave {
-			t.Errorf("the unstick Job runs at wave %d, after the ClickHouseInstallation's wave %d — it would wait on the thing it repairs", w, chiWave)
-		}
-		script := toString(doc["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)["args"].([]any)[0])
-		for _, want := range []string{"rollout restart deployment clickhouse-operator", "already allocated", "Completed) "} {
-			if !strings.Contains(script, want) {
-				t.Errorf("the unstick script lost %q", want)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("no Job in clickhouse-unstick.yaml")
-	}
-}
+// The PostHog ClickHouse unstick hook's guards live in
+// posthog_clickhouse_unstick_test.go.
 
 // Tenancy created from the console's organisation switcher is an Organisation
 // or Team XR applied by the console's ServiceAccount, so that account must be
@@ -562,35 +512,49 @@ func TestConsoleMayWriteTenancyXRs(t *testing.T) {
 		if doc == nil || doc["kind"] != "ClusterRole" || toString(doc["metadata"].(map[string]any)["name"]) != "console-tenant-provisioner" {
 			continue
 		}
+		// Verbs per platform.adhar.io resource, across every rule of the role.
+		verbs := map[string]map[string]bool{}
 		for _, raw := range toSlice(doc["rules"]) {
 			rule, _ := raw.(map[string]any)
 			groups := toSlice(rule["apiGroups"])
 			if len(groups) != 1 || toString(groups[0]) != "platform.adhar.io" {
 				continue
 			}
-			have := map[string]bool{}
 			for _, r := range toSlice(rule["resources"]) {
-				have[toString(r)] = true
-			}
-			verbs := map[string]bool{}
-			for _, v := range toSlice(rule["verbs"]) {
-				verbs[toString(v)] = true
-			}
-			// `applications`: a scaffold registers its deployable as an Application XR
-			// (the composition fans it out to per-environment Argo CD apps + Kargo).
-			for _, want := range []string{"organisations", "teams", "applications"} {
-				if !have[want] {
-					t.Errorf("console-tenant-provisioner's platform.adhar.io rule lacks %s", want)
+				if verbs[toString(r)] == nil {
+					verbs[toString(r)] = map[string]bool{}
+				}
+				for _, v := range toSlice(rule["verbs"]) {
+					verbs[toString(r)][toString(v)] = true
 				}
 			}
-			for _, want := range []string{"create", "patch"} {
-				if !verbs[want] {
-					t.Errorf("console-tenant-provisioner cannot %s platform.adhar.io XRs; server-side apply needs it", want)
-				}
-			}
-			return
 		}
-		t.Fatal("console-tenant-provisioner has no rule for platform.adhar.io — the console cannot provision Organisations or Teams")
+		if len(verbs) == 0 {
+			t.Fatal("console-tenant-provisioner has no rule for platform.adhar.io — the console cannot provision Organisations or Teams")
+		}
+		// `applications`: a scaffold registers its deployable as an Application XR
+		// (the composition fans it out to per-environment Argo CD apps + Kargo).
+		for _, res := range []string{"organisations", "teams", "applications"} {
+			for _, want := range []string{"create", "patch"} {
+				if !verbs[res][want] {
+					t.Errorf("console-tenant-provisioner cannot %s platform.adhar.io %s; server-side apply needs it", want, res)
+				}
+			}
+		}
+		// Deleting a team in Settings → Teams deletes its console-declared Team
+		// XR (and so its Gitea team). Without the verb every delete is refused
+		// and the Team XR outlives the team while the page reports success.
+		if !verbs["teams"]["delete"] {
+			t.Error("console-tenant-provisioner cannot delete platform.adhar.io teams: a deleted team's Team XR and Gitea team would stay behind")
+		}
+		// ...and only teams: an Organisation or Application XR holds namespaces,
+		// repositories and workloads.
+		for _, res := range []string{"organisations", "applications"} {
+			if verbs[res]["delete"] || verbs[res]["deletecollection"] || verbs[res]["*"] {
+				t.Errorf("console-tenant-provisioner may delete platform.adhar.io %s; only teams are the console's to delete", res)
+			}
+		}
+		return
 	}
 	t.Fatal("no ClusterRole console-tenant-provisioner in the console package")
 }

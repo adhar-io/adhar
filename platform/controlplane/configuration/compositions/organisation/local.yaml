@@ -1,15 +1,20 @@
 ---
 # Organisation — the tenant's footprint on the cluster (ADR-0026).
 #
-# Identity is the Console's: it creates the Keycloak groups `org-<name>` and
-# `org-<name>-admin` and puts people in them. Everything those groups are
-# GRANTED is composed here, from one object, so that a tenant is visible to
+# Identity is Keycloak's, kept by the Console: it creates the groups
+# `org-<name>` (members) and `org-<name>-admin` (administrators, every one of
+# whom is also a member) and adds and removes people in Keycloak itself — it
+# stores no members, roles or invitations of its own. Everything those groups
+# are GRANTED is composed here, from one object, so that a tenant is visible to
 # `adhar get`, Argo CD and policy as a Kubernetes resource and not only as a
 # row in the Console's database:
 #   • the organisation's home namespace, with quota and container defaults
-#   • RBAC: org admins administer the home namespace, members may read it
-#     (projects bind the same groups in their own namespaces)
+#   • RBAC: org admins administer the home namespace, members may only read it
+#     (projects and environments bind the admin group in their own
+#     namespaces; nothing binds the member group above `view`)
 #   • the Gitea organisation that holds the tenant's repositories
+# Platform admins need nothing here: platform-admin and platform-engineer are
+# cluster-admin, and the Console treats them as admins of every organisation.
 # The group names are published on the status so the project composition and
 # the Console read them from here instead of each spelling the convention.
 apiVersion: apiextensions.crossplane.io/v1

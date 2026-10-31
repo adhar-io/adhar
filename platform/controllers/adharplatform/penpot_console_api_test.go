@@ -104,11 +104,12 @@ func penpotScriptDefault(t *testing.T, script, name string) string {
 }
 
 // Penpot compiles token authentication out without `access-tokens`
-// (2.17.2 backend/src/app/http/access_token.clj `authz`); webhooks need
-// `webhooks`. install.yaml is generated, so the flags must come from
-// values.yaml, and the chart's literal "$PENPOT_FLAGS " must be dropped by the
-// generator (post-render.py), not by hand.
-func TestPenpotEnablesAccessTokensAndWebhooks(t *testing.T) {
+// (2.17.2 backend/src/app/http/access_token.clj `authz`). `webhooks` stays
+// off: nothing consumes Penpot webhooks, and the flag lets every team point
+// penpot-backend at a URL of its choice. install.yaml is generated, so the
+// flags must come from values.yaml, and the chart's literal "$PENPOT_FLAGS "
+// must be dropped by the generator (post-render.py), not by hand.
+func TestPenpotEnablesAccessTokensButNotWebhooks(t *testing.T) {
 	var values struct {
 		Config struct {
 			Flags string `yaml:"flags"`
@@ -118,10 +119,11 @@ func TestPenpotEnablesAccessTokensAndWebhooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := strings.Fields(values.Config.Flags)
-	for _, f := range []string{"enable-access-tokens", "enable-webhooks"} {
-		if !slices.Contains(want, f) {
-			t.Errorf("values.yaml config.flags lacks %s (got %q): without it the console's access token is answered 401", f, values.Config.Flags)
-		}
+	if !slices.Contains(want, "enable-access-tokens") {
+		t.Errorf("values.yaml config.flags lacks enable-access-tokens (got %q): without it the console's access token is answered 401", values.Config.Flags)
+	}
+	if slices.Contains(want, "enable-webhooks") {
+		t.Errorf("values.yaml config.flags carries enable-webhooks (got %q): nothing on the platform consumes Penpot webhooks, and the flag lets every team point penpot-backend at a URL of its choice", values.Config.Flags)
 	}
 
 	install := penpotRead(t, "manifests/install.yaml")
@@ -188,7 +190,7 @@ func TestPenpotConsoleTokenSecretContract(t *testing.T) {
 		t.Errorf("run.sh publishes PENPOT_URL=%s, want %s: the frontend nginx proxies /api and resolves /assets redirects in the cluster", got, penpotInClusterURL)
 	}
 	if got := penpotScriptDefault(t, script, "SECRET"); got != penpotTokenSecret {
-		t.Errorf("run.sh writes Secret %s, want %s (the name the console's envFrom reads)", got, penpotTokenSecret)
+		t.Errorf("run.sh writes Secret %s, want %s (the name the console's env reads)", got, penpotTokenSecret)
 	}
 
 	docs := penpotTokenDocs(t)
@@ -284,36 +286,64 @@ func TestPenpotConsoleTokenHookRunsAScriptFromATrackedConfigMap(t *testing.T) {
 		}
 	}
 
-	// Least privilege: the Secret it owns, the console it restarts.
+	// Least privilege: the Secret it owns, the console it restarts. `create`
+	// narrows to the name as well: the Job writes the Secret only with
+	// server-side apply, a PATCH to the object's URL, and the API server
+	// authorises the create it implies with that name (k8s.io/apiserver
+	// handlers/patch.go createAuthorizerAttributes). An unnamed `create` let
+	// this ServiceAccount make any Secret in adhar-system.
 	role := penpotDocNamed(t, docs, "Role", penpotTokenJob)
+	secretVerbs := map[string]bool{}
 	for _, r := range penpotSlice(penpotAt(role, "rules")) {
 		res := fmt.Sprint(penpotAt(r, "resources"))
 		verbs := fmt.Sprint(penpotAt(r, "verbs"))
 		names := fmt.Sprint(penpotAt(r, "resourceNames"))
 		switch {
-		case strings.Contains(res, "secrets") && verbs != "[create]" && names != "["+penpotTokenSecret+"]":
+		case strings.Contains(res, "secrets") && names != "["+penpotTokenSecret+"]":
 			t.Errorf("Role %s grants %s on secrets beyond %s", penpotTokenJob, verbs, penpotTokenSecret)
+		case strings.Contains(res, "secrets"):
+			for _, v := range penpotSlice(penpotAt(r, "verbs")) {
+				secretVerbs[fmt.Sprint(v)] = true
+			}
 		case strings.Contains(res, "deployments") && names != "["+penpotConsoleDeploy+"]":
 			t.Errorf("Role %s grants %s on deployments beyond %s", penpotTokenJob, verbs, penpotConsoleDeploy)
 		}
 	}
-}
-
-// The console lists the Secret in envFrom, optional (penpot is off locally),
-// and nothing in its env shadows the token or the team (env wins over
-// envFrom). The Job restarts the console by Deployment name and finds its
-// pods by label; both must be what the console actually ships.
-func TestConsoleLoadsThePenpotTokenOptionally(t *testing.T) {
-	path := filepath.Join(stackRoot(t), "packages", "core", "adhar-console", "manifests", "install.yaml")
-	var deploy map[string]any
-	for _, d := range yamlDocs(t, path) {
-		if d["kind"] == "Deployment" && metaName(d) == penpotConsoleDeploy {
-			deploy = d
+	for _, v := range []string{"get", "create", "patch"} {
+		if !secretVerbs[v] {
+			t.Errorf("Role %s cannot %s Secret %s: the Job reads it, and server-side apply creates it on the first run and patches it after", penpotTokenJob, v, penpotTokenSecret)
 		}
 	}
-	if deploy == nil {
-		t.Fatalf("no Deployment %s in %s", penpotConsoleDeploy, path)
+	// The narrowed `create` holds only for that write path: a POST create
+	// carries no name, so the API server would refuse it.
+	runSh := penpotTokenScript(t)
+	if !strings.Contains(runSh, "apply --server-side") || regexp.MustCompile(`\b(create|replace)\s+(secret|-f)`).MatchString(runSh) {
+		t.Errorf("run.sh must write %s with `kubectl apply --server-side` and nothing else: the Role's name-scoped `create` admits only that", penpotTokenSecret)
 	}
+}
+
+// The console Deployment exactly as core/adhar-console ships it.
+func penpotConsoleDeployment(t *testing.T) map[string]any {
+	t.Helper()
+	path := filepath.Join(stackRoot(t), "packages", "core", "adhar-console", "manifests", "install.yaml")
+	for _, d := range yamlDocs(t, path) {
+		if d["kind"] == "Deployment" && metaName(d) == penpotConsoleDeploy {
+			return d
+		}
+	}
+	t.Fatalf("no Deployment %s in %s", penpotConsoleDeploy, path)
+	return nil
+}
+
+// The console reads PENPOT_TOKEN and PENPOT_TEAM_ID from the Secret KEY BY
+// KEY, optional (penpot is off locally), and never imports it whole: envFrom
+// takes every key, so the Job's ServiceAccount, which may patch the Secret,
+// could set any console variable (AUTH_COOKIE_SECRET, DATABASE_URL, …).
+// PENPOT_URL is the console's own literal, equal to what the Job publishes.
+// The Job restarts the console by Deployment name and finds its pods by
+// label; both must be what the console actually ships.
+func TestConsoleLoadsThePenpotTokenOptionally(t *testing.T) {
+	deploy := penpotConsoleDeployment(t)
 	var c any
 	for _, x := range penpotSlice(penpotAt(deploy, "spec", "template", "spec", "containers")) {
 		if penpotAt(x, "name") == "adhar-console" {
@@ -323,29 +353,42 @@ func TestConsoleLoadsThePenpotTokenOptionally(t *testing.T) {
 	if c == nil {
 		t.Fatal("the console Deployment has no adhar-console container")
 	}
-	found := false
 	for _, ef := range penpotSlice(penpotAt(c, "envFrom")) {
-		if penpotAt(ef, "secretRef", "name") != penpotTokenSecret {
-			continue
+		if penpotAt(ef, "secretRef", "name") == penpotTokenSecret {
+			t.Errorf("the console imports %s whole (envFrom): whatever can write it — the %s Job's ServiceAccount — could set any of the console's variables; read PENPOT_TOKEN and PENPOT_TEAM_ID with env secretKeyRef", penpotTokenSecret, penpotTokenJob)
 		}
-		found = true
-		if penpotAt(ef, "secretRef", "optional") != true {
-			t.Errorf("console envFrom %s must be optional: without penpot (the local profile) the pod would never start", penpotTokenSecret)
-		}
-	}
-	if !found {
-		t.Errorf("the console does not load %s (envFrom); it has no Penpot token", penpotTokenSecret)
 	}
 	script := penpotTokenScript(t)
+	var read []string
+	url := false
 	for _, e := range penpotSlice(penpotAt(c, "env")) {
-		switch n := fmt.Sprint(penpotAt(e, "name")); n {
+		n := fmt.Sprint(penpotAt(e, "name"))
+		if ref, _ := penpotAt(e, "valueFrom", "secretKeyRef").(map[string]any); ref != nil && ref["name"] == penpotTokenSecret {
+			read = append(read, n)
+			if ref["key"] != n {
+				t.Errorf("the console's %s reads key %v of %s", n, ref["key"], penpotTokenSecret)
+			}
+			if ref["optional"] != true {
+				t.Errorf("the console's %s must read %s optionally: without penpot (the local profile) the pod would never start", n, penpotTokenSecret)
+			}
+			continue
+		}
+		switch n {
 		case "PENPOT_TOKEN", "PENPOT_TEAM_ID":
-			t.Errorf("the console's env sets %s, which shadows the one in %s", n, penpotTokenSecret)
+			t.Errorf("the console's %s does not come from %s, so the token the Job publishes never reaches it", n, penpotTokenSecret)
 		case "PENPOT_URL":
+			url = true
 			if v := fmt.Sprint(penpotAt(e, "value")); v != penpotScriptDefault(t, script, "PENPOT_URL") {
 				t.Errorf("the console's PENPOT_URL %s is not the URL the token is published for (%s)", v, penpotScriptDefault(t, script, "PENPOT_URL"))
 			}
 		}
+	}
+	sort.Strings(read)
+	if want := []string{"PENPOT_TEAM_ID", "PENPOT_TOKEN"}; !slices.Equal(read, want) {
+		t.Errorf("the console reads %v from %s, want exactly %v (PENPOT_URL is its own literal, so the Secret's writer cannot redirect the console's Penpot calls)", read, penpotTokenSecret, want)
+	}
+	if !url {
+		t.Error("the console's env has no PENPOT_URL literal; it would read the URL from a Secret a Job writes, or fall back to the public hostname behind the edge proxy")
 	}
 	if got := penpotScriptDefault(t, script, "CONSOLE"); got != penpotConsoleDeploy {
 		t.Errorf("run.sh restarts Deployment %s, the console is %s", got, penpotConsoleDeploy)
@@ -491,6 +534,12 @@ type penpotMock struct {
 	problems    []string
 	expirations int  // create-access-token calls that asked for an expiry
 	failTeams   bool // get-teams answers 500
+	// What only a person can fix, and what a retry fixes.
+	refuseLogin        string // login-with-password answers 400 with this code
+	refuseRegistration string // prepare-register-profile answers 400 with this code
+	unverified         bool   // a registered profile cannot sign in (email verification on)
+	outage             string // this command answers 503
+	notPenpot          bool   // every call answers 404, as a URL that is not Penpot's API would
 }
 
 type penpotMockProfile struct{ ID, Email, Password, Fullname string }
@@ -557,6 +606,14 @@ func (m *penpotMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(r.Header.Get("Accept"), "application/json") || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		m.problems = append(m.problems, name+": not a JSON request (Penpot answers transit unless Accept is JSON, and ignores a non-JSON body)")
 	}
+	if name == m.outage {
+		fail(503, "internal", "unavailable")
+		return
+	}
+	if m.notPenpot {
+		fail(404, "not-found", "object-not-found")
+		return
+	}
 	params := map[string]any{}
 	_ = json.NewDecoder(r.Body).Decode(&params)
 	str := func(k string) string { s, _ := params[k].(string); return s }
@@ -579,8 +636,13 @@ func (m *penpotMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(200, map[string]any{"id": "00000000-0000-0000-0000-000000000000", "fullname": "Anonymous User"})
 		return
 	case "login-with-password":
+		if m.refuseLogin != "" {
+			fail(400, "restriction", m.refuseLogin)
+			return
+		}
+		// An inactive (unverified) profile is answered like a wrong password.
 		p := m.profiles[strings.ToLower(str("email"))]
-		if p == nil || p.Password != str("password") {
+		if p == nil || p.Password != str("password") || m.unverified {
 			fail(400, "validation", "wrong-credentials")
 			return
 		}
@@ -588,6 +650,10 @@ func (m *penpotMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(200, profileJSON(p))
 		return
 	case "prepare-register-profile":
+		if m.refuseRegistration != "" {
+			fail(400, "restriction", m.refuseRegistration)
+			return
+		}
 		if str("fullname") == "" || str("email") == "" || str("password") == "" {
 			fail(400, "validation", "params-validation")
 			return
@@ -681,8 +747,9 @@ func (m *penpotMock) take() (calls, problems []string) {
 
 // kubectl for run.sh outside a cluster: Secrets are JSON files in $STUB_STATE,
 // the console Deployment is deployment-<name> (JSON) while it exists, its pods
-// are pods.json, every call is appended to calls.log and every restart to
-// restarts (and moves the pods' start time to now).
+// are pods.json (listing them fails while pods.fail exists), every call is
+// appended to calls.log and every restart to restarts (and moves the pods'
+// start time to now).
 const penpotKubectlStub = `#!/usr/bin/env bash
 set -u
 state=${STUB_STATE:?}
@@ -706,7 +773,11 @@ case "$1 $2" in
     [ -f "$state/deployment-$3" ] && { cat "$state/deployment-$3"; exit 0; }
     echo "Error from server (NotFound): deployments.apps \"$3\" not found" >&2; exit 1 ;;
   "rollout status") exit 0 ;;
-  "get pods") cat "$state/pods.json"; exit 0 ;;
+  "get pods")
+    if [ -f "$state/pods.fail" ]; then
+      echo "Error from server (Timeout): the server was unable to return a response in the time allotted" >&2; exit 1
+    fi
+    cat "$state/pods.json"; exit 0 ;;
   "rollout restart")
     sleep 1
     now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -718,7 +789,25 @@ echo "stub kubectl: unsupported: $*" >&2
 exit 2
 `
 
-func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
+const (
+	penpotRobotEmail    = "adhar-console@adhar.local"
+	penpotRobotPassword = "N0tTheRealOneButLongEnough4Tests"
+)
+
+// penpotJob runs the shipped run.sh outside a cluster: against an in-process
+// Penpot (mock), with the kubectl stand-in keeping its state in a directory.
+type penpotJob struct {
+	t                       *testing.T
+	bash, dir, state        string
+	script, stub            string
+	consoleFile, secretFile string
+	mock                    *penpotMock
+	url                     string
+	printed                 []string
+}
+
+func newPenpotJob(t *testing.T) *penpotJob {
+	t.Helper()
 	bash := ""
 	for _, tool := range []string{"bash", "curl", "jq"} {
 		p, err := exec.LookPath(tool)
@@ -730,97 +819,122 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 		}
 	}
 	dir := t.TempDir()
-	state := filepath.Join(dir, "state")
-	if err := os.MkdirAll(state, 0o755); err != nil {
+	j := &penpotJob{t: t, bash: bash, dir: dir, state: filepath.Join(dir, "state"),
+		script: filepath.Join(dir, "run.sh"), stub: filepath.Join(dir, "kubectl"), mock: newPenpotMock()}
+	j.consoleFile = filepath.Join(j.state, "deployment-"+penpotConsoleDeploy)
+	j.secretFile = filepath.Join(j.state, "secret-"+penpotTokenSecret+".json")
+	if err := os.MkdirAll(j.state, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	write := func(path, body string, mode os.FileMode) {
-		if err := os.WriteFile(path, []byte(body), mode); err != nil {
-			t.Fatal(err)
-		}
-	}
-	script := filepath.Join(dir, "run.sh")
-	stub := filepath.Join(dir, "kubectl")
-	write(script, penpotTokenScript(t), 0o644)
-	write(stub, penpotKubectlStub, 0o755)
-	consoleFile := filepath.Join(state, "deployment-"+penpotConsoleDeploy)
-	console := func(envFrom ...string) {
-		refs := []map[string]any{}
-		for _, n := range envFrom {
-			refs = append(refs, map[string]any{"secretRef": map[string]any{"name": n, "optional": true}})
-		}
-		b, _ := json.Marshal(map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": penpotConsoleDeploy},
-			"spec": map[string]any{"template": map[string]any{"spec": map[string]any{"containers": []map[string]any{{"name": "adhar-console", "envFrom": refs}}}}}})
-		write(consoleFile, string(b), 0o644)
-	}
-	// A console whose manifest predates the Secret: restarting it would load nothing.
-	console("plane-api-token", "strapi-api-token")
-	write(filepath.Join(state, "pods.json"), `{"items":[{"metadata":{"name":"adhar-console-1"},"status":{"phase":"Running","startTime":"2026-01-01T00:00:00Z"}}]}`, 0o644)
+	j.write(j.script, penpotTokenScript(t), 0o644)
+	j.write(j.stub, penpotKubectlStub, 0o755)
+	j.write(filepath.Join(j.state, "pods.json"), `{"items":[{"metadata":{"name":"adhar-console-1"},"status":{"phase":"Running","startTime":"2026-01-01T00:00:00Z"}}]}`, 0o644)
+	srv := httptest.NewServer(j.mock)
+	t.Cleanup(srv.Close)
+	j.url = srv.URL
+	return j
+}
 
-	mock := newPenpotMock()
-	srv := httptest.NewServer(mock)
-	defer srv.Close()
-
-	const robot = "adhar-console@adhar.local"
-	const password = "N0tTheRealOneButLongEnough4Tests"
-	var printed []string
-	run := func(pass string) error {
-		cmd := exec.Command(bash, script)
-		cmd.Env = []string{
-			"PATH=" + os.Getenv("PATH"), "HOME=" + dir,
-			"PENPOT_URL=" + srv.URL, "ROBOT_EMAIL=" + robot, "ROBOT_PASSWORD=" + pass,
-			"KUBECTL=" + stub, "STUB_STATE=" + state, "NAMESPACE=adhar-system",
-			"WAIT_TRIES=3", "WAIT_SECONDS=0", "ROLLOUT_TIMEOUT=1s",
-		}
-		out, err := cmd.CombinedOutput()
-		printed = append(printed, string(out))
-		t.Logf("run.sh:\n%s", out)
-		return err
+func (j *penpotJob) write(path, body string, mode os.FileMode) {
+	j.t.Helper()
+	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+		j.t.Fatal(err)
 	}
-	secretFile := filepath.Join(state, "secret-"+penpotTokenSecret+".json")
-	published := func() map[string]string {
-		raw, err := os.ReadFile(secretFile)
+}
+
+// console serves a console Deployment that reads a key of each named Secret
+// (env secretKeyRef) and nothing else.
+func (j *penpotJob) console(secrets ...string) {
+	env := []map[string]any{}
+	for _, n := range secrets {
+		env = append(env, map[string]any{"name": strings.ToUpper(strings.ReplaceAll(n, "-", "_")),
+			"valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": n, "key": "token", "optional": true}}})
+	}
+	j.serveConsole(map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": penpotConsoleDeploy},
+		"spec": map[string]any{"template": map[string]any{"spec": map[string]any{"containers": []map[string]any{{"name": "adhar-console", "env": env}}}}}})
+}
+
+// serveConsole serves d as the console Deployment.
+func (j *penpotJob) serveConsole(d map[string]any) {
+	j.t.Helper()
+	b, err := json.Marshal(d)
+	if err != nil {
+		j.t.Fatal(err)
+	}
+	j.write(j.consoleFile, string(b), 0o644)
+}
+
+func (j *penpotJob) run(pass string) error {
+	cmd := exec.Command(j.bash, j.script)
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + j.dir,
+		"PENPOT_URL=" + j.url, "ROBOT_EMAIL=" + penpotRobotEmail, "ROBOT_PASSWORD=" + pass,
+		"KUBECTL=" + j.stub, "STUB_STATE=" + j.state, "NAMESPACE=adhar-system",
+		"WAIT_TRIES=3", "WAIT_SECONDS=0", "ROLLOUT_TIMEOUT=1s",
+	}
+	out, err := cmd.CombinedOutput()
+	j.printed = append(j.printed, string(out))
+	j.t.Logf("run.sh:\n%s", out)
+	return err
+}
+
+// said is what the last run printed.
+func (j *penpotJob) said() string { return j.printed[len(j.printed)-1] }
+
+func (j *penpotJob) published() map[string]string {
+	j.t.Helper()
+	raw, err := os.ReadFile(j.secretFile)
+	if err != nil {
+		j.t.Fatalf("no Secret %s was written: %v", penpotTokenSecret, err)
+	}
+	var s struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		j.t.Fatal(err)
+	}
+	out := map[string]string{}
+	for k, v := range s.Data {
+		b, err := base64.StdEncoding.DecodeString(v)
 		if err != nil {
-			t.Fatalf("no Secret %s was written: %v", penpotTokenSecret, err)
+			j.t.Fatalf("%s: %v", k, err)
 		}
-		var s struct {
-			Data map[string]string `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &s); err != nil {
-			t.Fatal(err)
-		}
-		out := map[string]string{}
-		for k, v := range s.Data {
-			b, err := base64.StdEncoding.DecodeString(v)
-			if err != nil {
-				t.Fatalf("%s: %v", k, err)
-			}
-			out[k] = string(b)
-		}
-		return out
+		out[k] = string(b)
 	}
-	restarts := func() int {
-		raw, _ := os.ReadFile(filepath.Join(state, "restarts"))
-		return len(strings.Fields(string(raw)))
-	}
-	called := func(calls []string, name string) int {
-		n := 0
-		for _, c := range calls {
-			if c == name {
-				n++
-			}
+	return out
+}
+
+func (j *penpotJob) restarts() int {
+	raw, _ := os.ReadFile(filepath.Join(j.state, "restarts"))
+	return len(strings.Fields(string(raw)))
+}
+
+func penpotCalled(calls []string, name string) int {
+	n := 0
+	for _, c := range calls {
+		if c == name {
+			n++
 		}
-		return n
 	}
+	return n
+}
+
+func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
+	j := newPenpotJob(t)
+	mock, state, secretFile := j.mock, j.state, j.secretFile
+	run, published, restarts, write, called := j.run, j.published, j.restarts, j.write, penpotCalled
+	const robot, password = penpotRobotEmail, penpotRobotPassword
 	check := func(step string, problems []string) {
 		for _, p := range problems {
 			t.Errorf("%s: %s", step, p)
 		}
 	}
+	// A console whose manifest predates the Secret: restarting it would load nothing.
+	j.console("plane-api-token", "strapi-api-token")
 
 	// 1. A fresh cluster: register the robot, mint, create the team, publish.
-	//    The console's manifest does not list the Secret yet, so it is not
-	//    restarted: the rollout that adds the envFrom loads it.
+	//    The console's manifest does not read the Secret yet, so it is not
+	//    restarted: the rollout that adds the reference loads it.
 	if err := run(password); err != nil {
 		t.Fatalf("fresh run failed: %v", err)
 	}
@@ -848,8 +962,8 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	if !slices.Equal(keys, penpotTokenContract) {
 		t.Errorf("fresh: %s carries %v, want exactly %v", penpotTokenSecret, keys, penpotTokenContract)
 	}
-	if sec["PENPOT_URL"] != srv.URL {
-		t.Errorf("fresh: PENPOT_URL = %q, want the URL the Job reached Penpot at (%q)", sec["PENPOT_URL"], srv.URL)
+	if sec["PENPOT_URL"] != j.url {
+		t.Errorf("fresh: PENPOT_URL = %q, want the URL the Job reached Penpot at (%q)", sec["PENPOT_URL"], j.url)
 	}
 	mock.mu.Lock()
 	first := mock.tokens[sec["PENPOT_TOKEN"]]
@@ -871,9 +985,10 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	}
 	firstBytes, _ := os.ReadFile(secretFile)
 
-	// 2. The console now lists the Secret, but its running pod started before
-	//    the Secret existed: restart it, once, and touch nothing else.
-	console("plane-api-token", "strapi-api-token", penpotTokenSecret)
+	// 2. The console as install.yaml ships it reads the Secret, but its running
+	//    pod started before the Secret existed: restart it, once, and touch
+	//    nothing else.
+	j.serveConsole(penpotConsoleDeployment(t))
 	for _, step := range []string{"console loads it", "steady state"} {
 		if err := run(password); err != nil {
 			t.Fatalf("%s: %v", step, err)
@@ -892,10 +1007,11 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	}
 	// Right after a rollout the replaced pod is still Running while it drains;
 	// it is leaving, and must not trigger a second restart.
-	write(filepath.Join(state, "pods.json"), fmt.Sprintf(`{"items":[`+
+	draining := fmt.Sprintf(`{"items":[`+
 		`{"metadata":{"name":"adhar-console-old","deletionTimestamp":"2026-01-01T00:10:00Z"},"status":{"phase":"Running","startTime":"2026-01-01T00:00:00Z"}},`+
 		`{"metadata":{"name":"adhar-console-new"},"status":{"phase":"Running","startTime":%q}}]}`,
-		time.Now().UTC().Add(time.Second).Format(time.RFC3339)), 0o644)
+		time.Now().UTC().Add(time.Second).Format(time.RFC3339))
+	write(filepath.Join(state, "pods.json"), draining, 0o644)
 	if err := run(password); err != nil {
 		t.Fatalf("draining pod: %v", err)
 	}
@@ -903,6 +1019,30 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	if restarts() != 1 {
 		t.Errorf("draining pod: the console was restarted again because its replaced pod was still draining (%d restarts)", restarts())
 	}
+	// The decision rests on the pod list. One that FAILS is an outage: the
+	// Job fails and is retried, it never reads as "no pod" and restarts. One
+	// that answers with no running pod needs no restart: a pod that has not
+	// started yet reads the Secret when it does.
+	write(filepath.Join(state, "pods.fail"), "", 0o644)
+	if err := run(password); err == nil {
+		t.Error("pod list fails: the Job succeeded without knowing which console pods run; it must fail and be retried")
+	}
+	if err := os.Remove(filepath.Join(state, "pods.fail")); err != nil {
+		t.Fatal(err)
+	}
+	mock.take()
+	if restarts() != 1 {
+		t.Errorf("pod list fails: the console was restarted on a pod list that never answered (%d restarts)", restarts())
+	}
+	write(filepath.Join(state, "pods.json"), `{"items":[]}`, 0o644)
+	if err := run(password); err != nil {
+		t.Fatalf("no running pod: %v", err)
+	}
+	mock.take()
+	if restarts() != 1 {
+		t.Errorf("no running pod: the console was restarted though no pod of it had started (%d restarts)", restarts())
+	}
+	write(filepath.Join(state, "pods.json"), draining, 0o644)
 
 	// 3. Penpot errors on the token check: not a reason to replace the token.
 	mock.mu.Lock()
@@ -923,7 +1063,7 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	}
 
 	// 4. The console is not deployed (another profile): publish, never restart.
-	if err := os.Remove(consoleFile); err != nil {
+	if err := os.Remove(j.consoleFile); err != nil {
 		t.Fatal(err)
 	}
 	if err := run(password); err != nil {
@@ -933,7 +1073,7 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	if restarts() != 1 {
 		t.Error("no console: a restart was attempted")
 	}
-	console("plane-api-token", "strapi-api-token", penpotTokenSecret)
+	j.serveConsole(penpotConsoleDeployment(t))
 
 	// 5. Penpot refuses the token (PENPOT_SECRET_KEY replaced): sign in
 	//    (no second registration), mint, keep the team, revoke the old one,
@@ -968,13 +1108,15 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	}
 
 	// 6. The robot's password Secret was regenerated after it registered: no
-	//    way to sign in, so fail and say how to recover, touching nothing.
+	//    way to sign in. Say how to recover, touch nothing — and do NOT fail:
+	//    a failed PostSync hook fails the sync, which the ApplicationSet
+	//    replays forever on the same revision, so no later penpot push lands.
 	mock.mu.Lock()
 	mock.tokens[rotated["PENPOT_TOKEN"]].Refused = true
 	mock.mu.Unlock()
 	before, _ := os.ReadFile(secretFile)
-	if err := run("A-Different-Password-0123456789x"); err == nil {
-		t.Error("lockout: the Job succeeded")
+	if err := run("A-Different-Password-0123456789x"); err != nil {
+		t.Errorf("lockout: the Job failed (%v); a problem only a person can fix must not fail the PostSync hook", err)
 	}
 	calls, _ = mock.take()
 	if called(calls, "create-access-token") != 0 || called(calls, "register-profile") != 0 {
@@ -983,12 +1125,12 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 	if after, _ := os.ReadFile(secretFile); string(after) != string(before) || restarts() != 2 {
 		t.Error("lockout: the Secret or the console was touched")
 	}
-	if !strings.Contains(printed[len(printed)-1], "UPDATE profile SET email") {
-		t.Error("lockout: the failure does not say how to recover")
+	if said := j.said(); !strings.Contains(said, "ACTION REQUIRED") || !strings.Contains(said, "UPDATE profile SET email") {
+		t.Error("lockout: the log does not say, loudly, how to recover")
 	}
 
 	// Nothing secret is ever printed.
-	all := strings.Join(printed, "\n")
+	all := strings.Join(j.printed, "\n")
 	for _, secret := range []string{password, sec["PENPOT_TOKEN"], rotated["PENPOT_TOKEN"]} {
 		if strings.Contains(all, secret) {
 			t.Error("run.sh printed a password or a token")
@@ -1000,6 +1142,63 @@ func TestPenpotConsoleTokenJobMintsReusesAndRotates(t *testing.T) {
 		if strings.Contains(all, v) {
 			t.Error("run.sh printed a session token")
 		}
+	}
+}
+
+// A problem no retry can fix must not fail the PostSync hook: a failed hook
+// fails the sync, the ApplicationSet retries a failed sync forever
+// (retry.limit -1) by replaying the SAME revision, and so the penpot push that
+// fixes the problem — and every one after it — never deploys. The Job says
+// what to do ("ACTION REQUIRED") and ends successfully, publishing nothing.
+// An outage is different: Penpot will answer again, so the Job fails and its
+// restarts retry.
+func TestPenpotConsoleTokenJobLeavesWhatNeedsAPersonToAPerson(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		penpot func(*penpotMock)
+		outage bool   // the Job must fail, to be retried
+		says   string // what the log must point at
+	}{
+		{"registration refused", func(m *penpotMock) { m.refuseRegistration = "registration-disabled" }, false, "enable-registration"},
+		{"registered, but cannot sign in", func(m *penpotMock) { m.unverified = true }, false, "disable-email-verification"},
+		{"sign-in refused", func(m *penpotMock) { m.refuseLogin = "profile-blocked" }, false, "login-with-password answered http 400 (profile-blocked)"},
+		{"registration outage", func(m *penpotMock) { m.outage = "prepare-register-profile" }, true, "prepare-register-profile answered http 503"},
+		{"sign-in outage", func(m *penpotMock) { m.outage = "login-with-password" }, true, "login-with-password answered http 503"},
+		// The wait for the API: a 4xx through all of it is a URL that is not
+		// Penpot's; a 5xx is Penpot not up yet.
+		{"the URL is not Penpot's API", func(m *penpotMock) { m.notPenpot = true }, false, "answered http 404 (object-not-found)"},
+		{"Penpot never comes up", func(m *penpotMock) { m.outage = "get-profile" }, true, "answered http 503 (unavailable)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			j := newPenpotJob(t)
+			j.console(penpotTokenSecret)
+			tc.penpot(j.mock)
+			err := j.run(penpotRobotPassword)
+			switch {
+			case tc.outage && err == nil:
+				t.Error("the Job succeeded through an outage; it must fail so its restarts retry")
+			case !tc.outage && err != nil:
+				t.Errorf("the Job failed (%v) on a problem no retry can fix: the failed hook would wedge every later penpot sync", err)
+			case !tc.outage && !strings.Contains(j.said(), "ACTION REQUIRED"):
+				t.Error("the log does not say, loudly, that a person has to act")
+			}
+			if !strings.Contains(j.said(), tc.says) {
+				t.Errorf("the log does not mention %q", tc.says)
+			}
+			calls, problems := j.mock.take()
+			for _, p := range problems {
+				t.Error(p)
+			}
+			if n := penpotCalled(calls, "create-access-token"); n != 0 {
+				t.Errorf("a token was minted (%d calls) though the robot never signed in", n)
+			}
+			if _, err := os.Stat(j.secretFile); err == nil {
+				t.Errorf("Secret %s was published", penpotTokenSecret)
+			}
+			if j.restarts() != 0 {
+				t.Error("the console was restarted")
+			}
+		})
 	}
 }
 

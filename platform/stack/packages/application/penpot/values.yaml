@@ -103,11 +103,15 @@ config:
   # it into Secret penpot-api-token). Without the flag the backend compiles
   # token authentication out entirely (2.17.2 backend/src/app/http/
   # access_token.clj `authz`), so every token is answered as anonymous: 401.
-  # It also shows the Access Tokens section in each person's profile.
-  # enable-webhooks: per-team webhooks (team settings → Webhooks). Delivery
-  # goes through Penpot's SSRF filter (loggers/webhooks.clj), which refuses
-  # in-cluster addresses unless PENPOT_SSRF_ALLOWED_HOSTS names the host.
-  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification enable-access-tokens enable-webhooks"
+  # THE RISK IT CARRIES: the flag is instance-wide. It shows the Access Tokens
+  # section in every person's profile, so EVERY Penpot user can mint personal
+  # tokens that never expire, and a token keeps working after its owner is
+  # removed from Keycloak — that ends the SSO session, not the Penpot profile
+  # or its tokens. Offboarding someone from Penpot therefore means revoking
+  # their tokens (or blocking the profile) in Penpot itself.
+  # No enable-webhooks: nothing on the platform consumes Penpot webhooks, and
+  # the flag would let every team point penpot-backend at a URL of its choice.
+  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification enable-access-tokens"
   # PENPOT_SECRET_KEY encrypts every token Penpot issues (sessions, OIDC state,
   # registration, password-recovery and invitation tokens). The chart ships a
   # PUBLIC default key, with which anyone can mint or read those tokens, so the

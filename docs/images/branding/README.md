@@ -98,4 +98,4 @@ The brand gradient runs **Blue → Indigo → Violet**, left-to-right (or top-le
 
 ## License & Contact
 
-Brand assets may be used to reference the Adhar project (articles, talks, integrations). They are not licensed for use as your own product branding. Questions: press@adhar.io · [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+Brand assets may be used to reference the Adhar project (articles, talks, integrations). They are not licensed for use as your own product branding. Questions: press@adhar.io · [Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg)

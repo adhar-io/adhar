@@ -10,13 +10,15 @@
 #   platform-developer -> edit  (platform team; cluster-wide by design)
 #   platform-viewer    -> view  (platform team; cluster-wide by design)
 #
-# APPLICATION TEAMS are NOT in the table above. There is exactly one
-# organisation on a platform, and teams are the unit of onboarding and the unit
-# of isolation. A team's authority is granted per-namespace by the
-# Project composition, binding `oidc:ws-team-<team>` to `admin` in that
-# team's own namespace only -- "Platform Admin of your own tenant". The
-# platform-* groups above are the platform team, whose shared services every
-# application team consumes.
+# APPLICATION TEAMS are NOT in the table above. Teams are the unit of
+# onboarding and the unit of isolation. A team's authority is granted
+# per-namespace by the Project composition, binding
+# `oidc:ws-team-<org>.<team>` -- qualified by its organisation, because a team
+# slug is unique only inside one -- to `admin` in that team's own namespace
+# only, and an organisation's admins (`oidc:org-<org>-admin`) to `admin` in
+# every namespace of their organisation -- "Platform Admin of your own
+# tenant". The platform-* groups above are the platform team, whose shared
+# services every application team consumes.
 #
 # NOTE on Secrets — CHECK THIS AGAINST YOUR CLUSTER, the distinction is not what
 # an earlier revision of this comment claimed.
@@ -107,9 +109,9 @@ metadata:
   # An application team's authority is now granted where the team actually
   # lives: the Project composition
   # (platform/controlplane/configuration/compositions/project/local.yaml) emits
-  # a RoleBinding of `oidc:ws-team-<team>` to `admin` IN THAT TEAM'S NAMESPACE,
-  # plus a default-deny-ingress NetworkPolicy. Onboarding a team is what grants
-  # it access, and it reaches nothing else.
+  # a RoleBinding of `oidc:ws-team-<org>.<team>` to `admin` IN THAT TEAM'S
+  # NAMESPACE, plus a default-deny-ingress NetworkPolicy. Onboarding a team is
+  # what grants it access, and it reaches nothing else.
   #
   # The platform-* groups below stay cluster-wide on purpose: the platform team
   # hosts the shared services every application team consumes.

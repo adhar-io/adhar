@@ -229,6 +229,93 @@ open(path, "w").write(src)
 print("plane-web: Keycloak sign-in starts on its own when it is the only method")
 PYEOF
 
+# Signing keys come from plane-generated-keys (manifests/secret-keys.yaml),
+# minted once per cluster, not from the chart's values.yaml defaults: those are
+# public, so every Plane rendered from this chart shared one Django SECRET_KEY
+# and anyone could forge its session cookies and password-reset tokens. Both
+# keys are removed from the chart's Secrets and every consumer reads the
+# generated one. Pinned by TestPlaneSigningKeysAreGeneratedPerCluster.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import re, sys
+path = sys.argv[1]
+src = open(path).read()
+src, n = re.subn(r'(?m)^  (SECRET_KEY|LIVE_SERVER_SECRET_KEY): ".*"\n', "", src)
+if n != 3:
+    raise SystemExit(f"expected the chart's SECRET_KEY once and LIVE_SERVER_SECRET_KEY twice, removed {n}")
+# A whole list entry: `- secretRef:` and every line indented deeper (the chart
+# writes `optional: false` under some of them), so the new entry follows it.
+entry = re.compile(r'(?m)^( *)- secretRef:\n((?:\1 {2,}\S.*\n)+)')
+def add(x):
+    if not re.search(r'name: (plane-app-secrets|plane-live-secrets)\n', x.group(2)):
+        return x.group(0)
+    return x.group(0) + f"{x.group(1)}- secretRef:\n{x.group(1)}    name: plane-generated-keys\n"
+src, _ = entry.subn(add, src)
+m = src.count("name: plane-generated-keys\n")
+if m < 4:
+    raise SystemExit(f"expected at least 4 workloads reading plane-app/live-secrets, found {m}")
+open(path, "w").write(src)
+print(f"plane: signing keys come from plane-generated-keys ({m} workloads)")
+PYEOF
+
+# Serve the frontends without the images' per-client-IP rate limit.
+#
+# plane-web and plane-admin are Caddy, and the fork's Caddyfile allows 300
+# static requests a minute per {client_ip}. Behind the platform every request
+# reaches Caddy from the SSO proxy, and the client IP it resolves is the load
+# balancer's node address, so ALL users share one budget. The onboarding page
+# loads a few hundred JS chunks on a cold cache: the first visit after sign-in
+# tripped the limit, Caddy held requests ~50 s, the proxy cancelled them, and
+# /onboarding/ never rendered (AWS, 2026-10-31). Static files are content-hashed
+# and cached, and the Gateway and Keycloak already front the app, so the copy
+# mounted here is the image's own Caddyfile with only the rate limit removed.
+# Pinned by TestPlaneFrontendsServeStaticFilesWithoutAPerIPLimit.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+
+def caddyfile(fallback, note):
+    return ("{\n\tservers {\n\t\ttrusted_proxies static private_ranges\n\t}\n}\n\n"
+            ":3000 {\n\troot * /usr/share/caddy/html\n\n"
+            "\t# Security headers (HSTS is set at the TLS terminator)\n"
+            "\theader {\n\t\tX-Frame-Options \"DENY\"\n\t\tX-Content-Type-Options \"nosniff\"\n"
+            "\t\tX-XSS-Protection \"1; mode=block\"\n\t}\n\n"
+            f"\t# SPA fallback{note}\n\ttry_files {{path}} {fallback}\n\tfile_server\n\n"
+            "\t# Access logs to stdout (default in Caddy)\n"
+            "\tlog {\n\t\toutput stdout\n\t\tformat console\n\t}\n}\n")
+
+targets = [
+    ("plane-web-wl", "plane-web", "web.Caddyfile", caddyfile("/index.html", "")),
+    ("plane-admin-wl", "plane-admin", "admin.Caddyfile",
+     caddyfile("/god-mode/index.html", ": the admin build is served from /god-mode")),
+]
+docs = src.split("\n---\n")
+for deploy, container, key, _ in targets:
+    hits = [i for i, d in enumerate(docs) if "kind: Deployment\n" in d and f"\n  name: {deploy}\n" in d]
+    if len(hits) != 1:
+        raise SystemExit(f"{deploy} Deployment not found exactly once: the chart changed shape")
+    d = docs[hits[0]]
+    anchor = "      serviceAccount: plane-srv-account\n"
+    if d.count(anchor) != 1 or d.count(f"      - name: {container}\n") != 1:
+        raise SystemExit(f"{deploy}: container {container} or its serviceAccount not found exactly once")
+    mount = f"        - {{name: caddyfile, mountPath: /etc/caddy/Caddyfile, subPath: {key}}}\n"
+    vol = "      - name: caddyfile\n        configMap: {name: plane-caddyfiles}\n"
+    if "      volumes:\n" in d:
+        # The container's own volumeMounts end where the pod's volumes begin.
+        vi = d.index("      volumes:\n")
+        d = d[:vi] + mount + d[vi:]
+        d = d.replace(anchor, vol + anchor, 1)
+    else:
+        d = d.replace(anchor, "        volumeMounts:\n" + mount + "      volumes:\n" + vol + anchor, 1)
+    docs[hits[0]] = d
+src = "\n---\n".join(docs).rstrip("\n")
+src += "\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: plane-caddyfiles\n  namespace: adhar-system\ndata:\n"
+for _, _, key, body in targets:
+    src += f"  {key}: |\n" + "".join("    " + l + "\n" if l else "\n" for l in body.splitlines())
+open(path, "w").write(src)
+print("plane-web, plane-admin: static files served without a per-client-IP rate limit")
+PYEOF
+
 # Uploads go from the BROWSER straight to the object store, on a URL the API
 # signs. With the chart's USE_MINIO=0 Plane signs against AWS_S3_ENDPOINT_URL,
 # which here is the in-cluster RustFS Service — a name no browser can resolve,

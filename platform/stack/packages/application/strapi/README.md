@@ -96,7 +96,8 @@ human or script can mint one through the admin. The package provisions it:
    `expires_at` type error, and where it did insert it left `kind` empty, which
    5.57 rejects with 401 — so before 2026-10-24 the console's token never
    actually worked on this version.)
-3. The console Deployment loads the Secret (`envFrom`, optional), and the
+3. The console Deployment reads `STRAPI_TOKEN` and `STRAPI_URL` from the Secret
+   by key (env `secretKeyRef`, optional; never `envFrom`), and the
    `strapi-console-reload` PostSync Job restarts the console once if it started
    before the Secret existed.
 

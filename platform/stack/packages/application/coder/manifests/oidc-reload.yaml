@@ -17,12 +17,25 @@
 # `git push` inside every workspace stayed anonymous until something restarted it.
 #
 # Fix: a PostSync hook that waits for the secrets, then restarts the Deployment
-# ONLY if the running pod is actually missing the env — idempotent, so steady
-# state syncs are a no-op and there is no restart loop. Runs at wave 13, i.e.
-# AFTER the template seed (12): at the same wave as the seed its 40-minute wait
-# for Keycloak would have delayed the template, leaving a fresh platform with no
-# Cloud Dev Environment to offer for the better part of an hour.
+# ONLY if the running pod started before one of them existed — idempotent, so
+# steady state syncs are a no-op and there is no restart loop. Runs at wave 13,
+# i.e. AFTER the template seed (12): at the same wave as the seed its 40-minute
+# wait for Keycloak would have delayed the template, leaving a fresh platform
+# with no Cloud Dev Environment to offer for the better part of an hour.
 # Same shape as observability/kube-prometheus/manifests/grafana-oidc-reload.yaml.
+#
+# The question used to be asked of the pod (`kubectl exec … test -n …`), whose
+# exit status cannot tell "the env is missing" from "the exec was refused or
+# timed out" — and a failed pod list read as "no pod" — so either failure
+# restarted Coder. It is answered from timestamps now, the way the console's
+# reload hooks answer it: coder-oidc is written by External Secrets only once
+# its key resolves, and coder-gitea-oauth is written whole by its hook, so each
+# Secret's creationTimestamp is the moment its credentials became available and
+# a pod that started after both has both. A Secret that is re-CREATED (the
+# Gitea app registered again) is newer than the pod, so Coder is restarted onto
+# the new credentials, which the env test could not see: the variable was set
+# either way, only to the old value. And the Role no longer needs pods/exec,
+# which reached every pod in adhar-system.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -36,18 +49,24 @@ metadata:
   name: coder-oidc-reload
   namespace: adhar-system
 rules:
+  # Exactly what the script touches, by name (as penpot's console-token Role
+  # does): it reads two Secrets, lists Coder's pods, and restarts and waits on
+  # one Deployment. Unnamed, these rules read every Secret in adhar-system and
+  # could patch any Deployment in it.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list"]
+    resourceNames: ["coder-oidc", "coder-gitea-oauth"]
+    verbs: ["get"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create"]
+    verbs: ["list"]
+  # `watch`: `kubectl rollout status` watches the Deployment (by name, so
+  # resourceNames applies); without it the wait logs "Failed to watch …
+  # unknown" and only notices progress on its backoff relists.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    resourceNames: ["coder"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -120,20 +139,38 @@ spec:
                 sleep 10
               done
 
-              # 2. Only restart if the RUNNING pod lacks the client secret env.
-              POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=coder \
-                      --field-selector=status.phase=Running \
-                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-              if [ -n "$POD" ]; then
-                # Both must be present. Checking only the OIDC secret was enough
-                # while that was the only late arrival; with Gitea external auth
-                # added, a pod that already had OIDC would have been declared
-                # fine and never picked up its git credentials.
-                if kubectl -n "$NS" exec "$POD" -c coder -- \
-                     sh -c 'test -n "$CODER_OIDC_CLIENT_SECRET" && test -n "$CODER_EXTERNAL_AUTH_0_CLIENT_SECRET"' 2>/dev/null; then
-                  echo "Coder already has the OIDC and Gitea client secrets; nothing to do."
-                  exit 0
-                fi
+              # 2. Only restart if the running pod predates a Secret it reads.
+              #    Both count. Checking only the OIDC secret was enough while that
+              #    was the only late arrival; with Gitea external auth added, a
+              #    pod that already had OIDC would have been declared fine and
+              #    never picked up its git credentials. The Gitea Secret may
+              #    still be absent (1b gives up after five minutes): absent, it
+              #    is not waited for; unreadable, the hook ends rather than guess.
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              if ! GITEA_TS=$(kubectl -n "$NS" get secret "$GITEA_SECRET" --ignore-not-found \
+                                -o jsonpath='{.metadata.creationTimestamp}'); then
+                echo "cannot read $GITEA_SECRET; leaving Coder as-is (retries next sync)"
+                exit 0
+              fi
+              if [ -n "$GITEA_TS" ] && [ "${GITEA_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
+                SECRET_TS=$GITEA_TS
+              fi
+              # The NEWEST Coder pod decides (pods list in name order, so the
+              # first can be the one a rollout is replacing), compared by the
+              # digits of the RFC 3339 stamps: busybox `date -d` rejects them
+              # (adhar-console oidc-reload.yaml, 2026-10-28). The pod list is
+              # read on its own and a list that FAILS ends the hook; only a list
+              # that succeeded with no started pod restarts Coder.
+              # Guard: TestRestartHooksNeverRestartOnAFailedPodList.
+              if ! STARTED=$(kubectl -n "$NS" get pods -l app.kubernetes.io/instance=coder,app.kubernetes.io/name=coder \
+                               -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}'); then
+                echo "cannot list the Coder pods; leaving Coder as-is (retries next sync)"
+                exit 0
+              fi
+              POD_TS=$(printf '%s\n' "$STARTED" | sort | tail -n 1)
+              if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
+                echo "Coder pod ($POD_TS) is newer than its OIDC and Gitea secrets ($SECRET_TS); nothing to do."
+                exit 0
               fi
 
               echo "Restarting $DEPLOY to load Keycloak OIDC + Gitea external auth env..."

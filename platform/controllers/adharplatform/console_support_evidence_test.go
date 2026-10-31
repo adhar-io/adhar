@@ -162,15 +162,19 @@ func TestConsoleCanCollectSupportTicketEvidence(t *testing.T) {
 		}
 	}
 
-	plane := false
-	for _, raw := range toSlice(container["envFrom"]) {
+	// Read key by key (env secretKeyRef), not envFrom: TestTheConsoleEnvFromsOnlyItsOwnSecrets.
+	plane := map[string]bool{}
+	for _, raw := range toSlice(container["env"]) {
 		e, _ := raw.(map[string]any)
-		ref, _ := e["secretRef"].(map[string]any)
-		if toString(ref["name"]) == consolePlaneSecret {
-			plane = true
+		vf, _ := e["valueFrom"].(map[string]any)
+		ref, _ := vf["secretKeyRef"].(map[string]any)
+		if toString(ref["name"]) == consolePlaneSecret && toString(ref["key"]) == toString(e["name"]) {
+			plane[toString(e["name"])] = true
 		}
 	}
-	if !plane {
-		t.Errorf("the console container does not mount Secret %s (PLANE_URL / PLANE_TOKEN / PLANE_WORKSPACE) — no support ticket can be filed", consolePlaneSecret)
+	for _, key := range []string{"PLANE_URL", "PLANE_TOKEN", "PLANE_WORKSPACE"} {
+		if !plane[key] {
+			t.Errorf("the console container does not read %s from Secret %s — no support ticket can be filed", key, consolePlaneSecret)
+		}
 	}
 }

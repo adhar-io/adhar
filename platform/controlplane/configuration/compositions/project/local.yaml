@@ -205,11 +205,13 @@ spec:
             {{- end }}
             ---
             # Team RBAC on the home namespace — the isolation boundary between
-            # application teams. `ws-team-<team>` is the Keycloak group the
-            # Console creates for a team (Team publishes it on its
-            # status); `org-<org>-admin` is the organisation's owner, who reaches
-            # every namespace in their tenant. `oidc:` is the apiserver's
-            # --oidc-groups-prefix; the realm mapper emits bare names, not paths.
+            # application teams. `ws-team-<org>.<team>` is the Keycloak group
+            # the Console keeps for a team (Team publishes it on its status),
+            # qualified by the organisation because another organisation may
+            # have a team of the same name; `org-<org>-admin` is the
+            # organisation's admins, who reach every namespace in their tenant.
+            # `oidc:` is the apiserver's --oidc-groups-prefix; the realm mapper
+            # emits bare names, not paths.
             # Deliberately NOT bound: the plain `org-<org>` membership group —
             # that would make every member an admin of every team.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -232,7 +234,7 @@ spec:
                       {{- end }}
                   roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin }
                   subjects:
-                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s" $team | quote }} }
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s.%s" $org $team | quote }} }
                     - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:org-%s-admin" $org | quote }} }
             ---
             # Network isolation of the home namespace: default-deny ingress, then

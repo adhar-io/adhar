@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"strings"
 	"testing"
 
 	"adhar-io/adhar/platform/types"
@@ -39,6 +40,31 @@ func TestNeededVCPUsUsesTheAutoscalingMaximum(t *testing.T) {
 	spec.NodeGroups[0].AutoScaling = types.AutoScalingSpec{}
 	if got := neededVCPUs(spec); got != 24 {
 		t.Fatalf("neededVCPUs without autoscaling = %d, want 24", got)
+	}
+}
+
+// The hint counts exactly what neededVCPUs counts, so following it passes the
+// check: the config.aws.yaml shape (4-vCPU control plane, r6i.xlarge workers
+// 2..10) in a 32-vCPU account must be told maxWorkers 7.
+func TestQuotaFitHintForTheWorkerGroup(t *testing.T) {
+	spec := &types.ClusterSpec{
+		ControlPlane: types.ControlPlaneSpec{Replicas: 1, InstanceType: "m6i.xlarge"},
+		NodeGroups: []types.NodeGroupSpec{{
+			Name: "workers", Replicas: 2, InstanceType: "r6i.xlarge",
+			AutoScaling: types.AutoScalingSpec{MinReplicas: 2, MaxReplicas: 10},
+		}},
+	}
+	if got := quotaFitHint(spec, 32); !strings.Contains(got, "maxWorkers: 7") {
+		t.Fatalf("quotaFitHint = %q, want maxWorkers: 7", got)
+	}
+	spec.NodeGroups[0].AutoScaling.MaxReplicas = 7
+	if need := neededVCPUs(spec); need > 32 {
+		t.Errorf("following the hint still needs %d vCPU of a 32 limit", need)
+	}
+	// Two groups: no single ceiling to name.
+	spec.NodeGroups = append(spec.NodeGroups, types.NodeGroupSpec{Name: "gpu", Replicas: 1, InstanceType: "g5.xlarge"})
+	if got := quotaFitHint(spec, 32); got != "" {
+		t.Errorf("with two node groups the hint must be empty, got %q", got)
 	}
 }
 

@@ -108,14 +108,19 @@ spec:
                         properties:
                           name:
                             type: string
+                          # Argo CD's own generator and Application-template
+                          # shapes, passed through as written. Free-form content
+                          # needs preserve-unknown-fields: a bare
+                          # `additionalProperties: true` keeps the keys and the
+                          # API server PRUNES everything inside them.
                           generators:
                             type: array
                             items:
                               type: object
-                              additionalProperties: true
+                              x-kubernetes-preserve-unknown-fields: true
                           template:
                             type: object
-                            additionalProperties: true
+                            x-kubernetes-preserve-unknown-fields: true
                 writeConnectionSecretToRef:
                   type: object
                   properties:

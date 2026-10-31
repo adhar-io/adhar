@@ -11,8 +11,9 @@
 #   2. Strapi's bootstrap (platform-extension.yaml, console-token.js) registers
 #      its hash as a full-access token named "Adhar Console", repairing it if
 #      edited/deleted;
-#   3. the console lists the Secret in envFrom (optional); the Job below
-#      restarts the console once if it started before the Secret existed.
+#   3. the console reads STRAPI_TOKEN and STRAPI_URL from it by key (env
+#      secretKeyRef, optional); the Job below restarts the console once if
+#      it started before the Secret existed.
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -75,9 +76,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
+  # `watch`: `kubectl rollout status` watches the Deployment; without it the
+  # wait logs "Failed to watch … unknown" and sits out its whole timeout.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -128,7 +131,11 @@ spec:
               # Newest console pod, compared by the digits of the RFC 3339 stamps:
               # busybox `date -d` rejects them, the test errored, and every strapi
               # sync restarted the console (see adhar-console oidc-reload.yaml).
-              POD_TS=$(kubectl -n "$NS" get pods -l app=console -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}' 2>/dev/null | sort | tail -n 1 || true)
+              # A pod list that FAILS ends the hook rather than reading as "no pod".
+              if ! STARTED=$(kubectl -n "$NS" get pods -l app=console -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}'); then
+                echo "cannot list the console pods; leaving the console as-is (retries next sync)"; exit 0
+              fi
+              POD_TS=$(printf '%s\n' "$STARTED" | sort | tail -n 1)
               if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
                 echo "console pod is newer than $SECRET; nothing to do."; exit 0
               fi

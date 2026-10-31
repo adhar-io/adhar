@@ -29,9 +29,12 @@
 #      CCM creates, servicequotas:GetServiceQuota, sts:GetCallerIdentity.
 #      docs/AWS_PROVIDER.md §1 has a ready-to-paste policy.
 #   3. QUOTA. The region's Running On-Demand Standard vCPU limit (L-1216C47A) must
-#      cover the WHOLE cluster at maxWorkers, not just the start: 1 control plane +
-#      6 workers of m6i.2xlarge = 56 vCPU. New accounts often start at 5. Raising
-#      it is a support case, not instant.
+#      cover the WHOLE cluster at maxWorkers, not just the start: 1 m6i.xlarge
+#      control plane + 10 r6i.xlarge workers = 4 + 40 = 44 vCPU. New accounts often
+#      start at 5 or 32. Raising it is a support case, not instant; until then,
+#      lower maxWorkers to what the limit pays for — at 32, maxWorkers: 7
+#      (4 + 7 × 4 = 32) still carries the production profile's ~18 vCPU of
+#      requests. The preflight names that number when it fails.
 #   4. DNS. A public hosted zone for `defaultHost` must already exist, and its
 #      four Route 53 nameservers must match what public DNS returns for that name
 #      — delegation has to be live BEFORE the run, or the ACME DNS-01 challenge
@@ -223,7 +226,7 @@ environments:
       - key: machineType
         value: r6i.xlarge
       - key: controlPlaneMachineType
-        value: r6i.large
+        value: m6i.xlarge
       - key: nodeCount
         value: '2'
       - key: diskSizeGb
@@ -247,7 +250,7 @@ environments:
       - key: machineType
         value: r6i.xlarge
       - key: controlPlaneMachineType
-        value: r6i.large
+        value: m6i.xlarge
       - key: nodeCount
         value: '2'
       - key: diskSizeGb
@@ -271,7 +274,7 @@ environments:
       - key: machineType
         value: r6i.xlarge
       - key: controlPlaneMachineType
-        value: r6i.large
+        value: m6i.xlarge
       - key: nodeCount
         value: '2'
       - key: diskSizeGb

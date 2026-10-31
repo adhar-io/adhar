@@ -58,6 +58,24 @@ func TestQuotaCheckJudgesAgainstFullSize(t *testing.T) {
 	}
 }
 
+// A short quota must offer the change the operator can make now, not only the
+// support case: an AWS account at the common 32-vCPU default could not run
+// `adhar up` at all, while the same cluster capped at 7 workers fits (2026-10-30).
+func TestQuotaFitHintNamesTheCeilingTheQuotaAllows(t *testing.T) {
+	// 4-vCPU control plane + 4-vCPU workers in a 32-vCPU quota: 4 + 7 × 4 = 32.
+	if got := QuotaFitHint(32, 4, 4, 2, "vCPU"); !strings.Contains(got, "maxWorkers: 7") || !strings.Contains(got, "4 + 7 × 4 = 32 vCPU") {
+		t.Errorf("QuotaFitHint(32, 4, 4, 2) = %q, want maxWorkers: 7 with its arithmetic", got)
+	}
+	// When the starting workers do not fit either, capping cannot help.
+	if got := QuotaFitHint(10, 4, 4, 2, "vCPU"); strings.Contains(got, "maxWorkers") || !strings.Contains(got, "only a raise helps") {
+		t.Errorf("QuotaFitHint(10, 4, 4, 2) = %q; a cap below the starting size must not be offered", got)
+	}
+	// Nothing to say without a readable limit or a known worker size.
+	if QuotaFitHint(0, 4, 4, 2, "vCPU") != "" || QuotaFitHint(32, 4, 0, 2, "vCPU") != "" {
+		t.Error("an unreadable limit or unknown worker size must give no hint")
+	}
+}
+
 func TestAnyFailedOnlyTripsOnFailures(t *testing.T) {
 	if AnyFailed([]Check{{Status: CheckPass}, {Status: CheckWarn}}) {
 		t.Error("warnings must not block a create")

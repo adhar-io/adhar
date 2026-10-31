@@ -205,7 +205,11 @@ func TestExamplesMatchTheirSchema(t *testing.T) {
 func checkAgainstSchema(value interface{}, schema map[string]interface{}, path string) []string {
 	var problems []string
 	if schema == nil {
-		return nil
+		// No schema at all for this value — what the API server's pruning does
+		// below an `additionalProperties: true` (a bool, not a schema): the key
+		// is kept, but everything INSIDE an object value is pruned. Scalars
+		// survive.
+		return prunedBelow(value, path)
 	}
 	if preserve, _ := schema["x-kubernetes-preserve-unknown-fields"].(bool); preserve {
 		return nil
@@ -225,13 +229,15 @@ func checkAgainstSchema(value interface{}, schema map[string]interface{}, path s
 				problems = append(problems, checkAgainstSchema(child, childSchema, path+"."+key)...)
 			case additional != nil:
 				// A free-form map (labels, tags, features): the keys are the
-				// user's, only the value shape is constrained.
-				if as, ok := additional.(map[string]interface{}); ok {
-					problems = append(problems, checkAgainstSchema(child, as, path+"."+key)...)
-				}
-			case len(props) == 0:
-				// No properties and no additionalProperties: an untyped object.
+				// user's, only the value shape is constrained. A bare
+				// `additionalProperties: true` constrains NOTHING inside the
+				// value, which is exactly why the API server prunes it: free-form
+				// content needs `x-kubernetes-preserve-unknown-fields: true`.
+				as, _ := additional.(map[string]interface{})
+				problems = append(problems, checkAgainstSchema(child, as, path+"."+key)...)
 			default:
+				// Not declared, no additionalProperties, no preserve-unknown-fields:
+				// pruned — also when the object declares no properties at all.
 				problems = append(problems, fmt.Sprintf(
 					"%s.%s is not in the schema — the API server would PRUNE it, so this example "+
 						"would apply cleanly and configure nothing", path, key))
@@ -263,6 +269,25 @@ func checkAgainstSchema(value interface{}, schema map[string]interface{}, path s
 		items, _ := schema["items"].(map[string]interface{})
 		for i, item := range v {
 			problems = append(problems, checkAgainstSchema(item, items, fmt.Sprintf("%s[%d]", path, i))...)
+		}
+	}
+	return problems
+}
+
+// prunedBelow reports what the API server drops from a value it has no schema
+// for: every key of an object (and of objects inside arrays). Scalars are kept.
+func prunedBelow(value interface{}, path string) []string {
+	var problems []string
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for key := range v {
+			problems = append(problems, fmt.Sprintf(
+				"%s.%s is below a schema that does not describe it (additionalProperties: true is not "+
+					"x-kubernetes-preserve-unknown-fields) — the API server would PRUNE it", path, key))
+		}
+	case []interface{}:
+		for i, item := range v {
+			problems = append(problems, prunedBelow(item, fmt.Sprintf("%s[%d]", path, i))...)
 		}
 	}
 	return problems

@@ -90,8 +90,12 @@ spec:
       # this Task are SUMMED into the pod's request even though only the
       # detected runner does work, so only the heaviest common runner (Maven —
       # adhar-kit services) carries one; the others keep the namespace default.
+      # CPU stays at 100m although `mvn verify` peaks near one core: this pod
+      # is pinned to the node holding the run's workspace (see the build step
+      # of buildpacks-build in 60-build-pipelines.yaml) and must fit what that
+      # node has left; with no limit it still uses the node's idle cores.
       computeResources:
-        requests: {cpu: 250m, memory: 768Mi}
+        requests: {cpu: 100m, memory: 768Mi}
       workingDir: /workspace/testsrc
       env:
         - {name: DOCKER_HOST, value: "tcp://127.0.0.1:2475"}
@@ -581,9 +585,11 @@ spec:
         - {name: HOME, value: /workspace/e2e-home}
       # Requests sized to schedule on a busy node: every task of a run is
       # pinned to the node holding its workspace, so a large request can wait
-      # there indefinitely. The limit leaves room for the build + Chromium.
+      # there indefinitely — CPU is therefore held to the 100m every CI step
+      # gets (see the build step of buildpacks-build in 60-build-pipelines.yaml),
+      # memory requested in full. The limit leaves room for the build + Chromium.
       computeResources:
-        requests: {cpu: 250m, memory: 512Mi}
+        requests: {cpu: 100m, memory: 512Mi}
         limits: {cpu: "2", memory: 3Gi}
       script: |
         #!/usr/bin/env bash

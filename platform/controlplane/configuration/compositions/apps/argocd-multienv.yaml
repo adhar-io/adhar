@@ -121,6 +121,8 @@ spec:
             {{- if $wanted }}{{ range $projEnvNames }}{{ if not (has . $wanted) }}{{ $notListed = append $notListed . }}{{ end }}{{ end }}{{ end -}}
             {{- $ex := "${{" -}}
             {{- $ready := 0 -}}
+            {{- /* Later environments still on the seed's empty branch: nothing promoted yet. */ -}}
+            {{- $awaiting := 0 -}}
             {{- /* Environments that are not Healthy+Synced+deploying, and why (status message),
                    and those that deploy nothing at all (the Overlays condition). */ -}}
             {{- $envIssues := list -}}
@@ -766,11 +768,21 @@ spec:
             {{- $envList := list -}}
             {{- range $envs }}{{ $envList = append $envList .name }}{{ end }}
             ---
-            # Seeds each environment's rendered branch `stage/<env>` from the
-            # source branch's overlay, once, so its Argo CD Application has
-            # something to sync before the first promotion writes to it. A
-            # branch that exists is never touched: promotions own it from then
-            # on. Idempotent, so the Job re-running after its TTL is harmless.
+            # Creates each environment's rendered branch `stage/<env>`, once, so
+            # its Argo CD Application has a revision to sync before the first
+            # promotion writes to it. Only the FIRST environment, the project's
+            # one Stage that takes freight straight from the Warehouse, is seeded
+            # from its overlay. Every later one gets a manifests.yaml with no
+            # objects ("seed stage/<env>: awaiting first promotion"), which the
+            # promotion's git-clear + kustomize-build replaces. The overlays ask
+            # for :latest, so seeding test and prod from them ran builds nobody
+            # had promoted, and prod went live on one nobody had released: each
+            # new pod (HPA scale-up, eviction, a chaos pod-delete) took whatever
+            # :latest was at that moment (reactapp on Azure, 2026-10-28). A later
+            # environment's overlay is still BUILT, so a broken one fails here
+            # rather than at its first promotion. A branch that exists is never
+            # touched: promotions own it from then on. Idempotent, so the Job
+            # re-running after its TTL is harmless.
             #
             # A MISSING overlay (exit 3) or one that does not BUILD (exit 4) is a
             # fact about the repository, not an outage: no retry creates a file.
@@ -782,19 +794,20 @@ spec:
             # with a flat deploy/ and no envs/). Git and network faults still
             # retry (backoffLimit).
             #
-            # Named stage-seed, not stage-branches: a Job's pod template and
-            # failure policy are immutable, so changing them under the old name
-            # would fail Crossplane's apply on every XR whose previous Job still
-            # exists (each lives an hour after it finishes). Under a new
-            # composition resource name the old Job is garbage-collected and
-            # this one created fresh.
+            # Named stage-init (it was stage-branches, then stage-seed): a Job's
+            # pod template and failure policy are immutable, so changing them
+            # under the old name would fail Crossplane's apply on every XR whose
+            # previous Job still exists (each lives an hour after it finishes,
+            # and is then recreated). Under a new composition resource name the
+            # old Job is garbage-collected and this one created fresh. Rename it
+            # again whenever the pod template changes.
             apiVersion: batch/v1
             kind: Job
             metadata:
-              name: {{ printf "%s-stage-seed" $name | trunc 63 | trimSuffix "-" }}
+              name: {{ printf "%s-stage-init" $name | trunc 63 | trimSuffix "-" }}
               namespace: {{ $xrns }}
               annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: stage-seed
+                gotemplating.fn.crossplane.io/composition-resource-name: stage-init
                 # A Job reports completion, not Ready; it must not hold the XR.
                 gotemplating.fn.crossplane.io/ready: "True"
               labels:
@@ -841,6 +854,10 @@ spec:
                           AUTH="Authorization: Basic $(printf '%s:%s' "$GITEA_USER" "$GITEA_PASSWORD" | base64 | tr -d '\n')"
                           g() { git -c http.extraHeader="$AUTH" -c user.name=adhar -c user.email=adhar@adhar.io "$@"; }
                           g clone -q --depth 1 --branch "$REVISION" "$REPO" src
+                          # ENVS is in the project's promotion order; its first
+                          # environment is the only one with direct freight.
+                          set -- $ENVS
+                          first="$1"
                           missing=""; broken=""
                           for env in $ENVS; do
                             b="stage/$env"
@@ -860,10 +877,18 @@ spec:
                               broken="$broken $env"
                               continue
                             fi
+                            if [ "$env" = "$first" ]; then
+                              msg="seed $b from $REVISION [skip ci]"; note="from $OVERLAYS/envs/$env"
+                            else
+                              # Built above only to prove it builds: this environment
+                              # runs what a promotion into it renders, nothing sooner.
+                              printf '# %s: nothing has been promoted into %s yet.\n# The first promotion replaces this file with the rendered overlay.\n' "$b" "$env" > out/manifests.yaml
+                              msg="seed $b: awaiting first promotion [skip ci]"; note="with no workload until its first promotion"
+                            fi
                             (cd out && git init -q -b "$b" && git add manifests.yaml \
-                              && g commit -qm "seed $b from $REVISION [skip ci]" \
+                              && g commit -qm "$msg" \
                               && g push -q "$REPO" "HEAD:refs/heads/$b")
-                            echo "seeded $b"
+                            echo "seeded $b $note"
                           done
                           if [ -n "$missing" ]; then
                             echo "no overlay for:$missing (add $OVERLAYS/envs/<env>/kustomization.yaml)"
@@ -880,9 +905,15 @@ spec:
                    compare (a missing branch) Healthy too — test-func read "3/3
                    environments healthy" with nothing deployed anywhere (2026-10-26).
                    An environment counts only when it is Synced, Healthy and deploys
-                   something; the rest are named in the status message. */ -}}
-            {{- range $envs }}
-            {{- $env := . -}}
+                   something; the rest are named in the status message.
+                   A LATER environment of a promoted application that deploys nothing
+                   and has never synced is still on the seed's empty branch (stage-init
+                   above): it awaits its first promotion. That is the chain working, not
+                   a fault, so it does not keep the application from Healthy; prod may
+                   wait for a Release indefinitely. A promotion always syncs (Argo CD
+                   records it in status.history), so a promoted environment that renders
+                   nothing still reads "deploys nothing". */ -}}
+            {{- range $i, $env := $envs }}
             {{- $envName := $env.name -}}
             {{- $ns := $env.namespace -}}
             {{- $appName := printf "%s-%s-%s" $project $name $envName -}}
@@ -891,6 +922,7 @@ spec:
             {{- $obsHealth := dig "health" "status" "" $obsStatus -}}
             {{- $obsSync := dig "sync" "status" "" $obsStatus -}}
             {{- $obsResources := len (dig "resources" (list) $obsStatus) -}}
+            {{- $obsSyncs := len (dig "history" (list) $obsStatus) -}}
             {{- $obsCompare := "" -}}
             {{- range (dig "conditions" (list) $obsStatus) }}{{ if eq (toString .type) "ComparisonError" }}{{ $obsCompare = toString .message }}{{ end }}{{ end -}}
             {{- $obsSource := ternary (printf "stage/%s" $envName) (printf "%s/envs/%s" $path $envName) $promote -}}
@@ -899,6 +931,9 @@ spec:
             {{- else if $obsCompare -}}
             {{-   $envIssues = append $envIssues (printf "%s cannot be compared (%s)" $envName (trunc 160 $obsCompare)) -}}
             {{-   $undeployed = append $undeployed $envName -}}
+            {{- else if and $promote (gt $i 0) (eq $obsSync "Synced") (eq $obsResources 0) (eq $obsSyncs 0) -}}
+            {{-   $awaiting = add1 $awaiting -}}
+            {{-   $envIssues = append $envIssues (printf "%s awaits its first promotion%s" $envName (ternary " (by a Release)" "" (eq (toString (get $env "autoPromote")) "false"))) -}}
             {{- else if and (eq $obsSync "Synced") (eq $obsResources 0) -}}
             {{-   $envIssues = append $envIssues (printf "%s deploys nothing (%s renders no manifests)" $envName $obsSource) -}}
             {{-   $undeployed = append $undeployed $envName -}}
@@ -983,17 +1018,18 @@ spec:
                         managedFieldsManagers: [kube-controller-manager]
             {{- end }}
             {{- end }}
-            {{- /* Overlays: what the seed Job (stage-seed) found in the repository. An
+            {{- /* Overlays: what the seed Job (stage-init) found in the repository. An
                    overlay that is missing or does not build fails it on purpose
                    (podFailurePolicy, rule 0 = missing, rule 1 = broken), so the XR can
                    say WHICH, instead of a Job failing every hour behind a Ready XR. */ -}}
             {{- $overlays := dict -}}
             {{- if and $envs $promote -}}
-            {{-   $seedName := printf "%s-stage-seed" $name | trunc 63 | trimSuffix "-" -}}
-            {{-   $overlays = dict "status" "Unknown" "reason" "Seeding" "message" (printf "seeding stage/<env> from %s/envs/<env> on %s (Job %s/%s)" $path $revision $xrns $seedName) -}}
-            {{-   range (dig "stage-seed" "resource" "status" "conditions" (list) $observed) -}}
+            {{-   $seedName := printf "%s-stage-init" $name | trunc 63 | trimSuffix "-" -}}
+            {{-   $seedEnv := (index $envs 0).name -}}
+            {{-   $overlays = dict "status" "Unknown" "reason" "Seeding" "message" (printf "seeding stage/<env> on %s: %s from %s/envs/%s, every later environment empty until its first promotion (Job %s/%s)" $revision $seedEnv $path $seedEnv $xrns $seedName) -}}
+            {{-   range (dig "stage-init" "resource" "status" "conditions" (list) $observed) -}}
             {{-     if and (eq (toString .type) "Complete") (eq (toString .status) "True") -}}
-            {{-       $overlays = dict "status" "True" "reason" "Seeded" "message" (printf "every environment has its rendered branch stage/<env>, seeded from %s/envs/<env>" $path) -}}
+            {{-       $overlays = dict "status" "True" "reason" "Seeded" "message" (printf "every environment has its rendered branch stage/<env>; a new one carries %s/envs/%s for %s, and nothing for a later environment until its first promotion" $path $seedEnv $seedEnv) -}}
             {{-     else if and (eq (toString .type) "Failed") (eq (toString .status) "True") -}}
             {{-       $why := toString .message -}}
             {{-       if and (eq (toString .reason) "PodFailurePolicy") (regexMatch "exit code 3( |$)" $why) -}}
@@ -1041,7 +1077,9 @@ spec:
               phase: Pending
               message: {{ quote (printf "waiting for project %q to publish its environments" $project) }}
               {{- else }}
-              phase: {{ if eq $ready (len $envs) }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
+              # An environment awaiting its first promotion is named in the message
+              # but does not hold the phase back (see the per-environment loop).
+              phase: {{ if and (gt $ready 0) (eq (add $ready $awaiting) (len $envs)) }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
               message: {{ quote (printf "%d/%d environments healthy%s" $ready (len $envs) (ternary (printf "; %s" (join "; " $envIssues)) "" (gt (len $envIssues) 0))) }}
               # Where this application runs: the project's environments, each with
               # its Argo CD Application and the project's shared Kargo Stage.

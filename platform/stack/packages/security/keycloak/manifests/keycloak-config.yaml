@@ -1167,9 +1167,11 @@ data:
     #
     # base-user has no ClusterRoleBinding at all: a new account can sign in and
     # be recognised, and holds no Kubernetes authority anywhere. It gains real
-    # rights only by being onboarded onto a TEAM, which binds `oidc:ws-team-<x>`
-    # to `admin` in that team's own namespace and nowhere else (see
-    # k8s-rbac.yaml, and the Project composition that emits it).
+    # rights only by being added to an organisation (`org-<org>`: view on its
+    # home namespace) or onboarded onto a TEAM, which binds
+    # `oidc:ws-team-<org>.<team>` to `admin` in that team's own namespace and
+    # nowhere else (see k8s-rbac.yaml, and the Project composition that emits
+    # it).
     #
     # This is the "tenant-scoped only" half of the model: full authority inside
     # your own tenant, none outside it, and nothing at all until you have one.
@@ -1211,12 +1213,19 @@ data:
     reconcile_idps
 
     # Grant the adhar-console client's SERVICE ACCOUNT the realm-management
-    # roles the console needs to (a) reflect workspace teams / org-roles into
-    # realm groups and (b) provision per-tenant groups during onboarding
-    # (create group + add members): manage-realm + manage-users cover group
-    # create/delete + user group-membership; view-users/query-users/
-    # query-groups cover lookups. The console authenticates with
-    # client_credentials using its own (already-wired) secret.
+    # roles the console needs to keep organisation and team membership in
+    # Keycloak, the only place it lives: create and delete the groups
+    # org-<slug>, org-<slug>-admin and ws-team-<org>.<team>, add and remove
+    # their members, look users up, create an account for someone new and send
+    # its set-password email (execute-actions-email), and read whether the
+    # realm can send email at all. manage-users covers every write (groups,
+    # memberships, accounts, the email); view-users/query-users/query-groups
+    # cover lookups; view-realm covers reading the realm's smtpServer. NOT
+    # manage-realm: that is identity providers, clients, flows and keys — the
+    # whole realm — and the console changes none of them, so a bug in its admin
+    # paths must not be able to either. An older release granted it; it is
+    # taken away below. The console authenticates with client_credentials using
+    # its own (already-wired) secret.
     #
     # Retry + verify: on a fresh realm the client's service-account user can
     # lag behind client creation, and a single best-effort POST then silently
@@ -1233,9 +1242,15 @@ data:
       fi
       if [ -n "${sa_uid}" ] && [ -n "${rm_id}" ]; then
         rm_roles=$(kc "${REALM_URL}/clients/${rm_id}/roles" \
-          | jq -c '[.[] | select(.name=="manage-realm" or .name=="manage-users" or .name=="view-users" or .name=="query-users" or .name=="query-groups")]')
+          | jq -c '[.[] | select(.name=="view-realm" or .name=="manage-users" or .name=="view-users" or .name=="query-users" or .name=="query-groups")]')
         if [ -n "${rm_roles}" ] && [ "${rm_roles}" != "[]" ]; then
           kc -X POST --data "${rm_roles}" "${REALM_URL}/users/${sa_uid}/role-mappings/clients/${rm_id}" >/dev/null 2>&1 || true
+        fi
+        # Revoke what an older release granted beyond that: manage-realm.
+        excess=$(kc "${REALM_URL}/users/${sa_uid}/role-mappings/clients/${rm_id}" \
+          | jq -c '[.[] | select(.name=="manage-realm")]')
+        if [ -n "${excess}" ] && [ "${excess}" != "[]" ]; then
+          kc -X DELETE --data "${excess}" "${REALM_URL}/users/${sa_uid}/role-mappings/clients/${rm_id}" >/dev/null 2>&1 || true
         fi
         have=$(kc "${REALM_URL}/users/${sa_uid}/role-mappings/clients/${rm_id}" | jq -r '[.[].name] | join(",")')
         echo "adhar-console SA realm-management roles (attempt ${attempt}): ${have}"

@@ -199,9 +199,13 @@ spec:
     - name: scan
       image: docker.io/aquasec/trivy:0.58.1
       # Measured ~250 MiB / ~0.6 CPU per image scan (2026-10-22); the 64Mi
-      # namespace default left it eviction-first on a full node.
+      # namespace default left it eviction-first on a full node, so memory is
+      # requested in full. CPU is held to the 100m every CI step gets: in
+      # app-ci this pod is pinned to the node holding the run's workspace (see
+      # the build step of buildpacks-build in 60-build-pipelines.yaml), and at
+      # 250m it waited there while that node's cores sat idle.
       computeResources:
-        requests: {cpu: 250m, memory: 256Mi}
+        requests: {cpu: 100m, memory: 256Mi}
       env:
         # Harbor serves HTTPS with its own internal CA. TRIVY_NON_SSL=true used
         # to be set here, which forced plaintext against a TLS-only registry and

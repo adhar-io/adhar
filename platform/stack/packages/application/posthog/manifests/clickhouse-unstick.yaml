@@ -19,16 +19,34 @@
 # events — never applied (AWS cluster, 2026-10-09). A restart of the operator
 # re-queued the CHI and it finished in two minutes with a fresh ClusterIP.
 #
+# It loses the CHI a second way, and that one leaves no FAILED to see (AWS
+# cluster, 2026-10-30): the API server was re-created under it mid-reconcile
+# (the day-2 OIDC step rewrites the kube-apiserver static pod). The reconcile
+# died on `connection refused`, and so did the status write that would have
+# said so, leaving `status: InProgress`, action "Create StatefulSet
+# adhar-system/chi-posthog-posthog-0-0 - started", with that StatefulSet Ready
+# 1/1 and the operator never coming back to it. This hook watched for twenty
+# minutes and did nothing; deleting the operator pod completed the CHI in under
+# a minute.
+#
 # This hook is that restart, automated and bounded. It runs in the SAME wave as
 # the CHI (a Sync-phase hook at wave 0 runs alongside the wave-0 resources, and
 # the wave cannot complete until the CHI is healthy — a PostSync hook would be
 # gated on the very thing it repairs, which is the trap clickhouse-prepare.yaml
-# already documents). It watches the CHI; when the reconcile has FAILED and the
-# status has not moved for ninety seconds, it restarts the operator — at most
-# twice — and keeps watching. It never fails the sync itself: the CHI's own
-# health is the honest signal, and this Job only shortens how long a known
-# upstream bug can hold it. The real fix is the operator bump, which is pinned
-# by the PostHog chart.
+# already documents). It watches the CHI and restarts the operator — at most
+# twice — when the reconcile has FAILED and the status has not moved for ninety
+# seconds, or when it is InProgress, its taskID and action have not moved for
+# five minutes, and every StatefulSet of the CHI is Ready (so the operator is
+# not waiting on them). It restarts by deleting the operator's POD, not by
+# rolling its Deployment: a rolling restart starts the new operator before the
+# old one stops, and two operators reconciling one CHI invites exactly the
+# conflict above; the Deployment, which Argo CD tracks, also stays as it is in
+# Git. Deleting a pod needs `delete` on pods, which RBAC cannot confine to one
+# label, so an admission policy below confines it: this ServiceAccount may
+# delete the operator's pod and no other. It never fails the sync itself: the
+# CHI's own health is the honest signal, and this Job only shortens how long a
+# known upstream bug can hold it. The real fix is the operator bump, which is
+# pinned by the PostHog chart.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -49,10 +67,18 @@ rules:
   - apiGroups: [clickhouse.altinity.com]
     resources: [clickhouseinstallations]
     verbs: [get]
+  # "Every StatefulSet of the CHI is Ready", read by the CHI's label.
   - apiGroups: [apps]
-    resources: [deployments]
-    resourceNames: [clickhouse-operator]
-    verbs: [get, patch]
+    resources: [statefulsets]
+    verbs: [list]
+  # The restart: `kubectl delete pod -l app=clickhouse-operator` lists, then
+  # deletes by name. Pod names are generated, so resourceNames cannot narrow
+  # the delete, and RBAC has no label selector: on its own this rule lets the
+  # ServiceAccount delete ANY pod in adhar-system. The admission policy below
+  # is what narrows it to the operator's pod.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -63,6 +89,52 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: posthog-clickhouse-unstick}
 subjects: [{kind: ServiceAccount, name: posthog-clickhouse-unstick, namespace: adhar-system}]
+---
+# What RBAC cannot say, the API server can: a DELETE of a pod made as this
+# ServiceAccount is admitted only when the pod carries app=clickhouse-operator —
+# the label the script selects by — and refused for every other pod, whatever
+# the token is used for. A ValidatingAdmissionPolicy is evaluated inside the
+# API server (CEL; GA since Kubernetes 1.30), so it holds with no webhook
+# running, and the match condition keeps every other caller out of it. Restart
+# by deleting the pod keeps "never two operators"; this keeps the authority to
+# that one pod. Guard: TestHookAuthorityOnARealAPIServer.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: posthog-clickhouse-unstick-deletes-only-the-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  # A policy that cannot be evaluated refuses the delete: it is only ever
+  # consulted for this ServiceAccount, so failing closed costs nothing else.
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: posthog-clickhouse-unstick
+      expression: request.userInfo.username == 'system:serviceaccount:adhar-system:posthog-clickhouse-unstick'
+  validations:
+    - expression: >-
+        has(oldObject.metadata.labels) && 'app' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['app'] == 'clickhouse-operator'
+      messageExpression: >-
+        'posthog-clickhouse-unstick may delete only the ClickHouse operator pod
+        (app=clickhouse-operator), not pod ' + oldObject.metadata.name
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: posthog-clickhouse-unstick-deletes-only-the-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  policyName: posthog-clickhouse-unstick-deletes-only-the-operator
+  validationActions: [Deny]
 ---
 apiVersion: batch/v1
 kind: Job
@@ -92,33 +164,64 @@ spec:
               restarts=0
               stale=0
               last=""
-              # 20 minutes in 15-second ticks: longer than a healthy CHI needs,
-              # shorter than Argo CD's patience with the wave.
+              # The ReplicaSet starts a fresh operator, which re-lists every CHI
+              # and reconciles it again.
+              restart_operator() {
+                restarts=$((restarts + 1)); stale=0
+                echo "restarting clickhouse-operator so it re-queues the CHI (restart $restarts/2)"
+                kubectl -n "$NS" delete pod -l app=clickhouse-operator --wait=false
+              }
+              # True when the CHI has StatefulSets and each has every replica
+              # Ready, i.e. the operator is not waiting on them.
+              statefulsets_ready() {
+                sts=$(kubectl -n "$NS" get statefulset -l "clickhouse.altinity.com/chi=$CHI" \
+                  -o jsonpath='{range .items[*]}{.spec.replicas}/{.status.readyReplicas} {end}' 2>/dev/null) || return 1
+                [ -n "$sts" ] || return 1
+                for s in $sts; do
+                  [ "${s%/*}" = "${s#*/}" ] || return 1
+                done
+              }
+              # 30 minutes in 15-second ticks: room for a slow first reconcile on
+              # a fresh node (image pull, volume) and both restarts' waits. A
+              # healthy CHI needs a few minutes, and the Job ends the moment it
+              # is Completed.
               i=0
-              while [ $i -lt 80 ]; do
+              while [ $i -lt 120 ]; do
                 i=$((i + 1))
-                status=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" -o jsonpath='{.status.status}' 2>/dev/null || true)
-                action=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" -o jsonpath='{.status.action}' 2>/dev/null || true)
-                error=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" -o jsonpath='{.status.error}' 2>/dev/null || true)
+                # One read, so the four fields describe the same moment. The
+                # error goes last: it is the one field that may hold a "|".
+                chi=$(kubectl -n "$NS" get clickhouseinstallation "$CHI" \
+                  -o jsonpath='{.status.status}{"|"}{.status.taskID}{"|"}{.status.action}{"|"}{.status.error}' 2>/dev/null || true)
+                status=${chi%%|*}; chi=${chi#*|}
+                task=${chi%%|*}; chi=${chi#*|}
+                action=${chi%%|*}; error=${chi#*|}
                 case "$status" in
                   Completed) echo "ClickHouseInstallation $CHI is Completed"; exit 0 ;;
                   "") echo "waiting for ClickHouseInstallation $CHI to appear"; sleep 15; continue ;;
                 esac
-                now="$status|$action|$error"
+                now="$status|$task|$action|$error"
                 if [ "$now" = "$last" ]; then stale=$((stale + 15)); else stale=0; last="$now"; fi
-                case "$action$error" in
-                  *FAILED*|*"already allocated"*)
-                    if [ $stale -ge 90 ] && [ $restarts -lt 2 ]; then
-                      echo "operator reconcile FAILED and has not moved for ${stale}s: $error"
-                      echo "restarting clickhouse-operator so it re-queues the CHI (restart $((restarts + 1))/2)"
-                      kubectl -n "$NS" rollout restart deployment clickhouse-operator
-                      restarts=$((restarts + 1)); stale=0
-                    fi ;;
-                esac
+                if [ $restarts -lt 2 ]; then
+                  case "$action$error" in
+                    *FAILED*|*"already allocated"*)
+                      if [ $stale -ge 90 ]; then
+                        echo "operator reconcile FAILED and has not moved for ${stale}s: $error"
+                        restart_operator
+                      fi ;;
+                    *)
+                      # No FAILED to see when the status write died with the
+                      # reconcile (an API-server restart): a reconcile that has
+                      # not moved for five minutes with nothing left to wait for.
+                      if [ "$status" = InProgress ] && [ $stale -ge 300 ] && statefulsets_ready; then
+                        echo "reconcile InProgress at \"$action\" (task $task) has not moved for ${stale}s with every StatefulSet Ready"
+                        restart_operator
+                      fi ;;
+                  esac
+                fi
                 echo "$(date -u +%H:%M:%S) $status | ${action:-no action} ${error:+| error: $error}" | cut -c1-200
                 sleep 15
               done
-              echo "20 minutes up; leaving the CHI to its own health check (status=$status)"
+              echo "30 minutes up; leaving the CHI to its own health check (status=$status)"
               exit 0
           resources:
             requests: {cpu: 10m, memory: 32Mi}

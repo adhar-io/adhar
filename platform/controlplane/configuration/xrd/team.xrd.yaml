@@ -3,10 +3,11 @@
 # A team composes nothing that costs money. It exists as an object so that
 # projects can reference it, selectors can find everything the team owns
 # (`adhar.io/team=<name>`), and the one convention every other level relies on —
-# the Keycloak group `ws-team-<name>` that the Console creates and the project
-# composition binds — is published on a status field rather than spelled in
-# five places. It also creates the Gitea team inside the organisation so
-# repositories can be granted to the team as a unit.
+# the Keycloak group `ws-team-<organisation>.<name>` that the Console keeps and
+# the project composition binds — is published on a status field rather than
+# spelled in five places. The organisation is part of the group because a team
+# name is unique only inside its organisation. It also creates the Gitea team
+# inside the organisation so repositories can be granted to the team as a unit.
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
@@ -48,7 +49,7 @@ spec:
                   properties:
                     name:
                       type: string
-                      description: Team slug; the Keycloak group is `ws-team-<name>`, the Gitea team `<name>`.
+                      description: Team slug, unique inside its organisation; the Keycloak group is `ws-team-<organisation>.<name>`, the Gitea team `<name>`.
                       pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
                       maxLength: 40
                     organisation:
@@ -73,7 +74,7 @@ spec:
               properties:
                 group:
                   type: string
-                  description: Keycloak group that is this team (`ws-team-<name>`), bound by every project the team owns.
+                  description: Keycloak group that is this team (`ws-team-<organisation>.<name>`), bound by every project the team owns.
                 organisation: {type: string}
                 giteaTeam: {type: string}
                 ready: {type: boolean}

@@ -4,15 +4,21 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/k8s"
+	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/utils/files"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -435,4 +441,276 @@ func (r *AdharPlatformReconciler) ensureGatewayHostResolves(ctx context.Context,
 		logger.Info("CoreDNS now resolves the platform hostnames to the gateway", "host", r.Config.Host, "target", target)
 		return nil
 	})
+}
+
+// ── Cilium's Gateway API controllers can stop for good ──────────────────────
+//
+// The cilium-operator decides ONCE, at start-up, whether to run its Gateway API
+// controllers: it checks that the Gateway API CRDs are served, and an answer it
+// does not expect is final for the life of the process. On the AWS cluster
+// (2026-10-30) the API server was re-created 23 minutes into `adhar up` (the
+// day-2 OIDC step rewrites the kube-apiserver static pod) and refused
+// connections for ~25 s. The operator lost its lease and restarted, and the
+// first answer it got once the API was back was an RBAC "forbidden" from an
+// authorizer that had not warmed up — `Required GatewayAPI resources are not
+// found` — so it ran WITHOUT its gatewayclass, gateway and httproute
+// controllers from then on. Every HTTPRoute created afterwards (penpot, plane,
+// loki) got no status at all for 27 minutes: Argo CD showed those apps
+// Progressing, and their hostnames reset the TLS handshake because Envoy had no
+// filter chain for them. `kubectl rollout restart deployment/cilium-operator`
+// fixed it in seconds.
+//
+// The signal is a route attached to the platform Gateway that Cilium has not
+// answered. A healthy operator writes a parent status within seconds, and
+// Accepted=False is an answer too; a route with NO status entry for the
+// Gateway after a few minutes, under an operator that has been ready at least
+// as long, means nothing is listening. Whose Cilium it is to restart follows
+// ReconcileCilium: the platform's own install in every mode, the cluster's own
+// on a cluster whose lifecycle is ours (adoptForeignCilium restarts that one
+// too), and never the Cilium of a provided cluster, which is its operator's.
+
+const (
+	// gatewayRouteAnswerGrace is how long a route attached to the platform
+	// Gateway may go unanswered — counted from the later of the route's last
+	// change and the Gateway's creation, under an operator that has been ready
+	// at least as long — before the operator is taken to be running without
+	// its Gateway API controllers.
+	gatewayRouteAnswerGrace = 3 * time.Minute
+
+	// ciliumOperatorRestartInterval allows one restart per interval, so a cause
+	// a restart does not cure costs one restart every ten minutes rather than a
+	// restart loop. A restart anyone made counts: the adoption path's, and the
+	// `kubectl rollout restart` a person reaches for first.
+	ciliumOperatorRestartInterval = 10 * time.Minute
+
+	// gatewayRouteScanInterval spaces out the route scan, the one check here
+	// that is a live cluster-wide LIST (unstructured objects are not served
+	// from the cache) — on a control plane this platform already strains.
+	gatewayRouteScanInterval = time.Minute
+
+	ciliumOperatorName           = "cilium-operator"
+	kubectlRestartedAtAnnotation = "kubectl.kubernetes.io/restartedAt"
+	gatewayAPIGroup              = "gateway.networking.k8s.io"
+)
+
+// reconcileCiliumGatewayControllers restarts the cilium-operator when HTTPRoutes
+// attached to the platform Gateway have gone unanswered (see above), at most
+// once per ciliumOperatorRestartInterval, and says why in the log and in an
+// Event on the AdharPlatform. Every gate before the route scan is a cached
+// read, and the scan itself runs at most once a minute.
+func (r *AdharPlatformReconciler) reconcileCiliumGatewayControllers(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
+	namespace, err := r.restartableCiliumNamespace(ctx)
+	if err != nil || namespace == "" {
+		return err
+	}
+	operator := &appsv1.Deployment{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ciliumOperatorName, Namespace: namespace}, operator); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	// An operator that is not running has a different problem, and a restart
+	// is not its repair. Read from the replica count, not the Available
+	// condition: the chart sets maxUnavailable to 100%, so with one replica
+	// that condition reads True when no pod is up at all.
+	if operator.Status.AvailableReplicas == 0 {
+		return nil
+	}
+	now := time.Now()
+	if now.Sub(lastRestartOf(operator)) < ciliumOperatorRestartInterval {
+		return nil
+	}
+	// An operator that came up less than the grace ago has not had its chance
+	// to answer yet — and the outage that wedges it is also what restarts it.
+	readySince, err := r.podsReadySince(ctx, operator)
+	if err != nil || readySince.IsZero() || now.Sub(readySince) < gatewayRouteAnswerGrace {
+		return err
+	}
+	if now.Sub(r.gatewayRoutesScannedAt) < gatewayRouteScanInterval {
+		return nil
+	}
+	r.gatewayRoutesScannedAt = now
+	unanswered, err := r.unansweredGatewayRoutes(ctx, now)
+	if err != nil || len(unanswered) == 0 {
+		return err
+	}
+
+	if err := r.restartCiliumOperator(ctx, namespace, now.UTC().Format(time.RFC3339)); err != nil {
+		return err
+	}
+	why := fmt.Sprintf("%d HTTPRoute(s) attached to %s/%s had no status from Cilium after %s (%s): "+
+		"the operator was running without its Gateway API controllers, and a restart starts them again",
+		len(unanswered), globals.AdharSystemNamespace, gatewayResourceName, gatewayRouteAnswerGrace, sampleNames(unanswered, 3))
+	log.FromContext(ctx).Info("Restarted the cilium-operator: "+why, "deployment", namespace+"/"+ciliumOperatorName)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(resource, operator, corev1.EventTypeWarning, "GatewayRoutesUnanswered", "RestartCiliumOperator",
+			"Restarted %s/%s: %s", namespace, ciliumOperatorName, why)
+	}
+	return nil
+}
+
+// restartableCiliumNamespace returns the namespace of the Cilium this platform
+// may restart, or "" when the Cilium is not the platform's to restart — the
+// same decision ReconcileCilium makes about installing it.
+func (r *AdharPlatformReconciler) restartableCiliumNamespace(ctx context.Context) (string, error) {
+	existing, err := r.foreignCilium(ctx)
+	if err != nil {
+		return "", err
+	}
+	if existing == nil {
+		return globals.AdharSystemNamespace, nil
+	}
+	if provider.ClusterLifecycleIsOurs(r.clusterModeFromSpec(ctx)) {
+		return existing.Namespace, nil
+	}
+	return "", nil
+}
+
+// lastRestartOf is the newest restart stamp on a workload's pod template: this
+// controller's, or the one `kubectl rollout restart` writes. Zero when neither
+// is there.
+func lastRestartOf(deploy *appsv1.Deployment) time.Time {
+	var last time.Time
+	for _, key := range []string{restartedAtAnnotation, kubectlRestartedAtAnnotation} {
+		if t, err := time.Parse(time.RFC3339, deploy.Spec.Template.Annotations[key]); err == nil && t.After(last) {
+			last = t
+		}
+	}
+	return last
+}
+
+// podsReadySince is when a Deployment's pods last became ready: the newest
+// Ready transition among the pods that are ready now, so that every replica,
+// whichever holds the lease, has had its chance. Zero when no pod is ready.
+func (r *AdharPlatformReconciler) podsReadySince(ctx context.Context, deploy *appsv1.Deployment) (time.Time, error) {
+	if deploy.Spec.Selector == nil {
+		return time.Time{}, nil
+	}
+	selector, err := metav1.LabelSelectorAsSelector(deploy.Spec.Selector)
+	if err != nil || selector.Empty() {
+		return time.Time{}, err
+	}
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods, client.InNamespace(deploy.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return time.Time{}, err
+	}
+	var since time.Time
+	for i := range pods.Items {
+		if pods.Items[i].DeletionTimestamp != nil {
+			continue
+		}
+		for _, c := range pods.Items[i].Status.Conditions {
+			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue && c.LastTransitionTime.After(since) {
+				since = c.LastTransitionTime.Time
+			}
+		}
+	}
+	return since, nil
+}
+
+// unansweredGatewayRoutes names the HTTPRoutes attached to the platform Gateway
+// that have no status entry for it, and have waited longer than the grace since
+// the later of their last change and the Gateway's creation.
+func (r *AdharPlatformReconciler) unansweredGatewayRoutes(ctx context.Context, now time.Time) ([]string, error) {
+	gateway := &unstructured.Unstructured{}
+	gateway.SetGroupVersionKind(schema.GroupVersionKind{Group: gatewayAPIGroup, Version: "v1", Kind: "Gateway"})
+	key := types.NamespacedName{Name: gatewayResourceName, Namespace: globals.AdharSystemNamespace}
+	if err := r.Get(ctx, key, gateway); err != nil {
+		// No Gateway (or no Gateway API) yet: a route naming it is waiting on
+		// that, not on Cilium.
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	gatewayCreated := gateway.GetCreationTimestamp().Time
+
+	routes := &unstructured.UnstructuredList{}
+	routes.SetGroupVersionKind(schema.GroupVersionKind{Group: gatewayAPIGroup, Version: "v1", Kind: "HTTPRouteList"})
+	if err := r.List(ctx, routes); err != nil {
+		return nil, err
+	}
+	var unanswered []string
+	for i := range routes.Items {
+		route := &routes.Items[i]
+		if route.GetDeletionTimestamp() != nil || !routeAttachedToPlatformGateway(route) || routeAnsweredForPlatformGateway(route) {
+			continue
+		}
+		waiting := routeChangedAt(route)
+		if gatewayCreated.After(waiting) {
+			waiting = gatewayCreated
+		}
+		if now.Sub(waiting) >= gatewayRouteAnswerGrace {
+			unanswered = append(unanswered, route.GetNamespace()+"/"+route.GetName())
+		}
+	}
+	sort.Strings(unanswered)
+	return unanswered, nil
+}
+
+// routeAttachedToPlatformGateway reports whether any of the route's parentRefs
+// names the platform Gateway.
+func routeAttachedToPlatformGateway(route *unstructured.Unstructured) bool {
+	refs, _, _ := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
+	for _, raw := range refs {
+		if ref, ok := raw.(map[string]any); ok && refersToPlatformGateway(ref, route.GetNamespace()) {
+			return true
+		}
+	}
+	return false
+}
+
+// routeAnsweredForPlatformGateway reports whether the route carries a status
+// entry for the platform Gateway, whatever its conditions say. It looks for
+// THAT entry rather than for any status: another implementation can write the
+// status first — on the AWS cluster agentgateway stamped an empty one on every
+// route the moment it was created.
+func routeAnsweredForPlatformGateway(route *unstructured.Unstructured) bool {
+	parents, _, _ := unstructured.NestedSlice(route.Object, "status", "parents")
+	for _, raw := range parents {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if ref, ok := entry["parentRef"].(map[string]any); ok && refersToPlatformGateway(ref, route.GetNamespace()) {
+			return true
+		}
+	}
+	return false
+}
+
+// refersToPlatformGateway reports whether a parentRef names the platform
+// Gateway, applying the Gateway API defaults: group gateway.networking.k8s.io,
+// kind Gateway, and the route's own namespace.
+func refersToPlatformGateway(ref map[string]any, routeNamespace string) bool {
+	field := func(name, fallback string) string {
+		if v, ok := ref[name].(string); ok && v != "" {
+			return v
+		}
+		return fallback
+	}
+	return field("group", gatewayAPIGroup) == gatewayAPIGroup &&
+		field("kind", "Gateway") == "Gateway" &&
+		field("namespace", routeNamespace) == globals.AdharSystemNamespace &&
+		field("name", "") == gatewayResourceName
+}
+
+// routeChangedAt is when the route was created or last changed — the moment
+// Cilium was last given something to answer. Nothing records when the
+// generation moved, so it is the newest write any manager made to the object
+// itself (status writes excluded), which is never earlier than that.
+func routeChangedAt(route *unstructured.Unstructured) time.Time {
+	changed := route.GetCreationTimestamp().Time
+	for _, entry := range route.GetManagedFields() {
+		if entry.Subresource == "" && entry.Time != nil && entry.Time.After(changed) {
+			changed = entry.Time.Time
+		}
+	}
+	return changed
+}
+
+// sampleNames lists up to n names, and how many more there are.
+func sampleNames(names []string, n int) string {
+	if len(names) <= n {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:n], ", "), len(names)-n)
 }

@@ -85,8 +85,12 @@ spec:
         - "$(params.image):$(params.tag)"
         - --sbom-path=$(workspaces.source.path)/sbom
         - --image-refs=$(workspaces.source.path)/apko-refs.txt
+      # Memory in full; CPU held to the 100m every CI step gets, because a
+      # run's ReadWriteOnce workspace pins this pod to one node (see the build
+      # step of buildpacks-build in 60-build-pipelines.yaml). A request only
+      # reserves: up to its limit the step still takes the node's idle cores.
       computeResources:
-        requests: {cpu: 500m, memory: 1Gi}
+        requests: {cpu: 100m, memory: 1Gi}
         limits: {cpu: "2", memory: 4Gi}
       volumeMounts:
         - {name: harbor-dockercfg, mountPath: /harbor-creds}

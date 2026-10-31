@@ -16,24 +16,37 @@
 # operator guide: adhar-console docs/rbac.md):
 #
 #   packages                update                  enable/disable platform packages
-#   billing                 get | update            see | change billing
-#   workspace-members       create | update | delete invite | change role | remove
-#   workspace-roles         create | update | delete custom workspace roles
-#   workspace-teams         create | update | delete teams and team membership
-#   workspace-projects      create | update | delete workspace projects
-#   workspace-tokens        create | delete         organisation API tokens
-#   workspace-approvals     approve                 decide approval requests
-#   organizations           create | update | delete
-#   audit                   get                     workspace audit trail
+# * billing                 get | update            see | change billing
+# * workspace-members       create | update | delete add | change role | remove
+# * workspace-roles         create | update | delete custom workspace roles
+# * workspace-teams         create | update | delete teams and team membership
+# * workspace-projects      create | update | delete workspace projects
+# * workspace-tokens        create | delete         organisation API tokens
+# * workspace-approvals     approve                 decide approval requests
+#   organizations           create                  self-service onboarding
+# * organizations           update | delete         rename | delete the organisation
+# * audit                   get                     workspace audit trail
 #   scorecards              update                  re-run + apply scorecard fixes
 #   resilience-runs         create                  start a resilience suite (namespaced)
 #   scan-waivers            create | approve | self-approve
 #   scan-policies           update
-#   notifications-broadcast create                  notify every member
+# * notifications-broadcast create                  notify every member
 #   ai-knowledge            create | update         add notes | rate grounding
 #   applications            create | delete         scaffold | delete (incl. repo)
 #
-# Who holds what (groups carry the `oidc:` prefix, as in
+# * = ORGANISATION-SCOPED. The console answers these itself and never asks the
+# apiserver: it reads the Keycloak groups on the signed-in user's verified
+# token for the organisation the request is working in. `org-<slug>` may read,
+# `org-<slug>-admin` (whose members are all in `org-<slug>` too) may change,
+# and platform-admin, platform-engineer and super-admin administer EVERY
+# organisation. RBAC cannot say "admin of THIS organisation" — a
+# ClusterRoleBinding holds in all of them — and the realm-wide ws-role-owner,
+# ws-role-admin and ws-role-billing bindings that stood in for it made an
+# owner of one organisation an administrator of every organisation. Those
+# bindings are gone (their Keycloak groups are left alone and grant nothing),
+# and a rule in this file for a starred check is ignored.
+#
+# Who holds the rest (groups carry the `oidc:` prefix, as in
 # stack/packages/security/keycloak/manifests/k8s-rbac.yaml):
 #
 #   platform-admin, platform-engineer  everything — they are bound to
@@ -42,19 +55,32 @@
 #   super-admin                        everything (adhar-console-admin below).
 #   every signed-in user               adhar-console-member: what any member
 #                                      could do before these checks existed.
-#   ws-role-owner / ws-role-admin      workspace administration (the console
-#                                      mirrors organisation roles into these
-#                                      Keycloak groups).
-#   ws-role-billing                    billing.
 #   application-admin                  resilience runs, application delete.
-#   ws-team-<team> (admin of its own   resilience runs IN that namespace, via
-#     namespace, Project composition)  aggregation into `admin`.
+#   ws-team-<org>.<team> (admin of its resilience runs IN those namespaces,
+#     namespaces, Project composition) via aggregation into `admin`.
 #   security-reviewer / security-admin waiver review; security-admin also
 #                                      scan policy.
 #
+# Deploy order (2026-10-31). The console release that answers the starred
+# checks from Keycloak ships FIRST; this file without the ws-role-* bindings
+# ships after it, in the platform release whose `adhar upgrade` also moves the
+# Team, Project and Environment compositions to the organisation-qualified
+# team group `ws-team-<org>.<team>`. On start the console copies existing
+# members and team memberships into `org-<slug>`, `org-<slug>-admin` and the
+# qualified team groups, removing nothing (in the platform organisation
+# `adhar`, whose admin group is admin of prod too, former workspace admins are
+# reported to the platform admins instead of copied). Compositions that move
+# before that copy lock team members out of their namespaces, and an older
+# console reading this file leaves each organisation's own admins unable to
+# administer it. Rolling the console back past that release needs the three
+# bindings restored from git.
+# Guard: TestConsoleRBACGrantsNothingToRealmWideWorkspaceRoleGroups.
+#
 # To tighten, delete or edit a binding — e.g. remove `organizations: create`
 # from adhar-console-member to stop self-service organisation creation. To
-# grant, bind one of these ClusterRoles (or your own) to a group.
+# grant, bind one of these ClusterRoles (or your own) to a group. A starred
+# check is granted by adding the person to `org-<slug>-admin` in Keycloak —
+# the console's Settings → Members does exactly that — never here.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -92,6 +118,9 @@ metadata:
   labels:
     adhar.io/component: rbac
 rules:
+  # Organisation-scoped (starred above): the console answers these from
+  # `org-<slug>` membership and no longer reads this rule; it stays for a
+  # console older than that change, which still asks.
   - apiGroups: [console.adhar.io]
     resources: [billing, audit]
     verbs: [get]
@@ -131,109 +160,6 @@ subjects:
     kind: Group
     name: system:authenticated
 ---
-# Organisation owners and admins (Workspace settings). The console mirrors a
-# member's organisation role into the Keycloak group ws-role-<role>.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: adhar-console-workspace-admin
-  labels:
-    adhar.io/component: rbac
-rules:
-  - apiGroups: [console.adhar.io]
-    resources:
-      - workspace-members
-      - workspace-roles
-      - workspace-teams
-      - workspace-projects
-    verbs: [create, update, delete]
-  - apiGroups: [console.adhar.io]
-    resources: [workspace-tokens]
-    verbs: [create, delete]
-  - apiGroups: [console.adhar.io]
-    resources: [workspace-approvals]
-    verbs: [approve]
-  - apiGroups: [console.adhar.io]
-    resources: [organizations]
-    verbs: [update]
-  - apiGroups: [console.adhar.io]
-    resources: [billing]
-    verbs: [get, update]
-  - apiGroups: [console.adhar.io]
-    resources: [notifications-broadcast]
-    verbs: [create]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: adhar-console-workspace-admin
-  labels:
-    adhar.io/component: rbac
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: adhar-console-workspace-admin
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: oidc:ws-role-owner
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: oidc:ws-role-admin
----
-# Deleting the organisation stays an owner's decision.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: adhar-console-workspace-owner
-  labels:
-    adhar.io/component: rbac
-rules:
-  - apiGroups: [console.adhar.io]
-    resources: [organizations]
-    verbs: [delete]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: adhar-console-workspace-owner
-  labels:
-    adhar.io/component: rbac
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: adhar-console-workspace-owner
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: oidc:ws-role-owner
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: adhar-console-billing
-  labels:
-    adhar.io/component: rbac
-rules:
-  - apiGroups: [console.adhar.io]
-    resources: [billing]
-    verbs: [get, update]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: adhar-console-billing
-  labels:
-    adhar.io/component: rbac
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: adhar-console-billing
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: oidc:ws-role-billing
----
 # Application admins: run resilience suites anywhere, delete applications
 # (whose source repository the console removes with Gitea admin credentials).
 # Console actions only — this grants NO Kubernetes authority; see the empty
@@ -268,7 +194,7 @@ subjects:
     name: oidc:application-admin
 ---
 # Folded into the built-in `admin` role, which the Project composition binds
-# to oidc:ws-team-<team> in the team's own namespace: a team may start
+# to oidc:ws-team-<org>.<team> in the team's own namespace: a team may start
 # resilience suites against its own apps (the console asks in the app's
 # namespace) and nowhere else.
 apiVersion: rbac.authorization.k8s.io/v1

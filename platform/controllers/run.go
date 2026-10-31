@@ -66,6 +66,7 @@ func RunControllers(
 		StackDir:            stackDir,
 		RepoMap:             repoMap,
 		Events:              bus,
+		Recorder:            mgr.GetEventRecorder("adharplatform-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create adharplatform controller")
 		return err

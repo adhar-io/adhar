@@ -199,7 +199,29 @@ func (p *Provider) preflightQuota(ctx context.Context, spec *types.ClusterSpec) 
 	if out.Quota != nil && out.Quota.Value != nil {
 		limit = *out.Quota.Value
 	}
-	return provider.QuotaCheck("EC2 vCPU quota", limit, need, "vCPU", raise)
+	c := provider.QuotaCheck("EC2 vCPU quota", limit, need, "vCPU", raise)
+	if c.Status == provider.CheckFail {
+		if hint := quotaFitHint(spec, limit); hint != "" {
+			c.Fix += " " + hint
+		}
+	}
+	return c
+}
+
+// quotaFitHint names the largest maxWorkers the limit pays for, counted the way
+// neededVCPUs counts. With several node groups there is no single ceiling to
+// name, so it says nothing.
+func quotaFitHint(spec *types.ClusterSpec, limit float64) string {
+	if spec == nil || len(spec.NodeGroups) != 1 {
+		return ""
+	}
+	cpRep := spec.ControlPlane.Replicas
+	if cpRep == 0 {
+		cpRep = 1
+	}
+	ng := spec.NodeGroups[0]
+	return provider.QuotaFitHint(limit, float64(cpRep*vcpusForInstanceType(spec.ControlPlane.InstanceType)),
+		float64(vcpusForInstanceType(ng.InstanceType)), ng.Replicas, "vCPU")
 }
 
 // preflightInstanceType catches the machine type that does not exist, or is not

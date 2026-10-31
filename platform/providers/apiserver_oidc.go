@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,8 +48,19 @@ import (
 // The remote script refuses to change anything it cannot verify first: the
 // issuer must answer from the control-plane node itself, the node must be a
 // kubeadm control plane, and the legacy --oidc-* flags (which conflict) must be
-// absent. Adding the flag restarts the API server once; if it is not healthy
-// again within three minutes the original manifest is restored.
+// absent.
+//
+// A control plane is now BORN with the flag: node prep writes an issuer-less
+// file and `kubeadm init` points the API server at it (KubeadmInitMaster), so
+// this step only rewrites the file, then waits until the API server reports
+// that it runs it. No restart. Adding the flag here meant one, and on AWS it
+// came 23 minutes into `adhar up` with ~76 Argo CD apps syncing: the API
+// server refused connections for ~25 s, kube-controller-manager and
+// kube-scheduler crash-restarted, and cilium-operator came back without its
+// Gateway API controllers, so every HTTPRoute created after it went unserved
+// for 27 minutes (2026-10-30). The restart path remains for clusters built
+// before that, and restores the original manifest if the API server is not
+// healthy again within three minutes.
 
 // APIServerOIDC describes the issuer the API server should trust.
 type APIServerOIDC struct {
@@ -68,6 +80,51 @@ const (
 	apiServerManifestBkDir = "/etc/kubernetes/adhar-backup"
 )
 
+// authenticationConfigAPIVersion is the API both files are written in, the
+// issuer-less one a control plane starts with and Keycloak's. It is GA from
+// Kubernetes 1.34; an older API server does not know it and EXITS at startup
+// (1.32.0: `no kind "AuthenticationConfiguration" is registered for version
+// "apiserver.config.k8s.io/v1"`), which during `kubeadm init` means no cluster.
+const authenticationConfigAPIVersion = "apiserver.config.k8s.io/v1"
+
+// authenticationConfigMinMinor is the first 1.x minor whose API server reads
+// authenticationConfigAPIVersion.
+const authenticationConfigMinMinor = 34
+
+// authenticationConfigAtInit reports whether a control plane of this
+// Kubernetes minor ("1.37") is built with --authentication-config. Older ones
+// are built as before and get the flag from the day-2 step's restart path.
+func authenticationConfigAtInit(k8sMinor string) bool {
+	major, minor, ok := strings.Cut(minorOf(k8sMinor, ""), ".")
+	if !ok {
+		return false
+	}
+	ma, err := strconv.Atoi(major)
+	if err != nil {
+		return false
+	}
+	mi, err := strconv.Atoi(minor)
+	if err != nil {
+		return false
+	}
+	return ma > 1 || (ma == 1 && mi >= authenticationConfigMinMinor)
+}
+
+// issuerlessAuthenticationConfigYAML is the file a control plane starts with.
+// No JWT issuer, so until the day-2 step writes Keycloak's the API server
+// authenticates exactly as it would without the flag. An empty jwt list is
+// valid: verified against the 1.34.0, 1.36.2 and 1.37.0 API servers.
+func issuerlessAuthenticationConfigYAML() string {
+	return authenticationConfigHeader +
+		"apiVersion: " + authenticationConfigAPIVersion + "\n" +
+		"kind: AuthenticationConfiguration\n" +
+		"# No token issuer until Keycloak serves: the day-2 OIDC step writes it here.\n" +
+		"jwt: []\n"
+}
+
+const authenticationConfigHeader = "# Managed by adhar (platform/providers/apiserver_oidc.go). The API server\n" +
+	"# reloads this file when it changes.\n"
+
 // AuthenticationConfigYAML renders the AuthenticationConfiguration file.
 func AuthenticationConfigYAML(cfg APIServerOIDC) (string, error) {
 	u, err := url.Parse(cfg.IssuerURL)
@@ -80,9 +137,8 @@ func AuthenticationConfigYAML(cfg APIServerOIDC) (string, error) {
 	}
 	sort.Strings(auds)
 	var b strings.Builder
-	b.WriteString("# Managed by adhar (platform/providers/apiserver_oidc.go). The API server\n")
-	b.WriteString("# reloads this file when it changes.\n")
-	b.WriteString("apiVersion: apiserver.config.k8s.io/v1\n")
+	b.WriteString(authenticationConfigHeader)
+	b.WriteString("apiVersion: " + authenticationConfigAPIVersion + "\n")
 	b.WriteString("kind: AuthenticationConfiguration\n")
 	b.WriteString("jwt:\n")
 	b.WriteString("  - issuer:\n")
@@ -103,8 +159,8 @@ func AuthenticationConfigYAML(cfg APIServerOIDC) (string, error) {
 }
 
 // APIServerOIDCScript is the shell script run as root on a control-plane node.
-// It prints one line starting with ADHAR_OIDC: unchanged, configured, or an
-// error the caller reports.
+// It prints one line starting with ADHAR_OIDC: configured, unchanged, skipped,
+// or an error the caller reports.
 func APIServerOIDCScript(cfg APIServerOIDC) (string, error) {
 	conf, err := AuthenticationConfigYAML(cfg)
 	if err != nil {
@@ -113,9 +169,13 @@ func APIServerOIDCScript(cfg APIServerOIDC) (string, error) {
 	discovery := strings.TrimSuffix(cfg.IssuerURL, "/") + "/.well-known/openid-configuration"
 	return fmt.Sprintf(`set -u
 M=%[1]s
+F=%[4]s
 [ -f "$M" ] || { echo "ADHAR_OIDC: skipped: $M not found (not a kubeadm control plane)"; exit 0; }
 if grep -q -- '--oidc-issuer-url' "$M"; then
   echo "ADHAR_OIDC: skipped: the --oidc-* flags are already set and conflict with --authentication-config"; exit 0
+fi
+if grep -q -- '--authentication-config=' "$M" && ! grep -qF -- "--authentication-config=$F" "$M"; then
+  echo "ADHAR_OIDC: skipped: the API server reads an --authentication-config file that is not $F"; exit 0
 fi
 # The API server fetches the issuer's keys from THIS node, with the system
 # trust store: prove both before pointing it there.
@@ -124,11 +184,40 @@ if ! curl -fsS --max-time 15 -o /dev/null %[2]q; then
 fi
 mkdir -p %[3]s
 umask 022
-cat > %[4]s.tmp <<'ADHAR_AUTHN_EOF'
+cat > "$F.tmp" <<'ADHAR_AUTHN_EOF'
 %[5]sADHAR_AUTHN_EOF
-mv %[4]s.tmp %[4]s
-if grep -q -- '--authentication-config=' "$M"; then
-  echo "ADHAR_OIDC: unchanged: the API server already reads %[4]s (it reloads the file)"; exit 0
+if cmp -s "$F.tmp" "$F"; then CHANGED=0; else CHANGED=1; fi
+mv "$F.tmp" "$F"
+if grep -qF -- "--authentication-config=$F" "$M"; then
+  # Already wired (KubeadmInitMaster, or an earlier run's restart): the API
+  # server reloads the file and swaps the issuer in once it has fetched its
+  # keys, with no restart. Done means it reports THIS file's sha256 as the
+  # configuration it runs. An issuer it cannot reach leaves the previous one
+  # in force and it retries every minute, so the file stays. Every 10 s: a
+  # reload takes at least that long, and /metrics is not cheap to render.
+  H="sha256:$(sha256sum "$F" | cut -d' ' -f1)"
+  I='^apiserver_authentication_config_controller_last_config_info{'
+  X=$(mktemp)
+  for i in $(seq 1 18); do
+    if kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /metrics >"$X" 2>/dev/null; then
+      if ! grep -q "$I" "$X"; then
+        rm -f "$X"
+        echo "ADHAR_OIDC: configured: the API server reloads $F (this version does not report which configuration it runs)"; exit 0
+      fi
+      if grep "$I" "$X" | grep -qF "hash=\"$H\""; then
+        rm -f "$X"
+        if [ "$CHANGED" = 1 ]; then
+          echo "ADHAR_OIDC: configured: the API server trusts %[7]s (reloaded $F, no restart)"
+        else
+          echo "ADHAR_OIDC: unchanged: the API server already trusts %[7]s"
+        fi
+        exit 0
+      fi
+    fi
+    sleep 10
+  done
+  rm -f "$X"
+  echo "ADHAR_OIDC: error: the API server has not loaded $F after three minutes; it keeps retrying (its log says why: \"failed to update authentication config\")"; exit 1
 fi
 mkdir -p %[6]s
 B=%[6]s/kube-apiserver.yaml.$(date +%%s)

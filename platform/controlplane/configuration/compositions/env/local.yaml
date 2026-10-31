@@ -13,7 +13,13 @@
 # in dev and test and `view` in prod, because production changes arrive through
 # a Release (a Kargo promotion committed to Git), not through kubectl.
 # The organisation's admin group is always `admin` — teams subdivide a tenant,
-# they are not walls against the person who owns it.
+# they are not walls against the people who administer it.
+#
+# The team is its Keycloak group `ws-team-<organisation>.<team>` and the
+# organisation's admins are `org-<organisation>-admin`. The organisation is in
+# the team group because team slugs repeat across organisations (see the Team
+# composition); the bare `ws-team-<team>` let any organisation's team called
+# `platform` into the platform's own dev and test.
 #
 # A Environment is a *namespaced* Crossplane v2 XR, so it cannot compose
 # a cluster-scoped Namespace directly. Instead it emits provider-kubernetes
@@ -247,7 +253,7 @@ spec:
                       adhar.io/environment: {{ $env | quote }}
                   roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $access }} }
                   subjects:
-                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s" $team | quote }} }
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s.%s" $org $team | quote }} }
             ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object

@@ -88,10 +88,10 @@ status:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: test-func-stage-seed
+  name: test-func-stage-init
   namespace: adhar-system
   annotations:
-    crossplane.io/composition-resource-name: stage-seed
+    crossplane.io/composition-resource-name: stage-init
 status:
   succeeded: 1
   conditions:

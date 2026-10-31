@@ -3,9 +3,20 @@
 #
 # Composes the Gitea team inside the organisation (so repositories can be
 # granted to the team as a unit) and publishes the Keycloak group the team IS —
-# `ws-team-<name>`, created and populated by the Console — on its status. The
-# project composition binds that group in every namespace the team owns; a
-# team therefore has no namespace and no quota of its own.
+# `ws-team-<organisation>.<name>` — on its status. The Console creates that
+# group and keeps its membership, in Keycloak and nowhere else; nothing here
+# creates it. The project and environment compositions bind it in every
+# namespace the team owns; a team therefore has no namespace and no quota of
+# its own.
+#
+# The organisation is IN the group name because a team slug is unique only
+# inside its organisation. As `ws-team-<name>`, a team called `platform` in
+# any tenant was the same group as the platform's own team, which Project/adhar
+# binds as admin of adhar, dev and test. `.` joins the two because neither slug
+# may contain one, so no other (organisation, team) pair spells the same group.
+# The new name takes effect with `adhar upgrade`, after the console release
+# that copies team members into these groups — see the deploy order in
+# stack/packages/core/adhar-console/manifests/console-rbac.yaml.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -33,7 +44,7 @@ spec:
             {{- $name := dig "name" $xr.metadata.name $p -}}
             {{- $org := dig "organisation" "adhar" $p -}}
             {{- $perm := dig "giteaPermission" "write" $p -}}
-            {{- $group := printf "ws-team-%s" $name -}}
+            {{- $group := printf "ws-team-%s.%s" $org $name -}}
             {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
             ---
             # Gitea team in the organisation (idempotent: 422 = already there).

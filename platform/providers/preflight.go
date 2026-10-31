@@ -210,6 +210,32 @@ func QuotaCheck(name string, limit, need float64, unit, raiseWith string) Check 
 	}
 }
 
+// QuotaFitHint is the change an operator can make NOW when a quota is short: the
+// largest maxWorkers the limit already pays for, beside the support case that
+// raises it. fixed is what the cluster takes before any worker (the control
+// plane), perWorker one worker, start the starting worker count. When even the
+// starting workers do not fit it says so, because then only a raise helps.
+//
+// An AWS account with the common 32-vCPU default could not run `adhar up` at all
+// (2026-10-30): the check sized the cluster at maxWorkers 10 and offered only the
+// support case, while the same cluster capped at 7 workers fits and carries the
+// production profile's ~18 vCPU of requests.
+func QuotaFitHint(limit, fixed, perWorker float64, start int, unit string) string {
+	if limit <= 0 || perWorker <= 0 {
+		return ""
+	}
+	if start < 1 {
+		start = 1
+	}
+	fit := int((limit - fixed) / perWorker)
+	if fit < start {
+		return fmt.Sprintf("Even the starting %d worker(s) need %.0f %s with the control plane, over the %.0f limit; only a raise helps.",
+			start, fixed+float64(start)*perWorker, unit, limit)
+	}
+	return fmt.Sprintf("Or, without waiting for it, set maxWorkers: %d for this environment (%.0f + %d × %.0f = %.0f %s); the autoscaler then stops there.",
+		fit, fixed, fit, perWorker, fixed+float64(fit)*perWorker, unit)
+}
+
 // azureCredentialResetHint builds the exact command to issue a new secret.
 //
 // AAD states the offending application id inside the error body ("for a secret

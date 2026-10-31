@@ -374,8 +374,28 @@ func (p *Provider) preflightQuota(ctx context.Context, spec *types.ClusterSpec) 
 		limiting, limit, need, detail)
 	if limit < int64(need) {
 		c.Status = provider.CheckFail
+		if hint := p.quotaFitHint(ctx, spec, float64(limit)); hint != "" {
+			c.Fix += " " + hint
+		}
 	}
 	return c
+}
+
+// quotaFitHint names the largest maxWorkers the tightest limit pays for, sized
+// the way plannedVCPUs sizes. With several node groups there is no single
+// ceiling to name, so it says nothing.
+func (p *Provider) quotaFitHint(ctx context.Context, spec *types.ClusterSpec, limit float64) string {
+	if spec == nil || len(spec.NodeGroups) != 1 {
+		return ""
+	}
+	cpReplicas := spec.ControlPlane.Replicas
+	if cpReplicas <= 0 {
+		cpReplicas = 1
+	}
+	ng := spec.NodeGroups[0]
+	cp := p.vmSizeCores(ctx, p.config.Location, p.config.controlPlaneSize(spec))
+	worker := p.vmSizeCores(ctx, p.config.Location, p.config.workerSize(ng.InstanceType, "", false))
+	return provider.QuotaFitHint(limit, float64(cpReplicas*cp), float64(worker), ng.Replicas, "vCPU")
 }
 
 // plannedVCPUs is the cluster's vCPU appetite at FULL size, counting the control

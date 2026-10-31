@@ -199,7 +199,7 @@ The platform is fully reconstructable from the binary plus your config, so rebui
 | Pods `Pending`, node under pressure | Disable packages you enabled, or give Docker more RAM |
 | Everything wedged | `adhar up --recreate` |
 
-Deeper failure signatures — Gateway never `Programmed`, empty ArgoCD, wave-stuck syncs — are in [Troubleshooting](TROUBLESHOOTING.md). Community: [Issues](https://github.com/adhar-io/adhar/issues) · [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+Deeper failure signatures — Gateway never `Programmed`, empty ArgoCD, wave-stuck syncs — are in [Troubleshooting](TROUBLESHOOTING.md). Community: [Issues](https://github.com/adhar-io/adhar/issues) · [Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg)
 
 ## 10. Where to go next
 

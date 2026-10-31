@@ -161,9 +161,12 @@ rules:
 # Tenancy is provisioned THROUGH the control plane: a new organisation or team
 # from the console's switcher is an `Organisation` / `Team` XR
 # (platform.adhar.io), whose composition creates the home namespace, quota, role
-# bindings, Gitea organisation and — for teams — the Keycloak group. The console
-# applies those XRs server-side (and back-fills them for tenants that predate
-# this), so it needs to write them; `read-all` already covers reading.
+# bindings and Gitea organisation — and for a team, its Gitea team. A team's
+# Keycloak group is NOT composed: the console creates and fills it, because
+# Keycloak is the only user store (the Team XR publishes the group's name on
+# `status.group`). The console applies those XRs server-side (and back-fills
+# them for tenants that predate this), so it needs to write them; `read-all`
+# already covers reading.
 #
 # It belongs on THIS role and not on `console-exec`: provisioning a tenant and
 # opening a shell into a pod are different privileges with different blast
@@ -186,6 +189,18 @@ rules:
   - watch
   - update
   - patch
+# Deleting a team in Settings → Teams deletes its Team XR, so the Gitea team it
+# composes goes too — only ever an XR the console declared itself
+# (`adhar.io/managed-by: adhar-console`) for exactly that team, which the
+# console checks before it deletes. Teams ONLY: an Organisation or Application
+# XR holds namespaces, repositories and workloads, and removing those is not a
+# settings-page click (`TestConsoleMayWriteTenancyXRs` keeps it that way).
+- apiGroups:
+  - platform.adhar.io
+  resources:
+  - teams
+  verbs:
+  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -403,7 +418,8 @@ spec:
   # quiet cluster, up to three minutes on a busy one (progressDeadlineSeconds
   # above). Rollouts are routine: an image bump, and every `rollout restart`
   # from the hooks that feed the console its env (oidc-reload here, plane
-  # console-reload, strapi console-token, nexus config, credential rotation).
+  # console-reload, strapi console-token, penpot console-token, nexus config,
+  # credential rotation).
   # One sync of this app on Azure produced two such windows 16s apart
   # (2026-10-28). The old objection, "on a fully requested cluster the surge
   # pod can never schedule", is the better failure: the old pod keeps serving
@@ -450,7 +466,7 @@ spec:
         # upgraded it on any pod restart, and the console's own status card
         # reported "latest" against its build version. Bump this line to ship
         # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.165
+        image: ghcr.io/adhar-io/adhar-console:0.1.166
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -646,34 +662,93 @@ spec:
               name: posthog-console-credentials
               key: api-key
               optional: true
+        # What other packages publish for the console is read KEY BY KEY, never
+        # with envFrom. envFrom imports every key of a Secret and a later source
+        # overrides an earlier one, so whatever can write one of these Secrets
+        # could replace AUTH_COOKIE_SECRET, AUTH_CLIENT_SECRET or DATABASE_URL
+        # from console-env-vars — the penpot-console-token Job's ServiceAccount,
+        # for one, may write penpot-api-token and no other Secret. All optional:
+        # each package can be off in a profile. Guard:
+        # TestTheConsoleEnvFromsOnlyItsOwnSecrets.
+        #
+        # Coder's bootstrap owner (application/coder
+        # manifests/console-credentials.yaml), for Cloud Dev Environments.
+        - name: CODER_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: coder-credentials
+              key: CODER_USERNAME
+              optional: true
+        - name: CODER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: coder-credentials
+              key: CODER_PASSWORD
+              optional: true
+        # Plane's API for the Define phase and support tickets, written by the
+        # plane package (application/plane manifests/instance-setup.yaml),
+        # whose console-reload.yaml restarts the console once when it lands.
+        - name: PLANE_URL
+          valueFrom:
+            secretKeyRef:
+              name: plane-api-token
+              key: PLANE_URL
+              optional: true
+        - name: PLANE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: plane-api-token
+              key: PLANE_TOKEN
+              optional: true
+        - name: PLANE_WORKSPACE
+          valueFrom:
+            secretKeyRef:
+              name: plane-api-token
+              key: PLANE_WORKSPACE
+              optional: true
+        # Strapi's Content API: STRAPI_URL (adhar-controlplane) + STRAPI_TOKEN, generated
+        # and registered by the strapi package (application/strapi
+        # manifests/console-token.yaml), which also restarts the console once
+        # when the Secret lands after it started.
+        - name: STRAPI_URL
+          valueFrom:
+            secretKeyRef:
+              name: strapi-api-token
+              key: STRAPI_URL
+              optional: true
+        - name: STRAPI_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: strapi-api-token
+              key: STRAPI_TOKEN
+              optional: true
+        # Penpot's RPC API: PENPOT_TOKEN (an access token of the "Adhar
+        # Console" robot, sent as `Authorization: Token …`) and PENPOT_TEAM_ID
+        # (the robot's "Adhar" team), published by the penpot package
+        # (application/penpot manifests/console-token.yaml), which also
+        # restarts the console once when the Secret changes after it started.
+        # The Secret carries PENPOT_URL as well; the console keeps the literal
+        # above instead (the same URL, pinned equal by
+        # penpot_console_api_test.go), so the Secret's writer cannot point the
+        # console's Penpot calls anywhere else.
+        - name: PENPOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: penpot-api-token
+              key: PENPOT_TOKEN
+              optional: true
+        - name: PENPOT_TEAM_ID
+          valueFrom:
+            secretKeyRef:
+              name: penpot-api-token
+              key: PENPOT_TEAM_ID
+              optional: true
+        # Only the console's own Secrets (this package's ExternalSecrets).
         envFrom:
         - secretRef:
             name: console-env-vars
         - secretRef:
             name: gitea-credentials
-        - secretRef:
-            name: coder-credentials
-            optional: true
-        - secretRef:
-            name: plane-api-token
-            optional: true
-        # Strapi's Content API: STRAPI_URL (adhar-controlplane) + STRAPI_TOKEN, generated
-        # and registered by the strapi package (application/strapi
-        # manifests/console-token.yaml), which also restarts the console once
-        # when the Secret lands after it started.
-        - secretRef:
-            name: strapi-api-token
-            optional: true
-        # Penpot's RPC API: PENPOT_TOKEN (an access token of the "Adhar
-        # Console" robot, sent as `Authorization: Token …`), PENPOT_TEAM_ID (the
-        # robot's "Adhar" team) and PENPOT_URL, published by the penpot package
-        # (application/penpot manifests/console-token.yaml), which also
-        # restarts the console once when the Secret changes after it started.
-        # Optional: penpot is off in the local profile. PENPOT_URL is also set
-        # in env above (same value), and env wins over envFrom.
-        - secretRef:
-            name: penpot-api-token
-            optional: true
         # Memory sized from the live working set, with room for a spike. The
         # console holds platform-wide watches and the knowledge graph, so it
         # idles at ~470Mi; under a 768Mi limit one burst of ~300Mi was an

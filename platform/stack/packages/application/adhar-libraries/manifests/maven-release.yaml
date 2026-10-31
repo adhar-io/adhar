@@ -130,8 +130,12 @@ spec:
       env:
         - {name: HOME, value: /tmp}
         - {name: TRIVY_CACHE_DIR, value: /tmp/trivy-cache}
+      # CPU held to the 100m every CI step gets, memory requested in full: the
+      # release's ReadWriteOnce workspace pins every stage to one node (see the
+      # build step of buildpacks-build in adhar-supply-chain's
+      # 60-build-pipelines.yaml). Up to its limit it still takes idle cores.
       computeResources:
-        requests: {cpu: 250m, memory: 512Mi}
+        requests: {cpu: 100m, memory: 512Mi}
         limits: {cpu: "1", memory: 2Gi}
       workingDir: $(workspaces.source.path)/src
       script: |

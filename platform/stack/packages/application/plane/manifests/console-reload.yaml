@@ -13,9 +13,9 @@
 # (instance-setup.yaml) had written the `plane-api-token` Secret with
 # PLANE_URL=http://plane-api.adhar-system.svc.cluster.local:8000, a real
 # X-API-Key and the `adhar` workspace slug, and the Console Deployment already
-# lists that Secret in `envFrom`.
+# read that Secret into its env (key by key since 2026-10-30, envFrom then).
 #
-# But `envFrom` is resolved ONCE, when the container starts. The Console pod had
+# But env is resolved ONCE, when the container starts. The Console pod had
 # been up for 40 minutes by the time Plane finished syncing and the setup Job
 # wrote the Secret, so the running process had PLANE_URL unset — and the tool
 # registry's fallback derives the PUBLIC hostname (`toolUrl('plane','PLANE_URL')`
@@ -48,9 +48,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
+  # `watch`: `kubectl rollout status` watches the Deployment; without it the
+  # wait logs "Failed to watch … unknown" and sits out its whole timeout.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: batch/v1
 kind: Job
@@ -116,11 +118,15 @@ spec:
               #    console pod, by the digits of the RFC 3339 stamps: busybox
               #    `date -d` in this image rejects them, the test errored, and
               #    every plane sync restarted the console (see adhar-console
-              #    oidc-reload.yaml, 2026-10-28).
+              #    oidc-reload.yaml, 2026-10-28). A pod list that FAILS ends the
+              #    hook: read as "no pod", an API timeout restarted the console.
               SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
-              POD_TS=$(kubectl -n "$NS" get pods -l app=console \
-                         -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}' 2>/dev/null \
-                         | sort | tail -n 1 || true)
+              if ! STARTED=$(kubectl -n "$NS" get pods -l app=console \
+                               -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}'); then
+                echo "cannot list the console pods; leaving the console as-is (retries next sync)"
+                exit 0
+              fi
+              POD_TS=$(printf '%s\n' "$STARTED" | sort | tail -n 1)
               if [ -n "$POD_TS" ] && [ "${POD_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
                 echo "console pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
                 exit 0

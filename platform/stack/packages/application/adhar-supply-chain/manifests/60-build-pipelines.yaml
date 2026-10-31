@@ -105,6 +105,13 @@ spec:
     # <image>:<PR head sha>, which only exists because of this. Defaults to
     # "latest" so a bare PipelineRun behaves exactly as before.
     - {name: extra-tag, type: string, default: "latest"}
+    # "false" pushes the build under extra-tag ONLY. A pull request's preview
+    # build must not move :latest: an environment nothing has pinned to a
+    # digest (one not yet promoted, or every environment of an application
+    # with promotion off) resolves :latest again for each new pod, so a PR
+    # build once signed would reach it through any scale-up or eviction. Any
+    # value but "true" leaves :latest where it is.
+    - {name: tag-latest, type: string, default: "true"}
     # npm scopes that resolve from the PLATFORM's registry rather than npmjs.
     # Space-separated. See the .npmrc injection in the prepare step below.
     - {name: platformNpmScopes, type: string, default: "@adhar-ui @adhar-kit"}
@@ -143,7 +150,9 @@ spec:
     - {name: python, description: the Python version the image runs}
     - {name: e2e, description: "true when the repository ships a Playwright suite, from detect-toolchain"}
   workspaces:
-    - {name: source}
+    # The checkout is mounted HERE, not at Tekton's default /workspace/source:
+    # that path belongs to the lifecycle's private copy (see prepare).
+    - {name: source, mountPath: /workspace/checkout}
   steps:
     - name: toolchain
       image: docker.io/library/bash:5.2
@@ -180,16 +189,35 @@ spec:
         #!/usr/bin/env bash
         set -euo pipefail
         chown -R 1001:1000 "$(workspaces.source.path)"
-        echo "workspace handed to 1001:1000 for the CNB lifecycle"
 
-        # A retried build runs on the SAME workspace. The first attempt's
-        # `npm install` leaves node_modules behind and the npm-install
-        # buildpack then refuses with
-        #   mkdir /workspace/source/node_modules: file exists
-        # so every retry fails for a reason unrelated to the first failure —
-        # and that is the error a person reads (ngapp, 2026-10-15). Each
-        # attempt starts from the checkout.
-        rm -rf "$(workspaces.source.path)/$(params.subdirectory)/node_modules"
+        # Build from a PRIVATE copy of the checkout. The CNB lifecycle rewrites
+        # its app directory — Paketo's JVM buildpacks replace a Maven or Gradle
+        # project with the built artifact — and test-auto, source-scan and
+        # gitleaks run after this task on the SAME workspace. They found the
+        # artifact instead of the source: JVM apps' tests never ran ("test
+        # runner: none", transaction-service) and source-scan read the artifact's
+        # dependency jars as if they were source (qua-service: 36 HIGH the image
+        # did not even contain; AWS, 2026-10-30). The shared workspace now stays
+        # the checkout. The copy lives in this pod's emptyDir, so a retried build
+        # also starts from the checkout: the first attempt's `npm install` used
+        # to leave node_modules behind and the npm-install buildpack refused the
+        # retry with `mkdir …/node_modules: file exists` (ngapp, 2026-10-15).
+        #
+        # The copy sits at /workspace/source — the path every image was ALWAYS
+        # built at — and the checkout moved instead. The app path is baked into
+        # the image (CNB_APP_DIR) AND into layers the lifecycle reuses from the
+        # previous image: building at /build-app gave JVM images
+        # CNB_APP_DIR=/build-app over a reused JRE layer whose memory calculator
+        # still walked /workspace/source, and they died at start with exit 82
+        # (transaction-service, qua-service on AWS, 2026-10-31).
+        APP_ROOT=/workspace/source
+        mkdir -p "$APP_ROOT"
+        cp -a "$(workspaces.source.path)/." "$APP_ROOT/"
+        APP="$APP_ROOT/$(params.subdirectory)"
+        APP="${APP%/}"
+        rm -rf "$APP/node_modules"
+        chown -R 1001:1000 "$APP_ROOT"
+        echo "checkout copied to $APP_ROOT and handed to 1001:1000 for the CNB lifecycle"
 
         # ── Platform npm registry ────────────────────────────────────────────
         # Point the platform's own npm scopes at the platform's own registry, so
@@ -218,7 +246,7 @@ spec:
         # behaviour. Unmanaged scopes and the app's default registry are left
         # exactly as the app set them — this redirects the platform's scopes, not
         # the app's dependency resolution.
-        APPDIR_NPM="$(workspaces.source.path)/$(params.subdirectory)"
+        APPDIR_NPM="$APP"
         APPDIR_NPM="${APPDIR_NPM%/}"
         mkdir -p /platform/env
         if [ -z "${NEXUS_NPM:-}" ]; then
@@ -299,7 +327,7 @@ spec:
         # is then pointed at ours, because the platform's own registry must win
         # over a template's stale pointer. The log says when that has displaced
         # an app-provided file, so it is auditable rather than silent.
-        APPDIR_MVN="$(workspaces.source.path)/$(params.subdirectory)"
+        APPDIR_MVN="$APP"
         APPDIR_MVN="${APPDIR_MVN%/}"
         PLATFORM_SETTINGS=""
         if [ -z "${NEXUS_MAVEN_PUBLIC:-}" ]; then
@@ -353,7 +381,7 @@ spec:
         # translate the descriptor into that directory. Keep the parser dumb: one
         # [[build.env]] block with a name and a value line, which is the shape
         # every template emits.
-        APPDIR="$(workspaces.source.path)/$(params.subdirectory)"
+        APPDIR="$APP"
         PROJ="${APPDIR%/}/project.toml"
         mkdir -p /platform/env
         if [ -f "$PROJ" ]; then
@@ -495,6 +523,7 @@ spec:
         # the detector never saw BP_WEB_SERVER -- the nodejs order group won over
         # web-servers and the image came out with no process type.
         - {name: cnb-platform, mountPath: /platform}
+        - {name: build-app, mountPath: /workspace/source}
     # The runtime versions prepare chose must be ones THIS builder ships. One it
     # does not have fails the whole build ("failed to satisfy go dependency
     # version constraint"): go.mod's `go 1.25.0` is a MINIMUM, and go-dist 2.11.0
@@ -549,16 +578,33 @@ spec:
     - name: build
       image: $(params.builder)
       securityContext: {runAsUser: 1001}
-      # The lifecycle (detect/build/export, JVM and npm builds inside it) peaks
-      # at ~1.5 GiB and ~1.2 CPU (2026-10-22). With no request the step took a
-      # third of the namespace's 64Mi default — 21 MiB — so it was the first pod
-      # the kubelet evicted when a node ran short ("Container step-build was
-      # using 1197936Ki, request is 22369621"), throwing away a 10-minute build.
-      # A real request makes the pod WAIT for a node with room (which the node
-      # autoscaler sees as demand) instead of starting where it gets evicted.
+      # MEMORY is requested in full. The lifecycle (detect/build/export, JVM and
+      # npm builds inside it) peaks at ~1.5 GiB (2026-10-22). With no request
+      # the step took a third of the namespace's 64Mi default — 21 MiB — so it
+      # was the first pod the kubelet evicted when a node ran short ("Container
+      # step-build was using 1197936Ki, request is 22369621"), throwing away a
+      # 10-minute build. Memory cannot be handed back once a node runs out.
       # No limit: an OOM-killed build is no better than an evicted one.
+      #
+      # CPU is requested SMALL (100m), on purpose, although a build averages
+      # ~0.4 cores and peaks near 1. This pod cannot go where there is room.
+      # In app-ci (and the library releases) the run's workspace is ONE
+      # ReadWriteOnce EBS volume (StorageClass adhar-ci), so Tekton's affinity
+      # assistant pins every TaskRun that mounts it to the node the assistant
+      # pod landed on. That pod asks for 50m/100Mi (hard-coded in Tekton) and
+      # the scheduler places it by averaging free CPU and free memory — which
+      # on these memory-heavy workers picks the node with the most free
+      # MEMORY, often the one with the least unrequested CPU. A request is a
+      # reservation that pinned node must have free: at 500m this step sat
+      # ExceededNodeResources for three hours (three 1h attempts,
+      # app-ci-transaction-service-vv97n, AWS 2026-10-31) on a node with
+      # 0.10-0.50 cores unrequested while its real CPU use averaged 0.74 of
+      # 3.5 — idle cores the build could have used. CPU is compressible: with
+      # no limit the build still takes every idle core, so a small request
+      # costs it only its share under genuine contention. Every CI step is
+      # held to this (TestCIStepsFitTheNodeTheirWorkspacePinsThemTo).
       computeResources:
-        requests: {cpu: 500m, memory: 1Gi}
+        requests: {cpu: 100m, memory: 1Gi}
       env:
         - {name: CNB_PLATFORM_API, value: "0.12"}
         - {name: DOCKER_CONFIG, value: /harbor-creds}
@@ -572,21 +618,34 @@ spec:
       # never became freight (my-service, 2026-10-17). The build's own wall
       # clock gives the Warehouse a real order; the image content stays
       # reproducible, only its timestamp moves.
+      #
+      # The last argument is the image the lifecycle exports, and the one it
+      # reads as the previous build to reuse layers from; -tag adds a name.
+      # With tag-latest the export stays :latest exactly as before. Without it
+      # extra-tag is the only name, so the build starts with no previous image,
+      # as every application's first build does.
       command: ["/bin/bash", "-c"]
       args:
         - >-
+          if [ "$(params.tag-latest)" = "true" ];
+          then set -- "-tag=$(params.image):$(params.extra-tag)" "$(params.image):latest";
+          else set -- "$(params.image):$(params.extra-tag)"; fi;
           SOURCE_DATE_EPOCH="$(date +%s)" exec /cnb/lifecycle/creator
-          "-app=$(workspaces.source.path)/$(params.subdirectory)"
+          "-app=/workspace/source/$(params.subdirectory)"
           "-platform=/platform"
-          "-tag=$(params.image):$(params.extra-tag)"
-          "$(params.image):latest"
+          "$@"
       volumeMounts:
         - {name: harbor-dockercfg, mountPath: /harbor-creds}
         - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
         - {name: cnb-platform, mountPath: /platform}
+        - {name: build-app, mountPath: /workspace/source}
   volumes:
     # Shared between prepare (writes) and build (reads): the CNB platform dir.
     - name: cnb-platform
+      emptyDir: {}
+    # The app directory the lifecycle builds in: a copy of the checkout, so the
+    # shared workspace stays the source for the tasks that run after this one.
+    - name: build-app
       emptyDir: {}
     - name: harbor-dockercfg
       secret:

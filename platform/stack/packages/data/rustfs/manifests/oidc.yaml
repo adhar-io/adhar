@@ -138,9 +138,12 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list"]
+  # `watch`: `kubectl rollout status` watches the Deployment; without it the
+  # wait logs "Failed to watch … unknown" and only notices progress on its
+  # backoff relists.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

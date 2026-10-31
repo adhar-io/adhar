@@ -56,9 +56,23 @@ metadata:
   name: plane-instance-setup
   namespace: adhar-system
 rules:
+  # Exactly the two Secrets the script touches (KEYCLOAK_CLIENTS_SECRET and
+  # TOKEN_SECRET_NAME below); unnamed, these verbs read, created and patched
+  # every Secret in adhar-system. It reads keycloak-clients and writes the
+  # console's token with server-side apply: a PATCH to the Secret's own URL,
+  # and when the Secret does not exist yet the API server authorises the create
+  # that implies WITH its name (k8s.io/apiserver endpoints/handlers/patch.go,
+  # createAuthorizerAttributes), so resourceNames applies to `create` too. Only
+  # a POST to the collection, which carries no name, cannot be narrowed — and
+  # the script no longer makes one. (Same shape as penpot's console-token.)
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "create", "patch"]
+    resourceNames: ["keycloak-clients"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["plane-api-token"]
+    verbs: ["create", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -139,6 +153,7 @@ spec:
           envFrom:
             - configMapRef: {name: plane-app-vars}
             - secretRef: {name: plane-app-secrets}
+            - secretRef: {name: plane-generated-keys}
             - secretRef: {name: plane-doc-store-secrets}
           env:
             - name: ADMIN_EMAIL
@@ -171,7 +186,7 @@ spec:
               value: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar
             # Where the client id/secret of the `plane-app` client land once the
             # keycloak package's reconciler has exported them. Read through the
-            # kube API (this SA already holds `get` on Secrets) rather than a
+            # kube API (the Role grants `get` on exactly this Secret) rather than a
             # secretKeyRef, so the Job can WAIT for them instead of silently
             # starting without — see keycloak_login() below.
             - name: KEYCLOAK_CLIENTS_SECRET
@@ -396,12 +411,12 @@ spec:
                       headers={"Authorization": f"Bearer {bearer}", "Content-Type": ctype, "Accept": "application/json"})
                   with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
                       return r.status
-              try:
-                  st = kube("POST", base, body)
-              except urllib.error.HTTPError as e:
-                  if e.code != 409:
-                      raise
-                  st = kube("PATCH", f"{base}/{name}", body, "application/merge-patch+json")
+              # Server-side apply (JSON is YAML): one PATCH to the Secret's own
+              # URL that creates it or updates it. A POST to the collection
+              # carries no name, so it needed `create` on EVERY Secret; this is
+              # authorised against the name, and the Role grants this one.
+              st = kube("PATCH", f"{base}/{name}?fieldManager=plane-instance-setup&force=true",
+                        body, "application/apply-patch+yaml")
               print(f"secret {ns}/{name} written (http {st})", flush=True)
 
               # ── 6. VERIFY through the API the web app actually reads ─────────

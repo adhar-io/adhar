@@ -37,7 +37,7 @@ Please report security vulnerabilities through one of these channels:
    - Subject: "SECURITY: [Brief Description]"
 
 3. **Private Disclosure via Slack**
-   - DM to @security-team on [Adhar Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+   - DM to @security-team on [Adhar Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg)
    - Only for initial contact; detailed info should follow via email
 
 ### What to Include
@@ -363,7 +363,7 @@ Format: - **Name** - Description of finding - Date
 
 - **Security Email**: security@adhar.io
 - **PGP Key**: [Download](https://adhar.io/pgp-key.asc)
-- **Security Team**: @security-team on [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+- **Security Team**: @security-team on [Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg)
 
 ---
 

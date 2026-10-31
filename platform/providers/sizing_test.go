@@ -210,8 +210,11 @@ func TestShippedConfigsBuildTheSameMachinesAsBefore(t *testing.T) {
 		workers map[string]int
 		sizes   want
 	}{
-		"config.aws.yaml":                   {map[string]int{"dev": 2, "test": 2, "prod": 2}, want{"r6i.large", "r6i.xlarge"}},
-		"examples/aws-config.yaml":          {map[string]int{"dev": 2, "test": 2, "prod": 2}, want{"r6i.large", "r6i.xlarge"}},
+		// The AWS control plane moved from r6i.large (2 vCPU) to m6i.xlarge on
+		// 2026-10-30, deliberately: it was the one shipped config below
+		// MinControlPlaneVCPU.
+		"config.aws.yaml":                   {map[string]int{"dev": 2, "test": 2, "prod": 2}, want{"m6i.xlarge", "r6i.xlarge"}},
+		"examples/aws-config.yaml":          {map[string]int{"dev": 2, "test": 2, "prod": 2}, want{"m6i.xlarge", "r6i.xlarge"}},
 		"config.azure.yaml":                 {map[string]int{"dev": 2, "test": 2, "prod": 5}, want{"Standard_E4bds_v5", "Standard_E4bds_v5"}},
 		"examples/azure-config.yaml":        {map[string]int{"dev": 2, "test": 2, "prod": 5}, want{"Standard_E4bds_v5", "Standard_E4bds_v5"}},
 		"config.gcp.yaml":                   {map[string]int{"dev": 2, "test": 2, "prod": 4}, want{"e2-standard-8", "e2-standard-8"}},

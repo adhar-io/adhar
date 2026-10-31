@@ -24,7 +24,7 @@ Checkout our [documentation website](https://adhar.io/docs/reference-implementat
 
 ## Community
 
-- If you have questions or concerns about this tool, please feel free to reach out to us on the [CNCF Slack Channel](https://cloud-native.slack.com/archives/C05TN9WFN5S).
+- If you have questions or concerns about this tool, please feel free to reach out to us on the [Adhar Slack](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg).
 - You can also join our community meetings to meet the team and ask any questions. Checkout [this calendar](https://calendar.google.com/calendar/embed?src=064a2adfce866ccb02e61663a09f99147f22f06374e7a8994066bdc81e066986%40group.calendar.google.com&ctz=America%2FLos_Angeles) for more information.
 
 ## Contribution

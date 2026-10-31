@@ -91,18 +91,18 @@ status:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: test-func-stage-seed
+  name: test-func-stage-init
   namespace: adhar-system
   annotations:
-    crossplane.io/composition-resource-name: stage-seed
+    crossplane.io/composition-resource-name: stage-init
 status:
   failed: 1
   conditions:
     - type: FailureTarget
       status: "True"
       reason: PodFailurePolicy
-      message: Container seed for pod adhar-system/test-func-stage-seed-x7k2p failed with exit code 3 matching FailJob rule at index 0
+      message: Container seed for pod adhar-system/test-func-stage-init-x7k2p failed with exit code 3 matching FailJob rule at index 0
     - type: Failed
       status: "True"
       reason: PodFailurePolicy
-      message: Container seed for pod adhar-system/test-func-stage-seed-x7k2p failed with exit code 3 matching FailJob rule at index 0
+      message: Container seed for pod adhar-system/test-func-stage-init-x7k2p failed with exit code 3 matching FailJob rule at index 0

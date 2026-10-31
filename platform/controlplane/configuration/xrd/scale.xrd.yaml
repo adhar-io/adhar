@@ -35,12 +35,17 @@ spec:
                 type: integer
               maxReplicas:
                 type: integer
+              # HorizontalPodAutoscaler metrics and behavior, as written; without
+              # preserve-unknown-fields an object with no properties is pruned
+              # empty by the API server.
               metrics:
                 type: array
                 items:
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
               behavior:
                 type: object
+                x-kubernetes-preserve-unknown-fields: true
               providerConfigRef:
                 type: object
                 properties:
