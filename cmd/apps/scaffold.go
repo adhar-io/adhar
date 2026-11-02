@@ -61,6 +61,9 @@ type backstageTemplate struct {
 		Name        string `yaml:"name"`
 		Title       string `yaml:"title"`
 		Description string `yaml:"description"`
+		// adhar.io/dashboard-type and adhar.io/workload say what the scaffolded
+		// Application is (see pavedRoadApplication).
+		Labels map[string]string `yaml:"labels"`
 	} `yaml:"metadata"`
 	Spec struct {
 		Parameters []struct {
@@ -568,6 +571,8 @@ type scaffoldedRepo struct {
 	CloneURL     string
 	ManifestPath string
 	Files        int
+	// TemplateLabels are the template's metadata.labels.
+	TemplateLabels map[string]string
 }
 
 // scaffoldTemplate renders a template's skeleton into a new Gitea repository
@@ -729,9 +734,10 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	}
 
 	return &scaffoldedRepo{
-		CloneURL:     fmt.Sprintf("%s/%s/%s.git", strings.TrimSuffix(giteaURL, "/"), globals.GiteaPlatformOrg, repo),
-		ManifestPath: t.manifestPathFor(rendered),
-		Files:        len(entries),
+		CloneURL:       fmt.Sprintf("%s/%s/%s.git", strings.TrimSuffix(giteaURL, "/"), globals.GiteaPlatformOrg, repo),
+		ManifestPath:   t.manifestPathFor(rendered),
+		Files:          len(entries),
+		TemplateLabels: t.Metadata.Labels,
 	}, nil
 }
 

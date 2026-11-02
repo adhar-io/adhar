@@ -201,7 +201,13 @@ func (p *Provider) ccmStep() provider.IntegrationStep {
 	return provider.IntegrationStep{Desc: "GCP cloud-controller-manager", Cmd: cmd}
 }
 
-func (p *Provider) cloudIntegrationSteps(clusterName string) ([]provider.IntegrationStep, error) {
+// cloudIntegrationSteps lists the control-plane steps. installID is the
+// cluster's install id (types.ClusterSpec.ClusterInstallID): adhar-block — and
+// adhar-ci, which the controller copies from it, parameters included — label
+// every disk they create `adhar-cluster-id=<id>`, which is what `adhar down`
+// deletes by. Without it a PD CSI disk names its PVC and nothing about which
+// cluster made it.
+func (p *Provider) cloudIntegrationSteps(clusterName, installID string) ([]provider.IntegrationStep, error) {
 	steps := []provider.IntegrationStep{
 		provider.StepEnsureGit(),
 		// The config must exist BEFORE the CCM starts reading it.
@@ -232,15 +238,27 @@ func (p *Provider) cloudIntegrationSteps(clusterName string) ([]provider.Integra
 		// Not the default: a persistent disk costs an attach slot (and GCP
 		// also meters SSD_TOTAL_GB), and the stack asks for ~90 volumes.
 		// Node-local storage is the default; see StepNodeLocalStorageClass.
-		provider.StepStorageClass("adhar-block", "pd.csi.storage.gke.io", map[string]string{"type": p.persistentVolumeDiskType()}, false),
+		provider.StepStorageClass("adhar-block", "pd.csi.storage.gke.io", p.blockStorageParameters(installID), false),
 		provider.StepClearDefaultStorageClass("adhar-block"),
 	)
 	steps = append(steps, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...)
 	return steps, nil
 }
 
-func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName string) error {
-	steps, err := p.cloudIntegrationSteps(clusterName)
+// blockStorageParameters are adhar-block's parameters: the disk type, and the
+// install id as a GCE disk label (the PD CSI StorageClass `labels` parameter,
+// "key=value[,key=value]"). GCE label keys allow no '.' or '/', hence
+// ClusterIDLabel rather than the AWS spelling.
+func (p *Provider) blockStorageParameters(installID string) map[string]string {
+	params := map[string]string{"type": p.persistentVolumeDiskType()}
+	if installID != "" {
+		params["labels"] = provider.ClusterIDLabel + "=" + installID
+	}
+	return params
+}
+
+func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName, installID string) error {
+	steps, err := p.cloudIntegrationSteps(clusterName, installID)
 	if err != nil {
 		return fmt.Errorf("GCP cloud integration: %w", err)
 	}

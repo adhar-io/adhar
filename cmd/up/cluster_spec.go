@@ -245,6 +245,21 @@ func ensureClusterSpecConfigMap(
 		data["providerConfig"] = string(encoded)
 	}
 
+	// The install id the cluster's volumes carry (see
+	// platform/providers/volume_attribution.go). This machine's record of it is
+	// the starting point; the cluster's own copy, when it already has one, wins.
+	registryProvider, registryRegion := "", ""
+	if envConfig != nil {
+		registryProvider, registryRegion = envConfig.ResolvedProvider, envConfig.ResolvedRegion
+	}
+	localInstallID := ""
+	if pfactory.ClusterLifecycleIsOurs(clusterMode) && registryProvider != "" {
+		if inst, err := pfactory.ActiveClusterInstall(registryProvider, registryRegion, clusterName); err == nil && inst != nil {
+			localInstallID = inst.ID
+		}
+	}
+	adoptInstallID := ""
+
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
 		Name:      globals.ClusterSpecConfigMapName,
 		Namespace: globals.AdharSystemNamespace,
@@ -254,13 +269,44 @@ func ensureClusterSpecConfigMap(
 			cm.Labels = map[string]string{}
 		}
 		cm.Labels["adhar.io/component"] = "cluster-spec"
+		installID, adopt := resolveClusterInstallID(cm.Data[globals.ClusterSpecInstallIDKey], localInstallID)
+		if installID != "" {
+			data[globals.ClusterSpecInstallIDKey] = installID
+		}
+		adoptInstallID = adopt
 		cm.Data = data
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", globals.ClusterSpecConfigMapName, err)
 	}
+	if adoptInstallID != "" && registryProvider != "" {
+		// Best effort: failing to remember the id locally costs attribution on a
+		// later teardown from THIS machine, not the bring-up.
+		_, _ = pfactory.AdoptClusterInstall(registryProvider, registryRegion, clusterName, adoptInstallID)
+	}
 	return nil
+}
+
+// resolveClusterInstallID decides which install id adhar-cluster-spec records,
+// and whether this machine must adopt it.
+//
+// The cluster's existing value wins over the local record. It is the id the
+// cluster's CSI driver was configured with — so the one on its volumes — even
+// when this machine never saw that cluster created (another laptop, CI) or
+// remembers an older cluster of the same name. Writing the local id over it
+// would point every later teardown at volumes that do not exist and leave the
+// real ones unattributed. A value that is not an install id is ignored rather
+// than propagated.
+func resolveClusterInstallID(inCluster, local string) (record, adopt string) {
+	inCluster = strings.TrimSpace(inCluster)
+	if pfactory.ValidClusterInstallID(inCluster) {
+		if inCluster != local {
+			return inCluster, inCluster
+		}
+		return inCluster, ""
+	}
+	return local, ""
 }
 
 // ensureClusterSSHSecret mirrors the cluster's kubeadm SSH key into the

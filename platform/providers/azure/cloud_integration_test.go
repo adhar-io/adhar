@@ -25,7 +25,7 @@ func TestAzureCloudConfigCarriesIdentityAndNetwork(t *testing.T) {
 
 func TestCloudIntegrationStepsInstallCCMAndDiskCSI(t *testing.T) {
 	p := &Provider{config: &Config{TenantID: "t", SubscriptionID: "s", ClientID: "c", ClientSecret: "x", Location: "eastus"}}
-	steps, err := p.cloudIntegrationSteps("dev", "dev-rg", "vnet", "subnet", "nsg")
+	steps, err := p.cloudIntegrationSteps("dev", "dev-rg", "vnet", "subnet", "nsg", "")
 	if err != nil {
 		t.Fatal(err)
 	}

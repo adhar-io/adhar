@@ -34,6 +34,16 @@ type ClusterSpec struct {
 	Addons       AddonsSpec        `json:"addons"`
 	Domain       *DomainConfig     `json:"domain,omitempty"`
 	Tags         map[string]string `json:"tags,omitempty"`
+
+	// ClusterInstallID is the id `adhar up` generated for THIS cluster, once,
+	// before creating it. The provider hands it to the CSI driver so every block
+	// volume the cluster creates carries it (adhar.io/cluster-id on EBS, the
+	// adhar-cluster-id label/tag on GCP and Azure, adhar-cluster-id:<id> on
+	// DigitalOcean), which is what lets `adhar down` delete exactly this
+	// cluster's volumes and nothing else. Deliberately NOT a Tags entry: Tags are
+	// copied onto VPCs, AKS clusters and GKE labels, where a key with '.' or '/'
+	// is rejected outright. Empty for a path that creates no CSI volumes.
+	ClusterInstallID string `json:"clusterInstallId,omitempty"`
 }
 
 // Cluster represents a running Kubernetes cluster

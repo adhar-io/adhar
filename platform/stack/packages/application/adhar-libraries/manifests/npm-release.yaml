@@ -45,8 +45,12 @@ spec:
       # adhar-ui's deno.lock is lockfile v5, which Deno < 2.5 cannot read
       # ("Unsupported lockfile version '5'"); track a current Deno 2.x.
       image: docker.io/denoland/deno:2.9.6
+      # CPU held to the 100m every CI step gets: the release's ReadWriteOnce
+      # workspace pins this pod to the node holding it (see the build step of
+      # buildpacks-build in adhar-supply-chain's 60-build-pipelines.yaml). Up
+      # to its limit it still takes the node's idle cores.
       computeResources:
-        requests: {cpu: 500m, memory: 512Mi}
+        requests: {cpu: 100m, memory: 512Mi}
         limits: {cpu: "2", memory: 3Gi}
       env:
         # Keep Deno's cache on the workspace so test/lint reuse what build fetched.
@@ -116,8 +120,9 @@ spec:
   steps:
     - name: publish
       image: docker.io/library/node:20-bookworm
+      # CPU held to the 100m every CI step gets (see the deno step above).
       computeResources:
-        requests: {cpu: 500m, memory: 512Mi}
+        requests: {cpu: 100m, memory: 512Mi}
         limits: {cpu: "2", memory: 3Gi}
       env:
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}

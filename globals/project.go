@@ -127,6 +127,15 @@ const (
 	// public zone resolve and never connect.
 	ClusterSpecGatewayAddressesKey = "gatewayPublicAddresses"
 
+	// ClusterSpecInstallIDKey holds the cluster's install id: generated once by
+	// `adhar up` before the cluster was created, handed to its CSI driver so
+	// every block volume carries it (adhar.io/cluster-id on EBS,
+	// adhar-cluster-id elsewhere), and recorded in the CLI's state under
+	// ~/.adhar/state/installs. Kept here too so a CLI on another machine can
+	// learn it while the cluster is up; `adhar down` deletes exactly the
+	// volumes carrying it. See platform/providers/volume_attribution.go.
+	ClusterSpecInstallIDKey = "installID"
+
 	// ClusterSSHSecretName holds the cluster's kubeadm SSH private key (key
 	// "id_ed25519"), mirrored from ~/.adhar/clusters/<name>/ at bootstrap.
 	// Joining a new worker means running kubeadm on the control plane over

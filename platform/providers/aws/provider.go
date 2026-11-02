@@ -126,6 +126,8 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
 		awsConfig.PurgeOrphanedVolumes = true
 	}
+	// Set by `adhar down`, whose volume step owns the cluster's EBS volumes.
+	awsConfig.KeepClusterVolumes = provider.KeepClusterVolumesRequested(config)
 
 	// Node image overrides. Both camelCase and snake_case are accepted
 	// because the environment's clusterConfig matches keys ignoring case and
@@ -286,6 +288,10 @@ type Provider struct {
 	elbClient   *elb.Client
 	elbv2Client *elbv2.Client
 	quotaClient *servicequotas.Client
+
+	// volumeAPI, when set, replaces ec2Client for the volume step (volumes.go).
+	// Tests set it; in a real run it is nil and the EC2 client is used.
+	volumeAPI ec2VolumeAPI
 }
 
 // Config holds AWS provider configuration
@@ -363,6 +369,11 @@ type Config struct {
 	// is being rebuilt, so deleting one is the operator's call —
 	// `adhar down --purge-orphaned-volumes`.
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
+
+	// KeepClusterVolumes leaves the cluster's own EBS volumes to `adhar down`'s
+	// volume step (provider.KeepClusterVolumesOption), which asks before deleting
+	// them and verifies they are gone.
+	KeepClusterVolumes bool `json:"keepClusterVolumes,omitempty"`
 }
 
 // VPCConfig holds VPC-specific configuration

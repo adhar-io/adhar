@@ -284,6 +284,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
 		gcpConfig.PurgeOrphanedVolumes = true
 	}
+	gcpConfig.KeepClusterVolumes = provider.KeepClusterVolumesRequested(config)
 	for _, key := range []string{"nodeServiceAccount", "node_service_account"} {
 		if sa, ok := config[key].(string); ok && sa != "" {
 			gcpConfig.NodeServiceAccount = sa
@@ -330,6 +331,10 @@ type Provider struct {
 	// containerService drives the managed (GKE) mode.
 	containerService *container.Service
 
+	// volumeAPI, when set, replaces the disk and instance clients for the
+	// volume step (volumes.go). Tests set it.
+	volumeAPI gcpVolumeAPI
+
 	// Resource tracking for clusters
 	clusters         map[string]*ClusterInfrastructure
 	resourceTrackers map[string]*ResourceTracker
@@ -361,6 +366,11 @@ type Config struct {
 	// driver created. Off by default because a disk may still hold data someone
 	// wants; `adhar down --purge-orphaned-volumes` opts in.
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
+
+	// KeepClusterVolumes is set by `adhar down`, whose volume step lists,
+	// deletes and verifies the cluster's disks itself
+	// (provider.KeepClusterVolumesOption).
+	KeepClusterVolumes bool `json:"keepClusterVolumes,omitempty"`
 
 	// NodeServiceAccount is the service account attached to every node. The
 	// cloud-controller-manager and the PD CSI driver authenticate to the GCP API
@@ -896,7 +906,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 			return nil, fmt.Errorf("worker %s: %w", w.InstanceName, err)
 		}
 	}
-	if err := p.installCloudIntegration(signer, master.PublicIP, spec.Name); err != nil {
+	if err := p.installCloudIntegration(signer, master.PublicIP, spec.Name, spec.ClusterInstallID); err != nil {
 		return nil, err
 	}
 	log.Printf("Kubernetes bootstrapped on cluster %s; nodes stay NotReady until the platform bootstrap installs Cilium", spec.Name)
@@ -1945,7 +1955,7 @@ func (p *Provider) countOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 		if err != nil {
 			break
 		}
-		if len(disk.GetUsers()) > 0 {
+		if len(disk.GetUsers()) > 0 || diskCarriesInstallID(disk) {
 			continue
 		}
 		if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
@@ -1974,8 +1984,10 @@ func (p *Provider) sweepOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 		if err != nil {
 			break
 		}
-		// Attached disks belong to instances and go with them.
-		if len(disk.GetUsers()) > 0 {
+		// Attached disks belong to instances and go with them. A disk carrying
+		// an install id is attributed exactly: only `adhar down` for that
+		// cluster removes it, after asking.
+		if len(disk.GetUsers()) > 0 || diskCarriesInstallID(disk) {
 			continue
 		}
 		if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
@@ -1986,6 +1998,12 @@ func (p *Provider) sweepOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 		return nil
 	}
 
+	if !p.config.PurgeOrphanedVolumes && p.config.KeepClusterVolumes {
+		// `adhar down` lists these itself once the instances are gone, and
+		// says how to remove them; the advice below would be a second, older
+		// answer to the same question.
+		return nil
+	}
 	if !p.config.PurgeOrphanedVolumes {
 		log.Printf("WARNING: %d unattached persistent disk(s) remain and keep billing:", len(orphans))
 		for _, d := range orphans {
@@ -2077,8 +2095,9 @@ func (p *Provider) findOrphanedResources(ctx context.Context, tracker *ResourceT
 				break
 			}
 			// Attached disks belong to instances and go with them. An unattached
-			// disk named for a PersistentVolumeClaim is a CSI leftover.
-			if len(disk.GetUsers()) > 0 {
+			// disk named for a PersistentVolumeClaim is a CSI leftover — unless
+			// it carries an install id, which `adhar down` reports by itself.
+			if len(disk.GetUsers()) > 0 || diskCarriesInstallID(disk) {
 				continue
 			}
 			if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {

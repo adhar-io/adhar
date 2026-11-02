@@ -7,7 +7,7 @@ import (
 
 func TestCloudIntegrationStepsInstallCCMAndPDCSI(t *testing.T) {
 	p := &Provider{config: &Config{ProjectID: "proj", Zone: "us-central1-a", ServiceAccountKey: `{"type":"service_account"}`}}
-	steps, err := p.cloudIntegrationSteps("production")
+	steps, err := p.cloudIntegrationSteps("production", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestCloudIntegrationStepsInstallCCMAndPDCSI(t *testing.T) {
 		}
 	}
 	noKey := &Provider{config: &Config{ProjectID: "proj", UseApplicationDefault: true}}
-	steps, _ = noKey.cloudIntegrationSteps("production")
+	steps, _ = noKey.cloudIntegrationSteps("production", "")
 	for _, s := range steps {
 		if strings.Contains(s.Cmd, "cloud-sa") {
 			t.Fatal("application-default credentials must not write a service-account secret")
@@ -112,7 +112,7 @@ func TestStorageClassDiskTypeFollowsTheNodeDiskType(t *testing.T) {
 	}
 	for nodeType, want := range cases {
 		p := &Provider{config: &Config{ProjectID: "proj", Zone: "us-central1-a", DiskType: nodeType}}
-		steps, err := p.cloudIntegrationSteps("production")
+		steps, err := p.cloudIntegrationSteps("production", "")
 		if err != nil {
 			t.Fatal(err)
 		}

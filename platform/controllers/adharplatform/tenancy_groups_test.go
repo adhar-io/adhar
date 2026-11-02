@@ -448,8 +448,6 @@ func TestAnOrganisationNameCannotSpellAnotherOrganisationsAdminGroup(t *testing.
 	t.Error("the Organisation XRD accepts a name ending in -admin; its member group would be another organisation's admin group")
 }
 
-// walkConfiguration calls fn with every YAML file under the control-plane
-// configuration (or one subdirectory of it), comments blanked.
 // The console's service account writes groups, memberships and accounts
 // (manage-users), looks people up (view-users, query-users, query-groups) and
 // reads whether the realm has an SMTP server (view-realm). It never changes the
@@ -485,6 +483,8 @@ func TestConsoleServiceAccountNeverHoldsManageRealm(t *testing.T) {
 	}
 }
 
+// walkConfiguration calls fn with every YAML file under the control-plane
+// configuration (or one subdirectory of it), comments blanked.
 func walkConfiguration(t *testing.T, sub string, fn func(rel, text string)) {
 	t.Helper()
 	root := controlPlaneDir(t)

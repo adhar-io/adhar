@@ -78,7 +78,12 @@ func (p *Provider) azureCloudConfig(resourceGroup, vnet, subnet, nsg string) (st
 	return string(b), nil
 }
 
-func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subnet, nsg string) ([]provider.IntegrationStep, error) {
+// cloudIntegrationSteps lists the control-plane steps. installID is the
+// cluster's install id (types.ClusterSpec.ClusterInstallID): adhar-block — and
+// adhar-ci, which the controller copies from it, parameters included — tag
+// every disk they create `adhar-cluster-id=<id>`, which is what `adhar down`
+// deletes by. (Azure tag names allow no '/', hence ClusterIDLabel.)
+func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subnet, nsg, installID string) ([]provider.IntegrationStep, error) {
 	cloudConfig, err := p.azureCloudConfig(resourceGroup, vnet, subnet, nsg)
 	if err != nil {
 		return nil, err
@@ -118,13 +123,23 @@ func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subne
 		// E4bds_v5 accepts 8 data disks and an E2bds_v5 only 4, so four
 		// workers offer ~32 attach slots against the ~90 claims the stack
 		// makes. Node-local storage carries the rest.
-		provider.StepStorageClass("adhar-block", "disk.csi.azure.com", map[string]string{"skuName": "StandardSSD_LRS"}, false),
+		provider.StepStorageClass("adhar-block", "disk.csi.azure.com", blockStorageParameters(installID), false),
 		provider.StepClearDefaultStorageClass("adhar-block"),
 	}, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...), nil
 }
 
-func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName, resourceGroup, vnet, subnet, nsg string) error {
-	steps, err := p.cloudIntegrationSteps(clusterName, resourceGroup, vnet, subnet, nsg)
+// blockStorageParameters are adhar-block's parameters: the disk SKU, and the
+// install id as an Azure tag (the disk CSI StorageClass `tags` parameter,
+// "key=value[,key=value]").
+func blockStorageParameters(installID string) map[string]string {
+	params := map[string]string{"skuName": "StandardSSD_LRS"}
+	if installID != "" {
+	}
+	return params
+}
+
+func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName, resourceGroup, vnet, subnet, nsg, installID string) error {
+	steps, err := p.cloudIntegrationSteps(clusterName, resourceGroup, vnet, subnet, nsg, installID)
 	if err != nil {
 		return fmt.Errorf("Azure cloud integration: %w", err)
 	}

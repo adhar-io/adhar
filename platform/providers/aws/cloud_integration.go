@@ -29,7 +29,14 @@ const (
 // config) nothing is written to the cluster; otherwise the static key pair
 // from the provider config is stored once as kube-system/aws-secret, which
 // both the CCM and the CSI driver read.
-func (p *Provider) cloudIntegrationSteps(clusterName string) []provider.IntegrationStep {
+//
+// installID is the cluster's install id (types.ClusterSpec.ClusterInstallID).
+// Every EBS volume the driver creates is tagged `adhar.io/cluster-id=<id>` with
+// it, which is what `adhar down` deletes by. Without it a volume carries only
+// the tags EVERY EBS CSI driver writes (CSIVolumeName,
+// ebs.csi.aws.com/cluster=true), and that is how six of them outlived the
+// ap-southeast-1 teardown of 2026-10-31 with nothing saying whose they were.
+func (p *Provider) cloudIntegrationSteps(clusterName, installID string) []provider.IntegrationStep {
 	steps := []provider.IntegrationStep{provider.StepEnsureHelm()}
 	ccmSets := map[string]string{
 		"args[0]": "--v=2",
@@ -59,6 +66,18 @@ func (p *Provider) cloudIntegrationSteps(clusterName string) []provider.Integrat
 		"controller.replicaCount": "1",
 		// The default class is created below with the platform's own name.
 		"storageClasses[0].name": "gp3",
+	}
+	// Attribution, at the DRIVER: `--extra-tags` tags every volume the driver
+	// creates, whichever StorageClass asked for it — adhar-block, adhar-ci (the
+	// controller's copy of it), the chart's gp3, or one an operator adds later.
+	// The dot in the key is escaped because --set reads an unescaped one as
+	// nesting; the chart's schema rejects a misspelled key outright.
+	blockParams := map[string]string{"type": "gp3", "encrypted": "true"}
+	if installID != "" {
+		csiSets[ebsExtraVolumeTagSetKey] = installID
+		// And on the platform's own class, so a driver installed some other way
+		// (or a chart that renames the value) still tags what adhar-block makes.
+		blockParams["tagSpecification_1"] = provider.ClusterIDTag + "=" + installID
 	}
 	// In-cluster components cannot use the operator's credential chain: the CCM
 	// and the EBS CSI driver read a Kubernetes Secret, and these nodes have no
@@ -113,16 +132,20 @@ func (p *Provider) cloudIntegrationSteps(clusterName string) []provider.Integrat
 		// nitro, fewer once ENIs are counted) and the stack asks for ~90
 		// volumes. Node-local storage is the default; see
 		// provider.StepNodeLocalStorageClass.
-		provider.StepStorageClass("adhar-block", "ebs.csi.aws.com", map[string]string{"type": "gp3", "encrypted": "true"}, false),
+		provider.StepStorageClass("adhar-block", "ebs.csi.aws.com", blockParams, false),
 		provider.StepClearDefaultStorageClass("adhar-block"),
 	)
 	steps = append(steps, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...)
 	return steps
 }
 
+// ebsExtraVolumeTagSetKey is the aws-ebs-csi-driver chart value that becomes
+// `--extra-tags=adhar.io/cluster-id=<id>` on the controller.
+const ebsExtraVolumeTagSetKey = `controller.extraVolumeTags.adhar\.io/cluster-id`
+
 // installCloudIntegration applies the steps through the control plane.
-func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName string) error {
-	if err := provider.ApplyCloudIntegration(signer, awsSSHUser, masterIP, p.cloudIntegrationSteps(clusterName)); err != nil {
+func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName, installID string) error {
+	if err := provider.ApplyCloudIntegration(signer, awsSSHUser, masterIP, p.cloudIntegrationSteps(clusterName, installID)); err != nil {
 		return fmt.Errorf("AWS cloud integration: %w", err)
 	}
 	return nil

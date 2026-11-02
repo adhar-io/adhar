@@ -90,7 +90,11 @@ func volumeDisposition(v civogo.Volume, clusterID string, clusterInstanceIDs map
 // volume does not abandon the rest of the teardown.
 func (p *Provider) sweepClusterVolumes(id clusterIdentity) []string {
 	var problems []string
-	volumes, err := p.client.ListVolumes()
+	api, err := p.volumeClient()
+	if err != nil {
+		return []string{fmt.Sprintf("could not list volumes to clean up: %v", err)}
+	}
+	volumes, err := api.ListVolumes()
 	if err != nil {
 		return []string{fmt.Sprintf("could not list volumes to clean up: %v", err)}
 	}
@@ -98,6 +102,11 @@ func (p *Provider) sweepClusterVolumes(id clusterIdentity) []string {
 	var kept int
 	for _, v := range volumes {
 		action, why := volumeDisposition(v, id.clusterIDForMatching(), id.instanceIDs, p.config.PurgeOrphanedVolumes)
+		if action == volumeDelete && p.config.KeepClusterVolumes {
+			// `adhar down` owns this cluster's volumes: its volume step lists
+			// them once the cluster is gone, asks, and verifies each deletion.
+			continue
+		}
 		if action == volumeKeep {
 			if strings.HasPrefix(v.Name, "pvc-") {
 				kept++
@@ -108,12 +117,12 @@ func (p *Provider) sweepClusterVolumes(id clusterIdentity) []string {
 		// Detach first: Civo refuses to delete an attached volume, and the
 		// instance may still be shutting down when we get here.
 		if v.InstanceID != "" {
-			if _, err := p.client.DetachVolume(v.ID); err != nil {
+			if _, err := api.DetachVolume(v.ID); err != nil {
 				log.Printf("Warning: could not detach volume %s (%s): %v", v.Name, v.ID, err)
 			}
 			time.Sleep(5 * time.Second)
 		}
-		if _, err := p.client.DeleteVolume(v.ID); err != nil {
+		if _, err := api.DeleteVolume(v.ID); err != nil {
 			problems = append(problems, fmt.Sprintf("failed to delete volume %s (%s): %v", v.Name, v.ID, err))
 			continue
 		}

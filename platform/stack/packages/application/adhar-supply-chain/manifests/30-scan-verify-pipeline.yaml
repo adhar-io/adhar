@@ -9,9 +9,18 @@
 # Harbor is adhar-controlplane HTTP, so trivy/cosign are told the registry is non-TLS and
 # given the same admin credential the build SA uses.
 ---
-# The TWO excused finding classes, both in buildpack-provided layers the
+# The THREE excused finding classes, all in buildpack-provided layers the
 # application did not write: (1) Go stdlib CVEs in buildpack binaries, (2) the
-# npm CLI that node-engine bundles in the Node.js launch layer (below the first).
+# npm CLI that node-engine bundles in the Node.js launch layer, (3) the pip that
+# ships inside the CPython launch layer.
+#
+# (2) and (3) are the RUNTIME-LAYER exceptions: build tools that arrive with a
+# runtime the image has to launch. They are re-measured together, the date of
+# that review is the adhar.io/runtime-layer-exceptions-reviewed annotation on
+# the ConfigMap below, and every one of them expires no more than 30 days after
+# it — their upstream fixes are already merged, so a short box forces the next
+# look instead of letting the exception outlive its reason
+# (scan_runtime_layer_exceptions_test.go).
 #
 # (1) Every buildpack-built image carries several Go binaries the platform did not
 # write — the CNB lifecycle launcher and one exec.d helper per buildpack
@@ -67,12 +76,72 @@
 # the same three packages at the same versions sit in the application's
 # node_modules (npm-install's launch-modules, /workspace/node_modules) and in
 # corepack: all fifteen of those findings still fail the gate.
+#
+# Re-measured 2026-11-03 (Trivy 0.58.1, DB of 2026-11-02, builder-jammy-base
+# with node-engine 8.11.1, every Node template built the way app-ci builds it):
+# two more undici advisories, CVE-2026-109383 and CVE-2026-87018, refused every
+# Node image whose launch layer holds node — node-svc (26.12.1), deno-func,
+# function-nodejs and TanStack Start (24.22.1). Nothing removes them yet. They
+# are fixed in undici 6.29.1, which npm/cli merged on 2026-10-27 and has not
+# released: the newest npm releases, 11.21.1 and 12.2.1, bundle 6.29.0, and the
+# newest Node of each line ships an older npm still — 24.22.2 (11.19.1), 26.13.0
+# (11.20.0), 22.23.4 (10.9.9: ten HIGH) and 20.20.2 (10.8.2: twenty-two).
+# node-engine reads no setting that leaves npm out of the layer (it reads
+# BP_NODE_VERSION, BP_NODE_OPTIMIZE_MEMORY, BP_NODE_PROJECT_PATH,
+# BP_DISABLE_SBOM and the dependency mirror, nothing else). The nginx-served
+# SPAs (React, Angular) need nothing: their node layer is build-only and never
+# reaches the image. In each Node template the running process was traced:
+# start.sh or the Procfile runs node on the application's entry point
+# (node server.js, node index.js, node --import … src/main.ts, node server.mjs),
+# NODE_PATH is unset, and not one module under npm's tree is ever resolved.
+# CVE-2026-93748 (http-cache-semantics) no longer matches any advisory record,
+# so its entry was dropped rather than left excusing nothing.
+#
+# (3) pip inside the CPython launch layer. paketo's cpython buildpack unpacks a
+# prebuilt CPython (python_<version>_linux_amd64_jammy_*.tgz) into ONE launch
+# layer (layers/paketo-buildpacks_cpython/cpython), and that build already has
+# pip in its site-packages. Every version the builder offers carries one —
+# 3.10 to 3.14, pip 26.2.1 or 26.2.2, the newest pip released — and pip vendors
+# urllib3 2.7.0, msgpack 1.1.2 and the pkg_resources module of setuptools
+# 70.3.0: five HIGH findings on every Python image (py-service, function-python,
+# agent-service; 2026-11-03). BP_CPYTHON_RM_SETUPTOOLS removes the site-packages
+# setuptools, not pip, and BP_CPYTHON_CONFIGURE_FLAGS only applies when CPython
+# is compiled on a custom stack, so no setting keeps pip out. The image never
+# runs it: the pip buildpack installs its OWN pip, in a build-only layer, for
+# pip-install, and the launch process is the server from the Procfile (gunicorn,
+# uvicorn). Traced in the running py-service with its Rollout's environment:
+# urllib3 and requests load from the application's pip-install layer (urllib3
+# 2.8.0), while pip, msgpack, pkg_resources and setuptools are never imported.
+# CVE-2025-47273 is not even present: it is in setuptools' PackageIndex, and pip
+# vendors pkg_resources alone. pip's main branch re-vendored urllib3 2.8.0 and
+# msgpack 1.2.4 on 2026-11-02; no pip release carries them yet.
+#
+# Class (3) cannot live in ignore.yaml. pip ships its own SBOM
+# (pip/_vendor/bom.cdx.json) and Trivy reports the vendored packages FROM it,
+# with no file path, so `paths` cannot select them, and a `purls` scope would
+# also excuse an application's own urllib3==2.7.0. They are in
+# runtime-layers.yaml instead, applied by trivy-scan's evaluate step
+# (adhar-scan-lib runtime-layer-exceptions.jq), which excuses a finding only
+# when its id, its purl (name AND version), the CNB layer that holds it — read
+# from the image's own io.buildpacks.lifecycle.metadata label, DiffID →
+# buildpack/layer — and its (empty) path all match. The same package installed
+# by pip-install, shipped in the application layer or listed by any other SBOM
+# is still gated. Excused findings stay in the report under
+# ExperimentalModifiedFindings (status not_affected, with the statement), are
+# counted as waived in the summary, listed in the step log and attested —
+# exactly as classes (1) and (2) are.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-buildpack-exceptions
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "4"}
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    # When every runtime-layer exception (classes 2 and 3) was last
+    # re-measured against the builder and the scanner. Each expires no more
+    # than 30 days after this date; renewing one means re-measuring all of
+    # them and moving this date.
+    adhar.io/runtime-layer-exceptions-reviewed: "2026-11-03"
 data:
   ignore.yaml: |
     vulnerabilities:
@@ -115,40 +184,141 @@ data:
         expired_at: 2026-11-30
       # Class (2): the npm CLI node-engine bundles next to node. Exact paths,
       # so the same packages in the application's own node_modules — or
-      # anywhere else in the image — are still gated.
+      # anywhere else in the image — are still gated. Runtime-layer
+      # exceptions: each expires within 30 days of the review annotated above.
       - id: CVE-2026-102276
         paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/brace-expansion/package.json"]
         statement: >-
           brace-expansion bundled in the npm CLI that node-engine installs next
           to node. The image runs node directly (npm-start's start.sh); npm is
           build tooling the running application never executes, and every Node
-          release the builder offers bundles an affected copy.
-        expired_at: 2027-01-31
+          release the builder offers bundles an affected copy. Fixed in
+          brace-expansion 5.0.10; npm 11.21.1 carries 5.0.12, no Node release
+          bundles that npm yet.
+        expired_at: 2026-12-03
       - id: CVE-2026-102278
         paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/brace-expansion/package.json"]
         statement: >-
           brace-expansion bundled in the npm CLI that node-engine installs next
-          to node; the same unexecuted build tooling as CVE-2026-102276.
-        expired_at: 2027-01-31
+          to node; the running application never executes npm, the same build
+          tooling as CVE-2026-102276. Fixed in brace-expansion 5.0.11; npm
+          11.21.1 carries 5.0.12, no Node release bundles that npm yet.
+        expired_at: 2026-12-03
       - id: CVE-2026-109869
         paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/undici/package.json"]
         statement: >-
           undici bundled in the npm CLI (npm's own registry client), not an
           undici the application imports; the running process is node, never
-          npm. Fixed in undici 6.29.1, which no npm that Node ships bundles yet.
-        expired_at: 2027-01-31
+          npm. Fixed in undici 6.29.1, merged into npm/cli on 2026-10-27 and in
+          no npm release yet (11.21.1 and 12.2.1 bundle 6.29.0).
+        expired_at: 2026-12-03
       - id: CVE-2026-19534
         paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/undici/package.json"]
         statement: >-
-          undici bundled in the npm CLI (npm's own registry client); the same
-          unexecuted build tooling as CVE-2026-109869.
-        expired_at: 2027-01-31
-      - id: CVE-2026-93748
-        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/http-cache-semantics/package.json"]
+          undici bundled in the npm CLI (npm's own registry client); the
+          running application never executes npm, the same build tooling as
+          CVE-2026-109869. Fixed in undici 6.28.1; npm 11.21.1 carries 6.29.0,
+          no Node release bundles that npm yet.
+        expired_at: 2026-12-03
+      - id: CVE-2026-109383
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/undici/package.json"]
         statement: >-
-          http-cache-semantics bundled in the npm CLI for npm's own HTTP cache;
-          the running application never executes npm. No fixed release exists.
-        expired_at: 2027-01-31
+          undici bundled in the npm CLI: its Agent drops a caller's
+          checkServerIdentity callback. Only npm makes requests through this
+          copy, and the running process is node on the application's entry
+          point, never npm (traced 2026-11-03: nothing under npm's tree is
+          resolved). Fixed in undici 6.29.1, merged into npm/cli on 2026-10-27
+          and in no npm release yet (11.21.1 and 12.2.1 bundle 6.29.0).
+        expired_at: 2026-12-03
+      - id: CVE-2026-87018
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/undici/package.json"]
+        statement: >-
+          undici bundled in the npm CLI: a client crashes when a TLS 1.2 server
+          renegotiates with a mismatched certificate. Only npm connects through
+          this copy, and the running application never executes npm. Fixed in
+          undici 6.29.1, merged into npm/cli on 2026-10-27 and in no npm release
+          yet (11.21.1 and 12.2.1 bundle 6.29.0).
+        expired_at: 2026-12-03
+  # Class (3), see the header. Applied by trivy-scan's evaluate step
+  # (adhar-scan-lib runtime-layer-exceptions.jq), not by Trivy, and only to a
+  # finding whose id, purl (name AND version), CNB layer (from the image's
+  # io.buildpacks.lifecycle.metadata label) and pkgPath ("" = reported from an
+  # SBOM inside that layer, with no file of its own) ALL match, until
+  # expired_at. Runtime-layer exceptions: each expires within 30 days of the
+  # review annotated above.
+  runtime-layers.yaml: |
+    exceptions:
+      - id: CVE-2026-97687
+        purl: pkg:pypi/urllib3@2.7.0
+        layer: paketo-buildpacks/cpython/cpython
+        pkgPath: ""
+        statement: >-
+          urllib3 vendored inside the pip that ships with CPython
+          (pip/_vendor/urllib3): proxy TLS settings leak into the target
+          connection. Only pip makes requests through this copy, and the image
+          runs the application server, never pip; the application's own urllib3
+          comes from its pip-install layer (traced 2026-11-03).
+        upstream: >-
+          a pip release after 26.2.2 (pip main re-vendored urllib3 2.8.0 on
+          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
+          builds carry it.
+        expired_at: 2026-12-03
+      - id: CVE-2026-97689
+        purl: pkg:pypi/urllib3@2.7.0
+        layer: paketo-buildpacks/cpython/cpython
+        pkgPath: ""
+        statement: >-
+          urllib3 vendored inside the pip that ships with CPython: unbounded
+          memory in the chunked-response parser when a malicious server
+          answers. Only pip reads responses through this copy, and the image
+          never runs pip; the application's own urllib3 is a separate package
+          in its pip-install layer.
+        upstream: >-
+          a pip release after 26.2.2 (pip main re-vendored urllib3 2.8.0 on
+          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
+          builds carry it.
+        expired_at: 2026-12-03
+      - id: CVE-2026-114613
+        purl: pkg:pypi/msgpack@1.1.2
+        layer: paketo-buildpacks/cpython/cpython
+        pkgPath: ""
+        statement: >-
+          msgpack vendored inside the pip that ships with CPython, used only
+          to serialise pip's own HTTP cache: a memory leak on malformed maps.
+          The image never runs pip, and no template application depends on
+          msgpack.
+        upstream: >-
+          a pip release after 26.2.2 (pip main re-vendored msgpack 1.2.4 on
+          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
+          builds carry it.
+        expired_at: 2026-12-03
+      - id: GHSA-6v7p-g79w-8964
+        purl: pkg:pypi/msgpack@1.1.2
+        layer: paketo-buildpacks/cpython/cpython
+        pkgPath: ""
+        statement: >-
+          msgpack vendored inside the pip that ships with CPython, used only
+          for pip's own HTTP cache: a crash when an Unpacker is reused after an
+          error. The image never runs pip.
+        upstream: >-
+          a pip release after 26.2.2 (pip main re-vendored msgpack 1.2.4 on
+          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
+          builds carry it.
+        expired_at: 2026-12-03
+      - id: CVE-2025-47273
+        purl: pkg:pypi/setuptools@70.3.0
+        layer: paketo-buildpacks/cpython/cpython
+        pkgPath: ""
+        statement: >-
+          setuptools 70.3.0 is how pip's SBOM names the pkg_resources module it
+          vendors. The advisory is a path traversal in setuptools'
+          PackageIndex, which pip does not vendor: the vulnerable code is not
+          in the image at all, and the image never runs pip.
+        upstream: >-
+          a pip release that re-vendors pkg_resources from setuptools 78.1.1 or
+          later (pip main still pins 70.3.0 on 2026-11-02), then a
+          paketo-buildpacks/cpython release whose CPython builds carry it.
+        expired_at: 2026-12-03
 ---
 # Image vulnerability scan.
 #
@@ -253,6 +423,25 @@ spec:
         R=/work/image.trivy.json
         DIGEST=$(jq -r '((.Metadata.RepoDigests // [])[0] // "") | sub("^.*@"; "")' "$R")
         printf '%s' "$DIGEST" > "$(results.digest.path)"
+        # Runtime-layer exceptions (class 3 of trivy-buildpack-exceptions,
+        # runtime-layers.yaml): build tools inside a runtime's launch layer that
+        # Trivy reports from an SBOM, with no file path, so its ignore file
+        # could only excuse them by package — the application's own copy
+        # included. Matched here by id, exact purl, the image's own CNB layer
+        # and path, and moved to ExperimentalModifiedFindings like any ignored
+        # finding: still in the report, counted as waived, attested. A file
+        # that cannot be read applies nothing, so the gate can only get
+        # stricter.
+        RL=/etc/trivy/runtime-layers.yaml
+        if [ -s "$RL" ]; then
+          if yq -o=json '.' "$RL" > /work/rl.json \
+             && jq --slurpfile rl /work/rl.json --argjson now "$(date +%s)" \
+                  -f /lib/adhar-scan/runtime-layer-exceptions.jq "$R" > /work/rl-applied.json; then
+            mv /work/rl-applied.json "$R"
+          else
+            echo "WARNING: runtime-layer exceptions could not be applied; none are in effect" >&2
+          fi
+        fi
         # Digest-scoped waivers (app-ci): only in waivers.json, because Trivy
         # cannot scope an ignore entry to a digest. Applied before judging, so
         # the verdict, the report and the OpenVEX all see them as waived.
@@ -274,6 +463,12 @@ spec:
           echo "findings that fail the gate ($(params.severity)$([ -n "$(params.licenseDeny)" ] && echo "; licences denied: $(params.licenseDeny)")):"
           jq -r -s --arg fail "$(params.severity)" --arg deny "$(params.licenseDeny)" -f /lib/adhar-scan/failing.jq "$R" | sort -u | head -200 || true
         fi
+        # And what was waived, by which rule: excused, never hidden.
+        jq -r -s -f /lib/adhar-scan/waived.jq "$R" 2>/dev/null | sort -u > /work/waived.txt || true
+        if [ -s /work/waived.txt ]; then
+          echo "waived — reported, not failing ($(wc -l < /work/waived.txt)):"
+          head -200 /work/waived.txt
+        fi
         if [ "$(workspaces.reports.bound)" = "true" ]; then
           OUT="$(workspaces.reports.path)/.git/adhar-scan"; mkdir -p "$OUT"
           cp "$R" /work/image.summary.json "$OUT/"
@@ -289,6 +484,7 @@ spec:
       volumeMounts:
         - {name: work, mountPath: /work}
         - {name: scan-lib, mountPath: /lib/adhar-scan, readOnly: true}
+        - {name: trivy-exceptions, mountPath: /etc/trivy, readOnly: true}
   volumes:
     - name: harbor-ca
       secret:

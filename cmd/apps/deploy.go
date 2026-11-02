@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -157,6 +158,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	note := fmt.Sprintf("Application %s deployed to namespace %s", appliedName, appliedNamespace)
+	if templateFlag != "" {
+		note = fmt.Sprintf("Application %s registered in project %s: its environments and promotion chain come from the project", appliedName, pavedRoadProject(projectFlag))
+	}
 	fmt.Println(helpers.CreateSuccess(note))
 
 	if waitForReady {
@@ -206,17 +210,103 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace,
 	}
 	logger.Info(fmt.Sprintf("▣ Committed %d files to %s", scaffolded.Files, scaffolded.CloneURL))
 
-	// Point the deploy at the repo just created. An explicit --path still wins:
-	// the template states where its manifests are, but the caller may be
-	// deploying a different overlay out of the same repo.
-	repoFlag = scaffolded.CloneURL
-	if sourcePathFlag == "" {
-		sourcePathFlag = scaffolded.ManifestPath
+	// Register the paved-road Application, the one the Console's Create wizard
+	// registers. Until 2026-11-03 this handed the repo to deployFromRepo, whose
+	// XR (namespace dev, selector feature=application/provider=local) selected
+	// application-local-argocd: one Argo CD app syncing deploy/ on main into
+	// dev, with no test/prod and no Kargo. The --namespace and --dest-* flags do
+	// not apply here: the project's environments decide where the app runs.
+	app := pavedRoadApplication(appName, projectFlag, scaffolded, sourcePathFlag, versionFlag)
+	if err := applyApplication(ctx, kubeconfigPath, app); err != nil {
+		if !strings.Contains(err.Error(), "parameters.type") {
+			return "", "", err
+		}
+		// A control plane whose XRD predates spec.parameters.type (or its
+		// `function` value) refuses the whole object; the Console retries
+		// without it and so does this. The labels still say what the app is.
+		unstructured.RemoveNestedField(app.Object, "spec", "parameters", "type")
+		if err := applyApplication(ctx, kubeconfigPath, app); err != nil {
+			return "", "", err
+		}
 	}
-	if versionFlag == "" {
-		versionFlag = "main"
+	return app.GetName(), app.GetNamespace(), nil
+}
+
+// pavedRoadApplication is the Application XR a template scaffold registers: the
+// same object as the Console's applicationManifest (apps/console/app/server/
+// control-plane.ts). It names no composition, so the XRD's default
+// (application-multienv) composes one Argo CD Application per environment of
+// the project, the Kargo Warehouse and the promotion Stages.
+func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path, revision string) *unstructured.Unstructured {
+	project = pavedRoadProject(project)
+	if path == "" {
+		path = s.ManifestPath
 	}
-	return deployFromRepo(ctx, kubeconfigPath, appName, namespace)
+	if revision == "" {
+		revision = "main"
+	}
+	labels := map[string]interface{}{
+		"adhar.io/managed-by":  "adhar-cli",
+		"adhar.io/project":     project,
+		"adhar.io/application": appName,
+		"adhar.io/scaffolded":  "true",
+	}
+	dashboard := s.TemplateLabels["adhar.io/dashboard-type"]
+	switch dashboard {
+	case "backend-jvm", "backend-generic", "frontend", "fullstack":
+		labels["adhar.io/dashboard-type"] = dashboard
+	default:
+		dashboard = ""
+	}
+	params := map[string]interface{}{
+		"project":     project,
+		"displayName": appName,
+		"source": map[string]interface{}{
+			"repoURL":        publicCloneURL(s.CloneURL),
+			"path":           path,
+			"targetRevision": revision,
+		},
+	}
+	// The Console's applicationTypeOf: a function template deploys a Function
+	// XR per environment, a browser app is `web`, anything else keeps the
+	// XRD's default (`service`).
+	if s.TemplateLabels["adhar.io/workload"] == "function" {
+		labels["adhar.io/workload"] = "function"
+		params["type"] = "function"
+	} else if dashboard == "frontend" || dashboard == "fullstack" {
+		params["type"] = "web"
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": helpers.XRGroup + "/" + helpers.XRVersion,
+		"kind":       "Application",
+		"metadata": map[string]interface{}{
+			"name":      appName,
+			"namespace": globals.AdharSystemNamespace,
+			"labels":    labels,
+		},
+		"spec": map[string]interface{}{"parameters": params},
+	}}
+}
+
+// pavedRoadProject is the project a scaffold lands in when none is named.
+func pavedRoadProject(project string) string {
+	if project == "" {
+		return "adhar"
+	}
+	return project
+}
+
+// publicCloneURL drops the scheme's default port, so the source reads like
+// the Console's (https://gitea.<domain>/<org>/<repo>.git).
+func publicCloneURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	if (u.Scheme == "https" && u.Port() == "443") || (u.Scheme == "http" && u.Port() == "80") {
+		u.Host = u.Hostname()
+	}
+	return u.String()
 }
 
 // parseTemplateParams turns repeated --param key=value flags into a map.

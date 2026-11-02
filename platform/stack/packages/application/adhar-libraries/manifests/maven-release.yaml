@@ -235,9 +235,12 @@ spec:
       # adhar-kit's parent pom enforces RequireJavaVersion [25,), so the build
       # image must ship JDK 25 (temurin-21 fails the maven-enforcer plugin).
       image: docker.io/library/maven:3.9-eclipse-temurin-25
-      # Cap the build so it cannot starve Nexus / the node; requests keep it schedulable.
+      # Cap the build so it cannot starve Nexus / the node; requests keep it
+      # schedulable. CPU is held to the 100m every CI step gets: the release's
+      # ReadWriteOnce workspace pins this pod to the node holding it (see the
+      # trivy step above). Up to its limit it still takes the node's idle cores.
       computeResources:
-        requests: {cpu: 500m, memory: 1Gi}
+        requests: {cpu: 100m, memory: 1Gi}
         limits: {cpu: "2", memory: 4Gi}
       env:
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}

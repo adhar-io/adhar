@@ -65,6 +65,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
 		civoConfig.PurgeOrphanedVolumes = true
 	}
+	civoConfig.KeepClusterVolumes = provider.KeepClusterVolumesRequested(config)
 
 	// Control-plane / worker split: top level first (environment
 	// clusterConfig values and the adhar-controlplane autoscaler's recorded worker
@@ -180,6 +181,10 @@ type Provider struct {
 	// Gateway's LoadBalancer never got an address. DigitalOcean's provider keeps the
 	// same field for the same reason.
 	token string
+
+	// volumeAPI, when set, replaces client for the volume step (volumes.go).
+	// Tests set it.
+	volumeAPI civoVolumeAPI
 }
 
 type Config struct {
@@ -217,6 +222,11 @@ type Config struct {
 	// volume looks identical whether its cluster is gone or is being rebuilt, so
 	// deleting one is the operator's call — `adhar down --purge-orphaned-volumes`.
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
+
+	// KeepClusterVolumes is set by `adhar down` (provider.KeepClusterVolumesOption):
+	// the cluster's volumes are left for its volume step, which lists them,
+	// asks, deletes and verifies.
+	KeepClusterVolumes bool `json:"keepClusterVolumes,omitempty"`
 }
 
 type FirewallRuleConfig struct {

@@ -8,6 +8,10 @@
 #   scan-waivers          (project namespace)  ─┐ merged with the buildpack
 #   scan-waivers-global   (adhar-system)        ─┘ exceptions into ONE ignore file
 #
+# (The buildpack exceptions' runtime-layers.yaml is not part of that file: the
+# image scan applies it itself, by layer, before any waiver — see
+# 30-scan-verify-pipeline.yaml and runtime-layer-exceptions.jq below.)
+#
 # Neither is shipped by this package: they are the Console's (Argo CD would
 # revert a reviewer's edit), and when none exists every value below falls back
 # to exactly what app-ci did before this file — enforce, HIGH,CRITICAL, fixed
@@ -247,6 +251,60 @@ data:
             | .ExperimentalModifiedFindings = ((.ExperimentalModifiedFindings // []) + $moved)
           end))
     end
+  runtime-layer-exceptions.jq: |
+    # Runtime-layer exceptions (trivy-buildpack-exceptions/runtime-layers.yaml,
+    # as JSON; see 30-scan-verify-pipeline.yaml, class 3). A build tool inside a
+    # runtime's LAUNCH layer that Trivy reports from an SBOM has no file path,
+    # so the ignore file could only excuse it by package. A finding moves to
+    # ExperimentalModifiedFindings — where Trivy puts what its ignore file
+    # suppressed — only when ALL of these hold:
+    #   its id is the entry's id;
+    #   its purl is the entry's purl, name AND version;
+    #   the layer holding it is the entry's layer, by the image's OWN
+    #     io.buildpacks.lifecycle.metadata label (DiffID -> <buildpack>/<layer>);
+    #   its PkgPath is the entry's pkgPath exactly ("" = no file of its own);
+    #   the entry's expired_at (YYYY-MM-DD) is still in the future.
+    # Everything else is left to be judged: the same package in the
+    # application's own layers, an expired or undated entry, an image without
+    # the label. Input: a Trivy image report. Args: --slurpfile rl <file as
+    # JSON>, --argjson now <epoch seconds>.
+    def day: if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+      then (. + "T00:00:00Z" | fromdateiso8601) else null end;
+    ((.Metadata.ImageConfig.config.Labels // {})["io.buildpacks.lifecycle.metadata"] // "") as $raw
+    | ((try ($raw | fromjson) catch null) // {}) as $lm
+    | ([ ($lm.buildpacks // [])[]? | select(type == "object") | .key as $bp
+         | (.layers // {}) | to_entries[] | select((.value.sha // "") != "")
+         | {key: .value.sha, value: "\($bp)/\(.key)"} ] | from_entries) as $layerOf
+    | [ (($rl[0] // {}).exceptions // [])[]? | select(type == "object")
+        | select((.id // "") != "" and (.purl // "") != "" and (.layer // "") != "")
+        | select((.expired_at | day) as $e | $e != null and $e > $now) ] as $E
+    | def hit: . as $f
+        | first($E[] | select(.id == $f.VulnerabilityID
+                              and .purl == ($f.PkgIdentifier.PURL // "")
+                              and .layer == ($layerOf[$f.Layer.DiffID // ""] // "")
+                              and (.pkgPath // "") == ($f.PkgPath // ""))) // null;
+      .Results |= ((. // []) | map(
+        [ (.Vulnerabilities // [])[] | hit as $w | select($w != null)
+          | {Type: "vulnerability", Status: "not_affected", Statement: $w.statement,
+             Source: "trivy-buildpack-exceptions/runtime-layers.yaml (\($w.layer); expires \($w.expired_at))",
+             Finding: .} ] as $moved
+        | if ($moved | length) == 0 then . else
+            .Vulnerabilities |= map(select(hit == null))
+            | .ExperimentalModifiedFindings = ((.ExperimentalModifiedFindings // []) + $moved)
+          end))
+  waived.jq: |
+    # The waived findings, one line each, for the step log: what Trivy's ignore
+    # file suppressed (buildpack exceptions and reviewed waivers), the
+    # runtime-layer exceptions and the digest-scoped waivers. Input: Trivy
+    # reports, slurped.
+    .[] | .Results[]? | .Target as $t
+    | (.ExperimentalModifiedFindings // [])[]
+    | (.Finding // {}) as $f
+    | [($f.Severity // "UNKNOWN"), (.Status // "waived"),
+       ($f.VulnerabilityID // $f.RuleID // $f.AVDID // $f.ID // $f.Name // "?"),
+       ((($f.PkgName // "") + " " + ($f.InstalledVersion // "")) | gsub("^\\s+|\\s+$"; "")),
+       $t, (.Source // "")]
+    | join("\t")
   findings.jq: |
     # The findings that fail the gate, as the Console's `scan-findings` result:
     # [{id, kind, pkg?, version?, fixed?, severity, target, origin}], most severe

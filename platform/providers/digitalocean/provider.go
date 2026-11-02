@@ -68,6 +68,10 @@ type Config struct {
 	// PurgeOrphanedVolumes extends cluster deletion to unattached pvc-* volumes
 	// in the region that no other cluster tag claims (pre-tagging leftovers).
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
+	// KeepClusterVolumes is set by `adhar down` (provider.KeepClusterVolumesOption):
+	// the cluster's CSI volumes are left for its volume step, which lists them,
+	// asks, deletes and verifies.
+	KeepClusterVolumes bool `json:"keepClusterVolumes,omitempty"`
 
 	// VPC Configuration
 	VPCUUID          string `json:"vpcUUID,omitempty"`          // Existing VPC UUID to use
@@ -295,6 +299,7 @@ func parseProviderConfig(configMap map[string]interface{}) (*Config, error) {
 	if purge, ok := configMap["purgeOrphanedVolumes"].(bool); ok && purge {
 		doConfig.PurgeOrphanedVolumes = true
 	}
+	doConfig.KeepClusterVolumes = provider.KeepClusterVolumesRequested(configMap)
 
 	// Parse basic configuration
 	if region, ok := configMap["region"].(string); ok {

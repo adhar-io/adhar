@@ -578,6 +578,22 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	}
 	opts.notify(PhaseClusterCreating)
 
+	// The id every block volume of THIS cluster will carry, generated and
+	// written down before the cluster exists: a volume tagged with an id the
+	// CLI never recorded is exactly as unattributable as an untagged one, so a
+	// state file that cannot be written stops the create while there is still
+	// nothing to clean up. Not for a provided cluster (the platform creates no
+	// volumes it owns there) or Kind (no cloud volumes at all). See
+	// volume_attribution.go.
+	if ClusterLifecycleIsOurs(clusterMode) && providerType != globals.CloudProviderKind {
+		inst, err := RecordClusterInstall(providerType, envConfig.ResolvedRegion, clusterName)
+		if err != nil {
+			return nil, fmt.Errorf("recording the install id of cluster %s before creating it: %w", clusterName, err)
+		}
+		spec.ClusterInstallID = inst.ID
+		logger.Debugf("Cluster '%s' install id: %s (%s on its volumes)", clusterName, inst.ID, ClusterIDTag)
+	}
+
 	cluster, err := prov.CreateCluster(ctx, spec)
 	if err != nil {
 		if ClusterModeIsProvided(clusterMode) {

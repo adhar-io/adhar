@@ -13,6 +13,7 @@ import (
 	"log"
 	"strings"
 
+	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -105,6 +106,13 @@ func volumeDisposition(v ec2types.Volume, clusterName string, purgeOrphans bool)
 		return volumeKeep, "still attached to an instance"
 	}
 	tags := tagMap(v.Tags)
+	// A volume carrying an install id is attributed EXACTLY, and only the
+	// teardown of the cluster with that id may remove it — through the volume
+	// step, which asks first and honours --keep-volumes. No name-based rule and
+	// no orphan purge may take it, whichever cluster it belongs to.
+	if id := tags[provider.ClusterIDTag]; id != "" {
+		return volumeKeep, "carries install id " + id + "; `adhar down` deletes it by that id"
+	}
 	mine, other := resourceBelongsToCluster(tags, clusterName)
 	if other && !mine {
 		return volumeKeep, "tagged for another Kubernetes cluster"
@@ -147,6 +155,11 @@ func (p *Provider) sweepOrphanedVolumes(ctx context.Context, clusterName string)
 		}
 		for _, v := range page.Volumes {
 			action, why := volumeDisposition(v, clusterName, p.config.PurgeOrphanedVolumes)
+			if action == volumeDelete && p.config.KeepClusterVolumes {
+				// `adhar down` owns this cluster's volumes: it lists them once the
+				// instances are gone and deletes them after asking.
+				continue
+			}
 			if action == volumeKeep {
 				if strings.Contains(why, "--purge-orphaned-volumes") {
 					kept++

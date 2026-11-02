@@ -120,6 +120,78 @@ func hostAntiAffinityOnly(p corev1.Pod) bool {
 	return true
 }
 
+// affinityAssistantPinGrace is how long a pod held next to a Tekton affinity
+// assistant may wait before it counts as demand for a new worker.
+//
+// Every TaskRun that mounts a CI run's ReadWriteOnce workspace carries a
+// REQUIRED pod affinity to the run's affinity assistant, so the scheduler
+// reports it as "1 Insufficient memory, N node(s) didn't match pod affinity
+// rules" when the assistant's node is full. "Insufficient memory" reads as
+// capacity, but a new worker hosts no assistant and the pod cannot go there:
+// counting it bought nodes nothing could use (the DigitalOcean CI runs of
+// 2026-11-01 sat pinned while workers were added). The tekton package's
+// affinity-assistant relocator moves the assistant to an existing node with
+// room within about two minutes, and the pinned pods follow. A pod still
+// waiting after this grace means no node had room — and then a new worker is
+// exactly where the relocator moves the assistant next.
+const affinityAssistantPinGrace = 4 * time.Minute
+
+// tektonAffinityAssistantLabel is the component label Tekton puts on every
+// affinity assistant and names in the pod affinity of the pods it pins.
+const tektonAffinityAssistantLabel = "app.kubernetes.io/component"
+
+// pinnedToAffinityAssistant reports whether the pod is REQUIRED to share a node
+// with a Tekton affinity assistant.
+func pinnedToAffinityAssistant(p corev1.Pod) bool {
+	if p.Spec.Affinity == nil || p.Spec.Affinity.PodAffinity == nil {
+		return false
+	}
+	for _, t := range p.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+		if t.LabelSelector != nil && t.LabelSelector.MatchLabels[tektonAffinityAssistantLabel] == "affinity-assistant" {
+			return true
+		}
+	}
+	return false
+}
+
+// pinnedToNamedNodes reports whether every required node-selector term of the
+// pod names its node by metadata.name — a DaemonSet pod, or an affinity
+// assistant the relocator pinned to the nodes with room. A node that does not
+// exist yet has a name none of them lists, so no scale-up can place the pod.
+func pinnedToNamedNodes(p corev1.Pod) bool {
+	if p.Spec.Affinity == nil || p.Spec.Affinity.NodeAffinity == nil ||
+		p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		return false
+	}
+	terms := p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if len(terms) == 0 {
+		return false
+	}
+	for _, t := range terms {
+		named := false
+		for _, f := range t.MatchFields {
+			if f.Key == "metadata.name" && f.Operator == corev1.NodeSelectorOpIn {
+				named = true
+			}
+		}
+		if !named {
+			return false
+		}
+	}
+	return true
+}
+
+// unschedulableSince is when the scheduler first reported the pod
+// unschedulable; zero when it has not (or did not say when).
+func unschedulableSince(p corev1.Pod) time.Time {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable {
+			return c.LastTransitionTime.Time
+		}
+	}
+	return time.Time{}
+}
+
 // Snapshot is everything a decision is made from. It is a plain value so the
 // policy can be exercised without a cluster.
 type Snapshot struct {
@@ -208,7 +280,7 @@ func Decide(s Snapshot) Decision {
 	}
 
 	// --- Scale up -----------------------------------------------------------
-	pending := pendingForCapacity(s.Pods, workers)
+	pending := pendingForCapacity(s.Pods, workers, s.Now)
 	d.PendingPods = len(pending)
 	if len(pending) > 0 {
 		// Any pending pod resets the idle clock: the cluster is not idle.
@@ -402,7 +474,7 @@ func utilization(workers []corev1.Node, pods []corev1.Pod) Utilization {
 
 // pendingForCapacity returns the names ("<ns>/<name>") of pods the scheduler
 // rejected for lack of room and that a new, identical worker could host.
-func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node) []string {
+func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node, now time.Time) []string {
 	var out []string
 	for _, p := range pods {
 		if p.Status.Phase != corev1.PodPending || p.Spec.NodeName != "" || p.DeletionTimestamp != nil {
@@ -422,8 +494,15 @@ func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node) []string {
 		}
 		// A pod pinned to labels no current worker carries will not fit the
 		// next worker either — new nodes join the group with the same labels.
-		if !placeableOnNewWorker(p, workers) {
+		if !placeableOnNewWorker(p, workers) || pinnedToNamedNodes(p) {
 			continue
+		}
+		// Held next to a CI run's affinity assistant: the relocator's to solve
+		// first (see affinityAssistantPinGrace).
+		if pinnedToAffinityAssistant(p) {
+			if since := unschedulableSince(p); !since.IsZero() && now.Sub(since) < affinityAssistantPinGrace {
+				continue
+			}
 		}
 		// A pod larger than a whole worker is never schedulable by adding one
 		// more of the same size; scaling up would burn money for nothing.

@@ -257,7 +257,7 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 		}
 	}
 
-	if err := p.installCloudIntegration(signer, primaryMaster.PublicIP, spec.Name); err != nil {
+	if err := p.installCloudIntegration(signer, primaryMaster.PublicIP, spec.Name, spec.ClusterInstallID); err != nil {
 		return err
 	}
 	log.Printf("● Kubernetes cluster setup complete!\n")

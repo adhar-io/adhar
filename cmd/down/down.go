@@ -55,8 +55,18 @@ var DownCmd = &cobra.Command{
 With no flags it tears down the local Kind cluster named '` + globals.DefaultClusterName + `'.
 
 Given a configuration file it tears down the CLOUD cluster that 'adhar up'
-created for that environment -- droplets/instances, volumes, load balancers,
-firewall, VPC and SSH key -- through the same provider that created them.
+created for that environment -- droplets/instances, load balancers, firewall,
+VPC and SSH key -- through the same provider that created them.
+
+Then it deals with the cluster's BLOCK VOLUMES, which outlive their instances:
+once the instances are gone it lists every volume tagged with the cluster's
+install id (id, size, PVC, created), asks, deletes them, and reads each one
+back until the cloud confirms it is gone. --yes/--force skips the question;
+--keep-volumes keeps them and prints how to delete them later. Re-running the
+same 'adhar down' after the cluster is gone finishes the job. Volumes from
+clusters created before volumes were tagged are offered only when nothing that
+could own them is left, and only after a confirmation typed at a terminal.
+A provided cluster (clusterMode: provided) loses nothing, volumes included.
 
 Pass --file (and --env) whenever the environment is not local. Without them
 this command only ever looks at Kind, which on a cloud environment deletes
@@ -76,8 +86,11 @@ Examples:
   # Tear down every environment in the file
   adhar down -f config.yaml
 
-  # Skip the confirmation prompt
-  adhar down -f config.yaml --env dev --force
+  # Skip the confirmation prompts (legacy volumes still need a terminal)
+  adhar down -f config.yaml --env dev --yes
+
+  # Delete the cluster but keep its block volumes (and their data)
+  adhar down -f config.yaml --env dev --keep-volumes
 
   # Also remove unattached pvc-* volumes left in the region
   adhar down -f config.yaml --env dev --purge-orphaned-volumes
@@ -85,6 +98,12 @@ Examples:
   # Show detailed information during tear down
   adhar down --verbose`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if keepVolumes && purgeVolumes {
+			// One says keep the volumes, the other says delete more of them.
+			fmt.Fprintln(os.Stderr, "Error: --keep-volumes and --purge-orphaned-volumes contradict each other; pass one of them")
+			os.Exit(2)
+		}
+
 		// Confirm BEFORE the TUI takes over the terminal: a cloud teardown
 		// destroys machines, volumes and load balancers that cost money and
 		// cannot be undone, and a full-screen spinner is no place to ask.
@@ -98,8 +117,9 @@ Examples:
 			// point at different accounts, and "are you sure?" is worth nothing if
 			// it does not say sure about WHAT, WHERE and under WHICH NAME. See
 			// confirm.go.
-			fmt.Println(RenderTeardownConfirmation(
-				buildTeardownPlan(downConfigFile, downEnv, downClusterName)))
+			plan := buildTeardownPlan(downConfigFile, downEnv, downClusterName)
+			plan.KeepVolumes = keepVolumes
+			fmt.Println(RenderTeardownConfirmation(plan))
 			fmt.Printf("\n  Type %s to proceed, anything else cancels: ",
 				helpers.HighlightStyle.Render("yes"))
 			var confirmation string
@@ -183,7 +203,15 @@ Examples:
 				fmt.Fprintf(os.Stderr, "\nProvider log:\n%s", out)
 			}
 		}
-		if code := teardownExitCode(final); code != 0 {
+		code := teardownExitCode(final)
+		// The volume step runs once the TUI has given the terminal back: it may
+		// have to ask, and it prints the exact list it asks about.
+		if m, ok := final.(downModel); ok && !m.quitting {
+			if !runVolumeStep(m.outcome.VolumeJobs) && code == 0 {
+				code = 1
+			}
+		}
+		if code != 0 {
 			os.Exit(code)
 		}
 	},
@@ -224,6 +252,7 @@ var (
 	downClusterName string
 	downEnv         string
 	purgeVolumes    bool
+	keepVolumes     bool
 )
 
 func init() {
@@ -237,7 +266,10 @@ func init() {
 	// environment-name scheme, so a cluster from before the rename is still found.
 	DownCmd.Flags().StringVar(&downClusterName, "name", "", "◈ Name of the cluster to tear down (default \""+globals.DefaultClusterName+"\"); must match 'adhar up --name'")
 	DownCmd.Flags().StringVar(&downEnv, "env", "", "Environment to tear down (defaults to every environment in --file)")
-	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompt")
+	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompts (the cluster's tagged volumes are deleted without asking; legacy volumes still need a terminal)")
+	DownCmd.Flags().BoolVarP(&forceDelete, "yes", "y", false, "Same as --force")
+	DownCmd.Flags().BoolVar(&keepVolumes, "keep-volumes", false,
+		"Keep the cluster's block volumes (and their data) instead of deleting them; prints how to delete them later")
 	DownCmd.Flags().BoolVar(&purgeImageCache, "purge-image-cache", false, "Also remove the local Kind image cache containers and volume (the next `adhar up` pulls everything from the internet again)")
 	DownCmd.Flags().BoolVar(&purgeVolumes, "purge-orphaned-volumes", false,
 		"Also delete unattached pvc-* block-storage volumes in the cluster's region that carry no other cluster's tag. "+
@@ -270,6 +302,10 @@ type teardownOutcome struct {
 	// PurgedVolumes counts orphaned volumes removed by --purge-orphaned-volumes,
 	// including sweeps that ran when no cluster was left to delete.
 	PurgedVolumes int
+	// VolumeJobs are the clusters whose block volumes the volume step handles
+	// once the teardown screen is done: every cluster deleted in this run, and
+	// every one that was already gone — its volumes may not be (volumes.go).
+	VolumeJobs []volumeJob
 }
 
 // downModel is the Bubble Tea model for the down command
@@ -844,10 +880,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		detail("→ No --env given; tearing down every environment in the file: %s", strings.Join(envNames, ", "))
 	}
 
-	providerOpts := map[string]interface{}{}
-	if purgeVolumes {
-		providerOpts["purgeOrphanedVolumes"] = true
-	}
+	providerOpts := teardownProviderOptions()
 
 	ctx := context.Background()
 	var failures []string
@@ -954,6 +987,14 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 				outcome.Absent = append(outcome.Absent, envName)
 				emit(logger.StatusMsg(fmt.Sprintf("Nothing to remove for '%s'", envName)))
 
+				// The cluster is gone; its volumes may not be — a teardown that
+				// kept them, or one from before volumes were tagged. The volume
+				// step looks, by the install ids recorded for these names.
+				outcome.VolumeJobs = append(outcome.VolumeJobs, volumeJob{
+					Env: envName, ProviderName: env.ResolvedProvider, Region: env.ResolvedRegion,
+					ClusterNames: candidates, ClusterMode: clusterModeOf(env),
+				})
+
 				// The cluster is gone, but its CSI volumes may not be — and they
 				// keep billing. Deleting the cluster is what USED to be the only
 				// way to reach the purge, which made the warning the teardown
@@ -1017,6 +1058,13 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		detail("  ● deleted %s", clusterName)
 		outcome.Deleted = append(outcome.Deleted, envName)
 		deletedClusters = append(deletedClusters, clusterName)
+		// Its block volumes are the volume step's: listed, confirmed, deleted
+		// and verified once this screen is done (volumes.go).
+		outcome.VolumeJobs = append(outcome.VolumeJobs, volumeJob{
+			Env: envName, ProviderName: found.ProviderName, Region: env.ResolvedRegion,
+			ClusterNames: []string{clusterName}, ClusterMode: clusterModeOf(env),
+			Provider: found.Provider, ProviderClusterID: found.Cluster.ID, ClusterDeleted: true,
+		})
 	}
 	// Reaches the UI before DoneMsg, so the final screen knows whether anything
 	// was actually removed.
@@ -1173,54 +1221,65 @@ func runTeardownPlain() {
 			if hint := teardownHint(m.Err); hint != "" {
 				fmt.Fprintf(os.Stderr, "%s\n", hint)
 			}
+			// Clusters that WERE deleted still leave volumes behind.
+			runVolumeStep(outcome.VolumeJobs)
 			os.Exit(1)
 		case logger.DoneMsg:
-			if downConfigFile != "" && len(outcome.Deleted) == 0 && len(outcome.Preserved) > 0 {
-				helpers.Printf("\nNothing was deleted, and nothing should have been: %s use clusterMode: provided.\n",
-					strings.Join(outcome.Preserved, ", "))
-				fmt.Printf("  The platform did not create those clusters, so it did not destroy them.\n")
-				fmt.Printf("  Remove the platform from a provided cluster with:\n")
-				fmt.Printf("    kubectl delete adharplatform --all -n %s\n", globals.AdharSystemNamespace)
-				return
+			printPlainOutcome(outcome)
+			if !runVolumeStep(outcome.VolumeJobs) {
+				os.Exit(1)
 			}
-			if downConfigFile != "" && len(outcome.Deleted) == 0 {
-				target := downEnv
-				if target == "" {
-					target = "every environment in " + downConfigFile
-				}
-				searched := "no provider could be searched"
-				if len(outcome.Searched) > 0 {
-					searched = "searched: " + strings.Join(outcome.Searched, ", ")
-				}
-				if outcome.PurgedVolumes > 0 {
-					// A sweep that removed volumes did real work; do not file it
-					// under "nothing was deleted".
-					helpers.Printf("\nRemoved %d orphaned volume(s). No cluster for %s remained to delete.\n",
-						outcome.PurgedVolumes, target)
-					return
-				}
-				helpers.Printf("\n! Nothing was deleted.\n")
-				fmt.Printf("  No cluster for %s was found in any provider that %s configures (%s).\n",
-					target, downConfigFile, searched)
-				fmt.Printf("  If that environment is running in a cloud, check that this file defines\n")
-				fmt.Printf("  that provider — a file configuring only `kind` can never see a cloud cluster.\n")
-				return
-			}
-			if len(outcome.Deleted) > 0 {
-				msg := "\nTeardown complete — removed: " + strings.Join(outcome.Deleted, ", ")
-				if outcome.PurgedVolumes > 0 {
-					msg += fmt.Sprintf(" (plus %d orphaned volume(s))", outcome.PurgedVolumes)
-				}
-				if len(outcome.Preserved) > 0 {
-					msg += "; left running (clusterMode: provided): " + strings.Join(outcome.Preserved, ", ")
-				}
-				helpers.Printf("%s\n", msg)
-				return
-			}
-			helpers.Printf("\nTeardown complete.\n")
 			return
 		}
 	}
+}
+
+// printPlainOutcome is the final summary of the plain (non-terminal) path.
+func printPlainOutcome(outcome teardownOutcome) {
+	if downConfigFile != "" && len(outcome.Deleted) == 0 && len(outcome.Preserved) > 0 {
+		helpers.Printf("\nNothing was deleted, and nothing should have been: %s use clusterMode: provided.\n",
+			strings.Join(outcome.Preserved, ", "))
+		fmt.Printf("  The platform did not create those clusters, so it did not destroy them.\n")
+		fmt.Printf("  Remove the platform from a provided cluster with:\n")
+		fmt.Printf("    kubectl delete adharplatform --all -n %s\n", globals.AdharSystemNamespace)
+		return
+	}
+	if downConfigFile != "" && len(outcome.Deleted) == 0 {
+		target := downEnv
+		if target == "" {
+			target = "every environment in " + downConfigFile
+		}
+		searched := "no provider could be searched"
+		if len(outcome.Searched) > 0 {
+			searched = "searched: " + strings.Join(outcome.Searched, ", ")
+		}
+		if outcome.PurgedVolumes > 0 {
+			// A sweep that removed volumes did real work; do not file it
+			// under "nothing was deleted".
+			helpers.Printf("\nRemoved %d orphaned volume(s). No cluster for %s remained to delete.\n",
+				outcome.PurgedVolumes, target)
+			return
+		}
+		helpers.Printf("\n! Nothing was deleted.\n")
+		fmt.Printf("  No cluster for %s was found in any provider that %s configures (%s).\n",
+			target, downConfigFile, searched)
+		fmt.Printf("  If that environment is running in a cloud, check that this file defines\n")
+		fmt.Printf("  that provider — a file configuring only `kind` can never see a cloud cluster.\n")
+		return
+	}
+	if len(outcome.Deleted) > 0 {
+		msg := "\nTeardown complete — removed: " + strings.Join(outcome.Deleted, ", ")
+		if outcome.PurgedVolumes > 0 {
+			msg += fmt.Sprintf(" (plus %d orphaned volume(s))", outcome.PurgedVolumes)
+		}
+		if len(outcome.Preserved) > 0 {
+			msg += "; left running (clusterMode: provided): " + strings.Join(outcome.Preserved, ", ")
+		}
+		helpers.Printf("%s\n", msg)
+		return
+	}
+	helpers.Printf("\nTeardown complete.\n")
+	return
 }
 
 // teardownLogCapture redirects the standard `log` package away from the

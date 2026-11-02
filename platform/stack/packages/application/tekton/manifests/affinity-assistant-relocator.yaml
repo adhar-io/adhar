@@ -1,0 +1,899 @@
+# Keeps a CI run startable when Tekton's affinity assistant lands on a node
+# that cannot fit the run's tasks.
+#
+# THE PROBLEM. A run's workspace is ONE ReadWriteOnce volume (StorageClass
+# adhar-ci), so Tekton gives the run an affinity assistant: a StatefulSet pod
+# requesting 50m/100Mi, and a REQUIRED pod affinity to it on every TaskRun pod
+# that mounts the workspace (feature-flags coschedule: workspaces). The tasks
+# can start on that one node only. The scheduler places the assistant by its
+# own tiny request and a weight-100 PREFERRED anti-affinity to every other
+# assistant, so N runs started together spread their assistants over N nodes
+# whether or not those nodes have room for the runs. Tekton never looks at the
+# assistant again once the run's first TaskRun exists (tektoncd/pipeline
+# v0.65.0 pipelinerun.go: createOrUpdateAffinityAssistantsAndPVCs runs only
+# while IsBeforeFirstTaskRun), and a new node cannot help a pinned pod: it
+# hosts no assistant. Measured:
+#   * DigitalOcean, 2026-11-01: eight runs scaffolded at once; the clone pod of
+#     app-ci-gateway-service-vvzcc Pending 38 min — "Insufficient memory" on the
+#     assistant's node workers-1, "8 node(s) didn't match pod affinity rules";
+#   * AWS, 2026-10-31: app-ci-transaction-service-vv97n's build sat
+#     ExceededNodeResources for 3 h (three 1 h attempts) on the assistant's
+#     node, 0.45 CPU free against a 500m request.
+# Reproduced offline with the real kube-scheduler and StatefulSet controller
+# (v1.36): the assistant of a fourth run went to the one node with no other
+# assistant — 342Mi free — and its 1Gi build waited there while two nodes
+# in the volume's zone had 3-6 GiB free.
+#
+# THE FIX: MOVE THE ASSISTANT, NOT THE RUN. When a pod pinned to an assistant
+# has been unschedulable for a capacity reason for GRACE_SECONDS, and no pod of
+# the run still uses the workspace on the assistant's node, this loop pins the
+# assistant's StatefulSet to the nodes with the most free requests that fit the
+# waiting pods (a required node affinity on metadata.name, respecting the
+# volume's zone, taints, cordons, readiness and CSI attach limits) and replaces
+# the assistant pod. The waiting pods follow it on the scheduler's next attempt,
+# and so does the volume: nothing of the run holds it on the old node. The run
+# keeps its name, its finished tasks and any open scan review. Guards: a
+# per-assistant cooldown, at most MAX_MOVES moves, and an assistant left waiting
+# on the nodes it was moved to is retargeted, or handed back to the scheduler.
+# Every move is an Event on the PipelineRun and annotations on the StatefulSet
+# (adhar.io/relocated-*).
+#
+# WHY NOT THE ALTERNATIVES:
+#   * smaller requests: the pod stuck on DigitalOcean was a 64Mi clone; any
+#     request can be pinned to a node with less, and memory requests cannot
+#     drop below the measured working set (eviction, see the build step of
+#     buildpacks-build in adhar-supply-chain's 60-build-pipelines.yaml). CPU is
+#     already held to 100m (TestCIStepsFitTheNodeTheirWorkspacePinsThemTo);
+#   * a Kyverno-mutated reservation on the assistant: its pod's request is
+#     never the tasks' — they request their own again on the same node, so the
+#     node must hold the run twice, ~1-2 GiB idle per run for its whole life
+#     (up to a day while a scan review waits), and it still guarantees nothing
+#     once the assistant has taken its share;
+#   * re-creating a stuck PipelineRun elsewhere: loses its finished tasks, its
+#     name (Console links, scan reviews) and duplicates its workspace;
+#   * no shared workspace: ten tasks hand files to each other through it
+#     (scan reports, SBOM, policy, the checkout localise writes into);
+#   * Tekton knobs: coschedule pipelineruns/isolate-pipelinerun still pin to
+#     one node, `disabled` lets parallel tasks multi-attach an RWO volume, and
+#     default-affinity-assistant-pod-template carries no resources or affinity.
+#
+# THE NODE AUTOSCALER waits affinityAssistantPinGrace (4 min) before it counts a
+# pinned pod as demand for a worker: until then this loop moves the assistant to
+# a node that already has room; after it, no node had room, and the new worker
+# is where the assistant goes next.
+#
+# PERMISSIONS: read nodes, pods, volumes and CSINodes cluster-wide (to know
+# where there is room); in adhar-system only, patch StatefulSets and delete
+# pods (only Tekton's assistants are touched: the script checks the
+# affinity-assistant component label and the PipelineRun owner) and create
+# Events. Same image as the tekton-pruner.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-affinity-relocator
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-affinity-relocator
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - {apiGroups: [""], resources: [nodes, pods, persistentvolumes], verbs: [get, list]}
+  - {apiGroups: [storage.k8s.io], resources: [csinodes], verbs: [get, list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-affinity-relocator
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tekton-affinity-relocator}
+subjects: [{kind: ServiceAccount, name: tekton-affinity-relocator, namespace: adhar-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-affinity-relocator
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - {apiGroups: [apps], resources: [statefulsets], verbs: [get, patch]}
+  - {apiGroups: [""], resources: [pods], verbs: [delete]}
+  - {apiGroups: [""], resources: [persistentvolumeclaims], verbs: [get]}
+  - {apiGroups: [""], resources: [events], verbs: [create]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-affinity-relocator
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tekton-affinity-relocator}
+subjects: [{kind: ServiceAccount, name: tekton-affinity-relocator, namespace: adhar-system}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tekton-affinity-relocator
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+data:
+  relocate.py: |
+    #!/usr/bin/env python3
+    """Move a Tekton affinity assistant whose node cannot fit its run's next task.
+
+    Every TaskRun that mounts a run's ReadWriteOnce workspace carries a REQUIRED
+    pod affinity to that run's affinity assistant, so it can only start on the
+    node the assistant landed on. When that node is full the task waits there
+    ("Insufficient memory" on the assistant's node, "didn't match pod affinity
+    rules" on every other one) and no new node can help it. Tekton never revisits
+    an assistant once the run's first TaskRun exists. This loop does: when a pod
+    pinned to an assistant has been unschedulable for GRACE_SECONDS for a reason
+    another node cures, and no pod of the run holds the workspace on the
+    assistant's node, it pins the assistant's StatefulSet to the nodes with the
+    most free requests that fit the waiting pods and the assistant, and replaces
+    the assistant pod. The waiting pods follow it, and so does the volume: no pod
+    of the run uses it on the old node any more.
+
+    Only StatefulSets Tekton created for an affinity assistant are touched, and
+    only their node affinity and adhar.io/ annotations. --once runs one pass.
+    """
+
+    import copy
+    import datetime as dt
+    import json
+    import math
+    import os
+    import re
+    import subprocess
+    import sys
+    import time
+    import traceback
+    from fractions import Fraction
+
+    COMPONENT = "app.kubernetes.io/component"
+    INSTANCE = "app.kubernetes.io/instance"
+    ASSISTANT = "affinity-assistant"
+    RUN_LABEL = "tekton.dev/pipelineRun"
+
+    # Kept on the assistant's StatefulSet, so a restarted loop carries on.
+    A_MOVES = "adhar.io/relocations"
+    A_AT = "adhar.io/relocated-at"
+    A_FROM = "adhar.io/relocated-from"
+    A_TO = "adhar.io/relocated-to"
+    A_ORIG = "adhar.io/relocation-original-node-affinity"
+    A_NOTE = "adhar.io/relocation-note"
+
+    # The scheduler's words for "this node has no room for the pod" and "this node
+    # takes no new pods": why a pinned pod waits on the assistant's node that
+    # another node cures. A pod still waiting for its assistant to be placed reads
+    # only "didn't match pod affinity rules", which is none of these.
+    STUCK_MARKERS = ("insufficient ", "too many pods", "untolerated taint", "were unschedulable")
+
+
+    def env_int(name, default):
+        try:
+            return int(os.environ.get(name, default))
+        except ValueError:
+            return default
+
+
+    NAMESPACE = os.environ.get("NAMESPACE", "adhar-system")
+    GRACE = env_int("GRACE_SECONDS", 60)
+    COOLDOWN = env_int("COOLDOWN_SECONDS", 180)
+    MAX_MOVES = env_int("MAX_MOVES", 3)
+    CANDIDATES = env_int("CANDIDATES", 3)
+    INTERVAL = env_int("INTERVAL_SECONDS", 20)
+    MOVES_PER_PASS = env_int("MOVES_PER_PASS", 5)
+    SETTLE = env_int("SETTLE_SECONDS", 30)
+
+
+    class KubectlError(Exception):
+        pass
+
+
+    class NotFound(KubectlError):
+        pass
+
+
+    def log(msg):
+        print(f"{dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} {msg}", flush=True)
+
+
+    _said = {}
+
+
+    def say_once(key, msg):
+        """Log a waiting state when it changes, not on every pass."""
+        if _said.get(key) != msg:
+            _said[key] = msg
+            log(msg)
+
+
+    def kubectl(*args, stdin=None):
+        p = subprocess.run(["kubectl", *args], input=stdin, capture_output=True, text=True, timeout=90)
+        if p.returncode != 0:
+            err = (p.stderr or p.stdout).strip()
+            if "NotFound" in err or "not found" in err:
+                raise NotFound(err[:300])
+            raise KubectlError(f"kubectl {' '.join(args[:4])}: {err[:300]}")
+        return p.stdout
+
+
+    def get_json(*args):
+        return json.loads(kubectl(*args, "-o", "json"))
+
+
+    # ── quantities ───────────────────────────────────────────────────────────────
+    _SUFFIX = {
+        "Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "Ti": 2**40, "Pi": 2**50, "Ei": 2**60,
+        "n": Fraction(1, 10**9), "u": Fraction(1, 10**6), "m": Fraction(1, 1000),
+        "k": 10**3, "M": 10**6, "G": 10**9, "T": 10**12, "P": 10**15, "E": 10**18,
+    }
+    _QUANTITY = re.compile(r"^([+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+))(?:([eE][+-]?[0-9]+)|(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E))?$")
+
+
+    def milli(q):
+        """A Kubernetes quantity in thousandths of its unit, rounded up:
+        cpu "100m" -> 100, memory "1Ki" -> 1024000, pods "110" -> 110000."""
+        if q is None:
+            return 0
+        m = _QUANTITY.match(str(q).strip())
+        if not m:
+            raise ValueError(f"not a Kubernetes quantity: {q!r}")
+        v = Fraction(m.group(1))
+        if m.group(2):
+            v *= Fraction(10) ** int(m.group(2)[1:])
+        elif m.group(3):
+            v *= _SUFFIX[m.group(3)]
+        return math.ceil(v * 1000)
+
+
+    HEADROOM = {"cpu": milli(os.environ.get("HEADROOM_CPU", "50m")),
+                "memory": milli(os.environ.get("HEADROOM_MEMORY", "128Mi"))}
+
+
+    def fmt(res):
+        out = []
+        if "cpu" in res:
+            out.append(f"cpu={res['cpu']}m")
+        if "memory" in res:
+            out.append(f"memory={math.ceil(res['memory'] / 1000 / 2**20)}Mi")
+        return " ".join(out)
+
+
+    def add(a, b):
+        for k, v in b.items():
+            a[k] = a.get(k, 0) + v
+
+
+    def maxin(a, b):
+        for k, v in b.items():
+            a[k] = max(a.get(k, 0), v)
+
+
+    def requests_of(c):
+        r = ((c.get("resources") or {}).get("requests")) or {}
+        return {k: milli(v) for k, v in r.items()}
+
+
+    def pod_requests(pod):
+        """What the scheduler reserves for a pod: its containers and restartable
+        init containers summed, at least its largest init container, plus the pod
+        overhead; and one of the node's pod slots."""
+        spec = pod.get("spec") or {}
+        reqs = {}
+        for c in spec.get("containers") or []:
+            add(reqs, requests_of(c))
+        sidecars, init_max = {}, {}
+        for c in spec.get("initContainers") or []:
+            r = requests_of(c)
+            if c.get("restartPolicy") == "Always":
+                add(reqs, r)
+                add(sidecars, r)
+                maxin(init_max, sidecars)
+            else:
+                tmp = dict(r)
+                add(tmp, sidecars)
+                maxin(init_max, tmp)
+        maxin(reqs, init_max)
+        for k, v in (((spec.get("resources") or {}).get("requests")) or {}).items():
+            reqs[k] = milli(v)  # pod-level resources replace the container sum
+        add(reqs, {k: milli(v) for k, v in (spec.get("overhead") or {}).items()})
+        reqs["pods"] = reqs.get("pods", 0) + 1000
+        return reqs
+
+
+    # ── node constraints ─────────────────────────────────────────────────────────
+    def _matches(expr, present, value):
+        op, vals = expr.get("operator"), expr.get("values") or []
+        if op == "In":
+            return present and value in vals
+        if op == "NotIn":
+            return not present or value not in vals
+        if op == "Exists":
+            return present
+        if op == "DoesNotExist":
+            return not present
+        if op in ("Gt", "Lt"):
+            try:
+                return present and (int(value) > int(vals[0]) if op == "Gt" else int(value) < int(vals[0]))
+            except (ValueError, IndexError):
+                return False
+        return False
+
+
+    def term_matches(term, node):
+        """One NodeSelectorTerm: requirements ANDed; an empty term matches nothing."""
+        exprs = term.get("matchExpressions") or []
+        fields = term.get("matchFields") or []
+        if not exprs and not fields:
+            return False
+        labels = node["metadata"].get("labels") or {}
+        if not all(_matches(e, e.get("key") in labels, labels.get(e.get("key"))) for e in exprs):
+            return False
+        return all(_matches(f, f.get("key") == "metadata.name", node["metadata"]["name"]) for f in fields)
+
+
+    def terms_match(terms, node):
+        """NodeSelectorTerms are ORed."""
+        return any(term_matches(t, node) for t in terms)
+
+
+    def required_terms(node_affinity):
+        return (((node_affinity or {}).get("requiredDuringSchedulingIgnoredDuringExecution")) or {}).get("nodeSelectorTerms")
+
+
+    _OWN = object()
+
+
+    def selected(pod, node, node_affinity=_OWN):
+        """The pod's nodeSelector, and its REQUIRED node affinity (or the one given)."""
+        spec = pod.get("spec") or {}
+        labels = node["metadata"].get("labels") or {}
+        for k, v in (spec.get("nodeSelector") or {}).items():
+            if labels.get(k) != v:
+                return False
+        if node_affinity is _OWN:
+            node_affinity = (spec.get("affinity") or {}).get("nodeAffinity")
+        terms = required_terms(node_affinity)
+        return terms is None or terms_match(terms, node)
+
+
+    def tolerates(tolerations, taint):
+        for t in tolerations or []:
+            if t.get("effect") and t.get("effect") != taint.get("effect"):
+                continue
+            if (t.get("operator") or "Equal") == "Exists":
+                if not t.get("key") or t.get("key") == taint.get("key"):
+                    return True
+            elif t.get("key") == taint.get("key") and (t.get("value") or "") == (taint.get("value") or ""):
+                return True
+        return False
+
+
+    def tolerated(pod, node):
+        tols = (pod.get("spec") or {}).get("tolerations")
+        for taint in (node.get("spec") or {}).get("taints") or []:
+            if taint.get("effect") in ("NoSchedule", "NoExecute") and not tolerates(tols, taint):
+                return False
+        return True
+
+
+    def ready(node):
+        if (node.get("spec") or {}).get("unschedulable"):
+            return False
+        for c in (node.get("status") or {}).get("conditions") or []:
+            if c.get("type") == "Ready":
+                return c.get("status") == "True"
+        return False
+
+
+    def attach_full(node, csinode, driver):
+        """True when the node has no CSI attachment slot left for the driver."""
+        if not driver or not csinode:
+            return False
+        limit = None
+        for d in (csinode.get("spec") or {}).get("drivers") or []:
+            if d.get("name") == driver:
+                limit = (d.get("allocatable") or {}).get("count")
+        if limit is None:
+            return False
+        prefix = f"kubernetes.io/csi/{driver}^"
+        attached = sum(1 for v in (node.get("status") or {}).get("volumesAttached") or []
+                       if str(v.get("name", "")).startswith(prefix))
+        return attached >= int(limit)
+
+
+    # ── the run's pods ───────────────────────────────────────────────────────────
+    def pinned_to(pod):
+        """The affinity assistant a pod is REQUIRED to share a node with, or None."""
+        terms = ((((pod.get("spec") or {}).get("affinity") or {}).get("podAffinity") or {})
+                 .get("requiredDuringSchedulingIgnoredDuringExecution")) or []
+        for t in terms:
+            ml = ((t.get("labelSelector") or {}).get("matchLabels")) or {}
+            if ml.get(COMPONENT) == ASSISTANT and ml.get(INSTANCE):
+                return ml[INSTANCE]
+        return None
+
+
+    def parse_time(s):
+        if not s:
+            return None
+        return dt.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+
+
+    def iso(t):
+        return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+    def unschedulable(pod):
+        """(since, message) while the scheduler reports the pod unschedulable."""
+        for c in (pod.get("status") or {}).get("conditions") or []:
+            if c.get("type") == "PodScheduled" and c.get("status") == "False" and c.get("reason") == "Unschedulable":
+                return parse_time(c.get("lastTransitionTime")), c.get("message") or ""
+        return None, ""
+
+
+    def stuck(pod, now):
+        """True once an unplaced pod has waited GRACE_SECONDS for a reason another
+        node cures."""
+        if pod["spec"].get("nodeName") or pod["metadata"].get("deletionTimestamp"):
+            return False
+        since, msg = unschedulable(pod)
+        if since is None or not any(m in msg.lower() for m in STUCK_MARKERS):
+            return False
+        return (now - since).total_seconds() >= GRACE
+
+
+    def owner(obj, kind):
+        for o in obj["metadata"].get("ownerReferences") or []:
+            if o.get("kind") == kind:
+                return o
+        return None
+
+
+    def moves_of(ann):
+        try:
+            return int(ann.get(A_MOVES, "0"))
+        except ValueError:
+            return MAX_MOVES
+
+
+    # ── where it can go ──────────────────────────────────────────────────────────
+    class Cluster:
+        """Nodes and what is already reserved on them; read only when a move is
+        being planned, at most once per pass."""
+
+        def __init__(self):
+            self.nodes = get_json("get", "nodes")["items"]
+            pods = get_json("get", "pods", "-A", "--field-selector=status.phase!=Succeeded,status.phase!=Failed")["items"]
+            self.used = {}
+            for p in pods:
+                node = (p.get("spec") or {}).get("nodeName")
+                if node:
+                    add(self.used.setdefault(node, {}), pod_requests(p))
+            try:
+                self.csinodes = {c["metadata"]["name"]: c for c in get_json("get", "csinodes")["items"]}
+            except KubectlError as e:
+                log(f"cannot read CSINodes ({e}); attachment limits are not checked")
+                self.csinodes = {}
+
+        def free(self, node, keys):
+            alloc = {k: milli(v) for k, v in ((node.get("status") or {}).get("allocatable") or {}).items()}
+            used = self.used.get(node["metadata"]["name"], {})
+            return {k: alloc.get(k, 0) - used.get(k, 0) for k in keys}
+
+        def reserve(self, names, need):
+            # Pessimistic: the scheduler picks ONE of them, but a second run moved
+            # in the same pass must not count on room the first may take.
+            for n in names:
+                add(self.used.setdefault(n, {}), need)
+
+
+    def volume_constraints(aa):
+        """Node-affinity terms and CSI drivers of every volume the assistant
+        holds. Raises KubectlError when one cannot be read: without its PV the
+        volume's topology is unknown, and a guess could strand the run."""
+        terms, drivers = [], []
+        for v in aa["spec"].get("volumes") or []:
+            claim = (v.get("persistentVolumeClaim") or {}).get("claimName")
+            if not claim:
+                continue
+            pvc = get_json("get", "pvc", claim, "-n", NAMESPACE)
+            pv_name = (pvc.get("spec") or {}).get("volumeName")
+            if not pv_name:
+                raise KubectlError(f"claim {claim} is not bound")
+            spec = get_json("get", "pv", pv_name).get("spec") or {}
+            t = ((spec.get("nodeAffinity") or {}).get("required") or {}).get("nodeSelectorTerms")
+            if t:
+                terms.append(t)
+            if (spec.get("csi") or {}).get("driver"):
+                drivers.append(spec["csi"]["driver"])
+        return terms, drivers
+
+
+    def template_node_affinity(sts):
+        return ((sts["spec"]["template"]["spec"].get("affinity")) or {}).get("nodeAffinity")
+
+
+    def original_node_affinity(sts):
+        ann = sts["metadata"].get("annotations") or {}
+        if A_ORIG in ann:
+            return json.loads(ann[A_ORIG]) if ann[A_ORIG] else None
+        return copy.deepcopy(template_node_affinity(sts))
+
+
+    def pinned_affinity(original, names):
+        """The original node affinity narrowed to the named nodes: each original
+        required term (or none) ANDed with `metadata.name In [one name]`, once per
+        name. One name per term because the API server refuses a node field
+        selector with more than one value ("must be only one value when `operator`
+        is 'In' or 'NotIn' for node field selector"); the terms are ORed, so the
+        scheduler still chooses among all the names."""
+        na = copy.deepcopy(original) if original else {}
+        terms = []
+        for name in names:
+            for t in required_terms(na) or [{}]:
+                t = copy.deepcopy(t)
+                t["matchFields"] = list(t.get("matchFields") or []) + [
+                    {"key": "metadata.name", "operator": "In", "values": [name]}]
+                terms.append(t)
+        na["requiredDuringSchedulingIgnoredDuringExecution"] = {"nodeSelectorTerms": terms}
+        return na
+
+
+    def restored_affinity(original):
+        """A strategic-merge value that puts the original node affinity back."""
+        if not original:
+            return None
+        na = copy.deepcopy(original)
+        na.setdefault("requiredDuringSchedulingIgnoredDuringExecution", None)
+        return na
+
+
+    def find_targets(cluster, aa, followers, original, exclude):
+        """(targets, need, reason): the nodes with the most free requests that fit
+        the assistant and the pods that follow it, best first -- or why none do."""
+        vol_terms, drivers = volume_constraints(aa)
+        need = pod_requests(aa)
+        for p in followers:
+            add(need, pod_requests(p))
+        add(need, HEADROOM)
+        current = aa["spec"].get("nodeName")
+        reachable, ranked = 0, []
+        for n in cluster.nodes:
+            name = n["metadata"]["name"]
+            if name == current or not all(terms_match(t, n) for t in vol_terms):
+                continue
+            reachable += 1
+            if name in exclude or not ready(n) or not all(tolerated(p, n) for p in [aa, *followers]):
+                continue
+            if not selected(aa, n, original) or not all(selected(p, n) for p in followers):
+                continue
+            if any(attach_full(n, cluster.csinodes.get(name), d) for d in drivers):
+                continue
+            free = cluster.free(n, need)
+            if any(free[k] < need[k] for k in need):
+                continue
+            ranked.append((free.get("memory", 0) - need.get("memory", 0), free.get("cpu", 0) - need.get("cpu", 0), name))
+        if not ranked:
+            if reachable == 0:
+                return [], need, "its workspace volume cannot be attached to any other node (node-local storage, or no other node in its zone)"
+            return [], need, f"no other node has room for {fmt(need)}"
+        # Memory first: it is what cannot be shared once a node runs out, and what
+        # the CI steps request in earnest (their CPU requests are held small).
+        ranked.sort(key=lambda r: (-r[0], -r[1], r[2]))
+        return [r[2] for r in ranked[:CANDIDATES]], need, ""
+
+
+    # ── acting ───────────────────────────────────────────────────────────────────
+    def event(sts, reason, message, warning=False):
+        run = owner(sts, "PipelineRun")
+        if not run:
+            return
+        now = iso(dt.datetime.now(dt.timezone.utc))
+        ev = {
+            "apiVersion": "v1", "kind": "Event",
+            "metadata": {"generateName": f"{run['name']}.", "namespace": NAMESPACE},
+            "involvedObject": {"apiVersion": run.get("apiVersion", "tekton.dev/v1"), "kind": "PipelineRun",
+                               "name": run["name"], "namespace": NAMESPACE, "uid": run.get("uid", "")},
+            "reason": reason, "message": message[:1000], "type": "Warning" if warning else "Normal",
+            "source": {"component": "tekton-affinity-relocator"},
+            "firstTimestamp": now, "lastTimestamp": now, "count": 1,
+        }
+        try:
+            kubectl("create", "-f", "-", stdin=json.dumps(ev))
+        except KubectlError as e:
+            log(f"could not record an event on {run['name']}: {e}")
+
+
+    def note(sts, text):
+        """Say, once per distinct reason, why an assistant stays where it is."""
+        name = sts["metadata"]["name"]
+        if (sts["metadata"].get("annotations") or {}).get(A_NOTE) == text:
+            return
+        log(f"{name}: not moved: {text}")
+        patch = {"metadata": {"annotations": {A_NOTE: text}}}
+        try:
+            kubectl("patch", "statefulset", name, "-n", NAMESPACE, "--type", "merge", "-p", json.dumps(patch))
+        except KubectlError as e:
+            log(f"{name}: could not record why: {e}")
+        event(sts, "AffinityAssistantNotMoved", text, warning=True)
+
+
+    def replace_pod(sts_name, aa, targets):
+        """Make the old assistant pod go now. The StatefulSet controller rolls a
+        Running and Ready assistant onto the new template by itself, but with the
+        pod's 30 s grace period, and it never rolls one that is not Ready
+        (OrderedReady) -- and until the old pod is gone the volume cannot attach
+        to the new node. The assistant runs nothing, so it is deleted with a 1 s
+        grace period, after the controller has seen the new template, and only if
+        it is still the same pod: the UID precondition keeps a pod the controller
+        has just re-created under the same name from being the one deleted."""
+        pod_name, uid = aa["metadata"]["name"], aa["metadata"].get("uid")
+        deadline = time.monotonic() + SETTLE
+        while True:
+            sts = get_json("get", "statefulset", sts_name, "-n", NAMESPACE)
+            if ((sts.get("status") or {}).get("observedGeneration") or 0) >= (sts["metadata"].get("generation") or 0):
+                break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(2)
+        try:
+            cur = get_json("get", "pod", pod_name, "-n", NAMESPACE)
+        except NotFound:
+            return
+        if cur["metadata"].get("uid") != uid or (cur.get("spec") or {}).get("nodeName") in targets:
+            return
+        body = {"kind": "DeleteOptions", "apiVersion": "v1", "gracePeriodSeconds": 1, "preconditions": {"uid": uid}}
+        try:
+            kubectl("delete", "--raw", f"/api/v1/namespaces/{NAMESPACE}/pods/{pod_name}", "-f", "-", stdin=json.dumps(body))
+        except NotFound:
+            return
+        except KubectlError as e:
+            if "Conflict" not in str(e) and "precondition" not in str(e).lower():
+                raise
+
+
+    def move(sts, aa, followers, waiting, cluster, now, exclude=()):
+        name = sts["metadata"]["name"]
+        ann = sts["metadata"].get("annotations") or {}
+        original = original_node_affinity(sts)
+        try:
+            targets, need, why = find_targets(cluster, aa, followers, original, set(exclude))
+        except KubectlError as e:
+            log(f"{name}: cannot read its workspace volume ({e}); not moving it")
+            return False
+        if not targets:
+            if exclude and required_terms(template_node_affinity(sts)) != required_terms(original):
+                restore(sts, aa, now, f"none of {', '.join(exclude)} could take it and {why}")
+            else:
+                note(sts, f"{why}; {waiting} keeps waiting")
+            return False
+        current = aa["spec"].get("nodeName") or ""
+        moves = moves_of(ann) + 1
+        annotations = {A_MOVES: str(moves), A_AT: iso(now), A_FROM: current, A_TO: ",".join(targets), A_NOTE: None}
+        if A_ORIG not in ann:
+            annotations[A_ORIG] = json.dumps(original) if original else ""
+        patch = {"metadata": {"annotations": annotations},
+                 "spec": {"template": {"spec": {"affinity": {"nodeAffinity": pinned_affinity(original, targets)}}}}}
+        kubectl("patch", "statefulset", name, "-n", NAMESPACE, "--type", "strategic", "-p", json.dumps(patch))
+        cluster.reserve(targets, need)
+        msg = (f"moved the run's affinity assistant from {current or 'nowhere (it was waiting)'} to one of "
+               f"{', '.join(targets)} (most free requests first): {waiting} could not start next to it; "
+               f"with the assistant they need {fmt(need)} (move {moves} of at most {MAX_MOVES})")
+        log(f"{name}: {msg}")
+        replace_pod(name, aa, targets)
+        event(sts, "AffinityAssistantMoved", msg)
+        return True
+
+
+    def restore(sts, aa, now, why):
+        """Hand the assistant's placement back to the scheduler."""
+        name = sts["metadata"]["name"]
+        ann = sts["metadata"].get("annotations") or {}
+        patch = {"metadata": {"annotations": {A_MOVES: str(moves_of(ann) + 1), A_AT: iso(now), A_TO: None}},
+                 "spec": {"template": {"spec": {"affinity": {"nodeAffinity": restored_affinity(original_node_affinity(sts))}}}}}
+        kubectl("patch", "statefulset", name, "-n", NAMESPACE, "--type", "strategic", "-p", json.dumps(patch))
+        log(f"{name}: gave its placement back to the scheduler: {why}")
+        replace_pod(name, aa, [])
+        event(sts, "AffinityAssistantRestored", f"gave the assistant's placement back to the scheduler: {why}", warning=True)
+
+
+    def assistant_statefulset(aa):
+        ref = owner(aa, "StatefulSet")
+        if not ref or not ref.get("name", "").startswith(ASSISTANT + "-"):
+            return None
+        sts = get_json("get", "statefulset", ref["name"], "-n", NAMESPACE)
+        if (sts["metadata"].get("labels") or {}).get(COMPONENT) != ASSISTANT or not owner(sts, "PipelineRun"):
+            return None  # never touch a StatefulSet Tekton did not create for an assistant
+        return sts
+
+
+    def consider(inst, aa, mine, state, now):
+        """One assistant. Returns True when it was moved."""
+        if aa["metadata"].get("deletionTimestamp"):
+            return False
+        node = aa["spec"].get("nodeName")
+        followers = [p for p in mine if not p["spec"].get("nodeName")]
+        if node:
+            waits = [p for p in followers if stuck(p, now)]
+            if not waits:
+                return False
+            holders = [p["metadata"]["name"] for p in mine if p["spec"].get("nodeName")]
+            waiting = ", ".join(p["metadata"]["name"] for p in waits)
+            if holders:
+                say_once(inst, f"{inst}: {waiting} waits on {node}, but {', '.join(holders)} still uses the workspace there; not moving it yet")
+                return False
+        else:
+            since, _ = unschedulable(aa)
+            if since is None or (now - since).total_seconds() < GRACE:
+                return False
+            waiting = aa["metadata"]["name"]
+        sts = assistant_statefulset(aa)
+        if sts is None:
+            return False
+        ann = sts["metadata"].get("annotations") or {}
+        exclude = ()
+        if not node:
+            # A waiting assistant is only this loop's business when this loop
+            # pinned it somewhere: otherwise the cluster is out of room, which is
+            # the node autoscaler's signal, not ours.
+            if not ann.get(A_TO):
+                return False
+            exclude = tuple(x for x in ann[A_TO].split(",") if x)
+        last = parse_time(ann.get(A_AT))
+        if last and (now - last).total_seconds() < (COOLDOWN if node else GRACE):
+            return False
+        if moves_of(ann) >= MAX_MOVES:
+            if node:
+                note(sts, f"already moved {moves_of(ann)} times; {waiting} keeps waiting on {node}")
+            elif required_terms(template_node_affinity(sts)) != required_terms(original_node_affinity(sts)):
+                restore(sts, aa, now, f"moved {moves_of(ann)} times without finding a node that takes it")
+            return False
+        if state.get("cluster") is None:
+            state["cluster"] = Cluster()
+        return move(sts, aa, followers, waiting, state["cluster"], now, exclude)
+
+
+    def run_pass(now):
+        pods = get_json("get", "pods", "-n", NAMESPACE, "-l", RUN_LABEL,
+                        "--field-selector=status.phase!=Succeeded,status.phase!=Failed")["items"]
+        assistants, pinned = {}, {}
+        for p in pods:
+            p.setdefault("spec", {})
+            labels = p["metadata"].get("labels") or {}
+            if labels.get(COMPONENT) == ASSISTANT and labels.get(INSTANCE):
+                assistants[labels[INSTANCE]] = p
+            elif pinned_to(p):
+                pinned.setdefault(pinned_to(p), []).append(p)
+        state, moved = {}, 0
+        for inst in sorted(assistants):
+            if moved >= MOVES_PER_PASS:
+                break
+            try:
+                if consider(inst, assistants[inst], pinned.get(inst, []), state, now):
+                    moved += 1
+            except KubectlError as e:
+                # One run finishing (Tekton deletes its assistant) or one refused
+                # call must not stop the others being looked at.
+                log(f"{inst}: skipped this pass: {e}")
+
+
+    def script_signature():
+        try:
+            st = os.stat(os.path.abspath(__file__))
+            return (st.st_ino, st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+
+    def main(argv):
+        once = "--once" in argv
+        log(f"watching affinity assistants in {NAMESPACE}: grace {GRACE}s, cooldown {COOLDOWN}s, at most {MAX_MOVES} moves each")
+        started = script_signature()
+        while True:
+            now = parse_time(os.environ["NOW"]) if os.environ.get("NOW") else dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+            try:
+                run_pass(now)
+            except KubectlError as e:
+                log(f"pass skipped: {e}")
+            except Exception:  # never crash-loop on one odd object; say what it was
+                log("pass failed:\n" + traceback.format_exc())
+                if once:
+                    return 1
+            if once:
+                return 0
+            time.sleep(INTERVAL)
+            # The script is a mounted ConfigMap: when a sync changes it, carry on
+            # as the new version rather than run the old one until the pod dies.
+            now_sig = script_signature()
+            if now_sig is not None and now_sig != started:
+                log("the script changed; continuing with the new version")
+                os.execv(sys.executable, [sys.executable, "-I", os.path.abspath(__file__), *argv])
+
+
+    if __name__ == "__main__":
+        sys.exit(main(sys.argv[1:]))
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-affinity-relocator
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tekton-affinity-relocator
+    app.kubernetes.io/part-of: tekton
+    adhar.io/component: application
+    adhar.io/plane: control
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+spec:
+  replicas: 1
+  # One loop at a time: two would race to move the same assistant.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: tekton-affinity-relocator}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tekton-affinity-relocator
+        app.kubernetes.io/part-of: tekton
+        adhar.io/component: application
+        adhar.io/plane: control
+    spec:
+      serviceAccountName: tekton-affinity-relocator
+      enableServiceLinks: false
+      # It must run when the workers are full — that is when it is needed —
+      # so, like the controller manager, it tolerates and prefers the control
+      # plane the platform keeps half-empty. A preference, never a requirement:
+      # a managed cluster has no control-plane node.
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions: [{key: node-role.kubernetes.io/control-plane, operator: Exists}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: relocate
+          image: docker.io/alpine/k8s:1.31.0
+          command: [python3, -I, /scripts/relocate.py]
+          env:
+            - {name: NAMESPACE, value: adhar-system}
+            # A pinned pod must have waited this long before its assistant
+            # moves: long enough to ride out a pod that is about to free room.
+            - {name: GRACE_SECONDS, value: "60"}
+            # Between two moves of one assistant: the volume detaches and
+            # re-attaches, and the waiting pods get their chance.
+            - {name: COOLDOWN_SECONDS, value: "180"}
+            - {name: MAX_MOVES, value: "3"}
+            - {name: INTERVAL_SECONDS, value: "20"}
+            # Room left on the new node beyond what the waiting pods request.
+            - {name: HEADROOM_MEMORY, value: 128Mi}
+            - {name: HEADROOM_CPU, value: 50m}
+            # kubectl's discovery cache.
+            - {name: HOME, value: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: script, mountPath: /scripts, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: script
+          configMap: {name: tekton-affinity-relocator}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}

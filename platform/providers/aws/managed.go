@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -306,10 +307,18 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 
 	// The EBS CSI driver as an EKS addon: the node role carries
 	// AmazonEBSCSIDriverPolicy, so no IRSA wiring is needed for it to work.
-	if _, err := p.eksClient.CreateAddon(ctx, &eks.CreateAddonInput{
+	// Configured with the cluster's install id as an extra volume tag, exactly
+	// as the compute path's chart is, so `adhar down` can attribute an EKS
+	// cluster's volumes too (the addon's schema accepts
+	// controller.extraVolumeTags; verified against v1.67.2-eksbuild.1).
+	addon := &eks.CreateAddonInput{
 		ClusterName: aws.String(name), AddonName: aws.String("aws-ebs-csi-driver"),
 		ResolveConflicts: ekstypes.ResolveConflictsOverwrite,
-	}); err != nil {
+	}
+	if values := eksEBSAddonConfiguration(spec.ClusterInstallID); values != "" {
+		addon.ConfigurationValues = aws.String(values)
+	}
+	if _, err := p.eksClient.CreateAddon(ctx, addon); err != nil {
 		var inUse *ekstypes.ResourceInUseException
 		if !errors.As(err, &inUse) {
 			log.Printf("Warning: EBS CSI addon: %v", err)
@@ -320,6 +329,23 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 	cluster.Tags = spec.Tags
 	log.Printf("● EKS cluster %s is ACTIVE at %s\n", name, cluster.Endpoint)
 	return cluster, nil
+}
+
+// eksEBSAddonConfiguration is the EBS CSI addon's configuration: the install
+// id as an extra tag on every volume it creates. Empty when there is no id.
+func eksEBSAddonConfiguration(installID string) string {
+	if installID == "" {
+		return ""
+	}
+	b, err := json.Marshal(map[string]any{
+		"controller": map[string]any{
+			"extraVolumeTags": map[string]string{provider.ClusterIDTag: installID},
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // ensureEKSNodegroup creates a managed node group when it does not exist and

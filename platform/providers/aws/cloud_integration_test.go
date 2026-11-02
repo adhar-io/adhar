@@ -7,7 +7,7 @@ import (
 
 func TestCloudIntegrationStepsInstallCCMAndEBSCSIWithStaticCreds(t *testing.T) {
 	p := &Provider{config: &Config{Region: "us-east-1", AccessKeyID: "AKIA", SecretAccessKey: "secret"}}
-	steps := p.cloudIntegrationSteps("dev")
+	steps := p.cloudIntegrationSteps("dev", "")
 	joined := ""
 	for _, s := range steps {
 		joined += s.Desc + "\n" + s.Cmd + "\n"
@@ -30,7 +30,7 @@ func TestCloudIntegrationStepsInstallCCMAndEBSCSIWithStaticCreds(t *testing.T) {
 
 func TestCloudIntegrationStepsSkipSecretWithInstanceProfile(t *testing.T) {
 	p := &Provider{config: &Config{Region: "us-east-1", UseInstanceProfile: true}}
-	for _, s := range p.cloudIntegrationSteps("dev") {
+	for _, s := range p.cloudIntegrationSteps("dev", "") {
 		if strings.Contains(s.Cmd, "aws-secret") {
 			t.Fatalf("instance-profile clusters must not write a static credential: %s", s.Desc)
 		}

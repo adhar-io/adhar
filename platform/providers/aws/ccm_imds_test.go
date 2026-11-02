@@ -33,7 +33,7 @@ func TestCCMRunsOnTheHostNetwork(t *testing.T) {
 	// schema, so it fails the whole bring-up with
 	// "Additional property hostNetworking is not allowed".
 	var ccmCmd, csiCmd string
-	for _, step := range p.cloudIntegrationSteps("dev") {
+	for _, step := range p.cloudIntegrationSteps("dev", "") {
 		switch {
 		case strings.Contains(step.Desc, "cloud-controller-manager"):
 			ccmCmd = step.Cmd
@@ -69,7 +69,7 @@ func TestCCMGetsCredentialsWhenOnlyTheChainHasThem(t *testing.T) {
 		Region: "ap-southeast-1", AccessKeyID: "AKIASTATIC", SecretAccessKey: "staticsecret",
 	}}
 	joined := ""
-	for _, s := range withStatic.cloudIntegrationSteps("dev") {
+	for _, s := range withStatic.cloudIntegrationSteps("dev", "") {
 		joined += s.Cmd + "\n"
 	}
 	if !strings.Contains(joined, "aws-secret") {
@@ -95,7 +95,7 @@ func TestCCMGetsCredentialsWhenOnlyTheChainHasThem(t *testing.T) {
 	// An instance profile means the components use it; no Secret should be made.
 	withProfile := &Provider{config: &Config{Region: "ap-southeast-1", UseInstanceProfile: true}}
 	joined = ""
-	for _, s := range withProfile.cloudIntegrationSteps("dev") {
+	for _, s := range withProfile.cloudIntegrationSteps("dev", "") {
 		joined += s.Cmd + "\n"
 	}
 	if strings.Contains(joined, "create secret generic aws-secret") {
@@ -108,7 +108,7 @@ func TestCCMGetsCredentialsWhenOnlyTheChainHasThem(t *testing.T) {
 func TestAWSBlockClassIsNotDefault(t *testing.T) {
 	p := &Provider{config: &Config{Region: "ap-southeast-1"}}
 	joined := ""
-	for _, s := range p.cloudIntegrationSteps("dev") {
+	for _, s := range p.cloudIntegrationSteps("dev", "") {
 		joined += s.Cmd + "\n"
 	}
 	if !strings.Contains(joined, "provisioner: rancher.io/local-path") {

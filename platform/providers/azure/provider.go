@@ -99,6 +99,7 @@ func init() {
 		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
 			providerConfig.PurgeOrphanedVolumes = true
 		}
+		providerConfig.KeepClusterVolumes = provider.KeepClusterVolumesRequested(config)
 
 		return NewProvider(providerConfig)
 	})
@@ -189,7 +190,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 			// looking for a bug in the setting that actually works.
 			"clientId", "clientSecret", "clientSecretFile", "tenantId",
 			"credentials_file", "certificatePath", "useManagedIdentity", "useAzureCLI",
-			"useEnvironment", "clusterMode", "purgeOrphanedVolumes",
+			"useEnvironment", "clusterMode", "purgeOrphanedVolumes", provider.KeepClusterVolumesOption,
 			"type", "primary"} {
 			known[normaliseKey(k)] = true
 		}
@@ -591,6 +592,10 @@ type Provider struct {
 	// Microsoft.Compute unregistered, and the resulting failure names
 	// MissingSubscriptionRegistration rather than the VM it refused to create.
 	providersClient *armresources.ProvidersClient
+
+	// volumeAPI, when set, replaces the disk and VM clients for the volume step
+	// (volumes.go). Tests set it.
+	volumeAPI azureVolumeAPI
 }
 
 // Config holds Azure provider configuration for manual clusters
@@ -643,6 +648,12 @@ type Config struct {
 	// identical whether its cluster is gone or is being rebuilt, so deleting one
 	// is the operator's call — `adhar down --purge-orphaned-volumes`.
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
+
+	// KeepClusterVolumes is set by `adhar down` (provider.KeepClusterVolumesOption):
+	// the cluster's CSI disks are left for the teardown's volume step, which asks
+	// before deleting them — so a resource group holding them is not deleted
+	// wholesale until they are gone (AfterClusterVolumes).
+	KeepClusterVolumes bool `json:"keepClusterVolumes,omitempty"`
 }
 
 // NewProvider creates a new Azure provider instance for manual Kubernetes clusters
@@ -1090,7 +1101,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		}
 	}
 	if tracker := p.resourceTrackers[cluster.ID]; tracker != nil && len(tracker.VirtualNetworks) > 0 && len(tracker.Subnets) > 0 && len(tracker.NetworkSecurityGroups) > 0 {
-		if err := p.installCloudIntegration(signer, master.PublicIP, spec.Name, tracker.ResourceGroup, tracker.VirtualNetworks[0], tracker.Subnets[0], tracker.NetworkSecurityGroups[0]); err != nil {
+		if err := p.installCloudIntegration(signer, master.PublicIP, spec.Name, tracker.ResourceGroup, tracker.VirtualNetworks[0], tracker.Subnets[0], tracker.NetworkSecurityGroups[0], spec.ClusterInstallID); err != nil {
 			return nil, err
 		}
 	} else {
@@ -1812,7 +1823,11 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 			}
 		}
 
-		if managedByAdhar {
+		holdsVolumes := false
+		if managedByAdhar && p.config.KeepClusterVolumes {
+			holdsVolumes = p.groupHoldsPersistentVolumeDisks(ctx, resourceGroupName)
+		}
+		if deleteWholeResourceGroup(managedByAdhar, p.config.KeepClusterVolumes, holdsVolumes) {
 			// Delete the entire resource group (this deletes all contained resources)
 			poller, err := p.resourceGroupClient.BeginDelete(ctx, resourceGroupName, nil)
 			if err != nil {
@@ -1830,7 +1845,16 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 			// inside it must still go, or `adhar down` leaves running VMs, a
 			// billing load balancer and every CSI disk behind and says nothing but
 			// "manual cleanup required".
-			log.Printf("Resource group %s was not created by Adhar; deleting only this cluster's resources within it", resourceGroupName)
+			//
+			// Or the group IS ours but holds the cluster's CSI disks, which
+			// `adhar down` lists and deletes only after asking: deleting the group
+			// would delete them unasked, whatever --keep-volumes said. Everything
+			// else goes now; the group follows its disks (AfterClusterVolumes).
+			if managedByAdhar {
+				log.Printf("Resource group %s holds this cluster's volumes; deleting its other resources now and the group once the volumes are dealt with", resourceGroupName)
+			} else {
+				log.Printf("Resource group %s was not created by Adhar; deleting only this cluster's resources within it", resourceGroupName)
+			}
 			for _, problem := range p.deleteClusterResources(ctx, resourceTracker, clusterName) {
 				log.Printf("Warning: %s", problem)
 				problems = append(problems, problem)

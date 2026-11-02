@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
@@ -435,6 +436,18 @@ func azureResourceBelongsToCluster(name string, tags map[string]*string, cluster
 // may remove, and why. Kept separate from the sweep so the rule can be tested
 // without a subscription.
 func diskIsOrphan(d *armcompute.Disk, clusterName string, purge bool) (bool, string) {
+	return diskDisposition(d, clusterName, "", purge)
+}
+
+// diskDisposition is diskIsOrphan knowing the install id of the cluster being
+// deleted ("" when unknown, and always for a subscription-wide sweep).
+//
+// A disk carrying an install id is attributed exactly, so the id decides and
+// nothing else does: it is this cluster's only when the ids match, and no
+// purge, name or resource-group rule may take another cluster's — the
+// created-for-pvc rule below would otherwise claim every CSI disk that happens
+// to share a resource group.
+func diskDisposition(d *armcompute.Disk, clusterName, ownInstallID string, purge bool) (bool, string) {
 	if d == nil || d.Name == nil {
 		return false, ""
 	}
@@ -445,6 +458,12 @@ func diskIsOrphan(d *armcompute.Disk, clusterName string, purge bool) (bool, str
 	}
 	if d.Properties != nil && d.Properties.DiskState != nil && *d.Properties.DiskState != armcompute.DiskStateUnattached {
 		return false, "disk state is " + string(*d.Properties.DiskState)
+	}
+	if id := tagValue(d.Tags, provider.ClusterIDLabel); id != "" {
+		if clusterName != "" && id == ownInstallID {
+			return true, "CSI disk of this cluster (install id " + id + ")"
+		}
+		return false, "carries install id " + id + "; only that cluster's `adhar down` deletes it"
 	}
 	// A disk this cluster owns goes regardless of the purge flag: the cluster it
 	// belonged to is the one being deleted.
@@ -480,6 +499,13 @@ func (p *Provider) sweepClusterDisks(ctx context.Context, rg, clusterName string
 	}
 	var problems []string
 	var kept int
+	// The install id the CLI recorded for this cluster, so its id-tagged disks
+	// are recognised as its own (and nobody else's are). Best effort: without
+	// it, id-tagged disks are simply left to `adhar down`'s volume step.
+	ownInstallID := ""
+	if inst, err := provider.ActiveClusterInstall("azure", p.config.Location, clusterName); err == nil && inst != nil {
+		ownInstallID = inst.ID
+	}
 	pager := p.diskClient.NewListByResourceGroupPager(rg, nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
@@ -488,11 +514,16 @@ func (p *Provider) sweepClusterDisks(ctx context.Context, rg, clusterName string
 			return problems
 		}
 		for _, d := range page.Value {
-			orphan, why := diskIsOrphan(d, clusterName, p.config.PurgeOrphanedVolumes)
+			orphan, why := diskDisposition(d, clusterName, ownInstallID, p.config.PurgeOrphanedVolumes)
 			if !orphan {
 				if strings.Contains(why, "--purge-orphaned-volumes") {
 					kept++
 				}
+				continue
+			}
+			if p.config.KeepClusterVolumes && isPersistentVolumeDisk(d) {
+				// `adhar down` lists these once the VMs are gone and deletes
+				// them after asking; an OS disk still goes here.
 				continue
 			}
 			poller, err := p.diskClient.BeginDelete(ctx, rg, *d.Name, nil)

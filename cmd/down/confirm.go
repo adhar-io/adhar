@@ -46,6 +46,8 @@ type teardownPlan struct {
 	// suppressed there: shouting about unrecoverable volumes over a Kind cluster
 	// teaches the reader to ignore the warning when it is real.
 	CloudResources bool
+	// KeepVolumes is --keep-volumes: the cluster goes, its block volumes stay.
+	KeepVolumes bool
 }
 
 // buildTeardownPlan resolves the plan. Best effort: an unreadable config still
@@ -195,9 +197,21 @@ func RenderTeardownConfirmation(plan teardownPlan) string {
 	}
 
 	if plan.CloudResources {
-		b.WriteString("\n" + helpers.SubtitleStyle.UnsetMarginLeft().Render(
-			"  Volume data is destroyed with the volumes. Anything not backed up\n"+
-				"  elsewhere is gone.") + "\n")
+		// What happens to the block volumes, said before anything is deleted:
+		// they are listed and confirmed AFTER the cluster is gone (that is when
+		// they detach and can be deleted), so this line is the promise the later
+		// list keeps.
+		volumes := "Listed once the cluster is gone; you confirm before any is deleted."
+		if plan.KeepVolumes {
+			volumes = "Kept (--keep-volumes), with the command to delete them later."
+		}
+		b.WriteString(row("Volumes", volumes))
+		note := "  Volume data is destroyed with the volumes. Anything not backed up\n" +
+			"  elsewhere is gone."
+		if plan.KeepVolumes {
+			note = "  The cluster's block volumes are kept, and keep billing until deleted."
+		}
+		b.WriteString("\n" + helpers.SubtitleStyle.UnsetMarginLeft().Render(note) + "\n")
 	}
 
 	// Fixed width so the panel is the same shape whichever provider it describes;

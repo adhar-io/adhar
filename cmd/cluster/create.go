@@ -213,6 +213,17 @@ func createCluster(cmd *cobra.Command, name string) error {
 		Domain: nil, // Domain configuration not available in simplified config
 	}
 
+	// The id every block volume of this cluster will carry, recorded before the
+	// cluster exists — the same step `adhar up` takes (ProvisionEnvironment), so
+	// `adhar down` can find and delete exactly this cluster's volumes later.
+	if providerName != globals.CloudProviderKind {
+		inst, err := pfactory.RecordClusterInstall(providerName, region, name)
+		if err != nil {
+			return fmt.Errorf("recording the install id of cluster %s before creating it: %w", name, err)
+		}
+		spec.ClusterInstallID = inst.ID
+	}
+
 	// Create the cluster with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()

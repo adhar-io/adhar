@@ -578,31 +578,39 @@ spec:
     - name: build
       image: $(params.builder)
       securityContext: {runAsUser: 1001}
-      # MEMORY is requested in full. The lifecycle (detect/build/export, JVM and
-      # npm builds inside it) peaks at ~1.5 GiB (2026-10-22). With no request
-      # the step took a third of the namespace's 64Mi default — 21 MiB — so it
-      # was the first pod the kubelet evicted when a node ran short ("Container
+      # MEMORY is requested as a floor, not at the peak. With no request the
+      # step took a third of the namespace's 64Mi default — 21 MiB — so it was
+      # the first pod the kubelet evicted when a node ran short ("Container
       # step-build was using 1197936Ki, request is 22369621"), throwing away a
-      # 10-minute build. Memory cannot be handed back once a node runs out.
-      # No limit: an OOM-killed build is no better than an evicted one.
+      # 10-minute build. Measured on AWS (2026-10-30/31, 20 builds of the eight
+      # scaffolded apps): Node, React, Go and Deno builds peak at 195-470Mi,
+      # the Maven-in-buildpack and CPython builds at 1.4-1.6 GiB (qua-service
+      # 1669Mi). 1Gi covers the former outright and keeps the latter within
+      # ~0.6 GiB of their request; asking the JVM peak would reserve it for
+      # every language. Under memory pressure the JVM and Python builds are
+      # therefore the ones at risk. No limit: an OOM-killed build is no better
+      # than an evicted one.
       #
       # CPU is requested SMALL (100m), on purpose, although a build averages
       # ~0.4 cores and peaks near 1. This pod cannot go where there is room.
       # In app-ci (and the library releases) the run's workspace is ONE
-      # ReadWriteOnce EBS volume (StorageClass adhar-ci), so Tekton's affinity
+      # ReadWriteOnce volume (StorageClass adhar-ci), so Tekton's affinity
       # assistant pins every TaskRun that mounts it to the node the assistant
       # pod landed on. That pod asks for 50m/100Mi (hard-coded in Tekton) and
-      # the scheduler places it by averaging free CPU and free memory — which
-      # on these memory-heavy workers picks the node with the most free
-      # MEMORY, often the one with the least unrequested CPU. A request is a
-      # reservation that pinned node must have free: at 500m this step sat
+      # the scheduler places it by its weight-100 preference for nodes holding
+      # no other assistant, not by room for the run: runs started together
+      # spread over the nodes, full or not. A request is a reservation that
+      # pinned node must have free: at 500m this step sat
       # ExceededNodeResources for three hours (three 1h attempts,
       # app-ci-transaction-service-vv97n, AWS 2026-10-31) on a node with
       # 0.10-0.50 cores unrequested while its real CPU use averaged 0.74 of
       # 3.5 — idle cores the build could have used. CPU is compressible: with
       # no limit the build still takes every idle core, so a small request
       # costs it only its share under genuine contention. Every CI step is
-      # held to this (TestCIStepsFitTheNodeTheirWorkspacePinsThemTo).
+      # held to this (TestCIStepsFitTheNodeTheirWorkspacePinsThemTo). When the
+      # assistant's node cannot fit even that, the tekton package's
+      # affinity-assistant-relocator moves the assistant to the node with the
+      # most free requests, and the run follows it.
       computeResources:
         requests: {cpu: 100m, memory: 1Gi}
       env:

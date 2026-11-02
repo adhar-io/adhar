@@ -189,12 +189,13 @@ rules:
   - watch
   - update
   - patch
-# Deleting a team in Settings → Teams deletes its Team XR, so the Gitea team it
-# composes goes too — only ever an XR the console declared itself
-# (`adhar.io/managed-by: adhar-console`) for exactly that team, which the
-# console checks before it deletes. Teams ONLY: an Organisation or Application
-# XR holds namespaces, repositories and workloads, and removing those is not a
-# settings-page click (`TestConsoleMayWriteTenancyXRs` keeps it that way).
+# Deleting a team in Settings → Teams deletes its Team XR — only ever an XR the
+# console declared itself (`adhar.io/managed-by: adhar-console`) for exactly
+# that team, which the console checks before it deletes. The Gitea team stays:
+# the composition's Job only ever creates it. Teams ONLY: an Organisation or
+# Application XR holds namespaces, repositories and workloads, and removing
+# those is not a settings-page click (`TestConsoleMayWriteTenancyXRs` keeps it
+# that way).
 - apiGroups:
   - platform.adhar.io
   resources:
@@ -466,7 +467,7 @@ spec:
         # upgraded it on any pod restart, and the console's own status card
         # reported "latest" against its build version. Bump this line to ship
         # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.167
+        image: ghcr.io/adhar-io/adhar-console:0.1.168
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

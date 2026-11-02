@@ -419,7 +419,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		}
 	}
 
-	if err := p.installDOCloudIntegration(signer, masterIP, vpcUUID, tag); err != nil {
+	if err := p.installDOCloudIntegration(signer, masterIP, vpcUUID, computeVolumeTag(tag, spec.ClusterInstallID)); err != nil {
 		return nil, err
 	}
 
@@ -627,7 +627,17 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 	// installDOCloudIntegration). Left behind they keep billing and block the
 	// VPC deletion below.
 	p.deleteComputeLoadBalancers(ctx, name, clusterDroplets)
-	p.deleteComputeVolumes(ctx, tag)
+	if !p.config.KeepClusterVolumes {
+		// `adhar cluster delete` and --recreate: the volumes go with the
+		// cluster, as they always have — by its name tag, or by its install id
+		// for a cluster created since volumes carry one. Under `adhar down` its
+		// own volume step lists them, asks, and verifies instead.
+		ownTags := []string{tag}
+		if inst, err := provider.ActiveClusterInstall("digitalocean", p.config.Region, name); err == nil && inst != nil && inst.ID != "" {
+			ownTags = append(ownTags, provider.DigitalOceanClusterIDTag(inst.ID))
+		}
+		p.deleteComputeVolumes(ctx, ownTags...)
+	}
 
 	// Firewall
 	if fws, _, err := p.client.Firewalls.List(ctx, &godo.ListOptions{PerPage: 200}); err == nil {
@@ -789,7 +799,11 @@ func (p *Provider) PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs 
 // flag set by installDOCloudIntegration). Volumes are detached once their
 // droplets are gone, so plain deletion suffices; an attached volume (droplet
 // deletion still settling) is retried briefly.
-func (p *Provider) deleteComputeVolumes(ctx context.Context, tag string) {
+func (p *Provider) deleteComputeVolumes(ctx context.Context, ownTags ...string) {
+	own := map[string]bool{}
+	for _, t := range ownTags {
+		own[t] = true
+	}
 	vols, _, err := p.client.Storage.ListVolumes(ctx, &godo.ListVolumeParams{
 		Region:      p.config.Region,
 		ListOptions: &godo.ListOptions{PerPage: 200},
@@ -801,9 +815,11 @@ func (p *Provider) deleteComputeVolumes(ctx context.Context, tag string) {
 	for _, v := range vols {
 		tagged, otherCluster := false, false
 		for _, t := range v.Tags {
-			if t == tag {
+			if own[t] {
 				tagged = true
 			} else if strings.HasPrefix(t, computeClusterTagPrefix) {
+				// Another cluster's name tag — or another install's id tag,
+				// which shares the prefix on purpose (DigitalOceanClusterIDTag).
 				otherCluster = true
 			}
 		}
@@ -1111,10 +1127,39 @@ const (
 	kubectlAdminBase = "kubectl --kubeconfig /etc/kubernetes/admin.conf"
 )
 
+// computeVolumeTag is the one tag the CSI driver puts on every volume it
+// creates (`--do-tag` takes exactly one): the install id when the cluster has
+// one, else — for a path that creates no install record — the cluster's name
+// tag, as before.
+//
+// Not the name tag when there is an id. A name is reused: the account that
+// leaked volumes on AWS had run many clusters called "adhar" in one region, and
+// a volume tagged `adhar-cluster-adhar` cannot say which of them it was —
+// so a teardown deleting "everything tagged adhar-cluster-adhar" also deletes
+// the volumes an earlier teardown was told to KEEP.
+func computeVolumeTag(clusterTag, installID string) string {
+	if installID != "" {
+		return provider.DigitalOceanClusterIDTag(installID)
+	}
+	return clusterTag
+}
+
 // installDOCloudIntegration applies the token secret, CCM, CSI driver and
 // marks do-block-storage as the default StorageClass, all via the control
 // plane's admin kubeconfig.
-func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUID, clusterTag string) error {
+func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUID, volumeTag string) error {
+	for _, st := range p.doCloudIntegrationSteps(vpcUUID, volumeTag) {
+		if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, st.Cmd, 5*time.Minute); err != nil {
+			return fmt.Errorf("cloud integration step %q failed: %w (output: %s)", st.Desc, err, provider.LastLines(out, 8))
+		}
+	}
+	log.Printf("DigitalOcean cloud integration installed (CCM %s, CSI %s)", "v0.1.62", "v4.14.0")
+	return nil
+}
+
+// doCloudIntegrationSteps lists the integration steps. volumeTag is the tag
+// every CSI volume gets (computeVolumeTag).
+func (p *Provider) doCloudIntegrationSteps(vpcUUID, volumeTag string) []provider.IntegrationStep {
 	steps := []struct {
 		desc string
 		cmd  string
@@ -1124,12 +1169,13 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 		{"cloud-controller-manager", kubectlAdminBase + " apply -f " + doCCMManifestURL},
 		{"CSI CRDs", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/crds.yaml"},
 		{"CSI driver", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/driver.yaml"},
-		// Tag every volume the CSI driver creates with the cluster tag so
-		// deleteComputeCluster can find and remove them (DO volumes outlive
-		// their droplets and keep billing). Container index 4 is csi-do-plugin
-		// in the pinned CSI release; the grep keeps the patch idempotent.
+		// Tag every volume the CSI driver creates with the cluster's install id
+		// (computeVolumeTag) so `adhar down` can find and remove exactly this
+		// cluster's volumes (DO volumes outlive their droplets and keep
+		// billing). Container index 4 is csi-do-plugin in the pinned CSI
+		// release; the grep keeps the patch idempotent.
 		{"CSI volume tag", kubectlAdminBase + " -n kube-system get statefulset csi-do-controller -o jsonpath='{.spec.template.spec.containers[4].args}' | grep -q -- '--do-tag' || " +
-			kubectlAdminBase + ` -n kube-system patch statefulset csi-do-controller --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/4/args/-","value":"--do-tag=` + clusterTag + `"}]'`},
+			kubectlAdminBase + ` -n kube-system patch statefulset csi-do-controller --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/4/args/-","value":"--do-tag=` + volumeTag + `"}]'`},
 		{"CSI snapshot controller", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/snapshot-controller.yaml"},
 		// The node plugin is what lifts the CSI startup taint (its CSINode is
 		// the signal), so it must run on a tainted node. The upstream DaemonSet
@@ -1184,13 +1230,11 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 			cmd  string
 		}{st.Desc, st.Cmd})
 	}
+	out := make([]provider.IntegrationStep, 0, len(steps))
 	for _, st := range steps {
-		if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, st.cmd, 5*time.Minute); err != nil {
-			return fmt.Errorf("cloud integration step %q failed: %w (output: %s)", st.desc, err, provider.LastLines(out, 8))
-		}
+		out = append(out, provider.IntegrationStep{Desc: st.desc, Cmd: st.cmd})
 	}
-	log.Printf("DigitalOcean cloud integration installed (CCM %s, CSI %s)", "v0.1.62", "v4.14.0")
-	return nil
+	return out
 }
 
 // ownedByCluster reports whether every droplet in ids belongs to the cluster —
@@ -1273,7 +1317,11 @@ func (p *Provider) sweepDOKSClusterResources(ctx context.Context, clusterID, clu
 		return
 	}
 	p.deleteComputeLoadBalancers(ctx, clusterName, droplets)
-	p.deleteDOKSVolumes(ctx, droplets)
+	if !p.config.KeepClusterVolumes {
+		// Under `adhar down` the volume step attributes them by the cluster's
+		// `k8s:<uuid>` tag once the cluster is gone, and asks first.
+		p.deleteDOKSVolumes(ctx, droplets)
+	}
 }
 
 // deleteDOKSVolumes removes the block volumes attached to a DOKS cluster's own

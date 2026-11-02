@@ -31,6 +31,12 @@ import (
 // entries are scoped by exact PATH to that npm, so the same packages anywhere
 // the application put them are still gated; TestTheNpmExceptionCannot…, below,
 // pins that.
+//
+// Class (3), the pip inside the CPython launch layer, is not in ignore.yaml at
+// all (Trivy reports it from pip's own SBOM, with no path to scope by): it is
+// runtime-layers.yaml, applied by trivy-scan's evaluate step. Classes (2) and
+// (3) are the runtime-layer exceptions, held to a 30-day box by
+// scan_runtime_layer_exceptions_test.go.
 func TestTheScanGateExcusesOnlyUnreachableBuildpackCVEs(t *testing.T) {
 	path := filepath.Join(stackRoot(t), "packages", "application", "adhar-supply-chain",
 		"manifests", "30-scan-verify-pipeline.yaml")
@@ -247,13 +253,16 @@ func TestTheNpmExceptionCannotExcuseTheApplicationsOwnPackages(t *testing.T) {
 		}
 		return false
 	}
-	// id → the package and installed version Trivy reported.
+	// id → the package and installed version Trivy reported. The last two
+	// refused node-svc, deno-func, function-nodejs and TanStack Start images
+	// built exactly as app-ci builds them (2026-11-03, Trivy 0.58.1).
 	findings := map[string][2]string{
 		"CVE-2026-102276": {"brace-expansion", "5.0.9"},
 		"CVE-2026-102278": {"brace-expansion", "5.0.9"},
 		"CVE-2026-109869": {"undici", "6.28.0"},
 		"CVE-2026-19534":  {"undici", "6.28.0"},
-		"CVE-2026-93748":  {"http-cache-semantics", "4.2.0"},
+		"CVE-2026-109383": {"undici", "6.28.0"},
+		"CVE-2026-87018":  {"undici", "6.28.0"},
 	}
 	for id, pkg := range findings {
 		purl := "pkg:npm/" + pkg[0] + "@" + pkg[1]

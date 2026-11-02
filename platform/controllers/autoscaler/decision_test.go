@@ -564,7 +564,7 @@ func TestAntiAffinityPendingCountsOnlyWhenAHostWouldFixIt(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pendingForCapacity([]corev1.Pod{tc.pod}, workers)
+			got := pendingForCapacity([]corev1.Pod{tc.pod}, workers, testNow)
 			if tc.want && len(got) == 0 {
 				t.Errorf("pod stays Pending forever: the autoscaler does not count it, so it never adds the host that would place it")
 			}
