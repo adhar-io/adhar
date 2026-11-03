@@ -89,7 +89,9 @@ spec:
           args:
             - |
               #! /bin/bash
-              set -ex -o pipefail
+              # No xtrace: this reads the Keycloak master-realm admin password
+              # and a traced line would print it into the pod log.
+              set -e -o pipefail
               apt -qq update && apt -qq install curl jq gettext-base -y
               
               # Fetch a kubectl matching the cluster's architecture. The old

@@ -90,7 +90,8 @@ unit-tested where it is pure; **live** means it ran on that cloud:
 | Platform edge (Gateway address) | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ✅ CCM LoadBalancer | ⚙️ **host-network Gateway** — no CCM in compute mode, so Envoy binds :80/:443 on every node, the firewall opens both, external-dns publishes the instances' public IPs and CoreDNS points `*.<host>` at a node-backed shim Service. Built 2026-10-07, not yet live-verified; `clusterMode: managed` uses the ordinary LoadBalancer path |
 | Cleanup leaves no billed resources | ✅ live | ✅ built | ✅ built | ✅ **live** | ✅ built |
 | Teardown sweeps what the IN-CLUSTER controllers created (CCM load balancers, CSI volumes) — invisible to the resource tracker | ✅ live | ✅ built (classic ELB **and** NLB, target groups, `k8s-elb-*` SGs, EBS volumes) | ✅ built (resource-group delete; per-resource when the group is not ours) | ✅ **live** (forwarding rule, target pool, `k8s-*` firewall rules, PD disks) | ✅ built (load balancers by instance identity, volumes detached first) |
-| `--purge-orphaned-volumes` for untagged CSI leftovers | ✅ live | ✅ built | ✅ built (incl. disks outside the resource group) | ✅ **live** (41 disks swept on a real teardown) | ✅ built |
+| Block volumes attributed at creation and deleted by `adhar down` after confirmation ([below](#block-volumes-on-adhar-down-attributed-at-creation-deleted-after-confirmation)) | ⚙️ built — the live cluster's CSI driver carries `--do-tag=adhar-cluster-id:<id>` (2026-11-03); a teardown of it not yet run | ✅ built (EBS `--extra-tags` + `adhar-block` tagSpecification; read-only discovery run against a real account) | ✅ built (`adhar-block` `tags`; missing in v0.1.66) | ✅ built (`adhar-block` `labels`) | n/a in compute mode (no block CSI) |
+| `--purge-orphaned-volumes` for untagged CSI leftovers (never takes a volume carrying an install id; refused beside a provided environment) | ✅ live | ✅ built | ✅ built (incl. disks outside the resource group) | ✅ **live** (41 disks swept on a real teardown) | ✅ built |
 | Teardown works with NO local state (rediscovers the cluster from the cloud) | ✅ live | ✅ built (tag-based discovery) | ✅ built (VM tag + name) | ✅ **live** | ✅ built (instance tag) |
 | Quota preflight: refuse before provisioning anything, naming the limit | — | ✅ built (Service Quotas `L-1216C47A` vCPU vs running usage) | ✅ built (regional `cores` **and** the size family) | ✅ **live** (`CPUS_ALL_REGIONS` + `SSD_TOTAL_GB`/`DISKS_TOTAL_GB`) | ✅ built (instances, CPU, RAM, disk, networks) |
 
@@ -172,6 +173,91 @@ calls still await a live run.
 
 The autoscaler's own logic is provider-agnostic and unit-tested; on a cloud
 without a CSI driver it simply never sees `exceed max volume count`.
+
+### Block volumes on `adhar down`: attributed at creation, deleted after confirmation
+
+A CSI volume outlives the instance it was attached to, and until v0.1.66
+nothing on it said WHICH cluster had made it. The AWS teardown of 2026-10-31
+left six EBS volumes in ap-southeast-1 tagged only `CSIVolumeName` and
+`ebs.csi.aws.com/cluster=true` — what every EBS CSI driver writes — in an
+account that had run many clusters called `adhar` there; a week earlier 22 more
+had piled up the same way. A cluster NAME is not an identity: names are reused.
+
+**Attribution at creation.** `adhar up` generates an *install id* (16
+lowercase alphanumerics) once, before the cluster exists, and writes it to
+`~/.adhar/state/installs/<provider>/<region>/<cluster>.json` and to the
+cluster's `adhar-cluster-spec` ConfigMap (`installID`). Each provider hands it
+to its CSI driver in the cloud's own vocabulary:
+
+| Cloud | `clusterMode: compute` (kubeadm) | `clusterMode: managed` |
+|---|---|---|
+| AWS | the EBS CSI driver runs with `--extra-tags adhar.io/cluster-id=<id>` (chart value `controller.extraVolumeTags`), so every volume it creates — `adhar-block`, `adhar-ci`, any class — carries it; `adhar-block` also sets `tagSpecification_1` | EKS: the EBS CSI addon is created with the same `controller.extraVolumeTags`; if EKS rejects that configuration the addon is installed without it (a cluster with no CSI driver binds nothing) and those volumes fall back to the legacy rules |
+| Azure | `adhar-block` sets the disk CSI `tags: adhar-cluster-id=<id>`, and `adhar-ci` copies it. **v0.1.66 shipped this parameter empty**, so Azure disks made by v0.1.66 carry no id | AKS: the disk CSI driver puts a managed cluster's disks in its *node* resource group, which Azure deletes — disks and all — **with the cluster**. Nothing is left to list, and `--keep-volumes` is refused there before anything is deleted |
+| GCP | `adhar-block` sets the PD CSI `labels: adhar-cluster-id=<id>`, and `adhar-ci` copies it | GKE: the id is a cluster resource label, which GKE copies onto the persistent disks attached to its nodes (documented, not yet verified live); boot disks carrying it are never listed as volumes |
+| DigitalOcean | the CSI driver runs with `--do-tag=adhar-cluster-id:<id>` — its one tag, applied at create and attach to every volume of every class | DOKS: its own CSI driver's `k8s:<cluster uuid>` tag (not yet verified live); the UUID is recorded at create and again before the delete |
+| Civo | no block-storage CSI in compute mode — nothing to attribute | Civo's CSI driver stamps the cluster's UUID into every volume's `ClusterID`: exact, and recorded at create and before the delete |
+
+**Teardown.** `adhar down -f <config> --env <env>`:
+
+1. Before deleting the cluster it asks the cluster for its install id
+   (`adhar-cluster-spec`) and writes it down, with a managed cluster's UUID — a
+   cluster created on another machine is known only to itself. An id the
+   cluster reports that cannot be written down stops THAT cluster's deletion.
+2. `DeleteCluster` runs with the cluster's volumes left alone (every provider
+   honours `keepClusterVolumes`; Azure keeps an Adhar-created resource group
+   that still holds CSI disks until they are dealt with).
+3. Once the instances are gone (so the volumes detach) it lists every volume
+   carrying the id — VOLUME, SIZE, PVC, CREATED, STATE, INSTALL, never
+   shortened — and asks. `--yes`/`--force` skips the question;
+   `--keep-volumes` keeps them and prints how to delete them later.
+4. It waits for each to detach (5 minutes at most — a volume still attached
+   after that is in use by something else and is never deleted), deletes it,
+   and reads it back until the cloud says it is gone (3 minutes). Only a
+   volume read back as gone is reported deleted; anything else is listed by
+   id with the cloud CLI command that removes it.
+5. The record of an install id is dropped only when a fresh lookup finds no
+   volume carrying it. Re-running the same `adhar down` after the cluster is
+   gone finishes the job.
+
+Volumes kept **on purpose** — `--keep-volumes`, or a "no" at the prompt — are
+marked so in the record, and a later `adhar down --yes` (a script, or the
+teardown of the next cluster of the same name) does not delete them; only a
+confirmation typed at a terminal does. A volume left by a deletion that FAILED
+is not a choice, and the next `--yes` finishes it.
+
+**Volumes from before install ids** are offered only when the provider can
+prove nothing that could own them is left, and only after a confirmation typed
+at a terminal — `--yes` never covers them, and neither does a piped "yes":
+
+| Cloud | Offered only when | Candidates |
+|---|---|---|
+| AWS | no instance in the region was created by the platform, sits in a platform VPC, or runs any Kubernetes cluster (EKS tags, `kubernetes.io/cluster/*`) — stopped and shutting-down instances count | unattached `available` volumes with `ebs.csi.aws.com/cluster=true` and `CSIVolumeName`, no install id, no other cluster's tag |
+| GCP | no platform or GKE node in the region | unattached PD CSI disks (driver description or `pvc-*` name) with no install id |
+| Azure | no VM left in the cluster's resource group (or the group is gone) | unattached CSI disks in that group with no install id |
+| DigitalOcean | no droplet of the cluster (its name tag) is left; untagged `pvc-*` volumes only when no droplet of ANY Kubernetes cluster is left in the region | unattached volumes with the cluster's name tag (kept on purpose for this) or no tag at all |
+| Civo | no Kubernetes cluster and no platform instance left | unattached `pvc-*` volumes not stamped with another cluster |
+
+**`clusterMode: provided` never loses a volume.** The teardown reads the mode
+the way `adhar up` provisioned it — the provider block AND the environment's
+`clusterConfig` (v0.1.66 read the block alone, so a `clusterMode: provided` set
+per environment was located and deleted). And while a provided environment in
+the same file may run in the region, nothing is deleted on evidence alone: the
+legacy offer is not made, and `--purge-orphaned-volumes` is refused before
+anything is deleted. The teardown also looks for an environment's cluster only
+in that environment's provider: v0.1.66 fell through to local Kind and deleted
+the developer's local `adhar` cluster when a cloud cluster was already gone.
+
+`--purge-orphaned-volumes` is the older, blunter tool and is unchanged
+otherwise: it deletes every unattached `pvc-*` volume in the region that no
+cluster tag claims, without listing them first, and is only safe when no other
+Kubernetes cluster uses the region. It never takes a volume carrying an install
+id. Prefer the legacy offer above, which shows the list and asks.
+
+Code: `platform/providers/volume_attribution.go` (the id, `ReapVolumes`),
+`install_registry.go` (the record), `<cloud>/volumes.go` (lookup, legacy
+evidence), `cmd/down/volumes.go` (the step), `cmd/down/identity.go`. Guards:
+`cmd/down/teardown_fake_cloud_test.go` drives the whole teardown loop against
+a fake cloud.
 
 ### 2.2 Startup and GitOps-sync parity
 
@@ -613,12 +699,17 @@ both `-t` and `DIGITALOCEAN_ACCESS_TOKEN` when its config has a `context:`; use
 (`failed to sync *v1.Endpoints`). On modern clusters use external-dns ≥ v0.19
 plus the DigitalOcean webhook.
 
-**Teardown** (`adhar cluster delete <name> --file config.yaml`, or
-`adhar up … --recreate`) removes everything the cluster created in the account:
-droplets, the CCM-provisioned LoadBalancer(s) in the cluster VPC, the block
-volumes behind its PersistentVolumes (the CSI driver tags them
-`adhar-cluster-<name>`), the firewall, the VPC, and the SSH key. Add
-`--purge-orphaned-volumes` to sweep pre-tagging `pvc-*` leftovers.
+**Teardown** (`adhar down -f config.yaml --env dev`) removes everything the
+cluster created in the account: droplets, the CCM-provisioned LoadBalancer(s)
+in the cluster VPC, the firewall, the VPC and the SSH key — and then the block
+volumes behind its PersistentVolumes, which the CSI driver tags
+`adhar-cluster-id:<install id>`: listed once the droplets are gone, confirmed
+(or `--yes`), deleted and read back
+([block volumes on `adhar down`](#block-volumes-on-adhar-down-attributed-at-creation-deleted-after-confirmation)).
+A cluster from before install ids tagged its volumes `adhar-cluster-<name>`;
+that tag is kept while volumes carry it, and they are offered on that evidence.
+`adhar cluster delete <name> --file config.yaml` and `adhar up … --recreate`
+still delete the volumes with the cluster, unasked.
 
 The complete verified run (exact config, commands, timings, verification,
 teardown) is in [DIGITALOCEAN_PROVIDER.md](DIGITALOCEAN_PROVIDER.md).

@@ -31,18 +31,18 @@ data:
     \ \"pods\" {\n\trole = \"pod\"\n\t// Namespace labels as __meta_kubernetes_namespace_label_*:\
     \ the pod-log\n\t// relabels read adhar.io/plane and adhar.io/environment|team|project\n\
     \t// from the namespace, which is where the control plane stamps them.\n\tattach_metadata\
-    \ {\n\t\tnamespace = true\n\t}\n}\n\ndiscovery.kubernetes \"nodes\" {\n\trole =\
-    \ \"node\"\n}\n\ndiscovery.kubernetes \"services\" {\n\trole = \"service\"\n}\n\n\
-    discovery.kubernetes \"endpoints\" {\n\trole = \"endpoints\"\n}\n\ndiscovery.kubernetes\
-    \ \"endpointslices\" {\n\trole = \"endpointslice\"\n}\n\ndiscovery.kubernetes \"\
-    ingresses\" {\n\trole = \"ingress\"\n}\n\n// ---------------------------------------------------------------\n\
+    \ {\n\t\tnamespace = true\n\t}\n}\n\n// Pod discovery only. Node/service/endpoints/endpointslice/ingress\n\
+    // discovery was declared here (2026-08-16) and referenced by nothing,\n// yet\
+    \ Alloy runs every declared component: each agent held five more\n// cluster-wide\
+    \ watches and caches \u2014 50 idle API-server watches across\n// the DaemonSet\
+    \ (2026-11-03). Declare one when a pipeline consumes it.\n\n// ---------------------------------------------------------------\n\
     // Hub shipping (roadmap P2.3): everything collected here is written\n// to the\
     \ observability hub. Endpoints come from the observability-hub\n// ConfigMap (envFrom)\
     \ \u2014 adhar-controlplane service URLs on the hub itself,\n// external Gateway URLs on\
     \ workload-cluster spokes. Every sample and\n// stream carries the cluster label\
     \ for hub-side separation.\n// ---------------------------------------------------------------\n\
     prometheus.scrape \"annotated_pods\" {\n\ttargets    = discovery.relabel.scrape_pods.output\n\
-    \tforward_to = [prometheus.remote_write.hub.receiver]\n}\n\ndiscovery.relabel \"\
+    \tforward_to = [prometheus.remote_write.hub.receiver]\n\n\t// Discovery is cluster-wide: each target is scraped by ONE agent\n\t// (alloy.clustering.enabled), not by every agent in the DaemonSet.\n\tclustering {\n\t\tenabled = true\n\t}\n}\n\ndiscovery.relabel \"\
     scrape_pods\" {\n\ttargets = discovery.kubernetes.pods.targets\n\trule {\n\t\tsource_labels\
     \ = [\"__meta_kubernetes_pod_annotation_prometheus_io_scrape\"]\n\t\tregex     \
     \    = \"true\"\n\t\taction        = \"keep\"\n\t}\n\trule {\n\t\tsource_labels\
@@ -98,7 +98,7 @@ data:
     , \"__meta_kubernetes_namespace_label_adhar_io_project\"]\n\t\tseparator     = \"\
     ;\"\n\t\tregex         = \"workload;(.+)\"\n\t\ttarget_label  = \"adhar_project\"\
     \n\t}\n}\n\nloki.source.kubernetes \"pods\" {\n\ttargets    = discovery.relabel.pod_logs.output\n\
-    \tforward_to = [loki.write.hub.receiver]\n}\n\nloki.write \"hub\" {\n\tendpoint\
+    \tforward_to = [loki.write.hub.receiver]\n\n\t// Each tailed container is a follow stream THROUGH the API server.\n\t// Without clustering every agent tailed every container in the\n\t// cluster: 10 agents x 463 containers = 4,607 open pods/log streams\n\t// held by kube-apiserver (2026-11-03). Now one agent per container.\n\tclustering {\n\t\tenabled = true\n\t}\n}\n\nloki.write \"hub\" {\n\tendpoint\
     \ {\n\t\turl = sys.env(\"HUB_LOKI_URL\")\n\t}\n\texternal_labels = {\n\t\tcluster\
     \ = sys.env(\"HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// The OTLP door for application telemetry.\
     \ The golden-path templates set\n// OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.adhar-system.svc.cluster.local:4318\n\
@@ -304,6 +304,40 @@ spec:
     targetPort: 4318
     protocol: TCP
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy-cluster
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: alloy-1.12.1
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: alloy
+    app.kubernetes.io/version: v1.19.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/component: networking
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: alloy
+  ports:
+  - name: http
+    port: 12345
+    targetPort: 12345
+    protocol: TCP
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+    protocol: TCP
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -342,6 +376,8 @@ spec:
         - --server.http.listen-addr=0.0.0.0:12345
         - --server.http.ui-path-prefix=/
         - --stability.level=generally-available
+        - --cluster.enabled=true
+        - --cluster.join-addresses=alloy-cluster
         env:
         - name: ALLOY_DEPLOY_MODE
           value: helm

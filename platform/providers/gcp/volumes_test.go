@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -194,5 +195,66 @@ func TestAnIDLabelledDiskIsNeverAnOrphan(t *testing.T) {
 	}
 	if diskCarriesInstallID(pdDisk("pvc-x", "us-central1-a", nil)) {
 		t.Fatal("an unlabelled disk was treated as attributed")
+	}
+	if isOrphanCSIDisk(pdDisk("pvc-x", "us-central1-a", map[string]string{provider.ClusterIDLabel: "aaaaaaaaaaaaaaaa"})) {
+		t.Fatal("an id-labelled disk is an orphan to the sweeps, so --purge-orphaned-volumes would delete it unasked")
+	}
+	if isOrphanCSIDisk(pdDisk("pvc-x", "us-central1-a", nil, "zones/us-central1-a/instances/n1")) {
+		t.Fatal("an attached disk is an orphan to the sweeps")
+	}
+	if !isOrphanCSIDisk(pdDisk("pvc-x", "us-central1-a", nil)) {
+		t.Fatal("an unattached, unlabelled CSI disk is no longer an orphan; the purge would do nothing")
+	}
+
+	// And every sweep goes through that one rule: the purge, the count it
+	// reports, and the leftover report. A loop with its own condition is how an
+	// id-labelled disk would slip back into the purge.
+	src, err := os.ReadFile("provider.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range []string{"countOrphanedDisks", "sweepOrphanedDisks", "findOrphanedResources"} {
+		body := string(src)
+		i := strings.Index(body, "func (p *Provider) "+fn+"(")
+		if i < 0 {
+			t.Fatalf("%s is gone; this check checks nothing", fn)
+		}
+		body = body[i:]
+		if j := strings.Index(body[1:], "\nfunc "); j > 0 {
+			body = body[:j+1]
+		}
+		if !strings.Contains(body, "isOrphanCSIDisk(disk)") {
+			t.Errorf("%s does not select disks with isOrphanCSIDisk", fn)
+		}
+		if strings.Contains(body, `"pvc-"`) {
+			t.Errorf("%s carries its own pvc- condition beside isOrphanCSIDisk", fn)
+		}
+	}
+}
+
+// On GKE the install id travels as a cluster resource label, which Google
+// also puts on the nodes' boot disks. The lookup must list only the PD CSI
+// disks behind PersistentVolumes — never a boot disk carrying the same label.
+func TestGKEClustersCarryTheInstallIDButBootDisksAreNotVolumes(t *testing.T) {
+	labels := gkeResourceLabels("adhar", "a1b2c3d4e5f6g7h8", map[string]string{"Team": "Platform"})
+	if labels[provider.ClusterIDLabel] != "a1b2c3d4e5f6g7h8" || labels["managed-by"] != "adhar" || labels["team"] != "platform" {
+		t.Fatalf("GKE resource labels = %v; want the install id beside the platform's labels", labels)
+	}
+	if _, has := gkeResourceLabels("adhar", "", nil)[provider.ClusterIDLabel]; has {
+		t.Error("a cluster with no install id was given an empty id label")
+	}
+
+	boot := &computepb.Disk{Name: ptr("gke-adhar-default-pool-1a2b3c4d-x7k9"), Zone: ptr("zones/us-central1-a"),
+		Labels: map[string]string{provider.ClusterIDLabel: "a1b2c3d4e5f6g7h8", "goog-k8s-cluster-name": "adhar"}}
+	f := &fakeCompute{disks: []*computepb.Disk{
+		boot,
+		pdDisk("pvc-data", "us-central1-a", map[string]string{provider.ClusterIDLabel: "a1b2c3d4e5f6g7h8"}),
+	}}
+	got, err := gcpProvider(f).ClusterVolumes(context.Background(), provider.VolumeOwner{InstallID: "a1b2c3d4e5f6g7h8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "pvc-data" {
+		t.Fatalf("ClusterVolumes = %+v; want only the PersistentVolume's disk", got)
 	}
 }

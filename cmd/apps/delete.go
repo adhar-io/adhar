@@ -17,7 +17,6 @@ limitations under the License.
 package apps
 
 import (
-	"adhar-io/adhar/globals"
 	"bufio"
 	"context"
 	"fmt"
@@ -30,8 +29,6 @@ import (
 	"github.com/spf13/cobra"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // deleteCmd represents the delete command
@@ -43,6 +40,9 @@ var deleteCmd = &cobra.Command{
 The application is an Adhar platform Application claim (platform.adhar.io/v1alpha1).
 Deleting it removes the claim and lets Crossplane/ArgoCD garbage-collect the
 managed workloads.
+
+Without --namespace the application is looked for in adhar-system, where
+template deploys register it, then in the dev environment.
 
 Examples:
   adhar application delete my-app
@@ -64,10 +64,27 @@ func init() {
 func runDelete(cmd *cobra.Command, args []string) error {
 	appName := args[0]
 
-	deleteNamespace := namespace
-	if deleteNamespace == "" {
-		deleteNamespace = globals.DefaultEnvironment()
+	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
+	if err != nil {
+		return fmt.Errorf("read kubeconfig flag: %w", err)
 	}
+	dynamicClient, err := dynamicClientFor(kubeconfigPath)
+	if err != nil {
+		return err
+	}
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Find it first, so the question names the namespace it is actually in:
+	// a template deploy registers its Application in adhar-system, not dev.
+	app, err := findApplication(ctx, dynamicClient,
+		applicationNamespaces(cmd.Flags().Changed("namespace"), namespace), appName)
+	if err != nil {
+		return err
+	}
+	deleteNamespace := app.GetNamespace()
 
 	if !force {
 		helpers.Printf("Delete application %q in namespace %q? [y/N]: ", appName, deleteNamespace)
@@ -81,29 +98,6 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	logger.Info(fmt.Sprintf("✖ Deleting application: %s", appName))
-
-	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
-	if err != nil {
-		return fmt.Errorf("read kubeconfig flag: %w", err)
-	}
-	if kubeconfigPath == "" {
-		kubeconfigPath = helpers.GetKubeConfigPath()
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	if err != nil {
-		return fmt.Errorf("build kubeconfig: %w", err)
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("create dynamic client: %w", err)
-	}
-
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 
 	err = dynamicClient.Resource(applicationGVR).Namespace(deleteNamespace).Delete(ctx, appName, metav1.DeleteOptions{})
 	if err != nil {

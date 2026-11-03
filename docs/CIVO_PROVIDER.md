@@ -173,9 +173,18 @@ Teardown:
 ```bash
 ./adhar down -f config.yaml --env dev
 
-# Also delete unattached pvc-* volumes that no other cluster claims
+# Keep the cluster's volumes (and their data); prints how to delete them later
+./adhar down -f config.yaml --env dev --keep-volumes
+
+# Also delete unattached pvc-* volumes that no other cluster claims, unlisted
 ./adhar down -f config.yaml --env dev --purge-orphaned-volumes
 ```
+
+Compute mode installs no block-storage CSI driver, so a compute cluster makes no
+Civo volumes of its own. The managed (k3s) cluster's volumes are found by the
+cluster UUID Civo's CSI driver stamps on each, which `adhar up` records next to
+the install id and `adhar down` records again before the delete; the full rules
+are in the [Provider Guide](PROVIDER_GUIDE.md#block-volumes-on-adhar-down-attributed-at-creation-deleted-after-confirmation).
 
 ### What teardown removes, and what it deliberately leaves
 
@@ -189,8 +198,8 @@ makes the network deletion fail and the next run inherits it:
 | --- | --- | --- |
 | provider | instances, firewall, network, SSH key | yes |
 | cloud-controller-manager | one load balancer per `LoadBalancer` Service | yes |
-| CSI driver | volumes attached to this cluster's instances | yes (detached first) |
-| CSI driver | unattached `pvc-*` volumes claimed by nobody | only with `--purge-orphaned-volumes` |
+| CSI driver (managed k3s) | volumes Civo stamped with this cluster's UUID (`ClusterID`) | yes — under `adhar down`, after the cluster is gone: listed, confirmed (or `--yes`), deleted and read back; `--keep-volumes` keeps them. `adhar cluster delete` detaches and deletes them with the cluster |
+| CSI driver | unattached `pvc-*` volumes claimed by nobody | offered behind a confirmation typed at a terminal when no Kubernetes cluster and no platform instance is left in the region; or `--purge-orphaned-volumes` (unlisted) |
 | anything | a volume attached elsewhere, or tagged for another cluster | never |
 
 Load balancers are matched by **identity, not by name**: the cluster's instance tag,

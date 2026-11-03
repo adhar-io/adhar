@@ -166,8 +166,11 @@ func (p *Provider) LegacyVolumes(ctx context.Context, owner provider.VolumeOwner
 	}
 	res := provider.LegacyVolumes{
 		Provable: true,
-		Reason: fmt.Sprintf("no instance created by the platform, and none running any Kubernetes cluster, "+
-			"remains in %s; each volume is an unattached EBS CSI volume with no cluster id", region),
+		// Says what was CHECKED: an instance's tags. A cluster whose instances
+		// carry none of them is invisible to this test, and the person typing
+		// "yes" must not read it as "no Kubernetes cluster runs here".
+		Reason: fmt.Sprintf("no instance left in %s was created by the platform, sits in its VPC, or is tagged "+
+			"as a node of a Kubernetes cluster; each volume is an unattached EBS CSI volume with no cluster id", region),
 	}
 	for _, v := range vols {
 		if ok, why := legacyEBSCandidate(v, owner.ClusterName); ok {

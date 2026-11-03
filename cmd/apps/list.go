@@ -29,6 +29,10 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all applications",
 	Long: `List all applications in the specified namespace or across all namespaces.
+
+Without --namespace it lists adhar-system, where every application created from
+a template (here or in the Adhar Console) is registered, and the dev
+environment, where --repo and --file deploys default to.
 	
 Examples:
   adhar application list
@@ -58,7 +62,8 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("read kubeconfig flag: %w", err)
 	}
 
-	statuses, err := ListApplications(cmd.Context(), kubeconfigPath, namespace, allNamespaces, selector)
+	statuses, err := listApplicationsIn(cmd.Context(), kubeconfigPath,
+		applicationNamespaces(cmd.Flags().Changed("namespace"), namespace), allNamespaces, selector)
 	if err != nil {
 		return err
 	}

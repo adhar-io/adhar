@@ -2,6 +2,7 @@ package apps
 
 import (
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/logger"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ import (
 type ApplicationStatusView struct {
 	Name                string              `json:"name" yaml:"name"`
 	Namespace           string              `json:"namespace" yaml:"namespace"`
+	Phase               string              `json:"phase,omitempty" yaml:"phase,omitempty"`
 	SyncStatus          string              `json:"syncStatus,omitempty" yaml:"syncStatus,omitempty"`
 	HealthStatus        string              `json:"healthStatus,omitempty" yaml:"healthStatus,omitempty"`
 	Revision            string              `json:"revision,omitempty" yaml:"revision,omitempty"`
@@ -49,6 +51,8 @@ type StatusCondition struct {
 // EnvironmentStatus represents status information for a specific environment deployment.
 type EnvironmentStatus struct {
 	Environment  string   `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Namespace    string   `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Application  string   `json:"application,omitempty" yaml:"application,omitempty"`
 	Version      string   `json:"version,omitempty" yaml:"version,omitempty"`
 	Health       string   `json:"health,omitempty" yaml:"health,omitempty"`
 	SyncStatus   string   `json:"syncStatus,omitempty" yaml:"syncStatus,omitempty"`
@@ -65,42 +69,84 @@ var applicationGVR = schema.GroupVersionResource{
 	Resource: "applications",
 }
 
+// dynamicClientFor is a dynamic client for the --kubeconfig the command was
+// given, or the default kubeconfig.
+func dynamicClientFor(kubeconfigPath string) (dynamic.Interface, error) {
+	if kubeconfigPath == "" {
+		kubeconfigPath = helpers.GetKubeConfigPath()
+	}
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("build kubeconfig: %w", err)
+	}
+	dc, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("create dynamic client: %w", err)
+	}
+	return dc, nil
+}
+
 // ErrApplicationNotFound indicates the requested Application could not be resolved.
 var ErrApplicationNotFound = errors.New("application not found")
+
+// applicationNamespaces is where an Application is looked for when --namespace
+// is not given: adhar-system first — every template deploy and every
+// Console-created app registers its paved-road Application there — then the
+// dev environment, where a --repo or --file deploy without --namespace puts
+// one. Until 2026-11-03 status, list and delete looked in dev alone, so
+// `adhar application status qua-service` answered "application not found:
+// dev/qua-service" for every app the CLI and the Console had scaffolded.
+func applicationNamespaces(namespaceSet bool, ns string) []string {
+	if namespaceSet && ns != "" {
+		return []string{ns}
+	}
+	return []string{globals.AdharSystemNamespace, globals.DefaultEnvironment()}
+}
+
+// findApplication returns the Application named name from the first of
+// namespaces that holds one.
+func findApplication(ctx context.Context, dc dynamic.Interface, namespaces []string, name string) (*unstructured.Unstructured, error) {
+	for _, ns := range namespaces {
+		app, err := dc.Resource(applicationGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			return app, nil
+		}
+		if !k8serrors.IsNotFound(err) {
+			return nil, fmt.Errorf("get application %s/%s: %w", ns, name, err)
+		}
+	}
+	return nil, fmt.Errorf("%w: %s in %s", ErrApplicationNotFound, name, strings.Join(namespaces, " or "))
+}
 
 // GetApplicationStatus retrieves the status for a single Application claim.
 func GetApplicationStatus(ctx context.Context, kubeconfigPath, namespace, name string) (*ApplicationStatusView, error) {
 	if namespace == "" {
 		namespace = globals.DefaultEnvironment()
 	}
+	return resolveApplicationStatus(ctx, kubeconfigPath, []string{namespace}, name)
+}
 
+// resolveApplicationStatus looks the Application up in namespaces, in order,
+// and adds what each of its environments' Argo CD Applications reports.
+func resolveApplicationStatus(ctx context.Context, kubeconfigPath string, namespaces []string, name string) (*ApplicationStatusView, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
-	if kubeconfigPath == "" {
-		kubeconfigPath = helpers.GetKubeConfigPath()
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	dc, err := dynamicClientFor(kubeconfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("build kubeconfig: %w", err)
+		return nil, err
 	}
+	return applicationStatusIn(ctx, dc, namespaces, name)
+}
 
-	dynamicClient, err := dynamic.NewForConfig(config)
+func applicationStatusIn(ctx context.Context, dc dynamic.Interface, namespaces []string, name string) (*ApplicationStatusView, error) {
+	app, err := findApplication(ctx, dc, namespaces, name)
 	if err != nil {
-		return nil, fmt.Errorf("create dynamic client: %w", err)
+		return nil, err
 	}
-
-	app, err := dynamicClient.Resource(applicationGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: %s/%s", ErrApplicationNotFound, namespace, name)
-		}
-		return nil, fmt.Errorf("get application: %w", err)
-	}
-
-	return buildApplicationStatus(app.Object, namespace), nil
+	view := buildApplicationStatus(app.Object, app.GetNamespace())
+	addEnvironmentStatus(ctx, dc, []*ApplicationStatusView{view})
+	return view, nil
 }
 
 func buildApplicationStatus(obj map[string]interface{}, defaultNamespace string) *ApplicationStatusView {
@@ -117,6 +163,7 @@ func buildApplicationStatus(obj map[string]interface{}, defaultNamespace string)
 	statusView.CreatedAt = stringFrom(obj, "metadata", "creationTimestamp")
 
 	statusMap := mapFrom(obj, "status")
+	statusView.Phase = stringFrom(statusMap, "phase")
 	statusView.SyncStatus = stringFrom(statusMap, "syncStatus")
 	statusView.HealthStatus = stringFrom(statusMap, "healthStatus")
 	statusView.LastSynced = stringFrom(statusMap, "lastSynced")
@@ -138,6 +185,13 @@ func buildApplicationStatus(obj map[string]interface{}, defaultNamespace string)
 		statusView.Message = stringFrom(appStatus, "message")
 	}
 	statusView.Revision = stringFrom(appStatus, "revision")
+	// The paved-road composition (application-multienv) reports no single sync
+	// or health — the application runs in several environments — but a phase
+	// (Pending, Progressing, Healthy) that already allows for environments
+	// still awaiting their first promotion.
+	if statusView.HealthStatus == "" {
+		statusView.HealthStatus = statusView.Phase
+	}
 
 	statusView.EnvironmentStatuses = extractEnvironmentStatuses(statusMap)
 	statusView.Conditions = extractConditions(statusMap)
@@ -222,6 +276,12 @@ func renderStatusTable(status *ApplicationStatusView, detailed bool) error {
 		fmt.Println(helpers.TitleStyle.Render("Environment Statuses"))
 		for _, env := range status.EnvironmentStatuses {
 			helpers.Printf("- %s\n", helpers.HighlightStyle.Render(env.Environment))
+			if env.Namespace != "" {
+				fmt.Printf("  • Namespace: %s\n", env.Namespace)
+			}
+			if env.Application != "" {
+				fmt.Printf("  • Argo CD Application: %s\n", env.Application)
+			}
 			if env.Version != "" {
 				fmt.Printf("  • Version: %s\n", env.Version)
 			}
@@ -317,7 +377,19 @@ func mapStringStringFrom(parent map[string]interface{}, keys ...string) map[stri
 func extractEnvironmentStatuses(status map[string]interface{}) []EnvironmentStatus {
 	raw := sliceFrom(status, "environmentStatuses")
 	if len(raw) == 0 {
-		return nil
+		// application-multienv: status.environments lists the project's
+		// environments with the Argo CD Application each one runs as.
+		var environments []EnvironmentStatus
+		for _, item := range sliceFrom(status, "environments") {
+			if m, ok := item.(map[string]interface{}); ok {
+				environments = append(environments, EnvironmentStatus{
+					Environment: stringFromMap(m, "name"),
+					Namespace:   stringFromMap(m, "namespace"),
+					Application: stringFromMap(m, "argoApplication"),
+				})
+			}
+		}
+		return environments
 	}
 
 	environments := make([]EnvironmentStatus, 0, len(raw))
@@ -386,48 +458,116 @@ func formatAge(ts string) string {
 
 // ListApplications returns all Application claims in scope.
 func ListApplications(ctx context.Context, kubeconfigPath, namespace string, allNamespaces bool, selector string) ([]*ApplicationStatusView, error) {
+	if namespace == "" {
+		namespace = globals.DefaultEnvironment()
+	}
+	return listApplicationsIn(ctx, kubeconfigPath, []string{namespace}, allNamespaces, selector)
+}
+
+// listApplicationsIn lists the Applications in each of namespaces (or in all
+// of them), adding what their environments' Argo CD Applications report. A
+// namespace that cannot be listed is skipped while another can; when none can,
+// the first error is returned.
+func listApplicationsIn(ctx context.Context, kubeconfigPath string, namespaces []string, allNamespaces bool, selector string) ([]*ApplicationStatusView, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
-	if kubeconfigPath == "" {
-		kubeconfigPath = helpers.GetKubeConfigPath()
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	dc, err := dynamicClientFor(kubeconfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("build kubeconfig: %w", err)
+		return nil, err
 	}
+	return listApplicationsWith(ctx, dc, namespaces, allNamespaces, selector)
+}
 
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("create dynamic client: %w", err)
-	}
-
-	listNamespace := namespace
+func listApplicationsWith(ctx context.Context, dc dynamic.Interface, namespaces []string, allNamespaces bool, selector string) ([]*ApplicationStatusView, error) {
 	if allNamespaces {
-		listNamespace = metav1.NamespaceAll
-	} else if listNamespace == "" {
-		listNamespace = globals.DefaultEnvironment()
+		namespaces = []string{metav1.NamespaceAll}
 	}
-
 	opts := metav1.ListOptions{}
 	if strings.TrimSpace(selector) != "" {
 		opts.LabelSelector = selector
 	}
 
-	appList, err := dynamicClient.Resource(applicationGVR).Namespace(listNamespace).List(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("list applications: %w", err)
+	var statuses []*ApplicationStatusView
+	var firstErr error
+	listed := 0
+	for _, ns := range namespaces {
+		appList, err := dc.Resource(applicationGVR).Namespace(ns).List(ctx, opts)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("list applications: %w", err)
+			}
+			continue
+		}
+		listed++
+		for _, item := range appList.Items {
+			statuses = append(statuses, buildApplicationStatus(item.Object, ns))
+		}
 	}
-
-	statuses := make([]*ApplicationStatusView, 0, len(appList.Items))
-	for _, item := range appList.Items {
-		status := buildApplicationStatus(item.Object, namespace)
-		statuses = append(statuses, status)
+	if listed == 0 && firstErr != nil {
+		return nil, firstErr
 	}
-
+	addEnvironmentStatus(ctx, dc, statuses)
 	return statuses, nil
+}
+
+var argoApplicationGVR = schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+
+// addEnvironmentStatus fills each environment of a paved-road Application with
+// what its Argo CD Application reports, and gives the Application the sync
+// status they share (or the first that differs). Best effort: an Argo CD that
+// cannot be read leaves the environments as the control plane listed them.
+func addEnvironmentStatus(ctx context.Context, dc dynamic.Interface, views []*ApplicationStatusView) {
+	selector := "adhar.io/application"
+	want := 0
+	for _, v := range views {
+		for _, e := range v.EnvironmentStatuses {
+			if e.Application != "" {
+				want++
+			}
+		}
+	}
+	if want == 0 {
+		return
+	}
+	if len(views) == 1 {
+		selector += "=" + views[0].Name
+	}
+	list, err := dc.Resource(argoApplicationGVR).Namespace(globals.AdharSystemNamespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return
+	}
+	byName := map[string]map[string]interface{}{}
+	for _, a := range list.Items {
+		byName[a.GetName()] = a.Object
+	}
+	for _, v := range views {
+		applyEnvironmentStatus(v, byName)
+	}
+}
+
+// applyEnvironmentStatus is the pure half of addEnvironmentStatus.
+func applyEnvironmentStatus(v *ApplicationStatusView, argoApps map[string]map[string]interface{}) {
+	aggregate := ""
+	for i := range v.EnvironmentStatuses {
+		e := &v.EnvironmentStatuses[i]
+		obj, ok := argoApps[e.Application]
+		if !ok {
+			continue
+		}
+		e.SyncStatus = stringFrom(obj, "status", "sync", "status")
+		e.Health = stringFrom(obj, "status", "health", "status")
+		e.Version = stringFrom(obj, "status", "sync", "revision")
+		e.LastDeployed = stringFrom(obj, "status", "operationState", "finishedAt")
+		switch {
+		case e.SyncStatus == "":
+		case aggregate == "" || aggregate == "Synced":
+			aggregate = e.SyncStatus
+		}
+	}
+	if v.SyncStatus == "" {
+		v.SyncStatus = aggregate
+	}
 }
 
 // RenderApplicationStatusList renders a collection of application statuses.
@@ -547,39 +687,64 @@ func waitForApplicationReady(ctx context.Context, kubeconfigPath, namespace, nam
 		namespace = globals.DefaultEnvironment()
 	}
 
+	dc, err := dynamicClientFor(kubeconfigPath)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	last := ""
 	for {
-		status, err := GetApplicationStatus(ctx, kubeconfigPath, namespace, name)
-		if err == nil && isApplicationReady(status) {
-			return status, nil
-		}
-		if err != nil && !errors.Is(err, ErrApplicationNotFound) {
+		app, err := findApplication(ctx, dc, []string{namespace}, name)
+		if err == nil {
+			status := buildApplicationStatus(app.Object, namespace)
+			if isApplicationReady(status) {
+				// The final view carries each environment's own state.
+				addEnvironmentStatus(context.WithoutCancel(ctx), dc, []*ApplicationStatusView{status})
+				return status, nil
+			}
+			// A paved-road app takes a CI build and a promotion to come up, so say
+			// where it is rather than waiting in silence.
+			now := status.Phase
+			if status.Message != "" {
+				now = strings.TrimPrefix(now+": "+status.Message, ": ")
+			}
+			if now != "" && now != last {
+				logger.Info("◌ " + now)
+				last = now
+			}
+		} else if !errors.Is(err, ErrApplicationNotFound) && ctx.Err() == nil {
 			return nil, err
 		}
 
 		select {
 		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
-				return nil, fmt.Errorf("timed out waiting for application %s to become ready: %w", name, err)
+			where := ""
+			if last != "" {
+				where = " (last: " + last + ")"
 			}
-			return nil, fmt.Errorf("timed out waiting for application %s to become ready", name)
+			return nil, fmt.Errorf("timed out waiting for application %s to become ready%s: %w", name, where, ctx.Err())
 		case <-ticker.C:
 		}
 	}
 }
 
+// isApplicationReady says whether the Application's control plane reports it
+// up: the paved-road phase Healthy (application-multienv and application-argocd
+// both write it), or a synced and healthy Argo CD state.
 func isApplicationReady(status *ApplicationStatusView) bool {
 	if status == nil {
 		return false
+	}
+	if strings.EqualFold(status.Phase, "healthy") {
+		return true
 	}
 	sync := strings.EqualFold(status.SyncStatus, "synced") || strings.EqualFold(status.SyncStatus, "ready")
 	health := strings.EqualFold(status.HealthStatus, "healthy") || strings.EqualFold(status.HealthStatus, "ready")
 	return sync && health
 }
-
-// *** End Patch

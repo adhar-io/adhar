@@ -309,26 +309,56 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 	// AmazonEBSCSIDriverPolicy, so no IRSA wiring is needed for it to work.
 	// Configured with the cluster's install id as an extra volume tag, exactly
 	// as the compute path's chart is, so `adhar down` can attribute an EKS
-	// cluster's volumes too (the addon's schema accepts
-	// controller.extraVolumeTags; verified against v1.67.2-eksbuild.1).
-	addon := &eks.CreateAddonInput{
-		ClusterName: aws.String(name), AddonName: aws.String("aws-ebs-csi-driver"),
-		ResolveConflicts: ekstypes.ResolveConflictsOverwrite,
-	}
-	if values := eksEBSAddonConfiguration(spec.ClusterInstallID); values != "" {
-		addon.ConfigurationValues = aws.String(values)
-	}
-	if _, err := p.eksClient.CreateAddon(ctx, addon); err != nil {
-		var inUse *ekstypes.ResourceInUseException
-		if !errors.As(err, &inUse) {
-			log.Printf("Warning: EBS CSI addon: %v", err)
-		}
+	// cluster's volumes too (controller.extraVolumeTags, the chart value the
+	// addon's configuration mirrors; not yet exercised on a live EKS cluster,
+	// so createEBSCSIAddon falls back to no configuration if it is rejected).
+	if err := createEBSCSIAddon(ctx, p.eksClient, name, spec.ClusterInstallID); err != nil {
+		log.Printf("Warning: EBS CSI addon: %v", err)
 	}
 
 	cluster := p.eksToCluster(c)
 	cluster.Tags = spec.Tags
 	log.Printf("● EKS cluster %s is ACTIVE at %s\n", name, cluster.Endpoint)
 	return cluster, nil
+}
+
+// eksAddonAPI is the one EKS call createEBSCSIAddon makes; *eks.Client
+// satisfies it.
+type eksAddonAPI interface {
+	CreateAddon(ctx context.Context, in *eks.CreateAddonInput, optFns ...func(*eks.Options)) (*eks.CreateAddonOutput, error)
+}
+
+// createEBSCSIAddon installs the EBS CSI driver addon, configured to tag every
+// volume with the install id.
+//
+// If EKS rejects the configuration (an addon version whose schema lacks
+// controller.extraVolumeTags), the addon is installed WITHOUT it rather than
+// not at all: a cluster with no CSI driver cannot bind a single
+// PersistentVolumeClaim, while one whose volumes carry no id only loses the
+// automatic cleanup — `adhar down` then offers them on evidence instead.
+func createEBSCSIAddon(ctx context.Context, api eksAddonAPI, clusterName, installID string) error {
+	addon := &eks.CreateAddonInput{
+		ClusterName: aws.String(clusterName), AddonName: aws.String("aws-ebs-csi-driver"),
+		ResolveConflicts: ekstypes.ResolveConflictsOverwrite,
+	}
+	values := eksEBSAddonConfiguration(installID)
+	if values != "" {
+		addon.ConfigurationValues = aws.String(values)
+	}
+	_, err := api.CreateAddon(ctx, addon)
+	var invalidParam *ekstypes.InvalidParameterException
+	var invalidReq *ekstypes.InvalidRequestException
+	if values != "" && (errors.As(err, &invalidParam) || errors.As(err, &invalidReq)) {
+		log.Printf("Warning: EKS rejected the EBS CSI addon configuration %s (%v); installing it without the "+
+			"install-id volume tag, so this cluster's volumes will be offered by `adhar down` only on evidence", values, err)
+		addon.ConfigurationValues = nil
+		_, err = api.CreateAddon(ctx, addon)
+	}
+	var inUse *ekstypes.ResourceInUseException
+	if errors.As(err, &inUse) {
+		return nil // already installed
+	}
+	return err
 }
 
 // eksEBSAddonConfiguration is the EBS CSI addon's configuration: the install

@@ -3047,6 +3047,7 @@ data:
   configAuditReports.scanner: "Trivy"
   compliance.failEntriesLimit: "10"
   report.recordFailedChecksOnly: "true"
+  skipResourceByLabels: "tekton.dev/taskRun,kpack.io/build"
   trivy.serverURL: "http://trivy-service.adhar-system:4954"
   node.collector.imageRef: "ghcr.io/aquasecurity/node-collector:0.3.1"
   policies.bundle.oci.ref: "mirror.gcr.io/aquasec/trivy-checks:1"
@@ -3580,6 +3581,7 @@ spec:
     metadata:
       annotations:
         checksum/config: 7a772fcc681c3a7a92c681b76e77897573e0735f767679b47740ba4279401040
+        adhar.io/operator-configmap-sha256: 549b0cc16f535db2127ae79cf6ec420aa5fdf8e66fa8212398f23f7f257eb03f
       labels:
         app.kubernetes.io/name: trivy-operator
         app.kubernetes.io/instance: trivy-operator

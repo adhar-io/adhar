@@ -131,9 +131,15 @@ func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subne
 // blockStorageParameters are adhar-block's parameters: the disk SKU, and the
 // install id as an Azure tag (the disk CSI StorageClass `tags` parameter,
 // "key=value[,key=value]").
+//
+// The tag was missing from the first release of this function — the branch
+// that sets it was empty — so every Azure disk made by v0.1.66 carries no
+// install id and is found only by the legacy evidence (no VM left in the
+// cluster's resource group), never by `adhar down --yes`.
 func blockStorageParameters(installID string) map[string]string {
 	params := map[string]string{"skuName": "StandardSSD_LRS"}
 	if installID != "" {
+		params["tags"] = provider.ClusterIDLabel + "=" + installID
 	}
 	return params
 }

@@ -666,13 +666,9 @@ func resolveGatewayAddresses(ctx context.Context, result *pfactory.ProvisionResu
 	if result == nil || result.Provider == nil || result.Cluster == nil || envConfig == nil {
 		return nil
 	}
-	mode := ""
-	if envConfig.ProviderConfig != nil {
-		parsed, err := pfactory.ParseClusterMode(envConfig.ProviderConfig.ToProviderMap())
-		if err != nil {
-			return nil
-		}
-		mode = parsed
+	mode, err := pfactory.EnvironmentClusterMode(envConfig)
+	if err != nil {
+		return nil
 	}
 	if !pfactory.GatewayHostNetworkRequired(envConfig.ResolvedProvider, mode) {
 		return nil

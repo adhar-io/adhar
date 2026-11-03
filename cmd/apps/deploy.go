@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"code.gitea.io/sdk/gitea"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -105,7 +107,7 @@ func init() {
 	deployCmd.Flags().StringVar(&sourcePathFlag, "path", "", "Path within the repository or template to deploy")
 	deployCmd.Flags().StringVar(&destinationNSFlag, "dest-namespace", "", "Destination namespace for application workloads")
 	deployCmd.Flags().StringVar(&destinationSrv, "dest-server", "https://kubernetes.default.svc", "Destination cluster API server")
-	deployCmd.Flags().StringVar(&projectFlag, "project", "adhar", "Platform Project the application belongs to; its environments (dev/test/prod namespaces) and promotion policy come from it. Its Argo CD project must allow the target namespace: the default `adhar` admits only adhar/dev/test/prod, so for another namespace pass your team's project or `default`")
+	deployCmd.Flags().StringVar(&projectFlag, "project", "adhar", "Platform Project the application belongs to; its environments (dev/test/prod namespaces) and promotion policy come from it. With --template it must exist, and a template that declares a `project` parameter takes it from there unless this is given. With --repo its Argo CD project must allow the target namespace: the default `adhar` admits only adhar/dev/test/prod, so for another namespace pass your team's project or `default`")
 	deployCmd.Flags().StringArrayVar(&paramFlags, "param", nil, "Template parameter as key=value (repeatable); see 'adhar application templates'")
 	deployCmd.Flags().StringVar(&envFlag, "env", "", "Environment the app is published in; part of its hostname (default "+globals.DefaultEnvironment()+")")
 }
@@ -133,13 +135,14 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := cmd.Context()
-	var appliedName, appliedNamespace string
+	var appliedName, appliedNamespace, registeredProject string
 
-	// A --template deploy creates the Gitea repository before the Application,
-	// so check the Argo CD project admits the destination first: a refusal after
-	// scaffolding leaves a non-empty repo that blocks a re-run. (--file deploys
-	// may set their own project in the file, so they are left to Argo CD.)
-	if templateFlag != "" || repoFlag != "" {
+	// A --repo deploy names its destination namespace, so check the Argo CD
+	// project admits it before anything is created. (--file deploys may set
+	// their own project in the file, so they are left to Argo CD; a --template
+	// deploy runs in its project's environments and checks the project itself,
+	// in deployFromTemplate.)
+	if templateFlag == "" && repoFlag != "" {
 		if err := checkProjectAdmitsNamespace(ctx, projectFlag, destinationNSFlag, cmd.Flags().Changed("project")); err != nil {
 			return err
 		}
@@ -149,7 +152,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	case fileFlag != "":
 		appliedName, appliedNamespace, err = deployFromFile(ctx, kubeconfigPath, appName, deploymentNamespace, fileFlag)
 	case templateFlag != "":
-		appliedName, appliedNamespace, err = deployFromTemplate(ctx, kubeconfigPath, appName, deploymentNamespace, templateFlag)
+		for _, w := range templateIgnoredFlags(cmd.Flags().Changed) {
+			helpers.Println(helpers.WarningStyle.Render("!") + " " + w)
+		}
+		appliedName, appliedNamespace, registeredProject, err = deployFromTemplate(ctx, kubeconfigPath, appName, templateFlag, cmd.Flags().Changed("project"))
 	case repoFlag != "":
 		appliedName, appliedNamespace, err = deployFromRepo(ctx, kubeconfigPath, appName, deploymentNamespace)
 	}
@@ -158,8 +164,8 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	note := fmt.Sprintf("Application %s deployed to namespace %s", appliedName, appliedNamespace)
-	if templateFlag != "" {
-		note = fmt.Sprintf("Application %s registered in project %s: its environments and promotion chain come from the project", appliedName, pavedRoadProject(projectFlag))
+	if registeredProject != "" {
+		note = fmt.Sprintf("Application %s registered in project %s: its environments and promotion chain come from the project", appliedName, registeredProject)
 	}
 	fmt.Println(helpers.CreateSuccess(note))
 
@@ -184,29 +190,52 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 //
 // These are Backstage software templates, not deployable manifests: the template
 // file declares parameters and a skeleton, and instantiating it means RENDERING
-// that skeleton into the application's own Gitea repository. The rendered repo is
-// then handed to the same Application path a --repo deploy takes, so the
-// control-plane behaviour is identical and the generated service is editable in
-// git from its first commit.
-func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace, template string) (string, string, error) {
+// that skeleton into the application's own Gitea repository, then registering
+// the paved-road Application for it — the object the Console's Create wizard
+// registers — in the template's project. It returns the Application's name and
+// namespace and that project.
+func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, template string, projectExplicit bool) (string, string, string, error) {
+	// Everything that can refuse is asked before anything is created: the
+	// repository is the one side effect a re-run cannot undo.
+	if err := validateScaffoldName(appName); err != nil {
+		return "", "", "", err
+	}
+	dc, err := dynamicClientFor(kubeconfigPath)
+	if err != nil {
+		return "", "", "", err
+	}
 	gc, err := newGiteaClient(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("connecting to the platform Gitea (is the cluster up?): %w", err)
+		return "", "", "", fmt.Errorf("connecting to the platform Gitea (is the cluster up?): %w", err)
 	}
 	giteaURL, err := utils.GiteaBaseUrl(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("resolving the platform Gitea URL: %w", err)
+		return "", "", "", fmt.Errorf("resolving the platform Gitea URL: %w", err)
 	}
-
 	overrides, err := parseTemplateParams(paramFlags)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
+	}
+	t, err := loadBackstageTemplate(gc, template)
+	if err != nil {
+		return "", "", "", err
+	}
+	project, err := scaffoldProject(t, projectFlag, projectExplicit, overrides)
+	if err != nil {
+		return "", "", "", err
+	}
+	if err := checkPavedRoadProject(ctx, dc, project); err != nil {
+		return "", "", "", err
 	}
 
 	logger.Info(fmt.Sprintf("▸ Rendering template %s into %s/%s", template, globals.GiteaPlatformOrg, appName))
-	scaffolded, err := scaffoldTemplate(ctx, gc, giteaURL, template, appName, namespace, deployEnv(), overrides)
+	rendered, err := renderScaffold(ctx, gc, t, giteaURL, template, appName, deployEnv(), overrides)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
+	}
+	scaffolded, err := commitScaffold(gc, giteaURL, appName, rendered)
+	if err != nil {
+		return "", "", "", err
 	}
 	logger.Info(fmt.Sprintf("▣ Committed %d files to %s", scaffolded.Files, scaffolded.CloneURL))
 
@@ -214,39 +243,80 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace,
 	// registers. Until 2026-11-03 this handed the repo to deployFromRepo, whose
 	// XR (namespace dev, selector feature=application/provider=local) selected
 	// application-local-argocd: one Argo CD app syncing deploy/ on main into
-	// dev, with no test/prod and no Kargo. The --namespace and --dest-* flags do
-	// not apply here: the project's environments decide where the app runs.
-	app := pavedRoadApplication(appName, projectFlag, scaffolded, sourcePathFlag, versionFlag)
-	if err := applyApplication(ctx, kubeconfigPath, app); err != nil {
-		if !strings.Contains(err.Error(), "parameters.type") {
-			return "", "", err
-		}
-		// A control plane whose XRD predates spec.parameters.type (or its
-		// `function` value) refuses the whole object; the Console retries
-		// without it and so does this. The labels still say what the app is.
-		unstructured.RemoveNestedField(app.Object, "spec", "parameters", "type")
-		if err := applyApplication(ctx, kubeconfigPath, app); err != nil {
-			return "", "", err
+	// dev, with no test/prod and no Kargo. The --namespace, --dest-* and
+	// --version flags do not apply here (templateIgnoredFlags).
+	app := pavedRoadApplication(appName, project, scaffolded, sourcePathFlag)
+	if err := applyWithTypeRetry(app, func(obj *unstructured.Unstructured) error {
+		_, aerr := dc.Resource(applicationGVR).Namespace(obj.GetNamespace()).Apply(ctx, obj.GetName(), obj,
+			metav1.ApplyOptions{FieldManager: cliFieldManager})
+		return aerr
+	}); err != nil {
+		return "", "", "", fmt.Errorf("registering Application %s for %s (the repository is committed; nothing was rolled back): %w",
+			appName, scaffolded.CloneURL, err)
+	}
+	return app.GetName(), app.GetNamespace(), project, nil
+}
+
+// templateIgnoredFlags says which of the flags a --template deploy was given
+// do not apply to it, and why. --version used to reach the Application's
+// targetRevision, but the scaffold is committed to main: any other revision
+// left the Kargo Warehouse watching a branch with nothing on it, so the app
+// never deployed. The Console always registers main.
+func templateIgnoredFlags(changed func(string) bool) []string {
+	var out []string
+	for _, f := range []struct{ name, why string }{
+		{"namespace", "the project's environments decide where the app runs"},
+		{"dest-namespace", "the project's environments decide where the app runs"},
+		{"dest-server", "the project's environments decide where the app runs"},
+		{"version", "the scaffold is committed to main, the branch its Application tracks"},
+	} {
+		if changed(f.name) {
+			out = append(out, "--"+f.name+" does not apply to --template: "+f.why)
 		}
 	}
-	return app.GetName(), app.GetNamespace(), nil
+	return out
 }
+
+// cliFieldManager owns what the CLI declares, as `adhar-console` owns what the
+// Console declares. It is also the adhar.io/managed-by label the XR carries.
+const cliFieldManager = "adhar-cli"
+
+// applyWithTypeRetry server-side applies the Application the way the Console's
+// applyApplication does (control-plane.ts): no force, so a field another
+// manager set differently is reported as a conflict rather than taken over.
+// A control plane whose XRD predates spec.parameters.type, or its `function`
+// value, refuses the whole object ("field not declared in schema" /
+// `Unsupported value: "function"`); that one refusal is retried without the
+// field — the adhar.io/dashboard-type and adhar.io/workload labels still say
+// what the app is.
+func applyWithTypeRetry(app *unstructured.Unstructured, apply func(*unstructured.Unstructured) error) error {
+	err := apply(app)
+	if err == nil {
+		return nil
+	}
+	if _, has, _ := unstructured.NestedFieldNoCopy(app.Object, "spec", "parameters", "type"); !has || !parametersTypeRe.MatchString(err.Error()) {
+		return err
+	}
+	unstructured.RemoveNestedField(app.Object, "spec", "parameters", "type")
+	return apply(app)
+}
+
+// parametersTypeRe is the Console's /parameters\.type\b/.
+var parametersTypeRe = regexp.MustCompile(`parameters\.type\b`)
 
 // pavedRoadApplication is the Application XR a template scaffold registers: the
 // same object as the Console's applicationManifest (apps/console/app/server/
-// control-plane.ts). It names no composition, so the XRD's default
-// (application-multienv) composes one Argo CD Application per environment of
-// the project, the Kargo Warehouse and the promotion Stages.
-func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path, revision string) *unstructured.Unstructured {
+// control-plane.ts), labelled as the CLI's. It names no composition, so the
+// XRD's default (application-multienv) composes one Argo CD Application per
+// environment of the project, the Kargo Warehouse and the promotion Stages.
+// It tracks main, the branch the scaffold is committed to.
+func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path string) *unstructured.Unstructured {
 	project = pavedRoadProject(project)
 	if path == "" {
 		path = s.ManifestPath
 	}
-	if revision == "" {
-		revision = "main"
-	}
 	labels := map[string]interface{}{
-		"adhar.io/managed-by":  "adhar-cli",
+		"adhar.io/managed-by":  cliFieldManager,
 		"adhar.io/project":     project,
 		"adhar.io/application": appName,
 		"adhar.io/scaffolded":  "true",
@@ -264,13 +334,13 @@ func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path, revi
 		"source": map[string]interface{}{
 			"repoURL":        publicCloneURL(s.CloneURL),
 			"path":           path,
-			"targetRevision": revision,
+			"targetRevision": "main",
 		},
 	}
 	// The Console's applicationTypeOf: a function template deploys a Function
 	// XR per environment, a browser app is `web`, anything else keeps the
 	// XRD's default (`service`).
-	if s.TemplateLabels["adhar.io/workload"] == "function" {
+	if isFunctionTemplate(s) {
 		labels["adhar.io/workload"] = "function"
 		params["type"] = "function"
 	} else if dashboard == "frontend" || dashboard == "fullstack" {
@@ -288,12 +358,85 @@ func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path, revi
 	}}
 }
 
+// functionTemplateRe is the Console's isFunctionTemplate name rule
+// (apps/console/app/server/templates.ts).
+var functionTemplateRe = regexp.MustCompile(`^function(-|$)`)
+
+// isFunctionTemplate says whether a template scaffolds a Function. The Console
+// decides from the template's name (`function-*`) or a `function` tag
+// (scaffoldWorkload → templateFamilyOf); the template's own
+// adhar.io/workload: function label says the same thing and is honoured too.
+func isFunctionTemplate(s *scaffoldedRepo) bool {
+	if s.TemplateLabels["adhar.io/workload"] == "function" ||
+		functionTemplateRe.MatchString(strings.ToLower(strings.TrimSpace(s.TemplateName))) {
+		return true
+	}
+	for _, tag := range s.TemplateTags {
+		if strings.ToLower(strings.TrimSpace(tag)) == "function" {
+			return true
+		}
+	}
+	return false
+}
+
 // pavedRoadProject is the project a scaffold lands in when none is named.
+// `default` is the platform project too: the Application composition reads it
+// as `adhar`, so the XR says so rather than carrying a label no composed
+// object agrees with.
 func pavedRoadProject(project string) string {
-	if project == "" {
+	if project = strings.TrimSpace(project); project == "" || project == "default" {
 		return "adhar"
 	}
 	return project
+}
+
+// scaffoldProject is the project a template scaffold registers in, from the one
+// source the Console reads: the template's own `project` parameter
+// (agent-service declares one, defaulting to `adhar`, and renders it into
+// deploy/base/agentworkload.yaml) when the template declares it, else
+// --project. A --project named explicitly is also what that parameter renders,
+// so the repository and its Application cannot disagree; naming both
+// differently is refused before anything is created.
+func scaffoldProject(t *backstageTemplate, flag string, flagExplicit bool, overrides map[string]string) (string, error) {
+	declared := false
+	var def string
+	for _, g := range t.Spec.Parameters {
+		if p, ok := g.Properties["project"]; ok {
+			declared = true
+			if !p.Default.IsZero() {
+				_ = p.Default.Decode(&def)
+			}
+		}
+	}
+	param, paramSet := overrides["project"]
+	switch {
+	case !declared:
+		return pavedRoadProject(flag), nil
+	case flagExplicit && paramSet && pavedRoadProject(param) != pavedRoadProject(flag):
+		return "", fmt.Errorf("--project %s and --param project=%s disagree; template %q renders its project into the repository, so name it once",
+			flag, param, t.Metadata.Name)
+	case flagExplicit:
+		overrides["project"] = flag
+		return pavedRoadProject(flag), nil
+	case paramSet:
+		return pavedRoadProject(param), nil
+	default:
+		return pavedRoadProject(def), nil
+	}
+}
+
+// scaffoldNameRe is the Console's NAME_RE: the name becomes a Gitea repository,
+// the Application XR and every `<project>-<app>-<env>` the composition derives.
+var scaffoldNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,61}[a-z0-9]$`)
+
+// validateScaffoldName refuses a name the Console refuses, before anything is
+// created: a name the API server rejects would otherwise be found only after
+// the repository had been created and committed.
+func validateScaffoldName(name string) error {
+	if !scaffoldNameRe.MatchString(name) {
+		return fmt.Errorf("application name %q is not lowercase kebab-case of 3-63 characters (a letter first, a letter or digit last)", name)
+	}
+	return nil
 }
 
 // publicCloneURL drops the scheme's default port, so the source reads like
@@ -507,5 +650,3 @@ func loadApplicationFromFile(path string) (*unstructured.Unstructured, error) {
 
 	return nil, fmt.Errorf("no Application resource found in %s", path)
 }
-
-// *** End Patch

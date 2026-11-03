@@ -41,33 +41,43 @@ func TestRenderInterpolatesInsideALargerString(t *testing.T) {
 }
 
 func TestRenderConditionalKeepsTheTakenBranch(t *testing.T) {
-	src := "a\n{% if values.withDatabase %}\ndb: yes\n{% else %}\ndb: no\n{% endif %}\nz\n"
+	// The spelling the skeletons use: `{%-` takes the line break before the
+	// tag with it, so a tag on its own line leaves no blank line behind.
+	src := "a\n{%- if values.withDatabase %}\ndb: yes\n{%- else %}\ndb: no\n{%- endif %}\nz\n"
+	// A bare `{% … %}` trims nothing, in the Console's renderer as in Nunjucks:
+	// its line breaks stay. Until 2026-11-03 this renderer dropped the break
+	// after EVERY tag instead, which fused lines wherever a tag closed
+	// mid-line — see TestAnInlineTagKeepsTheLineBreakAfterIt.
+	bare := "a\n{% if values.withDatabase %}\ndb: yes\n{% else %}\ndb: no\n{% endif %}\nz\n"
 	for _, tc := range []struct {
+		src  string
 		with bool
 		want string
 	}{
-		{true, "a\ndb: yes\nz\n"},
-		{false, "a\ndb: no\nz\n"},
+		{src, true, "a\ndb: yes\nz\n"},
+		{src, false, "a\ndb: no\nz\n"},
+		{bare, true, "a\n\ndb: yes\n\nz\n"},
+		{bare, false, "a\n\ndb: no\n\nz\n"},
 	} {
-		out, err := renderContent(src, ctx(map[string]any{"withDatabase": tc.with}))
+		out, err := renderContent(tc.src, ctx(map[string]any{"withDatabase": tc.with}))
 		if err != nil {
 			t.Fatalf("render(with=%v): %v", tc.with, err)
 		}
 		if out != tc.want {
-			t.Fatalf("with=%v: got %q want %q", tc.with, out, tc.want)
+			t.Fatalf("render(%q, with=%v): got %q want %q", tc.src, tc.with, out, tc.want)
 		}
 	}
 }
 
 func TestRenderConditionalAcceptsTheTrimmingForm(t *testing.T) {
-	// `{%- if … -%}` is the whitespace-trimming variant; the shipped skeletons
-	// use both spellings and they must render identically.
+	// `{%- … -%}` trims on both sides — the line break before the tag and the
+	// one after it — exactly as the Console's renderer does.
 	out, err := renderContent("a\n{%- if values.on -%}\nb\n{%- endif -%}\nc\n",
 		ctx(map[string]any{"on": true}))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if out != "a\nb\nc\n" {
+	if out != "abc\n" {
 		t.Fatalf("got %q", out)
 	}
 }

@@ -165,9 +165,12 @@ func ensureClusterSpecConfigMap(
 	// like a cluster the platform built, and getting it wrong means reapplying
 	// the platform's Cilium over the operator's own, or an autoscaler creating
 	// cloud instances for a cluster nobody asked it to grow.
+	// Read the way ProvisionEnvironment read it (provider block + the
+	// environment's clusterConfig), or a mode set per environment would be
+	// recorded as the block's — compute for a cluster `adhar up` only adopted.
 	clusterMode := pfactory.ClusterModeCompute
-	if envConfig != nil && envConfig.ProviderConfig != nil {
-		parsed, err := pfactory.ParseClusterMode(envConfig.ProviderConfig.ToProviderMap())
+	if envConfig != nil {
+		parsed, err := pfactory.EnvironmentClusterMode(envConfig)
 		if err != nil {
 			return fmt.Errorf("recording the cluster mode: %w", err)
 		}

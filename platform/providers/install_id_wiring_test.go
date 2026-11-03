@@ -18,7 +18,7 @@ type recordingProvider struct {
 }
 
 func (r *recordingProvider) Authenticate(context.Context, *types.Credentials) error { return nil }
-func (r *recordingProvider) ValidatePermissions(context.Context) error             { return nil }
+func (r *recordingProvider) ValidatePermissions(context.Context) error              { return nil }
 func (r *recordingProvider) ListClusters(context.Context) ([]*types.Cluster, error) {
 	return nil, nil
 }

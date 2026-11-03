@@ -23,6 +23,30 @@ operator:
   # crashlooped looking for its config and leader-election lease.
   namespace: adhar-system
 
+trivyOperator:
+  # Completed CI pods are not workloads. A Tekton TaskRun pod (and a kpack
+  # build pod) has no built-in controller, so the operator scanned it as a bare
+  # Pod -- every init and step container, each into its own VulnerabilityReport
+  # AND SbomReport -- and kept those reports for as long as the finished pod
+  # existed. On 2026-11-03 (DigitalOcean, 8 apps in CI) that was 257 of 700
+  # VulnerabilityReports and 236 of 673 SbomReports, every one for a
+  # Succeeded/Failed pod. SBOM + vulnerability reports were 265 of the 331 MiB
+  # the API server stores, and kube-apiserver keeps each custom resource decoded
+  # in its watch cache at ~7x its JSON size: ~2 GiB of its 4.3 GiB live heap,
+  # on a control plane at 108% memory. The app image a pipeline builds is still
+  # scanned twice: by the pipeline's own Trivy gate and, once deployed, here as
+  # a ReplicaSet/StatefulSet. Matched by label KEY on the scanned resource.
+  skipResourceByLabels: "tekton.dev/taskRun,kpack.io/build"
+
+# The operator reads the `trivy-operator` ConfigMap -- where trivyOperator.*
+# lands -- once, at startup, and the chart checksums only the OTHER ConfigMap
+# (trivy-operator-config), so a change here would sit unread until the pod
+# happened to restart. This is the sha256 of that ConfigMap's data (canonical
+# JSON); TestTrivyOperatorSkipsCIPodsAndRollsWhenItsConfigMapChanges prints the
+# new value whenever the rendered ConfigMap changes, and the pod rolls with it.
+podAnnotations:
+  adhar.io/operator-configmap-sha256: "549b0cc16f535db2127ae79cf6ec420aa5fdf8e66fa8212398f23f7f257eb03f"
+
 # The node-collector Job (CIS / NSA node checks) runs once per node, the
 # control plane included — and the control plane is tainted NoSchedule. With
 # no toleration the master's collector sat Pending until the operator timed it

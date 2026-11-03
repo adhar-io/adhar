@@ -465,11 +465,19 @@ reports but does not delete.
   controller manager's forwarding rule, target pool and `k8s-*` firewall rules are
   deleted unconditionally: they hold no data, nothing records them, and the
   firewall rule pins the VPC so the network cannot be deleted while it exists.
-  Unattached `pvc-*` disks are only deleted with `--purge-orphaned-volumes`,
-  because a disk may still hold data worth keeping; without the flag they are named
-  in the output rather than left silent.
+  The cluster's own PD CSI disks carry its install id (`adhar-block` and
+  `adhar-ci` label them `adhar-cluster-id=<id>`; on GKE the id is a cluster
+  resource label GKE copies onto attached disks): once the instances are gone
+  they are listed, confirmed (or `--yes`), deleted and read back, and
+  `--keep-volumes` keeps them. Unattached `pvc-*` disks with NO install id are
+  offered — behind a confirmation typed at a terminal — only when no platform or
+  GKE node is left in the region, or deleted unlisted with
+  `--purge-orphaned-volumes`, which never takes a disk carrying an install id.
+  The full rules are in the
+  [Provider Guide](PROVIDER_GUIDE.md#block-volumes-on-adhar-down-attributed-at-creation-deleted-after-confirmation).
 
   ```bash
+  adhar down -f config.yaml --env production
   adhar down -f config.yaml --env production --purge-orphaned-volumes
   ```
 

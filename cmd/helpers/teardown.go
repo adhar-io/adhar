@@ -218,6 +218,54 @@ func FindCluster(ctx context.Context, cfg *config.Config, name string, providerO
 	return nil, &NotFoundError{Name: name, Searched: searched, Failures: failures}
 }
 
+// FindClusterIn locates a cluster by name in ONE configured provider — the one
+// an environment runs on — and nowhere else.
+//
+// FindCluster searches every provider in the file and then local Kind, which
+// suits `adhar cluster delete <name>`, where the operator names a cluster and
+// not an environment. A teardown of an ENVIRONMENT must not: when its cloud
+// cluster was already gone, FindCluster went on to the implicit Kind search and
+// returned the local Kind cluster called "adhar", so `adhar down -f aws.yaml
+// --env dev` deleted the developer's local cluster — and processed the volumes
+// of the wrong provider while the cloud cluster's were never looked at.
+//
+// The NotFoundError is conclusive exactly when this provider answered.
+func FindClusterIn(ctx context.Context, cfg *config.Config, providerName, name string, providerOpts map[string]interface{}, warn func(string)) (*ResolvedCluster, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("no configuration loaded")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("no cluster name given")
+	}
+	if warn == nil {
+		warn = func(string) {}
+	}
+	providerCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf("provider %q is not configured", providerName)
+	}
+	providerMap := providerCfg.ToProviderMap()
+	for k, v := range providerOpts {
+		providerMap[k] = v
+	}
+	p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerMap)
+	if err != nil {
+		warn(fmt.Sprintf("provider %s could not be initialised: %v", providerName, err))
+		return nil, &NotFoundError{Name: name, Failures: []LookupFailure{{Provider: providerName, Reason: err.Error()}}}
+	}
+	clusters, err := p.ListClusters(ctx)
+	if err != nil {
+		warn(fmt.Sprintf("provider %s could not be queried: %v", providerName, err))
+		return nil, &NotFoundError{Name: name, Failures: []LookupFailure{{Provider: providerName, Reason: err.Error()}}}
+	}
+	for _, c := range clusters {
+		if c.Name == name {
+			return &ResolvedCluster{Cluster: c, Provider: p, ProviderName: providerName}, nil
+		}
+	}
+	return nil, &NotFoundError{Name: name, Searched: []string{providerName}}
+}
+
 // EnvironmentClusterNames returns every name an environment's cluster may be
 // registered under, most likely first. Teardown must try all of them.
 //

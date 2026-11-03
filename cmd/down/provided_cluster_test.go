@@ -76,13 +76,15 @@ func TestTeardownGateRunsBeforeTheClusterIsLocated(t *testing.T) {
 	body := string(src)
 
 	gate := strings.Index(body, "environmentClusterMode(env)")
-	lookup := strings.Index(body, "helpers.FindCluster(")
+	// The lookup goes through the findCluster seam (so the loop can be driven
+	// against a fake cloud); in production that seam IS helpers.FindClusterIn.
+	lookup := strings.Index(body, "findCluster(ctx, cfg, env.ResolvedProvider, candidate")
 	del := strings.Index(body, "found.Provider.DeleteCluster(")
 
 	if gate < 0 {
 		t.Fatal("teardownFromConfig does not consult environmentClusterMode; a provided cluster would be deleted")
 	}
-	if lookup < 0 || del < 0 {
+	if lookup < 0 || del < 0 || !strings.Contains(body, "var findCluster = helpers.FindClusterIn") {
 		t.Fatal("down.go no longer locates and deletes a cluster the way this test assumes")
 	}
 	if gate > lookup || gate > del {

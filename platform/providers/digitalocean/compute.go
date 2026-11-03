@@ -637,6 +637,15 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 			ownTags = append(ownTags, provider.DigitalOceanClusterIDTag(inst.ID))
 		}
 		p.deleteComputeVolumes(ctx, ownTags...)
+	} else if p.config.PurgeOrphanedVolumes {
+		// `adhar down --purge-orphaned-volumes` with the cluster still there:
+		// the cluster's own volumes stay for the volume step (no own tag is
+		// passed, so only the purge branch can match), but the purge asked for
+		// still runs. v0.1.66 skipped the whole call under `adhar down`, so the
+		// flag silently did nothing whenever the cluster was found — the one
+		// provider where it did. Every volume a cluster tag claims (an install
+		// id included) is never an orphan (namesACluster).
+		p.deleteComputeVolumes(ctx)
 	}
 
 	// Firewall
@@ -675,8 +684,21 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 	// all of them — which silently breaks the surviving clusters, because
 	// `adhar cluster scale`, the upgrade path and the node autoscaler all find
 	// the control plane by adhar-role-master.
-	if _, err := p.client.Tags.Delete(ctx, tag); err != nil {
-		log.Printf("Note: tag %s not deleted: %v", tag, err)
+	//
+	// Under `adhar down` the tag is also EVIDENCE: a cluster from before
+	// volumes carried an install id had its CSI driver tag them with this very
+	// tag, and `adhar down` offers such volumes by it once no droplet carries
+	// it (LegacyVolumes). Deleting it here — before that step runs — would
+	// strip it from the volumes being kept and leave them unattributable, so it
+	// stays while any volume carries it; the volume step removes it once none
+	// does (AfterClusterVolumes).
+	current, _, getErr := p.client.Tags.Get(ctx, tag)
+	if nameTagMayBeDeleted(p.config.KeepClusterVolumes, current, getErr) {
+		if _, err := p.client.Tags.Delete(ctx, tag); err != nil {
+			log.Printf("Note: tag %s not deleted: %v", tag, err)
+		}
+	} else {
+		log.Printf("Kept tag %s: block volumes of this cluster still carry it, and `adhar down` offers them by it", tag)
 	}
 
 	// Registered SSH key
@@ -770,7 +792,7 @@ func (p *Provider) PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs 
 	for _, v := range vols {
 		otherCluster := false
 		for _, t := range v.Tags {
-			if strings.HasPrefix(t, computeClusterTagPrefix) {
+			if namesACluster(t) {
 				otherCluster = true
 			}
 		}
@@ -817,9 +839,10 @@ func (p *Provider) deleteComputeVolumes(ctx context.Context, ownTags ...string) 
 		for _, t := range v.Tags {
 			if own[t] {
 				tagged = true
-			} else if strings.HasPrefix(t, computeClusterTagPrefix) {
-				// Another cluster's name tag — or another install's id tag,
-				// which shares the prefix on purpose (DigitalOceanClusterIDTag).
+			} else if namesACluster(t) {
+				// Another cluster's name tag, another install's id tag (which
+				// shares the prefix on purpose, DigitalOceanClusterIDTag), or a
+				// DOKS cluster's k8s tags.
 				otherCluster = true
 			}
 		}
@@ -1126,6 +1149,20 @@ const (
 	doCSIReleaseBase = "https://raw.githubusercontent.com/digitalocean/csi-digitalocean/master/deploy/kubernetes/releases/csi-digitalocean-v4.14.0"
 	kubectlAdminBase = "kubectl --kubeconfig /etc/kubernetes/admin.conf"
 )
+
+// nameTagMayBeDeleted decides whether deleteComputeCluster may delete the
+// cluster's name tag. Always, unless `adhar down` is keeping the cluster's
+// volumes for its own step AND some volume still carries the tag (or the tag
+// could not be read, which proves nothing either way).
+func nameTagMayBeDeleted(keepClusterVolumes bool, tag *godo.Tag, getErr error) bool {
+	if !keepClusterVolumes {
+		return true
+	}
+	if getErr != nil {
+		return false
+	}
+	return tag == nil || tag.Resources == nil || tag.Resources.Volumes == nil || tag.Resources.Volumes.Count == 0
+}
 
 // computeVolumeTag is the one tag the CSI driver puts on every volume it
 // creates (`--do-tag` takes exactly one): the install id when the cluster has

@@ -315,6 +315,10 @@ Teardown:
 ```bash
 ./adhar down -f config.yaml --env dev
 
+# Keep the cluster's CSI disks (and their data); prints how to delete them later.
+# Refused on AKS (clusterMode: managed), which deletes its disks with the cluster.
+./adhar down -f config.yaml --env dev --keep-volumes
+
 # Also delete unattached pvc-* managed disks, including ones outside the group
 ./adhar down -f config.yaml --env dev --purge-orphaned-volumes
 ```
@@ -328,14 +332,18 @@ once. Three cases need more than that:
 
 | Case | Behaviour |
 | --- | --- |
-| The resource group carries `managedBy=adhar-platform` | the whole group is deleted |
+| The resource group carries `managedBy=adhar-platform` | the whole group is deleted — under `adhar down`, only once the CSI disks in it are dealt with: its other resources go first, the disks are listed by the cluster's install id (`adhar-cluster-id` tag), confirmed (or `--yes`), deleted and read back, and the group follows once nothing is left in it |
+| Disks made by v0.1.66 | carry NO install id (the `tags` parameter shipped empty), so they are offered only as legacy disks: no VM left in the cluster's resource group, and a confirmation typed at a terminal |
+| AKS (`clusterMode: managed`) | Azure deletes the node resource group — every disk the cluster made — together with the cluster; there is no list, and `--keep-volumes` is refused before anything is deleted |
 | The group was **not** created by Adhar | the group stays; this cluster's own VMs, NICs, load balancers, public IPs, disks, NSGs and VNet are deleted individually |
 | There is no local state for the cluster | the tracker is **rebuilt from Azure** — VMs tagged `managedBy=adhar-platform` whose name matches `<cluster>-master-N` / `-worker-N` — so a cluster created on another machine is still deletable by the CLI |
 | `pvc-*` disks outside the group (a CSI driver pointed elsewhere) | only with `--purge-orphaned-volumes`, and only in the cluster's own location |
 
 An attached disk is never deleted, whatever it is called and whatever flags are
 passed. `--purge-orphaned-volumes` is opt-in because an unattached CSI disk looks
-identical whether its cluster is gone or is being rebuilt.
+identical whether its cluster is gone or is being rebuilt; it never takes a disk
+carrying an install id. The full volume rules are in the
+[Provider Guide](PROVIDER_GUIDE.md#block-volumes-on-adhar-down-attributed-at-creation-deleted-after-confirmation).
 
 ### Quota preflight
 

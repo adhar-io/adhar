@@ -63,10 +63,16 @@ once the instances are gone it lists every volume tagged with the cluster's
 install id (id, size, PVC, created), asks, deletes them, and reads each one
 back until the cloud confirms it is gone. --yes/--force skips the question;
 --keep-volumes keeps them and prints how to delete them later. Re-running the
-same 'adhar down' after the cluster is gone finishes the job. Volumes from
+same 'adhar down' after the cluster is gone finishes the job — except that
+volumes kept ON PURPOSE (--keep-volumes, or a "no" at the prompt) are deleted
+only after a confirmation typed at a terminal, never by --yes. Volumes from
 clusters created before volumes were tagged are offered only when nothing that
 could own them is left, and only after a confirmation typed at a terminal.
-A provided cluster (clusterMode: provided) loses nothing, volumes included.
+AKS deletes the disks of its node resource group together with the cluster,
+so on AKS there is no list to confirm and --keep-volumes is refused.
+A provided cluster (clusterMode: provided) loses nothing, volumes included;
+while one may run in the region, nothing is deleted on evidence alone (no
+legacy offer, and --purge-orphaned-volumes is refused).
 
 Pass --file (and --env) whenever the environment is not local. Without them
 this command only ever looks at Kind, which on a cloud environment deletes
@@ -266,14 +272,16 @@ func init() {
 	// environment-name scheme, so a cluster from before the rename is still found.
 	DownCmd.Flags().StringVar(&downClusterName, "name", "", "◈ Name of the cluster to tear down (default \""+globals.DefaultClusterName+"\"); must match 'adhar up --name'")
 	DownCmd.Flags().StringVar(&downEnv, "env", "", "Environment to tear down (defaults to every environment in --file)")
-	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompts (the cluster's tagged volumes are deleted without asking; legacy volumes still need a terminal)")
+	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompts (the cluster's tagged volumes are deleted without asking; legacy volumes and volumes kept on purpose still need a terminal)")
 	DownCmd.Flags().BoolVarP(&forceDelete, "yes", "y", false, "Same as --force")
 	DownCmd.Flags().BoolVar(&keepVolumes, "keep-volumes", false,
-		"Keep the cluster's block volumes (and their data) instead of deleting them; prints how to delete them later")
+		"Keep the cluster's block volumes (and their data) instead of deleting them; prints how to delete them later. "+
+			"A later --yes does not delete volumes kept this way. Refused on AKS, which deletes its disks with the cluster")
 	DownCmd.Flags().BoolVar(&purgeImageCache, "purge-image-cache", false, "Also remove the local Kind image cache containers and volume (the next `adhar up` pulls everything from the internet again)")
 	DownCmd.Flags().BoolVar(&purgeVolumes, "purge-orphaned-volumes", false,
-		"Also delete unattached pvc-* block-storage volumes in the cluster's region that carry no other cluster's tag. "+
-			"Only safe when no other Kubernetes cluster uses that region.")
+		"Also delete unattached pvc-* block-storage volumes in the cluster's region that carry no other cluster's tag "+
+			"and no install id, without listing them first. Only safe when no other Kubernetes cluster uses that region; "+
+			"refused when a provided environment in the file may run there.")
 	DownCmd.Flags().BoolVarP(&verboseDown, "verbose", "v", false, "Show detailed information during tear down")
 	DownCmd.Flags().BoolVar(&noAnimation, "no-animation", false, "Disable animations")
 }
@@ -833,6 +841,15 @@ func updateElapsedTime() tea.Cmd {
 	})
 }
 
+// findCluster locates an environment's cluster in the provider the
+// environment runs on — and only there (helpers.FindClusterIn: the all-provider
+// search used to fall through to local Kind and delete the developer's local
+// cluster when a cloud cluster was already gone). Held in a variable only so
+// the whole teardown loop can be driven against a fake cloud in a test
+// (teardown_fake_cloud_test.go) — the loop is the code that ends in
+// DeleteCluster, and source-text checks were the only guard it had.
+var findCluster = helpers.FindClusterIn
+
 // teardownFromConfig removes the cluster(s) an environment file describes,
 // through the provider that created them.
 //
@@ -880,7 +897,28 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		detail("→ No --env given; tearing down every environment in the file: %s", strings.Join(envNames, ", "))
 	}
 
-	providerOpts := teardownProviderOptions()
+	// --purge-orphaned-volumes deletes every unattached pvc-* volume in the
+	// region that no tag claims, without listing them first. A provided
+	// cluster's volumes are exactly that: the platform did not create them, so
+	// they carry no install id and no tag of ours. Refused up front, before
+	// anything is deleted, wherever a provided environment in this file may run.
+	if purgeVolumes {
+		for _, envName := range envNames {
+			env := cfg.ResolvedEnvironments[envName]
+			if !pfactory.ClusterLifecycleIsOurs(clusterModeOf(env)) {
+				continue // the loop below refuses or skips it on its own
+			}
+			if neighbours := providedNeighbours(cfg, env.ResolvedProvider, env.ResolvedRegion); len(neighbours) > 0 {
+				emit(logger.ErrorMsg{Err: fmt.Errorf(
+					"refusing --purge-orphaned-volumes: %s %s a provided cluster (clusterMode: provided) that may run on %s %s, "+
+						"and the purge would delete its unattached volumes — nothing was deleted; run without the flag, and "+
+						"the cluster's own volumes are still listed and deleted by their install id",
+					strings.Join(neighbours, ", "), pluralVerb(len(neighbours), "is", "are"),
+					env.ResolvedProvider, env.ResolvedRegion)})
+				return
+			}
+		}
+	}
 
 	ctx := context.Background()
 	var failures []string
@@ -910,6 +948,9 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	// Keyed on the resolved cluster ID rather than the environment, because that
 	// is the thing being deleted and the only identity the environments share.
 	handledCluster := map[string]string{}
+	// notDeleted are the handled clusters whose deletion did not happen, so an
+	// environment sharing one is reported as failed rather than as removed.
+	notDeleted := map[string]bool{}
 	for _, envName := range envNames {
 		env := cfg.ResolvedEnvironments[envName]
 		// Every name this environment's cluster could be registered under: the
@@ -927,21 +968,34 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		// reliable way not to delete someone else's cluster is not to go looking
 		// for it. `adhar down` on a provided cluster removes nothing: the platform
 		// it installed is removed with kubectl, and the cluster keeps running.
-		{
-			mode, modeErr := environmentClusterMode(env)
-			switch {
-			case modeErr != nil:
-				detail("  ✖ %v", modeErr)
-				failures = append(failures, fmt.Sprintf("%s: %v", envName, modeErr))
-				continue
-			case !pfactory.ClusterLifecycleIsOurs(mode):
-				detail("  ● clusterMode: %s — the platform did not create this cluster, so nothing is deleted", mode)
-				detail("    remove the platform from it with: kubectl delete adharplatform --all -n %s", globals.AdharSystemNamespace)
-				emit(logger.StatusMsg(fmt.Sprintf("'%s' is a provided cluster — left running", envName)))
-				outcome.Preserved = append(outcome.Preserved, envName)
-				continue
-			}
+		mode, modeErr := environmentClusterMode(env)
+		switch {
+		case modeErr != nil:
+			detail("  ✖ %v", modeErr)
+			failures = append(failures, fmt.Sprintf("%s: %v", envName, modeErr))
+			continue
+		case !pfactory.ClusterLifecycleIsOurs(mode):
+			detail("  ● clusterMode: %s — the platform did not create this cluster, so nothing is deleted", mode)
+			detail("    remove the platform from it with: kubectl delete adharplatform --all -n %s", globals.AdharSystemNamespace)
+			emit(logger.StatusMsg(fmt.Sprintf("'%s' is a provided cluster — left running", envName)))
+			outcome.Preserved = append(outcome.Preserved, envName)
+			continue
+		case keepVolumes && volumesGoWithTheCluster(env, mode):
+			// AKS deletes the disks of its node resource group WITH the cluster,
+			// so "keep the volumes" cannot be honoured by deleting it. Refused
+			// before the cluster is even located: nothing is deleted.
+			detail("  ✖ --keep-volumes cannot be honoured on AKS: deleting the cluster deletes its node resource group and every disk in it")
+			failures = append(failures, fmt.Sprintf(
+				"%s: --keep-volumes cannot be honoured on AKS (clusterMode: managed) — Azure deletes the disks in the "+
+					"cluster's node resource group together with the cluster; nothing was deleted. Snapshot or move the "+
+					"disks you need first, then run without --keep-volumes", envName))
+			continue
 		}
+		neighbours := providedNeighbours(cfg, env.ResolvedProvider, env.ResolvedRegion)
+		// The environment's provider as `adhar up` built it — its region and
+		// clusterConfig over the provider block — for the lookup, the delete,
+		// the purge and the volume step alike (environmentProviderOptions).
+		envOpts := environmentProviderOptions(env)
 
 		// The environment's provider must actually be configured in this file.
 		// When it is not, ResolveEnvironments quietly falls back to whichever
@@ -962,7 +1016,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		var found *helpers.ResolvedCluster
 		var err error
 		for _, candidate := range candidates {
-			found, err = helpers.FindCluster(ctx, cfg, candidate, providerOpts, func(w string) { detail("  ! %s", w) })
+			found, err = findCluster(ctx, cfg, env.ResolvedProvider, candidate, envOpts, func(w string) { detail("  ! %s", w) })
 			if err == nil {
 				if candidate != clusterName {
 					detail("  found it under the legacy name %q (clusters created before `adhar up --name`)", candidate)
@@ -992,7 +1046,8 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 				// step looks, by the install ids recorded for these names.
 				outcome.VolumeJobs = append(outcome.VolumeJobs, volumeJob{
 					Env: envName, ProviderName: env.ResolvedProvider, Region: env.ResolvedRegion,
-					ClusterNames: candidates, ClusterMode: clusterModeOf(env),
+					ClusterNames: candidates, ClusterMode: mode, ProvidedNeighbours: neighbours,
+					ProviderOpts: envOpts,
 				})
 
 				// The cluster is gone, but its CSI volumes may not be — and they
@@ -1000,7 +1055,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 				// way to reach the purge, which made the warning the teardown
 				// prints impossible to act on afterwards. Sweep here too.
 				if purgeVolumes {
-					n := purgeOrphanedVolumesFor(ctx, cfg, env.ResolvedProvider, providerOpts, emit, detail)
+					n := purgeOrphanedVolumesFor(ctx, cfg, env.ResolvedProvider, envOpts, emit, detail)
 					outcome.PurgedVolumes += n
 				}
 			case errors.As(err, &nf):
@@ -1026,9 +1081,15 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		}
 
 		if owner, done := handledCluster[found.Cluster.ID]; done {
-			// Shared cluster: already torn down for an earlier environment. Say
+			// Shared cluster: already handled for an earlier environment. Say
 			// so rather than attempting it again and reporting the same failure
-			// (or the same success) once per environment.
+			// (or the same success) once per environment — and never report it
+			// removed when that earlier attempt left it standing.
+			if notDeleted[found.Cluster.ID] {
+				detail("  ✖ cluster %s is shared with environment %s, whose teardown did not delete it", found.Cluster.ID, owner)
+				failures = append(failures, fmt.Sprintf("%s: shares cluster %s with %s, which was not deleted", envName, found.Cluster.ID, owner))
+				continue
+			}
 			detail("  ● cluster %s is shared with environment %s and was already torn down", found.Cluster.ID, owner)
 			outcome.Deleted = append(outcome.Deleted, envName)
 			continue
@@ -1038,8 +1099,24 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		// The issued edge certificate outlives the cluster: keep it for the next one.
 		saveEdgeCertificateBeforeTeardown(ctx, clusterName, detail)
 
+		// Write down who this cluster is while it can still be asked — its
+		// install id (from its adhar-cluster-spec) and a managed cluster's cloud
+		// UUID — because its volumes are listed by those only AFTER it is gone,
+		// and a crash, a Ctrl+C or another machine in between must not leave
+		// them unattributable (identity.go).
+		if err := rememberClusterIdentity(ctx, found, env.ResolvedRegion, clusterName, detail); err != nil {
+			detail("  ✖ %v", err)
+			failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
+			notDeleted[found.Cluster.ID] = true
+			continue
+		}
+		if volumesGoWithTheCluster(env, mode) {
+			detail("  ● AKS deletes the disks of its node resource group together with the cluster; they are not listed separately")
+		}
+
 		emit(logger.StatusMsg(fmt.Sprintf("deleting '%s' on %s", clusterName, found.ProviderName)))
 		if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
+			notDeleted[found.Cluster.ID] = true
 			detail("  ✖ %v", err)
 			// Attach the remedy when the provider's message needs translating.
 			// ExplainAccessError was only ever consulted on the `adhar up` path,
@@ -1062,8 +1139,8 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		// and verified once this screen is done (volumes.go).
 		outcome.VolumeJobs = append(outcome.VolumeJobs, volumeJob{
 			Env: envName, ProviderName: found.ProviderName, Region: env.ResolvedRegion,
-			ClusterNames: []string{clusterName}, ClusterMode: clusterModeOf(env),
-			Provider: found.Provider, ProviderClusterID: found.Cluster.ID, ClusterDeleted: true,
+			ClusterNames: []string{clusterName}, ClusterMode: mode, ProvidedNeighbours: neighbours,
+			Provider: found.Provider, ProviderOpts: envOpts, ProviderClusterID: found.Cluster.ID, ClusterDeleted: true,
 		})
 	}
 	// Reaches the UI before DoneMsg, so the final screen knows whether anything
@@ -1109,7 +1186,7 @@ func purgeOrphanedVolumesFor(
 ) int {
 	emit(logger.StatusMsg(fmt.Sprintf("sweeping orphaned volumes on %s", providerName)))
 
-	p, err := helpers.BuildProvider(cfg, providerName, providerOpts)
+	p, err := buildTeardownProvider(cfg, providerName, providerOpts)
 	if err != nil {
 		detail("  ! could not build provider %s to sweep volumes: %v", providerName, err)
 		return 0
@@ -1521,9 +1598,12 @@ func teardownTargetDescription(configFile, envName string) string {
 // An environment with no provider block resolves to the default, compute — the
 // mode the platform has always had. Unknown modes are an ERROR rather than a
 // default, because the safe-looking default here is the destructive one.
+//
+// It is the mode `adhar up` used, read the way `adhar up` reads it
+// (pfactory.EnvironmentClusterMode): the provider block AND the environment's
+// clusterConfig. Reading the block alone missed `clusterMode: provided` set in
+// an environment's clusterConfig — a cluster `adhar up` adopted and this
+// teardown would then have located and deleted.
 func environmentClusterMode(env *config.ResolvedEnvironmentConfig) (string, error) {
-	if env == nil || env.ProviderConfig == nil {
-		return pfactory.ClusterModeCompute, nil
-	}
-	return pfactory.ParseClusterMode(env.ProviderConfig.ToProviderMap())
+	return pfactory.EnvironmentClusterMode(env)
 }

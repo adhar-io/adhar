@@ -152,3 +152,28 @@ func TestTheTeardownSweepLeavesTheClustersVolumesToAdharDown(t *testing.T) {
 		t.Fatalf("without KeepClusterVolumes the cluster's volume was not deleted: %v (%v)", swept.deleted, problems)
 	}
 }
+
+// A volume mid-attach or mid-detach can report no instance yet still be in
+// use: it is attached as far as the volume step is concerned — never deleted,
+// never offered as a legacy leftover.
+func TestACivoVolumeMidAttachmentIsNeverDeleted(t *testing.T) {
+	for _, status := range []string{"attaching", "attached", "Detaching"} {
+		t.Run(status, func(t *testing.T) {
+			f := &fakeCivo{volumes: []civogo.Volume{{ID: "busy", Name: "pvc-busy", ClusterID: managedUUID, Status: status}}}
+			p := civoWith(f)
+			vols, err := p.ClusterVolumes(context.Background(), provider.VolumeOwner{ProviderClusterID: managedUUID})
+			if err != nil || len(vols) != 1 || !vols[0].Attached() {
+				t.Fatalf("ClusterVolumes = %+v, %v; a %s volume must read as attached", vols, err, status)
+			}
+			res := provider.ReapVolumes(context.Background(), p, vols, provider.ReapOptions{
+				DetachTimeout: 10 * time.Millisecond, VerifyTimeout: 10 * time.Millisecond, PollInterval: time.Millisecond,
+			})
+			if len(f.deleted) != 0 || len(res.StillAttached) != 1 {
+				t.Fatalf("a %s volume was deleted or not reported attached: %+v, deleted %v", status, res, f.deleted)
+			}
+			if ok, _ := legacyCivoCandidate(civogo.Volume{ID: "x", Name: "pvc-x", Status: status}, "adhar"); ok {
+				t.Fatalf("a %s volume was offered as a legacy leftover", status)
+			}
+		})
+	}
+}

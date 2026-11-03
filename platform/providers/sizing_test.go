@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"adhar-io/adhar/platform/config"
@@ -89,20 +90,101 @@ func TestConfigStringFoldsKeysAndPrefersTheTopLevel(t *testing.T) {
 	}
 }
 
+// Two floors, each from an incident: 4 vCPU (the 2026-10-11 leader-election
+// collapse) and 32 GiB (kube-apiserver at 8-12 GiB on a 16 GiB DigitalOcean
+// control plane with the kubelet evicting pods, and OOM-killed five times on a
+// 16 GiB AWS one). A size is flagged when it is KNOWN to miss either one.
 func TestControlPlaneSizeWarning(t *testing.T) {
 	for _, c := range []struct {
 		cloud, size string
-		warn        bool
+		cpu, mem    bool // which floor the advice must name
 	}{
-		{"aws", "r6i.large", true}, {"aws", "m6i.xlarge", false},
-		{"azure", "Standard_D2s_v3", true}, {"azure", "Standard_E4bds_v5", false},
-		{"gcp", "e2-standard-2", true}, {"gcp", "e2-standard-8", false},
-		{"digitalocean", "s-2vcpu-4gb", true}, {"digitalocean", "s-8vcpu-16gb", false},
-		{"civo", "g4s.kube.medium", true}, {"civo", "g3.large", false},
-		{"gcp", "custom-6-20480", false}, // unrecognised: no advice rather than a guess
+		{"aws", "r6i.large", true, true}, // 2 vCPU / 16 GiB
+		{"aws", "m6i.xlarge", false, true},
+		{"aws", "r6i.xlarge", false, false},
+		{"aws", "m6i.2xlarge", false, false},
+		{"azure", "Standard_D2s_v3", true, true},
+		{"azure", "Standard_D4s_v5", false, true},
+		{"azure", "Standard_E4bds_v5", false, false},
+		{"gcp", "e2-standard-2", true, true},
+		{"gcp", "e2-standard-4", false, true},
+		{"gcp", "e2-standard-8", false, false},
+		{"gcp", "e2-highmem-4", false, false},
+		{"gcp", "custom-6-20480", false, true}, // 20 GiB, read from the name
+		{"digitalocean", "s-2vcpu-4gb", true, true},
+		{"digitalocean", "s-8vcpu-16gb", false, true}, // the live 2026-11-03 control plane
+		{"digitalocean", "g-8vcpu-32gb", false, false},
+		{"digitalocean", "m-4vcpu-32gb", false, false},
+		{"civo", "g4s.kube.medium", true, true},
+		{"civo", "g3.large", false, true},
+		{"civo", "g3.2xlarge", false, false},
+		{"gcp", "e2-medium", false, false},         // unrecognised: no advice rather than a guess
+		{"aws", "x2iedn.xlarge", false, false},     // memory class not in the table: no guess
+		{"azure", "Standard_B4ms", false, false},   // burstable B-series: no guess
+		{"digitalocean", "", false, false},         // managed mode / nothing configured
+		{"civo", "g4s.kube.unknown", false, false}, // not a listed Civo size
 	} {
-		if got := ControlPlaneSizeWarning(c.cloud, c.size) != ""; got != c.warn {
-			t.Errorf("%s %s: warn=%v, want %v", c.cloud, c.size, got, c.warn)
+		w := ControlPlaneSizeWarning(c.cloud, c.size)
+		if (w != "") != (c.cpu || c.mem) {
+			t.Errorf("%s %s: advice %q, want advice=%v", c.cloud, c.size, w, c.cpu || c.mem)
+			continue
+		}
+		if gotCPU := strings.Contains(w, "vCPU —"); gotCPU != c.cpu {
+			t.Errorf("%s %s: names the vCPU floor=%v, want %v: %q", c.cloud, c.size, gotCPU, c.cpu, w)
+		}
+		if gotMem := strings.Contains(w, "GiB — kube-apiserver"); gotMem != c.mem {
+			t.Errorf("%s %s: names the memory floor=%v, want %v: %q", c.cloud, c.size, gotMem, c.mem, w)
+		}
+		if w != "" && !strings.Contains(w, RecommendedControlPlaneMachineType[c.cloud]) {
+			t.Errorf("%s %s: the advice does not name the size that fixes it (%s): %q", c.cloud, c.size, RecommendedControlPlaneMachineType[c.cloud], w)
+		}
+	}
+}
+
+// The memory floor is only as good as the reading of a size's NAME. Every value
+// here is the cloud's published memory for that size; 0 means "do not guess".
+func TestEstimateMemoryGiBReadsTheSizeName(t *testing.T) {
+	for _, c := range []struct {
+		cloud, size string
+		gib         int
+	}{
+		{"aws", "m6i.xlarge", 16}, {"aws", "r6i.xlarge", 32}, {"aws", "r6i.large", 16}, {"aws", "c6i.xlarge", 8},
+		{"aws", "m7i-flex.xlarge", 16}, {"aws", "m6g.2xlarge", 32}, {"aws", "t3.large", 8}, {"aws", "t3.2xlarge", 32},
+		{"aws", "M6I.XLARGE", 16}, {"aws", "g5.xlarge", 0}, {"aws", "m6i.metal", 0}, {"aws", "t3.nano", 0},
+		{"azure", "Standard_D4s_v5", 16}, {"azure", "Standard_E4bds_v5", 32}, {"azure", "Standard_D2s_v3", 8},
+		{"azure", "Standard_E8s_v5", 64}, {"azure", "Standard_D4ls_v5", 8}, {"azure", "Standard_F4s_v2", 8},
+		{"azure", "Standard_DS2_v2", 0}, {"azure", "Standard_E4-2ds_v4", 0}, {"azure", "Standard_NC6s_v3", 0},
+		{"gcp", "e2-standard-4", 16}, {"gcp", "e2-standard-8", 32}, {"gcp", "e2-highmem-4", 32}, {"gcp", "n1-standard-4", 15},
+		{"gcp", "n1-highmem-4", 26}, {"gcp", "n2-highcpu-8", 8}, {"gcp", "c3-highcpu-8", 16}, {"gcp", "c2-standard-8", 32},
+		{"gcp", "custom-6-20480", 20}, {"gcp", "n2-custom-8-32768", 32}, {"gcp", "e2-medium", 0},
+		{"digitalocean", "s-8vcpu-16gb", 16}, {"digitalocean", "g-8vcpu-32gb", 32}, {"digitalocean", "m-4vcpu-32gb", 32},
+		{"digitalocean", "s-8vcpu-16gb-amd", 16}, {"digitalocean", "c-8", 16}, {"digitalocean", "s-1vcpu-512mb-10gb", 0},
+		{"civo", "g3.large", 8}, {"civo", "g3.2xlarge", 32}, {"civo", "g4s.kube.large", 8}, {"civo", "nope", 0},
+		{"kind", "anything", 0}, {"custom", "m6i.xlarge", 0},
+	} {
+		if got := EstimateMemoryGiB(c.cloud, c.size); got != c.gib {
+			t.Errorf("EstimateMemoryGiB(%s, %s) = %d, want %d", c.cloud, c.size, got, c.gib)
+		}
+	}
+}
+
+// The advice names a size per cloud; that size must itself clear both floors,
+// or following the advice would earn the same warning.
+func TestRecommendedControlPlaneSizesClearBothFloors(t *testing.T) {
+	for _, cloud := range []string{"aws", "azure", "gcp", "digitalocean", "civo"} {
+		rec := RecommendedControlPlaneMachineType[cloud]
+		if rec == "" {
+			t.Errorf("%s: no recommended control-plane size", cloud)
+			continue
+		}
+		if n := EstimateVCPU(cloud, rec); n < MinControlPlaneVCPU {
+			t.Errorf("%s: recommended %s reads as %d vCPU, below %d", cloud, rec, n, MinControlPlaneVCPU)
+		}
+		if g := EstimateMemoryGiB(cloud, rec); g < MinControlPlaneMemoryGiB {
+			t.Errorf("%s: recommended %s reads as %d GiB, below %d", cloud, rec, g, MinControlPlaneMemoryGiB)
+		}
+		if w := ControlPlaneSizeWarning(cloud, rec); w != "" {
+			t.Errorf("%s: the recommended size %s is itself flagged: %q", cloud, rec, w)
 		}
 	}
 }

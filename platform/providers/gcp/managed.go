@@ -149,6 +149,28 @@ func (p *Provider) gkeNodePool(ng *types.NodeGroupSpec) *container.NodePool {
 	return pool
 }
 
+// gkeResourceLabels are the GKE cluster's resource labels.
+//
+// They carry the install id as well (ClusterIDLabel). On GKE the PD CSI driver
+// is Google's, configured by Google, so the platform cannot hand it the id the
+// way the compute path's adhar-block StorageClass does; GKE instead copies a
+// cluster's resource labels onto the Compute Engine resources it uses,
+// documented as including the persistent disks ATTACHED to its nodes — which
+// every disk behind a bound claim is, at least once. That is what `adhar down`
+// lists a GKE cluster's disks by. Not yet verified on a live GKE cluster: a
+// disk the label never reached carries no id, and is then offered only on
+// evidence.
+func gkeResourceLabels(name, installID string, tags map[string]string) map[string]string {
+	labels := map[string]string{"managed-by": "adhar", "adhar-cluster": name}
+	for k, v := range tags {
+		labels[strings.ToLower(k)] = strings.ToLower(v)
+	}
+	if installID != "" {
+		labels[provider.ClusterIDLabel] = installID
+	}
+	return labels
+}
+
 // createManagedCluster provisions the network, subnet and the GKE cluster with
 // one node pool per spec node group.
 func (p *Provider) createManagedCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
@@ -182,10 +204,7 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 	for i := range groups {
 		pools = append(pools, p.gkeNodePool(&groups[i]))
 	}
-	labels := map[string]string{"managed-by": "adhar", "adhar-cluster": name}
-	for k, v := range spec.Tags {
-		labels[strings.ToLower(k)] = strings.ToLower(v)
-	}
+	labels := gkeResourceLabels(name, spec.ClusterInstallID, spec.Tags)
 	cluster := &container.Cluster{
 		Name:               name,
 		Network:            networkName,

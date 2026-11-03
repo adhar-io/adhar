@@ -99,7 +99,7 @@ func (p *Provider) LegacyVolumes(_ context.Context, owner provider.VolumeOwner) 
 	}
 	res := provider.LegacyVolumes{
 		Provable: true,
-		Reason: fmt.Sprintf("no instance of any platform cluster and no Kubernetes cluster remains in %s; "+
+		Reason: fmt.Sprintf("no Civo Kubernetes cluster exists and no instance left in %s is tagged for a platform cluster; "+
 			"each volume is an unattached pvc-* volume", p.config.Region),
 	}
 	for _, v := range vols {
@@ -151,10 +151,25 @@ func (p *Provider) civoBlockVolume(v civogo.Volume, evidence string) provider.Bl
 		Evidence:      evidence,
 		DeleteCommand: fmt.Sprintf("civo volume delete %s --region %s --yes", v.ID, p.config.Region),
 	}
-	if v.InstanceID != "" {
+	switch {
+	case v.InstanceID != "":
 		bv.AttachedTo = []string{v.InstanceID}
+	case civoAttachmentInFlight(v.Status):
+		// Mid-attach or mid-detach the instance id may already be cleared (or
+		// not yet set); the volume is still not safe to delete.
+		bv.AttachedTo = []string{"status " + v.Status}
 	}
 	return bv
+}
+
+// civoAttachmentInFlight reports whether a volume's status says it is attached,
+// or on its way to or from an instance.
+func civoAttachmentInFlight(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "attached", "attaching", "detaching":
+		return true
+	}
+	return false
 }
 
 // civoLegacyBlocker names what could still own an unattributed volume: any
@@ -184,7 +199,7 @@ func legacyCivoCandidate(v civogo.Volume, clusterName string) (bool, string) {
 	switch {
 	case v.Bootable:
 		return false, "bootable root disk"
-	case v.InstanceID != "":
+	case v.InstanceID != "" || civoAttachmentInFlight(v.Status):
 		return false, "attached"
 	case !strings.HasPrefix(v.Name, "pvc-"):
 		return false, "not a CSI volume"

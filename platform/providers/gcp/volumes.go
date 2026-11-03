@@ -119,6 +119,12 @@ func (p *Provider) ClusterVolumes(ctx context.Context, owner provider.VolumeOwne
 		if d.GetLabels()[provider.ClusterIDLabel] != owner.InstallID {
 			continue
 		}
+		if !isPDCSIDisk(d) {
+			// On GKE the id is a cluster resource label, which Google also puts
+			// on the nodes' boot disks: those go with their nodes and are not
+			// the cluster's VOLUMES.
+			continue
+		}
 		out = append(out, p.pdBlockVolume(d, fmt.Sprintf("labelled %s=%s", provider.ClusterIDLabel, owner.InstallID)))
 	}
 	provider.SortVolumes(out)
@@ -161,7 +167,7 @@ func (p *Provider) LegacyVolumes(ctx context.Context, owner provider.VolumeOwner
 	}
 	res := provider.LegacyVolumes{
 		Provable: true,
-		Reason: fmt.Sprintf("no instance of the platform or of any Kubernetes cluster remains in %s; "+
+		Reason: fmt.Sprintf("no instance left in %s is labelled or tagged as a node of the platform or of a GKE cluster; "+
 			"each disk is an unattached PD CSI disk with no cluster id", region),
 	}
 	for _, d := range disks {
@@ -281,13 +287,20 @@ func legacyPDCandidate(d *computepb.Disk) (bool, string) {
 	if id := d.GetLabels()[provider.ClusterIDLabel]; id != "" {
 		return false, "carries install id " + id
 	}
-	meta := parsePDDescription(d.GetDescription())
-	if meta.CreatedBy != pdCSIDriverName && meta.PVName == "" && !strings.HasPrefix(d.GetName(), "pvc-") {
+	if !isPDCSIDisk(d) {
 		// A disk someone created by hand, or a node's boot disk, is never a
 		// CSI leftover.
 		return false, "not created by the PD CSI driver"
 	}
 	return true, "unattached PD CSI disk with no cluster id; no instance remains that could own it"
+}
+
+// isPDCSIDisk reports whether the PD CSI driver made the disk for a
+// PersistentVolume: its description names the driver or the PV, or it has the
+// driver's pvc-* name.
+func isPDCSIDisk(d *computepb.Disk) bool {
+	meta := parsePDDescription(d.GetDescription())
+	return meta.CreatedBy == pdCSIDriverName || meta.PVName != "" || strings.HasPrefix(d.GetName(), "pvc-")
 }
 
 // lastSegment returns what follows the final '/' of a Compute resource URL.
@@ -308,4 +321,17 @@ func inRegion(zone, region string) bool {
 // which keeps it out of every name- or shape-based sweep.
 func diskCarriesInstallID(d *computepb.Disk) bool {
 	return d.GetLabels()[provider.ClusterIDLabel] != ""
+}
+
+// isOrphanCSIDisk is the ONE rule every shape-based disk sweep uses — the
+// count, the opt-in purge (--purge-orphaned-volumes) and the leftover report:
+// an unattached disk the PD CSI driver made (a pvc-* name, or its created-for
+// description) that carries NO install id. Attached disks belong to instances
+// and go with them; a disk carrying an install id is attributed exactly, and
+// only `adhar down` for that cluster removes it, after asking.
+func isOrphanCSIDisk(d *computepb.Disk) bool {
+	if len(d.GetUsers()) > 0 || diskCarriesInstallID(d) {
+		return false
+	}
+	return strings.HasPrefix(d.GetName(), "pvc-") || strings.Contains(d.GetDescription(), "storage.gke.io/created-for")
 }

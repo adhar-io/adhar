@@ -113,8 +113,16 @@
 # urllib3 and requests load from the application's pip-install layer (urllib3
 # 2.8.0), while pip, msgpack, pkg_resources and setuptools are never imported.
 # CVE-2025-47273 is not even present: it is in setuptools' PackageIndex, and pip
-# vendors pkg_resources alone. pip's main branch re-vendored urllib3 2.8.0 and
-# msgpack 1.2.4 on 2026-11-02; no pip release carries them yet.
+# vendors pkg_resources alone. pip 26.3 (2026-11-02 20:34 UTC) re-vendors
+# urllib3 2.8.0 and msgpack 1.2.4 (pkg_resources is still setuptools 70.3.0),
+# but no CPython the builder offers carries it yet: a CPython gets its pip when
+# Paketo COMPILES it (`pip3 install -U setuptools pip` in the cpython
+# buildpack's dependency/actions/compile), not when an application is built
+# (the buildpack only unpacks it), so pip 26.3 arrives only with CPythons
+# compiled after its release — the next patch release of each CPython line —
+# in a cpython release after 1.18.50. Re-checked 2026-11-03 01:00 UTC:
+# builder-jammy-base 0.4.676 (cpython 1.18.50, node-engine 8.11.1) is still the
+# newest builder, and no npm or Node release has followed the ones named in (2).
 #
 # Class (3) cannot live in ignore.yaml. pip ships its own SBOM
 # (pip/_vendor/bom.cdx.json) and Trivy reports the vendored packages FROM it,
@@ -125,8 +133,14 @@
 # when its id, its purl (name AND version), the CNB layer that holds it — read
 # from the image's own io.buildpacks.lifecycle.metadata label, DiffID →
 # buildpack/layer — and its (empty) path all match. The same package installed
-# by pip-install, shipped in the application layer or listed by any other SBOM
-# is still gated. Excused findings stay in the report under
+# by pip-install or shipped in the application layer is still gated, and so is
+# one listed by any other SBOM, with one caveat: Trivy reports identical SBOM
+# entries (same name and version, no path) once, under either layer — two scans
+# of one scratch image pinning urllib3 2.7.0, msgpack 1.1.2 and setuptools
+# 70.3.0 picked differently on 2026-11-03 — so an application pinning the exact
+# version pip vendors can see its pip-install SBOM line folded into pip's
+# waived finding. It still fails the gate on its installed copy, whose
+# dist-info has a path. Excused findings stay in the report under
 # ExperimentalModifiedFindings (status not_affected, with the statement), are
 # counted as waived in the summary, listed in the step log and attested —
 # exactly as classes (1) and (2) are.
@@ -259,9 +273,9 @@ data:
           runs the application server, never pip; the application's own urllib3
           comes from its pip-install layer (traced 2026-11-03).
         upstream: >-
-          a pip release after 26.2.2 (pip main re-vendored urllib3 2.8.0 on
-          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
-          builds carry it.
+          pip 26.3 (2026-11-02; vendors urllib3 2.8.0) inside a CPython that
+          Paketo compiles after that date: the next patch release of each
+          CPython line, in a paketo-buildpacks/cpython release after 1.18.50.
         expired_at: 2026-12-03
       - id: CVE-2026-97689
         purl: pkg:pypi/urllib3@2.7.0
@@ -274,9 +288,9 @@ data:
           never runs pip; the application's own urllib3 is a separate package
           in its pip-install layer.
         upstream: >-
-          a pip release after 26.2.2 (pip main re-vendored urllib3 2.8.0 on
-          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
-          builds carry it.
+          pip 26.3 (2026-11-02; vendors urllib3 2.8.0) inside a CPython that
+          Paketo compiles after that date: the next patch release of each
+          CPython line, in a paketo-buildpacks/cpython release after 1.18.50.
         expired_at: 2026-12-03
       - id: CVE-2026-114613
         purl: pkg:pypi/msgpack@1.1.2
@@ -288,9 +302,9 @@ data:
           The image never runs pip, and no template application depends on
           msgpack.
         upstream: >-
-          a pip release after 26.2.2 (pip main re-vendored msgpack 1.2.4 on
-          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
-          builds carry it.
+          pip 26.3 (2026-11-02; vendors msgpack 1.2.4) inside a CPython that
+          Paketo compiles after that date: the next patch release of each
+          CPython line, in a paketo-buildpacks/cpython release after 1.18.50.
         expired_at: 2026-12-03
       - id: GHSA-6v7p-g79w-8964
         purl: pkg:pypi/msgpack@1.1.2
@@ -301,9 +315,9 @@ data:
           for pip's own HTTP cache: a crash when an Unpacker is reused after an
           error. The image never runs pip.
         upstream: >-
-          a pip release after 26.2.2 (pip main re-vendored msgpack 1.2.4 on
-          2026-11-02), then a paketo-buildpacks/cpython release whose CPython
-          builds carry it.
+          pip 26.3 (2026-11-02; vendors msgpack 1.2.4) inside a CPython that
+          Paketo compiles after that date: the next patch release of each
+          CPython line, in a paketo-buildpacks/cpython release after 1.18.50.
         expired_at: 2026-12-03
       - id: CVE-2025-47273
         purl: pkg:pypi/setuptools@70.3.0
@@ -316,7 +330,7 @@ data:
           in the image at all, and the image never runs pip.
         upstream: >-
           a pip release that re-vendors pkg_resources from setuptools 78.1.1 or
-          later (pip main still pins 70.3.0 on 2026-11-02), then a
+          later (pip 26.3 of 2026-11-02 still vendors 70.3.0), then a
           paketo-buildpacks/cpython release whose CPython builds carry it.
         expired_at: 2026-12-03
 ---

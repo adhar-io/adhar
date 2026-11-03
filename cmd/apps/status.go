@@ -39,7 +39,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("read kubeconfig flag: %w", err)
 	}
 
-	status, err := GetApplicationStatus(cmd.Context(), kubeconfigPath, namespace, appName)
+	status, err := resolveApplicationStatus(cmd.Context(), kubeconfigPath,
+		applicationNamespaces(cmd.Flags().Changed("namespace"), namespace), appName)
 	if err != nil {
 		return err
 	}

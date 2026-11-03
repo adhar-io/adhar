@@ -515,7 +515,10 @@ Teardown:
 ```bash
 ./adhar down -f examples/aws-config.yaml --env dev
 
-# Also delete unattached CSI volumes that carry no cluster tag at all.
+# Keep the cluster's EBS volumes (and their data); prints how to delete them later.
+./adhar down -f examples/aws-config.yaml --env dev --keep-volumes
+
+# Also delete unattached CSI volumes that carry no cluster tag at all, unlisted.
 # Works whether or not the cluster still exists.
 ./adhar down -f examples/aws-config.yaml --env dev --purge-orphaned-volumes
 ```
@@ -538,8 +541,8 @@ The controllers running **inside** the cluster create more, tagged
 | provider | instances, ENIs, EIPs, NAT gateways, route tables, security groups, subnets, IGW, VPC, key pair | yes, in dependency order |
 | cloud-controller-manager | one load balancer per `LoadBalancer` Service — **classic ELB or NLB**, both flavours are swept | yes |
 | load-balancer controller | target groups, and the `k8s-elb-*` security group | yes |
-| EBS CSI driver | one EBS volume per PersistentVolume, tagged for this cluster | yes |
-| EBS CSI driver | unattached volumes with **no** cluster tag (a previous cluster's) | only with `--purge-orphaned-volumes` |
+| EBS CSI driver | one EBS volume per PersistentVolume, tagged `adhar.io/cluster-id=<install id>` (the driver's `--extra-tags`; EKS: the addon's `controller.extraVolumeTags`) | yes — after the instances are gone: listed, confirmed (or `--yes`), deleted and read back until EC2 says it is gone; `--keep-volumes` keeps them |
+| EBS CSI driver | unattached volumes with **no** install id (made before v0.1.66) | offered, behind a confirmation typed at a terminal, only when no platform instance and no Kubernetes node of any cluster is left in the region; or `--purge-orphaned-volumes` (unlisted) |
 | anything | a resource tagged for **two** clusters (`shared`) | never — it belongs to the other one too |
 
 The load-balancer sweep runs **before** the security-group, subnet and VPC steps,
@@ -549,7 +552,10 @@ its subnets and its internet gateway all survive into the next run.
 
 `--purge-orphaned-volumes` is opt-in for one reason: an unattached CSI volume looks
 identical whether its cluster was torn down an hour ago or is being rebuilt right
-now. Without the flag the count is reported and the volumes are left alone.
+now. Without the flag the count is reported and the volumes are left alone. It
+never takes a volume carrying an install id, and is refused while a provided
+environment in the same file may run in the region. The full volume rules are in
+the [Provider Guide](PROVIDER_GUIDE.md#block-volumes-on-adhar-down-attributed-at-creation-deleted-after-confirmation).
 
 ### Quota preflight
 

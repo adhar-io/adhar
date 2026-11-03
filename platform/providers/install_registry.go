@@ -52,6 +52,11 @@ type ClusterInstall struct {
 	ClusterDeletedAt *time.Time `json:"clusterDeletedAt,omitempty"`
 	// RetainedVolumes are the volumes the last teardown left in place.
 	RetainedVolumes []string `json:"retainedVolumes,omitempty"`
+	// KeptByChoice is true when some of those were kept because somebody said
+	// so (`adhar down --keep-volumes`, or a "no" at the prompt) rather than
+	// because a deletion failed. A later `adhar down --yes` does not delete
+	// them; only a confirmation typed at a terminal does.
+	KeptByChoice bool `json:"keptByChoice,omitempty"`
 	// Note says why the record is still here, in words.
 	Note string `json:"note,omitempty"`
 }
@@ -293,6 +298,41 @@ func AdoptClusterInstall(provider, region, cluster, id string) (bool, error) {
 	if !changed {
 		return false, nil
 	}
+	return true, writeClusterInstalls(provider, region, cluster, installs)
+}
+
+// RecordProviderClusterID remembers a managed cluster's cloud-issued UUID — the
+// identity Civo's and DOKS's own CSI drivers stamp on every volume — in a
+// record of its own, unless a record already carries it. Reports whether
+// anything was written.
+//
+// Called before the cluster is deleted (and by `adhar up` right after it is
+// created): the volume step runs only AFTER the deletion, and a UUID held only
+// in memory would be lost to a crash or a Ctrl+C in between, leaving volumes
+// nothing can attribute. Anything that is not a UUID is refused — a compute
+// cluster's "id" is its name, and a name attributes nothing.
+func RecordProviderClusterID(provider, region, cluster, cloudID string) (bool, error) {
+	cloudID = strings.TrimSpace(cloudID)
+	if !IsCloudClusterUUID(cloudID) {
+		return false, fmt.Errorf("refusing to record %q as a cloud cluster id: not a UUID", cloudID)
+	}
+	installs, err := LoadClusterInstalls(provider, region, cluster)
+	if err != nil {
+		return false, err
+	}
+	for _, i := range installs {
+		if i.ProviderClusterID == cloudID {
+			return false, nil
+		}
+	}
+	installs = append(installs, ClusterInstall{
+		ProviderClusterID: cloudID,
+		Provider:          normalizeInstallProvider(provider),
+		Region:            strings.TrimSpace(region),
+		ClusterName:       cluster,
+		CreatedAt:         time.Now().UTC(),
+		Note:              "the cloud's own id for a managed cluster, whose CSI driver stamps it on every volume",
+	})
 	return true, writeClusterInstalls(provider, region, cluster, installs)
 }
 

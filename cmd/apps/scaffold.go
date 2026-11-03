@@ -27,14 +27,15 @@ package apps
 // entity and not a deployable resource.
 //
 // Only the templating the shipped skeletons actually use is implemented, and
-// that is deliberate: `${{ values.<key> }}` substitution, `{% if %}/{% else %}/
-// {% endif %}` conditionals including the whitespace-trimming `{%- … -%}` form,
-// and the `input.values` mapping that derives the render context from the
-// parameters. This mirrors the Console's renderer (apps/console/app/server/
+// that is deliberate: `${{ values.<key> }}` substitution, `{% if %}/{% elif %}/
+// {% else %}/{% endif %}` conditionals (paths, literals, ==, !=, not, and, or,
+// parentheses) with the whitespace-trimming `{%- … -%}` form, and the
+// `input.values` mapping that derives the render context from the parameters.
+// This mirrors the Console's renderer (apps/console/app/server/
 // template-render.ts) so the CLI and the Console produce the same repository
-// from the same template; it is not a general Nunjucks engine, and a template
-// that reaches past the subset fails loudly rather than emitting half-rendered
-// files.
+// from the same template — byte for byte across the shipped templates — but it
+// is not a general Nunjucks engine, and a template that reaches past the subset
+// fails loudly rather than emitting half-rendered files.
 
 import (
 	"context"
@@ -61,11 +62,17 @@ type backstageTemplate struct {
 		Name        string `yaml:"name"`
 		Title       string `yaml:"title"`
 		Description string `yaml:"description"`
+		// The name and tags decide whether the template scaffolds a Function,
+		// the way the Console decides it (isFunctionTemplate).
+		Tags []string `yaml:"tags"`
 		// adhar.io/dashboard-type and adhar.io/workload say what the scaffolded
 		// Application is (see pavedRoadApplication).
 		Labels map[string]string `yaml:"labels"`
 	} `yaml:"metadata"`
 	Spec struct {
+		// The component type (service, website, function, …) a generated
+		// catalog-info.yaml declares (consoleCatalogInfo).
+		Type       string `yaml:"type"`
 		Parameters []struct {
 			Title      string                       `yaml:"title"`
 			Required   []string                     `yaml:"required"`
@@ -311,10 +318,14 @@ var (
 	unsupportedOp = regexp.MustCompile(`\s(and|if|else|not|in)\s`)
 	// A URL scheme prefix, stripped from a RepoUrlPicker host.
 	schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
-	exprRe   = regexp.MustCompile(`\$\{\{(.*?)\}\}`)
-	// {% if … %} / {% else %} / {% endif %}, with the trimming {%- and -%} forms.
-	tagRe  = regexp.MustCompile(`\{%-?\s*(if|else|endif)\b([^%]*?)-?%\}`)
-	soleRe = regexp.MustCompile(`^\s*\$\{\{(.*?)\}\}\s*$`)
+	// ${{ … }}, as the Console's renderer matches it: at least one character,
+	// and it may span lines.
+	exprRe = regexp.MustCompile(`(?s)\$\{\{\s*(.+?)\s*\}\}`)
+	// A value that is ONE expression and nothing else — the Console's
+	// interpolateValue rule, /^\$\{\{\s*([\s\S]+?)\s*\}\}$/: no text around it,
+	// not even a space, and it may span lines. Anything else is interpolated
+	// into a string.
+	soleRe = regexp.MustCompile(`^\$\{\{\s*([\s\S]+?)\s*\}\}$`)
 	// (parameters.repoUrl | parseRepoUrl).owner
 	parseRepoRe = regexp.MustCompile(`^\(\s*([A-Za-z0-9_.]+)\s*\|\s*parseRepoUrl\s*\)\.([A-Za-z]+)$`)
 )
@@ -346,10 +357,11 @@ func evalExpression(expr string, ctx map[string]any) (any, error) {
 	}
 	// `X or Y` — Nunjucks's default-value idiom, used by every shipped template
 	// for optional parameters: `${{ parameters.kafkaTopic or 'events' }}`. A
-	// falsy left-hand side (missing, "", false, 0) takes the default, as in
-	// Nunjucks. Left unimplemented this fell through to a path lookup of the
-	// whole expression and rendered EMPTY, which is how a scaffolded service
-	// shipped a Kafka topic with no name (see TestOrTakesTheDefault).
+	// left-hand side that is missing, "", false or 0 takes the default, as in
+	// the Console's renderer. Left unimplemented this fell through to a path
+	// lookup of the whole expression and rendered EMPTY, which is how a
+	// scaffolded service shipped a Kafka topic with no name (see
+	// TestOrTakesTheDefault).
 	// `( … ) | filter` — a grouped expression piped to a filter, which Nunjucks
 	// needs because a filter binds tighter than `or`:
 	//
@@ -368,8 +380,14 @@ func evalExpression(expr string, ctx map[string]any) (any, error) {
 		return applyFilter(m[2], inner, m[1])
 	}
 	if m := orRe.FindStringSubmatch(expr); m != nil {
-		lhs, _ := evalExpression(strings.TrimSpace(m[1]), ctx)
-		if truthy(lhs) {
+		// An unparseable left-hand side is an error, not a missing value: the
+		// Console's renderer throws there too, so the two cannot disagree
+		// about whether a file renders.
+		lhs, err := evalExpression(strings.TrimSpace(m[1]), ctx)
+		if err != nil {
+			return nil, err
+		}
+		if orKeepsLeft(lhs) {
 			return lhs, nil
 		}
 		return evalLiteralOrPath(strings.TrimSpace(m[2]), ctx)
@@ -471,13 +489,22 @@ func stringify(v any) string {
 			return strconv.FormatInt(int64(t), 10)
 		}
 		return strconv.FormatFloat(t, 'f', -1, 64)
+	case []any:
+		// JavaScript's String([...]): the elements joined by commas, which is
+		// what the Console's renderer writes for a list value.
+		parts := make([]string, len(t))
+		for i, e := range t {
+			parts[i] = stringify(e)
+		}
+		return strings.Join(parts, ",")
 	default:
 		return fmt.Sprint(t)
 	}
 }
 
-// truthy follows Nunjucks/JS truthiness, which is what the skeleton conditionals
-// were written against: 0, "", false and absent are false.
+// truthy is the Console renderer's truthiness for `{% if %}` conditions
+// (template-render.ts): absent, false, 0, and a string that is empty, "false",
+// "0" or "no" (trimmed, any case) are false.
 func truthy(v any) bool {
 	switch t := v.(type) {
 	case nil:
@@ -485,8 +512,14 @@ func truthy(v any) bool {
 	case bool:
 		return t
 	case string:
-		return t != "" && t != "false"
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "", "false", "0", "no":
+			return false
+		}
+		return true
 	case int:
+		return t != 0
+	case int64:
 		return t != 0
 	case float64:
 		return t != 0
@@ -495,73 +528,268 @@ func truthy(v any) bool {
 	}
 }
 
-// renderContent renders one skeleton file: conditionals first (so a substitution
-// inside a discarded branch is never evaluated), then substitutions.
+// orKeepsLeft is the `x or <default>` rule of the Console's renderer: the left
+// side stands unless it is missing, "", false or 0.
+func orKeepsLeft(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return t
+	case string:
+		return t != ""
+	case int:
+		return t != 0
+	case int64:
+		return t != 0
+	case float64:
+		return t != 0
+	default:
+		return true
+	}
+}
+
+var (
+	// The whitespace-control markers, normalised away before conditionals are
+	// resolved: `{%-` eats the whitespace before it, up to and including one
+	// line break; `-%}` eats the whitespace after it, up to and including one.
+	trimBeforeRe = regexp.MustCompile(`[ \t]*\r?\n?[ \t]*\{%-`)
+	trimAfterRe  = regexp.MustCompile(`-%\}[ \t]*\r?\n?`)
+	// {% if %} / {% elif %} / {% else %} / {% endif %}, after normalisation.
+	condTagRe = regexp.MustCompile(`\{%\s*(if|elif|else|endif)\b([^%]*)%\}`)
+	// The tokens of an {% if %} condition.
+	condTokenRe = regexp.MustCompile(`\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|==|!=|\(|\)|[A-Za-z_][\w.]*|-?\d+(?:\.\d+)?|\S)`)
+)
+
+// renderContent renders one skeleton file exactly as the Console's renderer
+// does (apps/console/app/server/template-render.ts renderContent), so the CLI
+// and the Console commit the same repository from the same template:
+// whitespace-control markers first, then {% if %}/{% elif %}/{% else %}/
+// {% endif %} — so a substitution inside a discarded branch is never
+// evaluated — then the ${{ … }} substitutions.
+//
+// Until 2026-11-03 this was a renderer of its own, and the two disagreed on
+// a third of the shipped templates' files: it dropped the line break after
+// EVERY tag, which fused lines wherever a tag closed mid-line (package.json's
+// `"7.3.0"  },`, a README code fence that never closed), and it looked an
+// operator up as a path, so `{%- if values.chaosTesting == false %}` was never
+// true — a service scaffolded with chaosTesting=false still got its chaos
+// experiments — and `{%- if not (values.withDatabase or …) %}` either failed
+// the whole scaffold (springboot-web-service with its defaults) or rendered
+// compose.yaml as `services: {}` followed by the services, which is not YAML
+// (transaction-service).
 func renderContent(src string, ctx map[string]any) (string, error) {
-	out, err := renderConditionals(src, ctx)
+	s := trimBeforeRe.ReplaceAllString(src, "{%")
+	s = strings.ReplaceAll(s, "{%-", "{%")
+	s = trimAfterRe.ReplaceAllString(s, "%}")
+	s = strings.ReplaceAll(s, "-%}", "%}")
+	s, err := resolveConditionals(s, ctx)
 	if err != nil {
 		return "", err
 	}
-	return substitute(out, ctx)
+	return substitute(s, ctx)
 }
 
-// renderConditionals evaluates {% if %}/{% else %}/{% endif %}, nesting included.
-func renderConditionals(src string, ctx map[string]any) (string, error) {
-	type frame struct {
-		keep    bool // the branch currently being read is kept
-		matched bool // the if-branch was taken (so else is not)
-		emitted bool // output position of this frame's parent is emitting
-	}
-	var b strings.Builder
-	var stack []frame
-	emitting := func() bool {
-		for _, f := range stack {
-			if !f.keep {
-				return false
-			}
-		}
-		return true
-	}
+type condTag struct {
+	kind, cond string
+	start, end int
+}
 
-	pos := 0
-	for _, loc := range tagRe.FindAllStringSubmatchIndex(src, -1) {
-		if emitting() {
-			b.WriteString(src[pos:loc[0]])
+// resolveConditionals resolves the if/elif/else/endif blocks, nested to any
+// depth, by matching tags on a stack. A branch that is not taken is not
+// evaluated — its conditions included — but its tags must still balance.
+func resolveConditionals(s string, ctx map[string]any) (string, error) {
+	locs := condTagRe.FindAllStringSubmatchIndex(s, -1)
+	if len(locs) == 0 {
+		return s, nil
+	}
+	tags := make([]condTag, len(locs))
+	for i, l := range locs {
+		tags[i] = condTag{kind: s[l[2]:l[3]], cond: s[l[4]:l[5]], start: l[0], end: l[1]}
+	}
+	k := 0
+	// block renders s[from:] up to the first tag it did not open, which it
+	// returns for the caller to interpret (elif/else/endif), or nil at the end.
+	var block func(from int, out bool) (string, *condTag, error)
+	block = func(from int, out bool) (string, *condTag, error) {
+		var b strings.Builder
+		pos := from
+		for k < len(tags) {
+			t := tags[k]
+			if out {
+				b.WriteString(s[pos:t.start])
+			}
+			if t.kind != "if" {
+				return b.String(), &tags[k], nil
+			}
+			k++
+			taken, take := false, false
+			if out {
+				var err error
+				if take, err = evalCondition(t.cond, ctx); err != nil {
+					return "", nil, err
+				}
+			}
+			next := t.end
+			for {
+				body, closer, err := block(next, take)
+				if err != nil {
+					return "", nil, err
+				}
+				if take {
+					b.WriteString(body)
+					taken = true
+				}
+				if closer == nil {
+					return "", nil, fmt.Errorf("unclosed {%% if %%} at offset %d", t.start)
+				}
+				k++
+				next = closer.end
+				if closer.kind == "endif" {
+					break
+				}
+				take = out && !taken
+				if take && closer.kind == "elif" {
+					if take, err = evalCondition(closer.cond, ctx); err != nil {
+						return "", nil, err
+					}
+				}
+			}
+			pos = next
 		}
-		pos = loc[1]
-		tag := src[loc[2]:loc[3]]
-		arg := strings.TrimSpace(src[loc[4]:loc[5]])
-		// A tag on its own line leaves a blank line behind; drop the newline that
-		// immediately follows it, which is what the `-%}` form asks for anyway.
-		if pos < len(src) && src[pos] == '\n' {
-			pos++
+		if out {
+			b.WriteString(s[pos:])
 		}
-		switch tag {
-		case "if":
-			v, err := evalExpression(arg, ctx)
+		return b.String(), nil, nil
+	}
+	text, stray, err := block(0, true)
+	if err != nil {
+		return "", err
+	}
+	if stray != nil {
+		return "", fmt.Errorf("{%% %s %%} at offset %d has no matching {%% if %%}", stray.kind, stray.start)
+	}
+	return text, nil
+}
+
+// evalCondition evaluates an {% if %} condition the way the Console's
+// renderer does: paths, quoted strings, numbers, true/false/none, == and !=
+// (compared as rendered text), not, and, or and parentheses, with Nunjucks
+// precedence (not > and > or). Anything else is an error, never a guess.
+func evalCondition(cond string, ctx map[string]any) (bool, error) {
+	raw := condTokenRe.FindAllString(cond, -1)
+	toks := make([]string, len(raw))
+	for i, t := range raw {
+		toks[i] = strings.TrimSpace(t)
+	}
+	fail := func(why string) error {
+		return fmt.Errorf("template condition %q: %s; supported: paths, literals, ==, !=, not, and, or, ( )",
+			strings.TrimSpace(cond), why)
+	}
+	i := 0
+	peek := func() string {
+		if i < len(toks) {
+			return toks[i]
+		}
+		return ""
+	}
+	var orExpr func() (bool, error)
+	atom := func() (any, error) {
+		if i >= len(toks) {
+			return nil, fail("ends early")
+		}
+		t := toks[i]
+		i++
+		switch {
+		case t == "(":
+			v, err := orExpr()
 			if err != nil {
-				return "", err
+				return nil, err
 			}
-			keep := truthy(v)
-			stack = append(stack, frame{keep: keep, matched: keep})
-		case "else":
-			if len(stack) == 0 {
-				return "", fmt.Errorf("{%% else %%} outside an {%% if %%}")
+			if peek() != ")" {
+				return nil, fail("unbalanced parentheses")
 			}
-			top := &stack[len(stack)-1]
-			top.keep = !top.matched
-		case "endif":
-			if len(stack) == 0 {
-				return "", fmt.Errorf("{%% endif %%} outside an {%% if %%}")
-			}
-			stack = stack[:len(stack)-1]
+			i++
+			return v, nil
+		case strings.HasPrefix(t, "'") || strings.HasPrefix(t, `"`):
+			return t[1 : len(t)-1], nil
+		case numberRe.MatchString(t):
+			f, _ := strconv.ParseFloat(t, 64)
+			return f, nil
+		case t == "true" || t == "True":
+			return true, nil
+		case t == "false" || t == "False":
+			return false, nil
+		case t == "none" || t == "null" || t == "None":
+			return nil, nil
 		}
+		switch t {
+		case "and", "or", "not", "in", "is", ")", "==", "!=":
+			return nil, fail(fmt.Sprintf("unexpected %q", t))
+		}
+		if c := t[0]; !(c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+			return nil, fail(fmt.Sprintf("unexpected %q", t))
+		}
+		v, _ := lookupPath(t, ctx)
+		return v, nil
 	}
-	if len(stack) != 0 {
-		return "", fmt.Errorf("unclosed {%% if %%} in template")
+	cmp := func() (any, error) {
+		left, err := atom()
+		if err != nil {
+			return nil, err
+		}
+		if op := peek(); op == "==" || op == "!=" {
+			i++
+			right, err := atom()
+			if err != nil {
+				return nil, err
+			}
+			eq := stringify(left) == stringify(right)
+			return eq == (op == "=="), nil
+		}
+		return left, nil
 	}
-	b.WriteString(src[pos:])
-	return b.String(), nil
+	var notExpr func() (bool, error)
+	notExpr = func() (bool, error) {
+		if peek() == "not" {
+			i++
+			v, err := notExpr()
+			return !v, err
+		}
+		v, err := cmp()
+		return truthy(v), err
+	}
+	andExpr := func() (bool, error) {
+		v, err := notExpr()
+		for err == nil && peek() == "and" {
+			i++
+			var r bool
+			r, err = notExpr()
+			v = v && r
+		}
+		return v, err
+	}
+	orExpr = func() (bool, error) {
+		v, err := andExpr()
+		for err == nil && peek() == "or" {
+			i++
+			var r bool
+			r, err = andExpr()
+			v = v || r
+		}
+		return v, err
+	}
+	if len(toks) == 0 {
+		return false, fail("is empty")
+	}
+	res, err := orExpr()
+	if err != nil {
+		return false, err
+	}
+	if i != len(toks) {
+		return false, fail(fmt.Sprintf("unexpected %q", toks[i]))
+	}
+	return res, nil
 }
 
 /* ───────────────────────── orchestration ───────────────────────── */
@@ -571,42 +799,70 @@ type scaffoldedRepo struct {
 	CloneURL     string
 	ManifestPath string
 	Files        int
-	// TemplateLabels are the template's metadata.labels.
+	// TemplateName, TemplateTags and TemplateLabels are the template's own
+	// metadata; they say what the scaffolded Application is
+	// (pavedRoadApplication).
+	TemplateName   string
+	TemplateTags   []string
 	TemplateLabels map[string]string
 }
 
-// scaffoldTemplate renders a template's skeleton into a new Gitea repository
-// owned by the platform org and returns where the manifests landed, so the
-// caller can hand the repo to the same Application path a --repo deploy
-// takes. The application's source therefore lives in git from the first commit,
-// which is the point of a golden path: the generated service is editable.
-func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateID, appName, namespace, env string, overrides map[string]string) (*scaffoldedRepo, error) {
-	t, err := loadBackstageTemplate(gc, templateID)
-	if err != nil {
-		return nil, err
-	}
-	skeleton, valueSpec, ok := t.fetchTemplateStep()
-	if !ok {
-		return nil, fmt.Errorf("template %q has no fetch:template step, so there is no skeleton to render", templateID)
-	}
+// renderedScaffold is a template's skeleton rendered in memory: nothing has
+// been written anywhere yet.
+type renderedScaffold struct {
+	template   *backstageTemplate
+	templateID string
+	files      []*gitea.ChangeFileOperation
+	paths      []string
+	// description is the repository's description: the application's own
+	// `description` parameter, empty when none was given — what the Console
+	// creates the repository with (body.description ?? ''), not the
+	// template's description of itself.
+	description string
+}
 
+// scaffoldGiteaBase is the platform Gitea's base URL as the Console writes it:
+// the scheme's default port dropped (https://gitea.<domain>, not
+// https://gitea.<domain>:443), any other port kept (a laptop's :8443).
+//
+// utils.GiteaBaseUrl always spells the port, and every skeleton builds its
+// links from the RepoUrlPicker host (`https://${{ values.giteaHost }}/…`), so
+// until 2026-11-03 a CLI-scaffolded repository differed from a
+// Console-scaffolded one in the catalog's docs link, the SPA's REPO_URL and —
+// through the .adhar/app.yaml descriptor Argo CD adopts — the Application's
+// own source.repoURL and the links on its Grafana dashboard (reactapp).
+func scaffoldGiteaBase(giteaURL string) string {
+	return strings.TrimSuffix(publicCloneURL(strings.TrimSuffix(giteaURL, "/")), "/")
+}
+
+// scaffoldContext is the context a template's skeleton is rendered with: the
+// resolved parameters, the fetch:template values, and the values the
+// scaffolder pins — the same ones the Console's scaffolder pins
+// (apps/console/app/server/scaffolder.ts), so both produce one repository
+// from one template. It touches nothing, so that parity can be tested.
+func scaffoldContext(t *backstageTemplate, valueSpec map[string]yaml.Node, giteaURL, appName, env string, overrides map[string]string) (map[string]any, error) {
 	host := "gitea"
-	if u, uerr := url.Parse(giteaURL); uerr == nil && u.Host != "" {
+	if u, uerr := url.Parse(scaffoldGiteaBase(giteaURL)); uerr == nil && u.Host != "" {
 		host = u.Host
 	}
 	params, err := resolveParameters(t, appName, globals.GiteaPlatformOrg, appName, host, overrides)
 	if err != nil {
 		return nil, err
 	}
+	// The Console always passes a description, empty when none was given
+	// (params.description = body.description ?? ''), so a skeleton that dumps
+	// it writes "" there; left unset here it rendered null.
+	if params["description"] == nil {
+		params["description"] = ""
+	}
 	values, err := buildValues(valueSpec, params)
 	if err != nil {
 		return nil, err
 	}
-	// `namespace` is not a declared parameter on every template, but every
-	// skeleton's deploy/ needs one; the CLI's --namespace is the answer.
-	if _, set := values["namespace"]; !set {
-		values["namespace"] = namespace
-	}
+	// The repository identity is the repository the scaffold creates, not
+	// whatever a template derives from the picker value.
+	values["gitOwner"] = globals.GiteaPlatformOrg
+	values["repoName"] = appName
 	// Pin the public hostname to THIS platform's domain.
 	//
 	// The shipped templates compute their hostname as
@@ -614,7 +870,7 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	// install that produced an HTTPRoute for a hostname the cluster does not
 	// serve, so the scaffolded service came with a URL that could never resolve.
 	// A template cannot know the domain; the scaffolder can, so it decides. The
-	// Console's scaffolder pins the same two values the same way, which is what
+	// Console's scaffolder pins the same values the same way, which is what
 	// keeps a CLI-scaffolded repo and a Console-scaffolded repo identical.
 	base := platformBaseDomain(host)
 	if base != "" {
@@ -658,7 +914,24 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 		}
 		values[e+"HostnamesJson"] = routeHostnamesJSON(h, custom)
 	}
-	ctxVals := map[string]any{"values": values, "parameters": params}
+	return map[string]any{"values": values, "parameters": params}, nil
+}
+
+// renderScaffold renders a template's skeleton in memory.
+//
+// Everything is rendered BEFORE the repository is created: a skeleton this
+// renderer cannot render used to leave an empty repository behind (the
+// repository was created first), which the next attempt then adopted only to
+// fail the same way.
+func renderScaffold(ctx context.Context, gc *gitea.Client, t *backstageTemplate, giteaURL, templateID, appName, env string, overrides map[string]string) (*renderedScaffold, error) {
+	skeleton, valueSpec, ok := t.fetchTemplateStep()
+	if !ok {
+		return nil, fmt.Errorf("template %q has no fetch:template step, so there is no skeleton to render", templateID)
+	}
+	ctxVals, err := scaffoldContext(t, valueSpec, giteaURL, appName, env, overrides)
+	if err != nil {
+		return nil, err
+	}
 
 	tree, _, err := gc.GetTrees(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, gitea.ListTreeOptions{
 		Ref:       "main",
@@ -685,14 +958,10 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 			globals.GitOpsRepoTemplates, templateID)
 	}
 
-	repo, err := ensureScaffoldRepo(gc, appName, t.Metadata.Description)
-	if err != nil {
-		return nil, err
-	}
-
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	ops := make([]*gitea.ChangeFileOperation, 0, len(entries))
-	rendered := make([]string, 0, len(entries))
+	params, _ := ctxVals["parameters"].(map[string]any)
+	description, _ := params["description"].(string)
+	r := &renderedScaffold{template: t, templateID: templateID, description: description}
 	for _, e := range entries {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -701,51 +970,227 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 		if gerr != nil {
 			return nil, fmt.Errorf("reading %s: %w", e.Path, gerr)
 		}
-		// A file path may itself be templated (`${{ values.name }}.go`).
-		rel, rerr := renderContent(strings.TrimPrefix(e.Path, prefix), ctxVals)
+		rel, content, rerr := renderSkeletonFile(strings.TrimPrefix(e.Path, prefix), raw, skeletonRenderContext(ctxVals))
 		if rerr != nil {
-			return nil, fmt.Errorf("rendering the path of %s: %w", e.Path, rerr)
+			return nil, fmt.Errorf("rendering %s: %w", e.Path, rerr)
 		}
-		content := raw
-		if isTextTemplate(rel) {
-			rendered, rerr := renderContent(string(raw), ctxVals)
-			if rerr != nil {
-				return nil, fmt.Errorf("rendering %s: %w", e.Path, rerr)
+		r.add(rel, content)
+	}
+	repoURL := fmt.Sprintf("%s/%s/%s", scaffoldGiteaBase(giteaURL), globals.GiteaPlatformOrg, appName)
+	for _, f := range consoleFallbacks(t, r.paths, appName, repoURL, params) {
+		r.add(f.path, []byte(f.content))
+	}
+	return r, nil
+}
+
+func (r *renderedScaffold) add(rel string, content []byte) {
+	r.files = append(r.files, &gitea.ChangeFileOperation{
+		Operation: "create",
+		Path:      rel,
+		Content:   base64.StdEncoding.EncodeToString(content),
+	})
+	r.paths = append(r.paths, rel)
+}
+
+// consoleStarterKustomization is the deploy starter the Console's scaffolder
+// commits (scaffolder.ts, step 3).
+const consoleStarterKustomization = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
+
+type fallbackFile struct{ path, content string }
+
+// consoleFallbacks are the files the Console's scaffolder adds when a skeleton
+// does not ship them: a generated catalog-info.yaml (step 2b), and an empty
+// Kustomization under the manifest path when nothing landed there (step 3),
+// so the Application's source is never a directory that does not exist. Every
+// shipped template carries both; one that does not must still produce the
+// repository the Console would — here in the scaffold's one commit, where the
+// Console makes each its own.
+func consoleFallbacks(t *backstageTemplate, paths []string, appName, repoURL string, params map[string]any) []fallbackFile {
+	var out []fallbackFile
+	if !contains(paths, "catalog-info.yaml") {
+		out = append(out, fallbackFile{"catalog-info.yaml", consoleCatalogInfo(t, appName, repoURL, params)})
+	}
+	manifests := t.manifestPathFor(paths)
+	for _, p := range paths {
+		if strings.HasPrefix(p, manifests+"/") {
+			return out
+		}
+	}
+	return append(out, fallbackFile{manifests + "/kustomization.yaml", consoleStarterKustomization})
+}
+
+// consoleCatalogInfo is the descriptor the Console's buildCatalogInfo writes
+// (scaffolder.ts) for a template scaffold: what the Create wizard sends — its
+// title, description, owner, system, domain and lifecycle fields, which are
+// the template's parameters of those names, the template's spec.type and its
+// tags — the repository, and, a template scaffold being GitOps, the Argo CD
+// app name.
+func consoleCatalogInfo(t *backstageTemplate, appName, repoURL string, params map[string]any) string {
+	str := func(key string) string {
+		s, _ := params[key].(string)
+		return s
+	}
+	or := func(v, def string) string {
+		if v == "" {
+			return def
+		}
+		return v
+	}
+	tags := t.Metadata.Tags
+	if len(tags) == 0 {
+		// The wizard's copy of a template without tags (templates.ts).
+		tags = []string{"gitea"}
+	}
+	quoted := make([]string, len(tags))
+	for i, tag := range tags {
+		quoted[i] = jsString(tag)
+	}
+	lines := []string{"apiVersion: backstage.io/v1alpha1", "kind: Component", "metadata:", "  name: " + appName}
+	if v := str("title"); v != "" {
+		lines = append(lines, "  title: "+jsString(v))
+	}
+	if v := str("description"); v != "" {
+		lines = append(lines, "  description: "+jsString(v))
+	}
+	lines = append(lines,
+		"  annotations:",
+		"    adhar.io/git-repo: "+repoURL,
+		"    argocd/app-name: "+appName,
+		"  tags: ["+strings.Join(quoted, ", ")+"]",
+		"spec:",
+		"  type: "+or(t.Spec.Type, "service"),
+		"  lifecycle: "+or(str("lifecycle"), "experimental"),
+		"  owner: "+or(str("owner"), "group:platform"),
+	)
+	if v := str("system"); v != "" {
+		lines = append(lines, "  system: "+v)
+	}
+	if v := str("domain"); v != "" {
+		lines = append(lines, "  domain: "+v)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// jsString is JavaScript's JSON.stringify of a string.
+func jsString(s string) string {
+	out, _ := jsJSON(s)
+	return out
+}
+
+// jsJSON is JavaScript's JSON.stringify of a value the renderer produced.
+// encoding/json differs in two ways: by default it escapes <, > and &, and it
+// always escapes U+2028 and U+2029 (and writes invalid UTF-8 as �), where
+// JSON.stringify writes those characters as they are.
+func jsJSON(v any) (string, error) {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return "", err
+	}
+	out := strings.TrimSuffix(b.String(), "\n")
+	if !strings.Contains(out, ` `) && !strings.Contains(out, ` `) && !strings.Contains(out, `�`) {
+		return out, nil
+	}
+	// Undo just those escapes. Backslashes appear only inside strings, each
+	// starting an escape: `\uXXXX` or a two-character one such as `\\`, so an
+	// escaped backslash followed by "u2028" is left alone.
+	var r strings.Builder
+	for i := 0; i < len(out); i++ {
+		if out[i] != '\\' || i+1 >= len(out) {
+			r.WriteByte(out[i])
+			continue
+		}
+		if out[i+1] == 'u' && i+6 <= len(out) {
+			switch out[i+2 : i+6] {
+			case "2028", "2029", "fffd":
+				n, _ := strconv.ParseUint(out[i+2:i+6], 16, 32)
+				r.WriteRune(rune(n))
+				i += 5
+				continue
 			}
-			content = []byte(rendered)
 		}
-		ops = append(ops, &gitea.ChangeFileOperation{
-			Operation: "create",
-			Path:      rel,
-			Content:   base64.StdEncoding.EncodeToString(content),
-		})
-		rendered = append(rendered, rel)
+		r.WriteString(out[i : i+2])
+		i++
+	}
+	return r.String(), nil
+}
+
+// htmlEscaper is the Console renderer's escapeHtml. html.EscapeString writes a
+// double quote as &#34; where the Console writes &quot;.
+var htmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
+
+// skeletonRenderContext is the context a skeleton FILE is rendered with: the
+// values and nothing else, each also under its own name — the Console's
+// `{ values, ...values }` (template-render.ts renderContent/renderPath). The
+// parameters are not in it: they reach a skeleton only through the
+// fetch:template values map, as in Backstage. With them in, a skeleton
+// writing `${{ parameters.port }}` rendered the port here and nothing in the
+// Console, so the two scaffolders committed different files.
+func skeletonRenderContext(scaffoldCtx map[string]any) map[string]any {
+	values, _ := scaffoldCtx["values"].(map[string]any)
+	out := make(map[string]any, len(values)+1)
+	for k, v := range values {
+		out[k] = v
+	}
+	out["values"] = values
+	return out
+}
+
+// renderSkeletonFile renders one skeleton file the way the Console's
+// scaffolder does: the path's ${{ … }} substituted (a path may be templated,
+// `${{ values.name }}.go`), the content rendered unless it is binary.
+func renderSkeletonFile(rel string, raw []byte, ctxVals map[string]any) (string, []byte, error) {
+	out, err := substitute(rel, ctxVals)
+	if err != nil {
+		return "", nil, fmt.Errorf("its path: %w", err)
+	}
+	if !isTextTemplate(out) {
+		return out, raw, nil
+	}
+	rendered, err := renderContent(string(raw), ctxVals)
+	if err != nil {
+		return "", nil, err
+	}
+	return out, []byte(rendered), nil
+}
+
+// commitScaffold creates the application's repository in the platform org and
+// commits the rendered skeleton to it, so the generated service is editable in
+// git from its first commit — the point of a golden path.
+func commitScaffold(gc *gitea.Client, giteaURL, appName string, r *renderedScaffold) (*scaffoldedRepo, error) {
+	repo, err := ensureScaffoldRepo(gc, appName, r.description)
+	if err != nil {
+		return nil, err
 	}
 	// ONE commit for the whole skeleton. Committing file by file made a
 	// 14-file template 14 commits, and the repository's push webhook started
 	// the app-ci pipeline 14 times in parallel — for a repository that was not
 	// even complete until the last one. A scaffold is one change.
 	if _, _, cerr := gc.ChangeFiles(globals.GiteaPlatformOrg, repo, gitea.ChangeFilesOptions{
-		Files:   ops,
-		Message: fmt.Sprintf("scaffold %s from %s", appName, templateID),
+		Files:   r.files,
+		Message: fmt.Sprintf("scaffold %s from %s", appName, r.templateID),
 		Branch:  "main",
 	}); cerr != nil {
-		return nil, fmt.Errorf("committing %d files to %s/%s: %w", len(ops), globals.GiteaPlatformOrg, repo, cerr)
+		return nil, fmt.Errorf("committing %d files to %s/%s: %w", len(r.files), globals.GiteaPlatformOrg, repo, cerr)
 	}
 
 	return &scaffoldedRepo{
-		CloneURL:       fmt.Sprintf("%s/%s/%s.git", strings.TrimSuffix(giteaURL, "/"), globals.GiteaPlatformOrg, repo),
-		ManifestPath:   t.manifestPathFor(rendered),
-		Files:          len(entries),
-		TemplateLabels: t.Metadata.Labels,
+		CloneURL:       fmt.Sprintf("%s/%s/%s.git", scaffoldGiteaBase(giteaURL), globals.GiteaPlatformOrg, repo),
+		ManifestPath:   r.template.manifestPathFor(r.paths),
+		Files:          len(r.files),
+		TemplateName:   r.template.Metadata.Name,
+		TemplateTags:   r.template.Metadata.Tags,
+		TemplateLabels: r.template.Metadata.Labels,
 	}, nil
 }
 
-// binaryExt are the extensions rendered verbatim: substituting into a PNG
-// corrupts it, and no shipped skeleton templates one.
+// binaryExt are the extensions committed verbatim: substituting into a PNG
+// corrupts it. The Console's list (BINARY_EXT in scaffolder.ts), SVG included,
+// plus a few more that are never text.
 var binaryExt = map[string]bool{
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".ico": true,
-	".webp": true, ".bmp": true, ".woff": true, ".woff2": true, ".ttf": true,
+	".webp": true, ".bmp": true, ".svg": true, ".woff": true, ".woff2": true, ".ttf": true,
 	".otf": true, ".eot": true, ".pdf": true, ".zip": true, ".gz": true,
 	".tar": true, ".jar": true, ".class": true, ".wasm": true, ".mp4": true,
 	".mp3": true, ".so": true, ".dylib": true, ".exe": true,
@@ -835,15 +1280,19 @@ func evalLiteralOrPath(raw string, ctx map[string]any) (any, error) {
 func applyFilter(name string, v any, src string) (any, error) {
 	switch name {
 	case "dump":
-		b, err := json.Marshal(v)
+		// JSON.stringify, as the Console's renderer dumps. encoding/json's
+		// default escapes &, < and > (and U+2028/U+2029), so a description
+		// such as "Orders & payments" was committed as "Orders &
+		// payments" in package.json, catalog-info.yaml and mkdocs.yml.
+		s, err := jsJSON(v)
 		if err != nil {
 			return nil, fmt.Errorf("dumping %s: %w", src, err)
 		}
-		return string(b), nil
+		return s, nil
 	case "escape":
 		// HTML escaping: the SPA skeletons drop the description into a
 		// `<meta content="...">` attribute, where a quote ends the value.
-		return html.EscapeString(stringify(v)), nil
+		return htmlEscaper.Replace(stringify(v)), nil
 	case "lower":
 		return strings.ToLower(stringify(v)), nil
 	default:

@@ -294,6 +294,10 @@ func TestAVolumeListingFailureDeletesNothingAndKeepsTheRecord(t *testing.T) {
 	if recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar"); len(recs) != 1 {
 		t.Fatalf("the record was dropped on a listing failure: %+v", recs)
 	}
+	// And it never says there was nothing: it could not look.
+	if strings.Contains(out.String(), "No block volumes left") || !strings.Contains(out.String(), "Could not list the volumes") {
+		t.Fatalf("a listing failure was reported as an empty listing:\n%s", out)
+	}
 }
 
 // A provided cluster's volumes are never the platform's, even if a job for one
@@ -399,5 +403,121 @@ func TestASharedClusterIsAskedAboutOnce(t *testing.T) {
 		ClusterNames: []string{"adhar"}, ClusterMode: pfactory.ClusterModeProvided}))
 	if len(merged) != 1 || merged[0].ClusterMode != pfactory.ClusterModeProvided {
 		t.Fatalf("merged = %+v; a provided mode among the merged must win", merged)
+	}
+}
+
+// Volumes somebody chose to keep stay kept until somebody chooses otherwise:
+// a later `adhar down --yes` — a script, or the teardown of the next cluster
+// of the same name — must not delete them; a confirmation typed at a terminal
+// does. A volume left behind by a FAILED deletion is not a choice, and a later
+// --yes finishes the job.
+func TestVolumesKeptOnPurposeSurviveALaterBlanketYes(t *testing.T) {
+	inst := recordInstall(t)
+	cloud := newFakeCloud()
+	cloud.add("vol-kept", inst.ID, false)
+
+	step, out := testStep(cloud, stepOpts{keep: true, yes: true})
+	step.run([]volumeJob{deletedJob()})
+	recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar")
+	if len(recs) != 1 || !recs[0].KeptByChoice {
+		t.Fatalf("after --keep-volumes the record is %+v; it must say the volumes were kept on purpose", recs)
+	}
+
+	// A new cluster of the same name, torn down later with --yes.
+	next, err := pfactory.RecordClusterInstall("aws", "ap-southeast-1", "adhar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud.add("vol-next", next.ID, false)
+	step, out = testStep(cloud, stepOpts{yes: true})
+	step.run([]volumeJob{deletedJob()})
+	if got := strings.Join(cloud.deleted, ","); got != "vol-next" {
+		t.Fatalf("a later --yes deleted %q; the volume kept on purpose must survive it:\n%s", got, out)
+	}
+	for _, want := range []string{"KEPT on purpose", "confirm at a terminal", inst.ID} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+
+	// A person at a terminal can still delete it.
+	step, out = testStep(cloud, stepOpts{interactive: true, input: "yes\n"})
+	if !step.run([]volumeJob{deletedJob()}) || strings.Join(cloud.deleted, ",") != "vol-next,vol-kept" {
+		t.Fatalf("a typed yes did not delete the kept volume: %v\n%s", cloud.deleted, out)
+	}
+	if recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar"); len(recs) != 0 {
+		t.Fatalf("records outlived their volumes: %+v", recs)
+	}
+}
+
+func TestADeletionThatFailedIsNotAChoiceToKeep(t *testing.T) {
+	inst := recordInstall(t)
+	cloud := newFakeCloud()
+	cloud.add("vol-stuck", inst.ID, false)
+	cloud.stuck["vol-stuck"] = true
+	step, _ := testStep(cloud, stepOpts{yes: true})
+	step.run([]volumeJob{deletedJob()})
+	recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar")
+	if len(recs) != 1 || recs[0].KeptByChoice {
+		t.Fatalf("record = %+v; a failed deletion must stay eligible for the next --yes", recs)
+	}
+	delete(cloud.stuck, "vol-stuck")
+	step, out := testStep(cloud, stepOpts{yes: true})
+	if !step.run([]volumeJob{deletedJob()}) {
+		t.Fatalf("the re-run did not finish the job:\n%s", out)
+	}
+}
+
+// A prompt that got NO answer — stdin closed, as in a script that passed
+// neither --yes nor --keep-volumes — keeps the volumes, but nobody chose to keep
+// them: the record is not marked kept-on-purpose, so the documented re-run with
+// --yes finishes the job. Recording it as a choice (which an EOF used to be)
+// locked those volumes away from every later --yes. An explicit answer other
+// than "yes" is still a choice.
+func TestAnUnansweredPromptKeepsTheVolumesWithoutRecordingAChoice(t *testing.T) {
+	inst := recordInstall(t)
+	cloud := newFakeCloud()
+	cloud.add("vol-1", inst.ID, false)
+
+	step, out := testStep(cloud, stepOpts{}) // not a terminal, no --yes, stdin already closed
+	step.run([]volumeJob{deletedJob()})
+	if len(cloud.deleted) != 0 {
+		t.Fatalf("an unanswered prompt deleted %v", cloud.deleted)
+	}
+	recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar")
+	if len(recs) != 1 || recs[0].KeptByChoice || strings.Join(recs[0].RetainedVolumes, ",") != "vol-1" {
+		t.Fatalf("record = %+v; want it kept, pointing at vol-1, and NOT marked kept on purpose", recs)
+	}
+	if !strings.Contains(out.String(), "no answer") {
+		t.Errorf("the output does not say the prompt went unanswered:\n%s", out)
+	}
+
+	step, out = testStep(cloud, stepOpts{yes: true})
+	if !step.run([]volumeJob{deletedJob()}) || strings.Join(cloud.deleted, ",") != "vol-1" {
+		t.Fatalf("the re-run with --yes did not finish the job: %v\n%s", cloud.deleted, out)
+	}
+
+	next, err := pfactory.RecordClusterInstall("aws", "ap-southeast-1", "adhar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud.add("vol-2", next.ID, false)
+	step, _ = testStep(cloud, stepOpts{input: "no\n"})
+	step.run([]volumeJob{deletedJob()})
+	if recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar"); len(recs) != 1 || !recs[0].KeptByChoice {
+		t.Fatalf("record = %+v; an explicit \"no\" is a choice to keep", recs)
+	}
+}
+
+// The list a person confirms is exact: no id is shortened to fit the
+// terminal, however long — an Azure disk id is a ~150-character ARM path.
+func TestTheConfirmedListNeverShortensAVolumeID(t *testing.T) {
+	const armID = "/subscriptions/b8e6d308-0e08-4287-885f-a4766f295f13/resourceGroups/adhar-rg/providers/Microsoft.Compute/disks/pvc-77b924c7-787a-42ba-8197-8f0ed476dfd3"
+	vols := []pfactory.BlockVolume{{ID: armID, Name: "pvc-77b924c7-787a-42ba-8197-8f0ed476dfd3", SizeGiB: 8, PVCNamespace: "adhar-system", PVCName: "nexus-data"}}
+	for _, installOf := range []map[string]string{nil, {armID: "a1b2c3d4e5f6g7h8 (gone since 2026-11-03)"}} {
+		out := volumeTable(vols, installOf)
+		if !strings.Contains(out, armID) {
+			t.Fatalf("the confirmation table shortened the volume id:\n%s", out)
+		}
 	}
 }

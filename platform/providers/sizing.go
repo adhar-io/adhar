@@ -470,17 +470,158 @@ func EstimateVCPU(providerName, machineType string) int {
 // MinControlPlaneVCPU is the floor the control-plane collapse of 2026-10-11 set.
 const MinControlPlaneVCPU = 4
 
+// MinControlPlaneMemoryGiB is the memory floor, set by kube-apiserver itself.
+// Its Go heap holds every object of every resource decoded in the watch cache
+// (custom resources at ~7x their JSON size) and runs with GOGC=100 and no
+// GOMEMLIMIT, so its RSS settles at about twice its live heap. Measured on the
+// 8 vCPU / 16 GiB DigitalOcean control plane (2026-11-03, ~75 platform apps,
+// 8 custom apps, 354 CRDs): live heap 3.7-5.7 GiB, RSS 7.7-12.1 GiB (88% of
+// the node's pod memory), against 12.1 GiB allocatable after the 3.5 GiB
+// kubelet/system reserve — the node reached 108% of allocatable and the
+// kubelet evicted pods in two MemoryPressure episodes; on a 16 GiB AWS control
+// plane (m6i.xlarge, 2026-10-31) kube-apiserver was OOM-killed five times.
+// Most of that heap is trivy-operator's SbomReports and VulnerabilityReports
+// (80% of the bytes the API server stored), so it grows with every workload
+// the platform runs. 32 GiB leaves the API server about twice its peak.
+const MinControlPlaneMemoryGiB = 32
+
+// RecommendedControlPlaneMachineType is, per provider, a size that clears both
+// control-plane floors — the advice's suggestion, not a default.
+var RecommendedControlPlaneMachineType = map[string]string{
+	"aws":          "r6i.xlarge",        // 4 vCPU / 32 GiB
+	"azure":        "Standard_E4bds_v5", // 4 vCPU / 32 GiB (what the shipped Azure config already runs)
+	"gcp":          "e2-highmem-4",      // 4 vCPU / 32 GiB, same vCPU quota as e2-standard-4
+	"digitalocean": "g-8vcpu-32gb",      // 8 dedicated vCPU / 32 GiB (m-4vcpu-32gb is the cheaper 4 vCPU option)
+	"civo":         "g3.2xlarge",        // 8 vCPU / 32 GB instance (compute mode)
+}
+
+// awsGiBPerVCPU is memory per vCPU by AWS instance CLASS (the family's leading
+// letters): general purpose, memory optimised, compute optimised.
+var awsGiBPerVCPU = map[string]int{"m": 4, "r": 8, "c": 2}
+
+// awsBurstableGiB covers the t-classes, whose memory per vCPU varies by size.
+var awsBurstableGiB = map[string]int{
+	"nano": 0, "micro": 1, "small": 2, "medium": 4, "large": 8, "xlarge": 16, "2xlarge": 32,
+}
+
+// civoSizeGiB is the memory of the Civo sizes civoSizeVCPU lists.
+var civoSizeGiB = map[string]int{
+	"g3.xsmall": 1, "g3.small": 2, "g3.medium": 4, "g3.large": 8, "g3.xlarge": 16, "g3.2xlarge": 32,
+	"g4s.kube.xsmall": 1, "g4s.kube.small": 2, "g4s.kube.medium": 4, "g4s.kube.large": 8, "g4s.kube.xlarge": 16,
+	"g4c.kube.small": 16, "g4c.kube.medium": 32, "g4c.kube.large": 64,
+}
+
+var (
+	awsTypeRe    = regexp.MustCompile(`^([a-z]+)\d[a-z0-9-]*\.([a-z0-9]+)$`)
+	azureSizeRe  = regexp.MustCompile(`(?i)^standard_([a-z]+?)(\d+)([a-z]*)_v(\d+)$`)
+	gcpPresetRe  = regexp.MustCompile(`^([a-z0-9]+)-(standard|highmem|highcpu)-(\d+)$`)
+	gcpCustomRe  = regexp.MustCompile(`^(?:[a-z0-9]+-)?custom-(\d+)-(\d+)(?:-ext)?$`)
+	doMemoryRe   = regexp.MustCompile(`vcpu-(\d+)gb`)
+	doCPUOptimRe = regexp.MustCompile(`^c-(\d+)$`)
+)
+
+// EstimateMemoryGiB returns the memory (GiB) a machine type's name implies, or
+// 0 when the name is not one this function recognises — so an unfamiliar size
+// gets no advice rather than a guess.
+func EstimateMemoryGiB(providerName, machineType string) int {
+	mt := strings.ToLower(strings.TrimSpace(machineType))
+	switch CanonicalProviderName(providerName) {
+	case "aws":
+		m := awsTypeRe.FindStringSubmatch(mt)
+		if m == nil {
+			return 0
+		}
+		if m[1] == "t" {
+			return awsBurstableGiB[m[2]]
+		}
+		return awsGiBPerVCPU[m[1]] * awsSizeVCPU[m[2]]
+	case "azure":
+		m := azureSizeRe.FindStringSubmatch(mt)
+		if m == nil {
+			return 0
+		}
+		n, _ := strconv.Atoi(m[2])
+		if gen, _ := strconv.Atoi(m[4]); gen < 3 && m[1] != "f" {
+			return 0 // v2 and older D/E sizes do not follow the 4/8 GiB-per-vCPU rule
+		}
+		switch {
+		case m[1] == "d" && strings.Contains(m[3], "l"):
+			return 2 * n // the D-series low-memory variants (Dlsv5, Dpldsv5)
+		case m[1] == "d":
+			return 4 * n
+		case m[1] == "e":
+			return 8 * n
+		case m[1] == "f":
+			return 2 * n
+		}
+		return 0
+	case "gcp":
+		if m := gcpCustomRe.FindStringSubmatch(mt); m != nil {
+			mb, _ := strconv.Atoi(m[2])
+			return mb / 1024
+		}
+		m := gcpPresetRe.FindStringSubmatch(mt)
+		if m == nil {
+			return 0
+		}
+		n, _ := strconv.Atoi(m[3])
+		switch m[2] {
+		case "standard":
+			if m[1] == "n1" {
+				return n * 15 / 4 // 3.75 GiB per vCPU
+			}
+			return 4 * n
+		case "highmem":
+			if m[1] == "n1" {
+				return n * 13 / 2 // 6.5 GiB per vCPU
+			}
+			return 8 * n
+		default: // highcpu
+			switch m[1] {
+			case "c3", "c3d", "c4", "n4":
+				return 2 * n
+			case "n1":
+				return n * 9 / 10
+			}
+			return n
+		}
+	case "digitalocean":
+		if m := doMemoryRe.FindStringSubmatch(mt); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			return n
+		}
+		if m := doCPUOptimRe.FindStringSubmatch(mt); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			return 2 * n
+		}
+		return 0
+	case "civo":
+		return civoSizeGiB[mt]
+	}
+	return 0
+}
+
 // ControlPlaneSizeWarning returns advice when a control-plane size is known to be
-// below the floor, or "" when it is fine or unrecognised. Advice only: an
+// below either floor, or "" when it is fine or unrecognised. Advice only: an
 // operator may knowingly run a smaller control plane for a trimmed profile.
 func ControlPlaneSizeWarning(providerName, machineType string) string {
-	n := EstimateVCPU(providerName, machineType)
-	if n == 0 || n >= MinControlPlaneVCPU {
+	var short []string
+	if n := EstimateVCPU(providerName, machineType); n > 0 && n < MinControlPlaneVCPU {
+		short = append(short, fmt.Sprintf("%d vCPU — below %d vCPU the full platform's ~600 CRDs keep kube-apiserver "+
+			"pegged and kube-controller-manager/kube-scheduler crash-loop on lease renewal", n, MinControlPlaneVCPU))
+	}
+	if g := EstimateMemoryGiB(providerName, machineType); g > 0 && g < MinControlPlaneMemoryGiB {
+		short = append(short, fmt.Sprintf("%d GiB — kube-apiserver alone used 8-12 GiB on a 16 GiB control plane "+
+			"and was OOM-killed on another; below %d GiB the kubelet evicts the node's other pods to feed it", g, MinControlPlaneMemoryGiB))
+	}
+	if len(short) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("control plane %s has %d vCPU; below %d vCPU the full platform's ~600 CRDs keep kube-apiserver "+
-		"pegged and kube-controller-manager/kube-scheduler crash-loop on lease renewal — set %s to a %d+ vCPU size",
-		machineType, n, MinControlPlaneVCPU, KeyControlPlaneMachineType, MinControlPlaneVCPU)
+	advice := fmt.Sprintf("set %s to a size with %d+ vCPU and %d+ GiB", KeyControlPlaneMachineType, MinControlPlaneVCPU, MinControlPlaneMemoryGiB)
+	if rec := RecommendedControlPlaneMachineType[CanonicalProviderName(providerName)]; rec != "" {
+		advice += " (" + rec + ")"
+	}
+	return fmt.Sprintf("control plane %s has %s — %s", machineType, strings.Join(short, "; and "), advice)
 }
 
 // legacySizeKeys is, per provider, the single provider-level size key that

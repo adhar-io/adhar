@@ -48,6 +48,11 @@ type teardownPlan struct {
 	CloudResources bool
 	// KeepVolumes is --keep-volumes: the cluster goes, its block volumes stay.
 	KeepVolumes bool
+	// VolumesGoWithCluster are the environments in scope whose cluster takes
+	// its volumes with it (AKS: the node resource group and every disk in it).
+	// For those the panel must not promise a list to confirm, and
+	// --keep-volumes is refused (volumesGoWithTheCluster).
+	VolumesGoWithCluster []string
 }
 
 // buildTeardownPlan resolves the plan. Best effort: an unreadable config still
@@ -101,6 +106,11 @@ func buildTeardownPlan(configFile, envName, clusterOverride string) teardownPlan
 		if env, ok := cfg.ResolvedEnvironments[name]; ok && env.ResolvedProvider != globals.CloudProviderKind {
 			plan.CloudResources = true
 			break
+		}
+	}
+	for _, name := range plan.Environments {
+		if env, ok := cfg.ResolvedEnvironments[name]; ok && volumesGoWithTheCluster(env, clusterModeOf(env)) {
+			plan.VolumesGoWithCluster = append(plan.VolumesGoWithCluster, name)
 		}
 	}
 
@@ -204,6 +214,18 @@ func RenderTeardownConfirmation(plan teardownPlan) string {
 		volumes := "Listed once the cluster is gone; you confirm before any is deleted."
 		if plan.KeepVolumes {
 			volumes = "Kept (--keep-volumes), with the command to delete them later."
+		}
+		if aks := plan.VolumesGoWithCluster; len(aks) > 0 {
+			// AKS deletes its node resource group, disks and all, WITH the
+			// cluster: nothing is left to list, and nothing can be kept.
+			switch {
+			case plan.KeepVolumes:
+				volumes += " Refused for " + strings.Join(aks, ", ") + ": AKS deletes its disks with the cluster, so that environment is not torn down."
+			case len(aks) == len(plan.Environments):
+				volumes = "Deleted WITH the cluster: AKS removes its node resource group and every disk in it. There is no separate list."
+			default:
+				volumes += " Except " + strings.Join(aks, ", ") + ": AKS deletes its disks with the cluster."
+			}
 		}
 		b.WriteString(row("Volumes", volumes))
 		note := "  Volume data is destroyed with the volumes. Anything not backed up\n" +

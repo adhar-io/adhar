@@ -11,6 +11,7 @@ import (
 	"github.com/digitalocean/godo"
 
 	provider "adhar-io/adhar/platform/providers"
+	"adhar-io/adhar/platform/types"
 )
 
 type fakeStorage struct {
@@ -172,5 +173,130 @@ func TestTheInstallIDReachesTheDOCSIDriver(t *testing.T) {
 	}
 	if computeVolumeTag("adhar-cluster-adhar", "") != "adhar-cluster-adhar" {
 		t.Error("a cluster with no install id must keep the name tag it always had")
+	}
+}
+
+// fakeTags is DigitalOcean's tag service: what each tag is on, and what was
+// deleted.
+type fakeTags struct {
+	godo.TagsService
+	counts  map[string]int // tag -> resources carrying it
+	deleted []string
+}
+
+func (f *fakeTags) Get(_ context.Context, name string) (*godo.Tag, *godo.Response, error) {
+	n, ok := f.counts[name]
+	if !ok {
+		return nil, notFound(), errors.New("404 not found")
+	}
+	return &godo.Tag{Name: name, Resources: &godo.TaggedResources{Count: n, Volumes: &godo.TaggedVolumesResources{Count: n}}},
+		&godo.Response{Response: &http.Response{StatusCode: 200}}, nil
+}
+
+func (f *fakeTags) Delete(_ context.Context, name string) (*godo.Response, error) {
+	f.deleted = append(f.deleted, name)
+	return &godo.Response{Response: &http.Response{StatusCode: 204}}, nil
+}
+
+// Deleting a DigitalOcean tag strips it from every volume carrying it. For a
+// cluster from before install ids, the name tag is the only evidence its kept
+// volumes were its own, so `adhar down` keeps it while volumes carry it — and
+// `adhar cluster delete` (which deletes those volumes itself) does not.
+func TestTheNameTagSurvivesWhileLegacyVolumesCarryIt(t *testing.T) {
+	carried := &godo.Tag{Name: "adhar-cluster-adhar", Resources: &godo.TaggedResources{Count: 2, Volumes: &godo.TaggedVolumesResources{Count: 2}}}
+	bare := &godo.Tag{Name: "adhar-cluster-adhar", Resources: &godo.TaggedResources{}}
+	for _, tc := range []struct {
+		name string
+		keep bool
+		tag  *godo.Tag
+		err  error
+		want bool
+	}{
+		{"adhar down, volumes still carry it", true, carried, nil, false},
+		{"adhar down, the tag cannot be read", true, nil, errors.New("503"), false},
+		{"adhar down, nothing carries it", true, bare, nil, true},
+		{"adhar cluster delete deletes the volumes and the tag", false, carried, nil, true},
+	} {
+		if got := nameTagMayBeDeleted(tc.keep, tc.tag, tc.err); got != tc.want {
+			t.Errorf("%s: nameTagMayBeDeleted = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	// And the volume step removes it once nothing carries it any more.
+	tags := &fakeTags{counts: map[string]int{"adhar-cluster-adhar": 0, "adhar-cluster-busy": 1}}
+	p, _ := doProvider(nil)
+	p.client.Tags = tags
+	if err := p.AfterClusterVolumes(context.Background(), provider.VolumeOwner{ClusterName: "adhar"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AfterClusterVolumes(context.Background(), provider.VolumeOwner{ClusterName: "busy"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AfterClusterVolumes(context.Background(), provider.VolumeOwner{ClusterName: "kept"},
+		[]provider.BlockVolume{{ID: "v1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(tags.deleted, ",") != "adhar-cluster-adhar" {
+		t.Fatalf("deleted tags %v; want only the name tag nothing carries", tags.deleted)
+	}
+}
+
+type emptyDroplets struct{ godo.DropletsService }
+
+func (emptyDroplets) ListByTag(context.Context, string, *godo.ListOptions) ([]godo.Droplet, *godo.Response, error) {
+	return nil, &godo.Response{Response: &http.Response{StatusCode: 200}}, nil
+}
+func (emptyDroplets) DeleteByTag(context.Context, string) (*godo.Response, error) {
+	return &godo.Response{Response: &http.Response{StatusCode: 204}}, nil
+}
+
+type emptyFirewalls struct{ godo.FirewallsService }
+
+func (emptyFirewalls) List(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
+	return nil, nil, nil
+}
+
+type emptyVPCs struct{ godo.VPCsService }
+
+func (emptyVPCs) List(context.Context, *godo.ListOptions) ([]*godo.VPC, *godo.Response, error) {
+	return nil, nil, nil
+}
+
+type emptyKeys struct{ godo.KeysService }
+
+func (emptyKeys) List(context.Context, *godo.ListOptions) ([]godo.Key, *godo.Response, error) {
+	return nil, nil, nil
+}
+
+// The real teardown, end to end: under `adhar down` a legacy cluster's name tag
+// outlives its droplets while its volumes carry it, and its volumes are left
+// for the volume step; under `adhar cluster delete` both go, as before.
+func TestDeleteComputeClusterKeepsTheEvidenceAdharDownNeeds(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, tc := range []struct {
+		name        string
+		keep        bool
+		wantTagGone bool
+		wantDeleted string
+	}{
+		{"adhar down", true, false, ""},
+		{"adhar cluster delete", false, true, "named"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tags := &fakeTags{counts: map[string]int{"adhar-cluster-adhar": 1}}
+			st := &fakeStorage{vols: []godo.Volume{vol("named", "pvc-named", []string{"adhar-cluster-adhar"})}}
+			p := &Provider{config: &Config{Region: "blr1", KeepClusterVolumes: tc.keep}, clusters: map[string]*types.Cluster{},
+				client: &godo.Client{Storage: st, Droplets: emptyDroplets{}, Tags: tags, Firewalls: emptyFirewalls{}, VPCs: emptyVPCs{}, Keys: emptyKeys{}}}
+			if err := p.deleteComputeCluster(context.Background(), "adhar"); err != nil {
+				t.Fatal(err)
+			}
+			gone := strings.Contains(strings.Join(tags.deleted, ","), "adhar-cluster-adhar")
+			if gone != tc.wantTagGone {
+				t.Errorf("name tag deleted = %v, want %v", gone, tc.wantTagGone)
+			}
+			if strings.Join(st.deleted, ",") != tc.wantDeleted {
+				t.Errorf("volumes deleted = %v, want %q", st.deleted, tc.wantDeleted)
+			}
+		})
 	}
 }

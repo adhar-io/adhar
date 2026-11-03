@@ -585,11 +585,13 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	// nothing to clean up. Not for a provided cluster (the platform creates no
 	// volumes it owns there) or Kind (no cloud volumes at all). See
 	// volume_attribution.go.
+	var install *ClusterInstall
 	if ClusterLifecycleIsOurs(clusterMode) && providerType != globals.CloudProviderKind {
 		inst, err := RecordClusterInstall(providerType, envConfig.ResolvedRegion, clusterName)
 		if err != nil {
 			return nil, fmt.Errorf("recording the install id of cluster %s before creating it: %w", clusterName, err)
 		}
+		install = &inst
 		spec.ClusterInstallID = inst.ID
 		logger.Debugf("Cluster '%s' install id: %s (%s on its volumes)", clusterName, inst.ID, ClusterIDTag)
 	}
@@ -602,12 +604,41 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 		return nil, fmt.Errorf("failed to create %s cluster: %w", providerType, err)
 	}
 
+	// A managed cluster whose cloud's own CSI driver stamps the cluster's UUID
+	// on every volume (Civo, DOKS) is attributed by that UUID rather than by the
+	// install id its driver never sees. Written down now, next to the install
+	// id, so `adhar down` can find those volumes even after the cluster was
+	// deleted some other way. Best effort: the install id is already recorded.
+	if install != nil && cluster != nil && IsCloudClusterUUID(cluster.ID) {
+		install.ProviderClusterID = cluster.ID
+		if err := SaveClusterInstall(*install); err != nil {
+			logger.Warnf("Could not record cluster %s's cloud id %s next to its install id: %v", clusterName, cluster.ID, err)
+		}
+	}
+
 	// The "Cloud cluster ✓" tick says this, and the ID is an internal handle the
 	// operator never types — `adhar down` and `adhar cluster` take the NAME.
 	logger.Debugf("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
 	opts.notify(PhaseClusterReady)
 
 	return &ProvisionResult{Provider: prov, Cluster: cluster}, nil
+}
+
+// EnvironmentClusterMode is the cluster mode `adhar up` provisions an
+// environment with: the provider block, overridden by the environment's own
+// clusterConfig — exactly the map ProvisionEnvironment parses
+// (buildProviderConfig).
+//
+// Every other reader must use this rather than the provider block alone. They
+// did not: an environment that sets `clusterMode: provided` in its
+// clusterConfig is ADOPTED by `adhar up` (ProvidedProvider), while `adhar down`
+// read only the provider block, saw compute, and went on to locate and delete
+// the cluster the platform had never created — together with its volumes.
+func EnvironmentClusterMode(envConfig *config.ResolvedEnvironmentConfig) (string, error) {
+	if envConfig == nil {
+		return ClusterModeCompute, nil
+	}
+	return ParseClusterMode(buildProviderConfig(envConfig))
 }
 
 // buildProviderConfig creates provider-specific configuration from environment config
@@ -621,18 +652,35 @@ func buildProviderConfig(envConfig *config.ResolvedEnvironmentConfig) map[string
 	if envConfig.ProviderConfig != nil {
 		providerConfig = envConfig.ProviderConfig.ToProviderMap()
 	}
-
-	// Add region
-	if envConfig.ResolvedRegion != "" {
-		providerConfig["region"] = envConfig.ResolvedRegion
+	for k, v := range EnvironmentProviderOverrides(envConfig) {
+		providerConfig[k] = v
 	}
-
-	// Add cluster-specific configuration
-	for _, kv := range envConfig.ResolvedClusterConfig {
-		providerConfig[kv.Key] = kv.Value
-	}
-
 	return providerConfig
+}
+
+// EnvironmentProviderOverrides is what `adhar up` layers over the provider
+// block when it builds an environment's provider (buildProviderConfig): the
+// environment's region, then its clusterConfig.
+//
+// Anything else that builds a provider for an ENVIRONMENT must apply the same
+// layer, or it talks to a different cluster than the one `adhar up` created.
+// `adhar down` built its providers from the block alone: an environment with its
+// own `region:` (documented in examples/config.yaml) was searched for in the
+// block's region, reported absent, and the volume step then dropped the install
+// record of the still-running cluster, because nothing in the wrong region
+// carried its id.
+func EnvironmentProviderOverrides(envConfig *config.ResolvedEnvironmentConfig) map[string]interface{} {
+	out := map[string]interface{}{}
+	if envConfig == nil {
+		return out
+	}
+	if envConfig.ResolvedRegion != "" {
+		out["region"] = envConfig.ResolvedRegion
+	}
+	for _, kv := range envConfig.ResolvedClusterConfig {
+		out[kv.Key] = kv.Value
+	}
+	return out
 }
 
 // findExistingCluster returns the provider's cluster of this name, or nil.

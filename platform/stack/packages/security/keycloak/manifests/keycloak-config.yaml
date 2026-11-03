@@ -655,7 +655,13 @@ data:
   # ---------------------------------------------------------------------
   configure.sh: |
     #!/bin/bash
-    set -ex -o pipefail
+    # No xtrace, ever. This script holds the master-realm admin password, the
+    # realm users' passwords, an Argo CD admin session and every OIDC client
+    # secret, and a traced line prints each of them into the pod log, which
+    # every platform-viewer can read and Loki keeps. It did, every 5 minutes,
+    # until 2026-11-03. Say what happened with echo instead
+    # (TestKeycloakJobsNeverTraceTheirCredentials).
+    set -e -o pipefail
 
     MODE="${KEYCLOAK_CONFIG_MODE:-full}"
     ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
@@ -747,11 +753,11 @@ data:
                     -o jsonpath='{.data.ARGOCD_SESSION_TOKEN}' 2>/dev/null)" ]; then
           echo "ArgoCD unreachable; creating an empty ARGOCD_SESSION_TOKEN so consumers resolve"
           { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
-              -p '{"stringData":{"ARGOCD_SESSION_TOKEN":""}}' >/dev/null; set -x; } 2>/dev/null
+              -p '{"stringData":{"ARGOCD_SESSION_TOKEN":""}}' >/dev/null; } 2>/dev/null
         fi
         if [ -n "${tok}" ]; then
           { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
-              -p "{\"stringData\":{\"ARGOCD_SESSION_TOKEN\":\"${tok}\"}}" >/dev/null; set -x; } 2>/dev/null
+              -p "{\"stringData\":{\"ARGOCD_SESSION_TOKEN\":\"${tok}\"}}" >/dev/null; } 2>/dev/null
         fi
         return 0
       fi
@@ -760,7 +766,7 @@ data:
       # Value quoted/empty-safe: an empty token must still create the key,
       # otherwise consumers of it fail with 'could not get secret data'.
       { set +x; kubectl -n adhar-system create secret generic keycloak-clients \
-          --from-literal=ARGOCD_SESSION_TOKEN="${tok}" >/dev/null; set -x; } 2>/dev/null
+          --from-literal=ARGOCD_SESSION_TOKEN="${tok}" >/dev/null; } 2>/dev/null
     }
 
     # ensure_client <payload.json>: create-or-reconcile one OIDC client,
@@ -798,7 +804,7 @@ data:
       kp=$(key_prefix "${cid}")
       { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
           -p "{\"stringData\":{\"${kp}_CLIENT_ID\":\"${cid}\",\"${kp}_CLIENT_SECRET\":\"${rsec}\"}}" >/dev/null \
-          && echo "keycloak-clients: ${kp}_CLIENT_SECRET set"; set -x; } 2>/dev/null
+          && echo "keycloak-clients: ${kp}_CLIENT_SECRET set"; } 2>/dev/null
     }
 
     # ── enterprise identity federation ──────────────────────────────────

@@ -6,6 +6,18 @@ crds:
 ## chart, this field may also be called "agent". Naming this field "agent" is
 ## deprecated and will be removed in a future release.
 alloy:
+  # Spread the pod-log tailers and the annotated-pod scrape across the
+  # DaemonSet (the `clustering` blocks in config.alloy below opt them in).
+  # Discovery is cluster-wide, so without clustering EVERY agent tailed
+  # EVERY container through the API server: 10 agents x 463 running
+  # containers = 4,607 concurrent pods/log streams (2026-11-03, DigitalOcean),
+  # ~14k of kube-apiserver's 33k goroutines and a kubelet TLS connection
+  # each, on a control plane at 108% memory whose kubelet was evicting pods.
+  # Every line also reached Loki ten times and every annotated pod was
+  # scraped ten times. Targets are assigned by hash, not by node, so pods on
+  # the control-plane node (where no agent runs) stay covered.
+  clustering:
+    enabled: true
   # The OTLP receiver's ports, on the container AND the Service — the chart
   # publishes only its own :12345 unless told otherwise, so workloads sending
   # to alloy.adhar-system.svc:4318 were refused.
@@ -41,25 +53,11 @@ alloy:
       	}
       }
       
-      discovery.kubernetes "nodes" {
-      	role = "node"
-      }
-      
-      discovery.kubernetes "services" {
-      	role = "service"
-      }
-      
-      discovery.kubernetes "endpoints" {
-      	role = "endpoints"
-      }
-      
-      discovery.kubernetes "endpointslices" {
-      	role = "endpointslice"
-      }
-      
-      discovery.kubernetes "ingresses" {
-      	role = "ingress"
-      }
+      // Pod discovery only. Node/service/endpoints/endpointslice/ingress
+      // discovery was declared here (2026-08-16) and referenced by nothing,
+      // yet Alloy runs every declared component: each agent held five more
+      // cluster-wide watches and caches — 50 idle API-server watches across
+      // the DaemonSet (2026-11-03). Declare one when a pipeline consumes it.
       
       // ---------------------------------------------------------------
       // Hub shipping (roadmap P2.3): everything collected here is written
@@ -71,6 +69,12 @@ alloy:
       prometheus.scrape "annotated_pods" {
       	targets    = discovery.relabel.scrape_pods.output
       	forward_to = [prometheus.remote_write.hub.receiver]
+      
+      	// Discovery is cluster-wide: each target is scraped by ONE agent
+      	// (alloy.clustering.enabled), not by every agent in the DaemonSet.
+      	clustering {
+      		enabled = true
+      	}
       }
       
       discovery.relabel "scrape_pods" {
@@ -200,6 +204,14 @@ alloy:
       loki.source.kubernetes "pods" {
       	targets    = discovery.relabel.pod_logs.output
       	forward_to = [loki.write.hub.receiver]
+      
+      	// Each tailed container is a follow stream THROUGH the API server.
+      	// Without clustering every agent tailed every container in the
+      	// cluster: 10 agents x 463 containers = 4,607 open pods/log streams
+      	// held by kube-apiserver (2026-11-03). Now one agent per container.
+      	clustering {
+      		enabled = true
+      	}
       }
       
       loki.write "hub" {

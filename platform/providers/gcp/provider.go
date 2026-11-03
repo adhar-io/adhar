@@ -1955,10 +1955,7 @@ func (p *Provider) countOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 		if err != nil {
 			break
 		}
-		if len(disk.GetUsers()) > 0 || diskCarriesInstallID(disk) {
-			continue
-		}
-		if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
+		if isOrphanCSIDisk(disk) {
 			n++
 		}
 	}
@@ -1984,13 +1981,7 @@ func (p *Provider) sweepOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 		if err != nil {
 			break
 		}
-		// Attached disks belong to instances and go with them. A disk carrying
-		// an install id is attributed exactly: only `adhar down` for that
-		// cluster removes it, after asking.
-		if len(disk.GetUsers()) > 0 || diskCarriesInstallID(disk) {
-			continue
-		}
-		if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
+		if isOrphanCSIDisk(disk) {
 			orphans = append(orphans, disk)
 		}
 	}
@@ -2094,13 +2085,7 @@ func (p *Provider) findOrphanedResources(ctx context.Context, tracker *ResourceT
 			if err != nil {
 				break
 			}
-			// Attached disks belong to instances and go with them. An unattached
-			// disk named for a PersistentVolumeClaim is a CSI leftover — unless
-			// it carries an install id, which `adhar down` reports by itself.
-			if len(disk.GetUsers()) > 0 || diskCarriesInstallID(disk) {
-				continue
-			}
-			if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
+			if isOrphanCSIDisk(disk) {
 				found = append(found, fmt.Sprintf("disk %s (%d GB) in %s", disk.GetName(), disk.GetSizeGb(), tracker.Zone))
 			}
 		}

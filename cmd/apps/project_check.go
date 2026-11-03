@@ -18,6 +18,7 @@ package apps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 
@@ -28,9 +29,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 )
 
-var appProjectGVR = schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "appprojects"}
+var (
+	appProjectGVR = schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "appprojects"}
+	projectGVR    = schema.GroupVersionResource{Group: "platform.adhar.io", Version: "v1alpha1", Resource: "projects"}
+)
 
 // projectAllowsNamespace reports whether an Argo CD AppProject's
 // spec.destinations admit namespace ns. Destination namespaces are globs, as
@@ -87,4 +92,34 @@ func checkProjectAdmitsNamespace(ctx context.Context, project, ns string, projec
 		return fmt.Errorf("argo CD project %q does not allow namespace %q (it allows: %v); %s", project, ns, patterns, hint)
 	}
 	return nil
+}
+
+// checkPavedRoadProject fails fast when a template scaffold names a Project
+// that does not exist.
+//
+// The paved-road Application runs in its Project's environments and composes
+// nothing until that Project publishes them (status "waiting for project … to
+// publish its environments"), so a misspelt --project would otherwise create
+// and commit a repository for an application that never deploys. The
+// Argo CD namespace check a --repo deploy makes does not apply here: it asked
+// whether project `team-a` admits namespace `dev`, and refused a team project
+// whose environments are its own namespaces.
+//
+// Best effort, like checkProjectAdmitsNamespace: when the Project cannot be
+// read (no access, no control plane) it steps aside. The platform's own
+// project `adhar` is created asynchronously at bootstrap, so its absence is
+// only a warning.
+func checkPavedRoadProject(ctx context.Context, dc dynamic.Interface, project string) error {
+	_, err := dc.Resource(projectGVR).Namespace(globals.AdharSystemNamespace).Get(ctx, project, metav1.GetOptions{})
+	var status apierrors.APIStatus
+	if err == nil || !apierrors.IsNotFound(err) || !errors.As(err, &status) ||
+		status.Status().Details == nil || status.Status().Details.Name != project {
+		return nil
+	}
+	if project == "adhar" {
+		fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Project %q not found yet; the application waits for it to publish its environments.", project)))
+		return nil
+	}
+	return fmt.Errorf("project %q does not exist in %s, so its application would never deploy; create it, or pass --project with an existing one (kubectl get projects.platform.adhar.io -n %s)",
+		project, globals.AdharSystemNamespace, globals.AdharSystemNamespace)
 }

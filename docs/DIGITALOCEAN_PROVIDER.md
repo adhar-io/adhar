@@ -81,8 +81,12 @@ and the autoscaler adds workers while it does. That is expected — see
 To remove everything:
 
 ```bash
-./adhar down -f config.yaml --env dev --purge-orphaned-volumes
+./adhar down -f config.yaml --env dev
 ```
+
+The cluster's block volumes are deleted after the droplets, by the install id
+its CSI driver tagged them with — listed, confirmed (or `--yes`) and read back
+([§5](#5-tear-down)).
 
 To build it again afterwards, the exact sequence — including the two day-2 steps
 `adhar up` deliberately leaves out — is [§5.1 Recreate from scratch](#51-recreate-from-scratch).
@@ -963,15 +967,17 @@ available and is not claimed.
 
 ## 5. Tear down
 
-Either command works, and both go through the same provider lookup:
-
 ```bash
-adhar down -f config.yaml --env dev --purge-orphaned-volumes
-adhar cluster delete dev --force -f config.yaml --purge-orphaned-volumes
+adhar down -f config.yaml --env dev                  # droplets, LB, firewall, VPC, key — then the volumes
+adhar down -f config.yaml --env dev --yes            # no questions (volumes kept on purpose earlier still need a terminal)
+adhar down -f config.yaml --env dev --keep-volumes   # keep the volumes and their data
 ```
 
-`adhar down` prompts before it destroys anything; add `--force` to skip that.
-Omitting `--env` tears down **every** environment in the file.
+`adhar down` prompts before it destroys anything, and again over the exact list
+of volumes; `--yes` (or `--force`) skips both. Omitting `--env` tears down
+**every** environment in the file. `adhar cluster delete dev --force -f
+config.yaml` still deletes the cluster's volumes together with the droplets,
+without listing them.
 
 ### 5.1 Recreate from scratch
 
@@ -1034,12 +1040,20 @@ makes `adhar down` look at the cloud at all: with no configuration file it only
 ever inspects the local Kind cluster, so on a cloud environment it would delete
 nothing.
 
-Removes, in order: the CCM LoadBalancer(s), every droplet, the block-storage
-volumes tagged `adhar-cluster-dev` (the CSI `--do-tag`), the firewall, the VPC,
-the SSH key, and the local kubeconfig/state entries.
-`--purge-orphaned-volumes` additionally removes unattached `pvc-*` volumes in
-the region that carry no other cluster's tag — use it only when the account has
-no other Kubernetes cluster in that region.
+Removes, in order: the CCM LoadBalancer(s), every droplet, the firewall, the
+VPC, the SSH key and the local kubeconfig/state entries — and then, once the
+droplets are gone and their volumes detached, the block-storage volumes the CSI
+driver tagged `adhar-cluster-id:<install id>` (its one `--do-tag`; the id is in
+the cluster's `adhar-cluster-spec` and in `~/.adhar/state/installs/`). Those are
+listed (id, size, PVC, created), confirmed, deleted and read back until the API
+returns 404; `--keep-volumes` keeps them and prints the `doctl` commands that
+delete them later. A cluster from before install ids tagged its volumes
+`adhar-cluster-<name>`: that tag now survives the droplets while volumes carry
+it, and they are offered on that evidence, behind a confirmation typed at a
+terminal. `--purge-orphaned-volumes` additionally removes unattached `pvc-*`
+volumes in the region that carry no other cluster's tag and no install id,
+without listing them — use it only when the account has no other Kubernetes
+cluster in that region.
 
 **Verify it, do not assume.** A teardown that half-succeeds keeps billing:
 

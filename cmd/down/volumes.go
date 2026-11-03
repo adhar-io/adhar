@@ -24,10 +24,14 @@ package down
 //
 // Volumes from before attribution existed are offered separately, only when the
 // provider can PROVE no running cluster could own them, and only after a typed
-// confirmation at an interactive terminal — see legacyNeedsATerminal.
+// confirmation at an interactive terminal — see legacyNeedsATerminal. The same
+// terminal rule protects volumes an earlier teardown kept ON PURPOSE
+// (--keep-volumes, or a "no"): a later blanket --yes does not undo that choice.
 //
 // A provided cluster (clusterMode: provided) never reaches this step: the
 // teardown loop skips it before locating anything, and runJob refuses one again.
+// While a provided environment in the same file may run in the region, the
+// legacy offer is not made at all (providedNeighbours).
 
 import (
 	"bufio"
@@ -42,6 +46,7 @@ import (
 	"golang.org/x/term"
 
 	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	pfactory "adhar-io/adhar/platform/providers"
 )
@@ -60,12 +65,22 @@ type volumeJob struct {
 	// Provider is the provider that deleted the cluster; nil when the cluster
 	// was already gone and one must be built from the config.
 	Provider pfactory.Provider
+	// ProviderOpts are the options the environment's provider is built with
+	// (environmentProviderOptions) — its region and clusterConfig over the
+	// provider block, as `adhar up` built it. nil means the teardown's own
+	// options alone.
+	ProviderOpts map[string]interface{}
 	// ProviderClusterID is the cloud's id for the cluster when it was found.
 	// Only a cloud-issued UUID (managed Civo, DOKS) attributes anything.
 	ProviderClusterID string
 	// ClusterDeleted is true when this run deleted the cluster, false when it
 	// was already gone.
 	ClusterDeleted bool
+	// ProvidedNeighbours are the environments in the same file whose cluster is
+	// PROVIDED and may run where this one did (providedNeighbours). Their
+	// volumes carry no install id, so while one exists an untagged volume here
+	// may be theirs: the legacy offer is not provable and is never made.
+	ProvidedNeighbours []string
 }
 
 func (j volumeJob) primaryName() string {
@@ -110,7 +125,11 @@ func newVolumeStep(cfg *config.Config, providerOpts map[string]interface{}) *vol
 		managerFor: func(j volumeJob) (pfactory.ClusterVolumeManager, error) {
 			p := j.Provider
 			if p == nil {
-				built, err := helpers.BuildProvider(cfg, j.ProviderName, providerOpts)
+				opts := j.ProviderOpts
+				if opts == nil {
+					opts = providerOpts
+				}
+				built, err := buildTeardownProvider(cfg, j.ProviderName, opts)
 				if err != nil {
 					return nil, err
 				}
@@ -186,6 +205,11 @@ func mergeVolumeJobs(jobs []volumeJob) []volumeJob {
 		if !pfactory.ClusterLifecycleIsOurs(j.ClusterMode) {
 			m.ClusterMode = j.ClusterMode
 		}
+		for _, n := range j.ProvidedNeighbours {
+			if !containsString(m.ProvidedNeighbours, n) {
+				m.ProvidedNeighbours = append(m.ProvidedNeighbours, n)
+			}
+		}
 	}
 	return out
 }
@@ -242,9 +266,12 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 		}})
 	}
 
-	// 1. What carries this cluster's attribution.
-	var attributed []pfactory.BlockVolume
+	// 1. What carries this cluster's attribution. Volumes a previous teardown
+	// kept ON PURPOSE (--keep-volumes, or a "no") are set apart: a blanket --yes
+	// must not undo a choice somebody made about their data.
+	var attributed, keptEarlier []pfactory.BlockVolume
 	seen := map[string]bool{}
+	installOf := map[string]string{}
 	for _, t := range records {
 		vols, err := mgr.ClusterVolumes(s.ctx, t.rec.Owner())
 		if err != nil {
@@ -253,20 +280,39 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			return false
 		}
 		for _, v := range vols {
-			if !seen[v.ID] {
-				seen[v.ID] = true
+			if seen[v.ID] {
+				continue
+			}
+			seen[v.ID] = true
+			installOf[v.ID] = recordLabel(t.rec)
+			if t.rec.KeptByChoice {
+				keptEarlier = append(keptEarlier, v)
+			} else {
 				attributed = append(attributed, v)
 			}
 		}
 	}
 	pfactory.SortVolumes(attributed)
+	pfactory.SortVolumes(keptEarlier)
 
 	// 2. What is provably this cluster's from before attribution existed.
 	ok := true
-	legacy, err := mgr.LegacyVolumes(s.ctx, pfactory.VolumeOwner{ClusterName: name})
-	if err != nil {
-		s.printf("\n%s Could not check %s for volumes from before clusters were tagged: %v\n", helpers.IconFailed, where, err)
-		ok = false
+	var legacy pfactory.LegacyVolumes
+	if len(j.ProvidedNeighbours) > 0 {
+		// A provided cluster's volumes carry no install id and look exactly like
+		// a leftover, and the provider's evidence ("no Kubernetes node left in
+		// the region") cannot see a cluster whose nodes carry no tag of ours. The
+		// platform does not own that cluster, so it does not even offer.
+		legacy = pfactory.LegacyVolumes{Reason: fmt.Sprintf(
+			"not provable: %s %s a provided cluster (clusterMode: provided) that may run in %s, and its volumes carry no install id",
+			strings.Join(j.ProvidedNeighbours, ", "), pluralVerb(len(j.ProvidedNeighbours), "uses", "use"), where)}
+	} else {
+		var err error
+		legacy, err = mgr.LegacyVolumes(s.ctx, pfactory.VolumeOwner{ClusterName: name})
+		if err != nil {
+			s.printf("\n%s Could not check %s for volumes from before clusters were tagged: %v\n", helpers.IconFailed, where, err)
+			ok = false
+		}
 	}
 	var legacyVols []pfactory.BlockVolume
 	for _, v := range legacy.Volumes {
@@ -275,27 +321,41 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 		}
 	}
 
-	if len(attributed) == 0 && len(legacyVols) == 0 {
+	if len(attributed) == 0 && len(keptEarlier) == 0 && len(legacyVols) == 0 {
 		s.printf("\n%s No block volumes left by %s in %s.\n", helpers.IconReady, name, where)
 		s.noteUnprovable(legacy)
-		return s.settle(mgr, j, records, nil) && ok
+		return s.settle(mgr, j, records, nil, nil) && ok
 	}
 	s.noteUnprovable(legacy)
 
 	// 3. Decide.
-	var approved, keptByChoice []pfactory.BlockVolume
+	//
+	// unanswered are volumes kept because the prompt got NO answer at all
+	// (stdin closed: a script that passed neither --yes nor --keep-volumes).
+	// Nobody consented, so they are kept — but nobody chose to keep them either,
+	// so they are not marked kept-on-purpose and a later --yes finishes the job.
+	var approved, keptByChoice, unanswered []pfactory.BlockVolume
 	keepReason := map[string]string{}
 	if len(attributed) > 0 {
 		s.printf("\n%s left %d block volume(s), %d GiB, tagged with its install id:\n\n", name, len(attributed), pfactory.TotalGiB(attributed))
-		fmt.Fprintln(s.out, volumeTable(attributed))
+		fmt.Fprintln(s.out, volumeTable(attributed, installOf))
+		reply := answerYes
+		if !s.keep && !s.assumeYes {
+			reply = s.ask(fmt.Sprintf("Delete these %d volume(s)? Their data cannot be recovered.", len(attributed)))
+		}
 		switch {
 		case s.keep:
 			keptByChoice = append(keptByChoice, attributed...)
 			for _, v := range attributed {
 				keepReason[v.ID] = "kept (--keep-volumes)"
 			}
-		case s.assumeYes || s.confirm(fmt.Sprintf("Delete these %d volume(s)? Their data cannot be recovered.", len(attributed))):
+		case reply == answerYes:
 			approved = append(approved, attributed...)
+		case reply == answerNone:
+			unanswered = append(unanswered, attributed...)
+			for _, v := range attributed {
+				keepReason[v.ID] = "kept (no answer: stdin was closed; --yes deletes them)"
+			}
 		default:
 			keptByChoice = append(keptByChoice, attributed...)
 			for _, v := range attributed {
@@ -303,10 +363,39 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			}
 		}
 	}
+	if len(keptEarlier) > 0 {
+		s.printf("\n%d volume(s), %d GiB, that an earlier `adhar down` of %s KEPT on purpose (--keep-volumes, or a \"no\"):\n\n",
+			len(keptEarlier), pfactory.TotalGiB(keptEarlier), name)
+		fmt.Fprintln(s.out, volumeTable(keptEarlier, installOf))
+		switch {
+		case s.keep:
+			for _, v := range keptEarlier {
+				keepReason[v.ID] = "kept (--keep-volumes)"
+			}
+		case legacyNeedsATerminal(s.assumeYes, s.interactive):
+			// The same rule as the legacy volumes, for a different reason: a
+			// person chose to keep this data, and --yes is what a script passes.
+			s.printf("Somebody chose to keep these, so --yes / --force does not delete them; only a confirmation typed at a terminal does.\n")
+			for _, v := range keptEarlier {
+				keepReason[v.ID] = "kept (kept on purpose earlier; confirm at a terminal to delete)"
+			}
+		case s.ask(fmt.Sprintf("Delete these %d volume(s) that were kept on purpose? Their data cannot be recovered.", len(keptEarlier))) == answerYes:
+			approved = append(approved, keptEarlier...)
+		default:
+			for _, v := range keptEarlier {
+				keepReason[v.ID] = "kept (not confirmed)"
+			}
+		}
+		for _, v := range keptEarlier {
+			if _, kept := keepReason[v.ID]; kept {
+				keptByChoice = append(keptByChoice, v)
+			}
+		}
+	}
 	if len(legacyVols) > 0 {
 		s.printf("\n%d volume(s), %d GiB, from before clusters were tagged with an install id — %s:\n\n",
 			len(legacyVols), pfactory.TotalGiB(legacyVols), legacy.Reason)
-		fmt.Fprintln(s.out, volumeTable(legacyVols))
+		fmt.Fprintln(s.out, volumeTable(legacyVols, nil))
 		switch {
 		case s.keep:
 			for _, v := range legacyVols {
@@ -318,7 +407,7 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			for _, v := range legacyVols {
 				keepReason[v.ID] = "kept (needs an interactive confirmation)"
 			}
-		case s.confirm(fmt.Sprintf("Delete these %d volume(s) too? Nothing names their cluster; they are offered because nothing that could own them is left.", len(legacyVols))):
+		case s.ask(fmt.Sprintf("Delete these %d volume(s) too? Nothing names their cluster; they are offered because nothing that could own them is left.", len(legacyVols))) == answerYes:
 			approved = append(approved, legacyVols...)
 		default:
 			for _, v := range legacyVols {
@@ -340,13 +429,18 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 		s.printf("\nDeleting %d volume(s) — waiting for each to detach, then reading it back until it is gone…\n", len(approved))
 		res = pfactory.ReapVolumes(s.ctx, mgr, approved, opts)
 	}
-	s.report(res, keptByChoice, keepReason)
+	kept := append(append([]pfactory.BlockVolume{}, keptByChoice...), unanswered...)
+	s.report(res, kept, keepReason)
 	if len(res.Failed) > 0 || len(res.StillAttached) > 0 {
 		ok = false
 	}
 
-	remaining := append(append([]pfactory.BlockVolume{}, keptByChoice...), res.Remaining()...)
-	if !s.settle(mgr, j, records, remaining) {
+	remaining := append(append([]pfactory.BlockVolume{}, kept...), res.Remaining()...)
+	chosen := map[string]bool{}
+	for _, v := range keptByChoice {
+		chosen[v.ID] = true
+	}
+	if !s.settle(mgr, j, records, remaining, chosen) {
 		ok = false
 	}
 	if len(remaining) > 0 {
@@ -384,15 +478,36 @@ func legacyNeedsATerminal(assumeYes, interactive bool) bool {
 	return assumeYes || !interactive
 }
 
-func (s *volumeStep) confirm(question string) bool {
+// answer is what came back from a prompt.
+type answer int
+
+const (
+	// answerNone: nothing was read — stdin is closed or empty. Nobody decided
+	// anything, so the volumes are kept but NOT recorded as kept on purpose.
+	answerNone answer = iota
+	// answerNo: an answer other than "yes" was given — a choice to keep them.
+	answerNo
+	answerYes
+)
+
+func (s *volumeStep) ask(question string) answer {
 	s.printf("\n%s\n", question)
 	fmt.Fprint(s.out, helpers.Indent("Type yes to delete, anything else keeps them: "))
 	if s.in == nil {
 		fmt.Fprintln(s.out)
-		return false
+		return answerNone
 	}
-	line, _ := s.in.ReadString('\n')
-	return strings.TrimSpace(line) == "yes"
+	line, err := s.in.ReadString('\n')
+	switch {
+	case strings.TrimSpace(line) == "yes":
+		return answerYes
+	case err != nil && strings.TrimSpace(line) == "":
+		// End of input with nothing typed: the prompt was never answered.
+		fmt.Fprintln(s.out)
+		return answerNone
+	default:
+		return answerNo
+	}
 }
 
 func (s *volumeStep) report(res pfactory.ReapResult, kept []pfactory.BlockVolume, keepReason map[string]string) {
@@ -425,7 +540,12 @@ func (s *volumeStep) report(res pfactory.ReapResult, kept []pfactory.BlockVolume
 // settle brings the CLI's records up to date and runs the provider's
 // finalizer. A record is dropped only when a FRESH lookup by its id finds no
 // volume; one that still points at volumes is kept, with them listed.
-func (s *volumeStep) settle(mgr pfactory.ClusterVolumeManager, j volumeJob, records []tracked, remaining []pfactory.BlockVolume) bool {
+//
+// keptByChoice are the volumes this run kept because somebody said so
+// (--keep-volumes, a "no", or an earlier such choice not overturned at a
+// terminal): a record left pointing at any of them is marked KeptByChoice, so
+// a later blanket --yes does not delete them.
+func (s *volumeStep) settle(mgr pfactory.ClusterVolumeManager, j volumeJob, records []tracked, remaining []pfactory.BlockVolume, keptByChoice map[string]bool) bool {
 	ok := true
 	fin, hasFinalizer := mgr.(pfactory.ClusterVolumeFinalizer)
 	for _, t := range records {
@@ -449,11 +569,16 @@ func (s *volumeStep) settle(mgr pfactory.ClusterVolumeManager, j volumeJob, reco
 				rec.ClusterDeletedAt = &at
 			}
 			rec.RetainedVolumes = rec.RetainedVolumes[:0]
+			rec.KeptByChoice = false
 			for _, v := range left {
 				rec.RetainedVolumes = append(rec.RetainedVolumes, v.ID)
+				rec.KeptByChoice = rec.KeptByChoice || keptByChoice[v.ID]
 			}
 			sort.Strings(rec.RetainedVolumes)
 			rec.Note = fmt.Sprintf("the cluster is gone; %d volume(s) carrying its id remain", len(left))
+			if rec.KeptByChoice {
+				rec.Note += ", kept on purpose: a later --yes does not delete them"
+			}
 			if err := pfactory.SaveClusterInstall(rec); err != nil {
 				s.printf("%s Could not record the %d volume(s) left by %s: %v\n", helpers.IconFailed, len(left), ownerLabel(rec), err)
 				ok = false
@@ -493,9 +618,32 @@ func ownerLabel(r pfactory.ClusterInstall) string {
 	return "cluster " + r.ProviderClusterID
 }
 
-// volumeTable is the list a person confirms: exactly the volumes, by id.
-func volumeTable(vols []pfactory.BlockVolume) string {
-	t := helpers.NewTable("VOLUME", "SIZE", "PVC", "CREATED", "STATE")
+// recordLabel says, in the confirmation table, which cluster a volume came
+// from: its install id (or cloud id), and when that cluster is not the one
+// being torn down, that it is an earlier one.
+func recordLabel(r pfactory.ClusterInstall) string {
+	label := r.ID
+	if label == "" {
+		label = r.ProviderClusterID
+	}
+	if r.ClusterDeletedAt != nil {
+		label += " (gone since " + r.ClusterDeletedAt.UTC().Format("2006-01-02") + ")"
+	}
+	return label
+}
+
+// volumeTable is the list a person confirms: exactly the volumes, by id —
+// and, when installOf is given, the install each one carries.
+//
+// Unbounded: the table never shortens a cell. A confirmation over an id cut to
+// "vol-0aaa…" — or an Azure disk id, ~150 characters of ARM path, cut anywhere
+// — is not a confirmation of exactly these volumes; a wrapped line still is.
+func volumeTable(vols []pfactory.BlockVolume, installOf map[string]string) string {
+	headers := []string{"VOLUME", "SIZE", "PVC", "CREATED", "STATE"}
+	if installOf != nil {
+		headers = append(headers, "INSTALL")
+	}
+	t := helpers.NewTable(headers...).Unbounded()
 	for _, v := range vols {
 		created := "-"
 		if !v.Created.IsZero() {
@@ -505,7 +653,11 @@ func volumeTable(vols []pfactory.BlockVolume) string {
 		if v.Attached() {
 			state = "attached to " + strings.Join(v.AttachedTo, ",")
 		}
-		t.Row(v.Label(), fmt.Sprintf("%d GiB", v.SizeGiB), v.PVC(), created, state)
+		cells := []string{v.Label(), fmt.Sprintf("%d GiB", v.SizeGiB), v.PVC(), created, state}
+		if installOf != nil {
+			cells = append(cells, installOf[v.ID])
+		}
+		t.Row(cells...)
 	}
 	return t.Render()
 }
@@ -523,6 +675,35 @@ func teardownProviderOptions() map[string]interface{} {
 	return opts
 }
 
+// environmentProviderOptions are the options an ENVIRONMENT's provider is built
+// with during the teardown: the layer `adhar up` put over the provider block for
+// that environment (its region and clusterConfig —
+// pfactory.EnvironmentProviderOverrides), then teardownProviderOptions, which
+// win. (Providers honour only a boolean for the teardown's own keys, and a
+// clusterConfig value is a string, so no environment setting can switch the
+// purge on or the volume step off.)
+//
+// The provider block alone is not the environment's provider. `adhar up`
+// creates an environment's cluster in the environment's own `region:` and
+// clusterConfig `clusterMode`; a teardown built from the block searched the
+// block's region, found nothing, reported the cluster absent, and its volume
+// step then listed volumes in the wrong place — dropping the install record of
+// the still-running cluster (nothing there carried its id) and, on DigitalOcean,
+// deleting its account-wide id tag. --purge-orphaned-volumes swept the block's
+// region instead of the environment's.
+func environmentProviderOptions(env *config.ResolvedEnvironmentConfig) map[string]interface{} {
+	opts := pfactory.EnvironmentProviderOverrides(env)
+	for k, v := range teardownProviderOptions() {
+		opts[k] = v
+	}
+	return opts
+}
+
+// buildTeardownProvider builds a provider from the config file and options; a
+// variable only so tests can see what the teardown builds, and with which
+// options, without a cloud.
+var buildTeardownProvider = helpers.BuildProvider
+
 // clusterModeOf is the environment's cluster mode for a volume job. The
 // teardown loop has already refused an unparseable mode before any job exists,
 // so an error here cannot happen; it is mapped to "provided" anyway, the one
@@ -533,6 +714,84 @@ func clusterModeOf(env *config.ResolvedEnvironmentConfig) string {
 		return pfactory.ClusterModeProvided
 	}
 	return mode
+}
+
+func pluralVerb(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// providedNeighbours lists the environments in cfg whose cluster is PROVIDED
+// (clusterMode: provided) and may run where an environment on providerName in
+// region does: the same cloud — or `custom`, which says nothing about where its
+// hosts are — in the same region, or in one the file does not name (a provided
+// environment needs no region at all).
+//
+// The platform owns nothing in a provided cluster, its volumes included, and
+// those volumes carry no install id: to a region-wide search they look exactly
+// like a deleted cluster's leftovers. Every evidence-based deletion — the legacy
+// offer, --purge-orphaned-volumes — is therefore off wherever one may run.
+// Volumes found by an install id are unaffected: the id proves whose they are.
+func providedNeighbours(cfg *config.Config, providerName, region string) []string {
+	if cfg == nil {
+		return nil
+	}
+	var out []string
+	for name, env := range cfg.ResolvedEnvironments {
+		if env == nil {
+			continue
+		}
+		mode, err := environmentClusterMode(env)
+		if err == nil && pfactory.ClusterLifecycleIsOurs(mode) {
+			continue // ours: its volumes carry its own id
+		}
+		// An unparseable mode is refused by the teardown loop; here it counts as
+		// provided, the reading under which nothing is deleted.
+		if !sameCloud(env, providerName) {
+			continue
+		}
+		if r := strings.TrimSpace(env.ResolvedRegion); r != "" && region != "" && !strings.EqualFold(r, region) {
+			continue
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sameCloud reports whether env's cluster may live on providerName: the same
+// provider key or type, or the `custom` type, whose hosts can be anywhere.
+func sameCloud(env *config.ResolvedEnvironmentConfig, providerName string) bool {
+	if strings.EqualFold(env.ResolvedProvider, providerName) {
+		return true
+	}
+	if env.ProviderConfig == nil {
+		return false
+	}
+	t := strings.ToLower(strings.TrimSpace(env.ProviderConfig.Type))
+	return t == "custom" || (t != "" && strings.EqualFold(t, providerName))
+}
+
+// volumesGoWithTheCluster reports whether deleting env's cluster deletes its
+// block volumes too, before the volume step could list or keep them.
+//
+// Today that is AKS: the Azure disk CSI driver creates a managed cluster's
+// disks in its NODE resource group (MC_<group>_<cluster>_<location>), and
+// Azure deletes that group, every disk in it, together with the cluster. There
+// is nothing left to list afterwards, and --keep-volumes cannot be honoured —
+// so the teardown refuses that combination before deleting anything, and the
+// confirmation says so instead of promising a list. Every other managed service
+// (EKS, GKE, DOKS, Civo) leaves its volumes behind for the step.
+func volumesGoWithTheCluster(env *config.ResolvedEnvironmentConfig, mode string) bool {
+	if env == nil || !pfactory.ClusterModeIsManaged(mode) {
+		return false
+	}
+	if strings.EqualFold(env.ResolvedProvider, globals.CloudProviderAzure) {
+		return true
+	}
+	return env.ProviderConfig != nil && strings.EqualFold(strings.TrimSpace(env.ProviderConfig.Type), globals.CloudProviderAzure)
 }
 
 // runVolumeStep runs the volume step for a finished teardown, on the real

@@ -448,3 +448,36 @@ func TestLegacyDiscoveryFindsTheSixVolumesTheOctober31TeardownLeft(t *testing.T)
 		t.Fatalf("with a new adhar node running the same volumes were offered: %+v, %v", got, err)
 	}
 }
+
+// sloppyFilterEC2 is an EC2 whose tag filter does not filter — a typo in the
+// filter name, or an API that matches more loosely than documented.
+type sloppyFilterEC2 struct{ *fakeEC2 }
+
+func (s sloppyFilterEC2) DescribeVolumes(ctx context.Context, in *ec2.DescribeVolumesInput, o ...func(*ec2.Options)) (*ec2.DescribeVolumesOutput, error) {
+	var kept []ec2types.Filter
+	for _, f := range in.Filters {
+		if !strings.HasPrefix(aws.ToString(f.Name), "tag:") {
+			kept = append(kept, f)
+		}
+	}
+	return s.fakeEC2.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{Filters: kept}, o...)
+}
+
+// The id lookup does not trust the API's filter alone: a volume reaches the
+// list only if it carries exactly this install id, whatever the filter let
+// through. The delete that follows is permanent.
+func TestTheIDLookupChecksTheTagItselfNotJustTheFilter(t *testing.T) {
+	f := &fakeEC2{volumes: []ec2types.Volume{
+		csiVolume("vol-mine", "", provider.ClusterIDTag, "aaaaaaaaaaaaaaaa"),
+		csiVolume("vol-other-install", "", provider.ClusterIDTag, "bbbbbbbbbbbbbbbb"),
+		csiVolume("vol-untagged", ""),
+	}}
+	p := &Provider{config: &Config{Region: "ap-southeast-1"}, volumeAPI: sloppyFilterEC2{f}}
+	got, err := p.ClusterVolumes(context.Background(), provider.VolumeOwner{InstallID: "aaaaaaaaaaaaaaaa"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "vol-mine" {
+		t.Fatalf("ClusterVolumes = %+v; only the volume carrying this install id may be listed", got)
+	}
+}
