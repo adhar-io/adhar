@@ -41,7 +41,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"html"
 	"net/url"
 	"path"
 	"regexp"
