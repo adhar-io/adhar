@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,6 +41,7 @@ import (
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
 )
 
 // deployCmd represents the deploy command
@@ -212,6 +214,16 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, template s
 	if err != nil {
 		return "", "", "", fmt.Errorf("resolving the platform Gitea URL: %w", err)
 	}
+	return scaffoldTemplateApplication(ctx, dc, gc, giteaURL, appName, template, projectExplicit)
+}
+
+// scaffoldTemplateApplication is deployFromTemplate once it holds its clients:
+// the whole sequence, so that it can be run against a fake Gitea and a fake
+// cluster. It reads the deploy flags (--param, --project, --path, --env).
+func scaffoldTemplateApplication(ctx context.Context, dc dynamic.Interface, gc *gitea.Client, giteaURL, appName, template string, projectExplicit bool) (string, string, string, error) {
+	if err := validateScaffoldName(appName); err != nil {
+		return "", "", "", err
+	}
 	overrides, err := parseTemplateParams(paramFlags)
 	if err != nil {
 		return "", "", "", err
@@ -227,9 +239,16 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, template s
 	if err := checkPavedRoadProject(ctx, dc, project); err != nil {
 		return "", "", "", err
 	}
+	if owner, ok := templateOwnerDefault(t, overrides); ok {
+		fmt.Println(helpers.CreateMuted(fmt.Sprintf("   owner %s, the template's own; --param owner=group:<team> names another.", owner)))
+	}
 
 	logger.Info(fmt.Sprintf("▸ Rendering template %s into %s/%s", template, globals.GiteaPlatformOrg, appName))
 	rendered, err := renderScaffold(ctx, gc, t, giteaURL, template, appName, deployEnv(), overrides)
+	if err != nil {
+		return "", "", "", err
+	}
+	sourcePath, err := templateSourcePath(sourcePathFlag, rendered)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -245,7 +264,7 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, template s
 	// application-local-argocd: one Argo CD app syncing deploy/ on main into
 	// dev, with no test/prod and no Kargo. The --namespace, --dest-* and
 	// --version flags do not apply here (templateIgnoredFlags).
-	app := pavedRoadApplication(appName, project, scaffolded, sourcePathFlag)
+	app := pavedRoadApplication(appName, project, scaffolded, sourcePath)
 	if err := applyWithTypeRetry(app, func(obj *unstructured.Unstructured) error {
 		_, aerr := dc.Resource(applicationGVR).Namespace(obj.GetNamespace()).Apply(ctx, obj.GetName(), obj,
 			metav1.ApplyOptions{FieldManager: cliFieldManager})
@@ -275,6 +294,33 @@ func templateIgnoredFlags(changed func(string) bool) []string {
 		}
 	}
 	return out
+}
+
+// templateSourcePath is the directory a template's Application deploys from
+// when --path names one ("" leaves it to the template, as the Console always
+// does). The paved road deploys <path>/envs/<environment> in every
+// environment of the project (application-multienv), so a --path with nothing
+// under <path>/envs/ in the rendered skeleton is refused here, before the
+// repository exists: it would register an Application that never deploys,
+// reporting OverlayMissing. The documented `--path manifests` did that to every
+// shipped template, all of which ship deploy/envs/<environment>.
+func templateSourcePath(flag string, r *renderedScaffold) (string, error) {
+	if strings.TrimSpace(flag) == "" {
+		return "", nil
+	}
+	p := strings.TrimPrefix(path.Clean(strings.TrimSpace(flag)), "/")
+	overlays := p + "/envs/"
+	if p == "." || p == "" {
+		p, overlays = ".", "envs/"
+	}
+	for _, f := range r.paths {
+		if strings.HasPrefix(f, overlays) {
+			return p, nil
+		}
+	}
+	own := r.template.manifestPathFor(r.paths)
+	return "", fmt.Errorf("--path %s: template %q renders nothing under %s, and its Application deploys <path>/envs/<environment> in each of the project's environments; the template ships them under %s/envs/, so leave --path out",
+		flag, r.templateID, overlays, own)
 }
 
 // cliFieldManager owns what the CLI declares, as `adhar-console` owns what the

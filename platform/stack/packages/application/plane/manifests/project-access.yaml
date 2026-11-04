@@ -3,7 +3,7 @@
 # A Plane workspace admin is not a member of the projects other people create:
 # project-level reads and writes check ProjectMember, not the workspace role.
 # The console works through ONE API key (plane-instance-setup mints it for
-# plane-admin@adhar.local, a workspace admin), so every project created in
+# the Keycloak platform admin, a workspace admin), so every project created in
 # Plane itself answered that key with 403 — the project record read fine, its
 # work items did not, and the Define phase showed "The console's Plane key
 # can't read this project" (Azure, 2026-10-28: project IBNG, created by a

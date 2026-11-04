@@ -948,6 +948,12 @@ job.
   volumes somebody chose to keep earlier (`--keep-volumes`, or a "no"), nor
   volumes from clusters created before volumes carried an install id: those
   need a confirmation typed at a terminal.
+- Nor does `--yes` delete the volumes of a cluster adhar never saw deleted —
+  one this machine still records as running that the cloud no longer lists
+  (deleted outside adhar, or a lookup that missed it). They are listed, never
+  offered while one of them is still attached, and otherwise deleted only after
+  a confirmation typed at a terminal. A lookup that could not be completed
+  stops the teardown rather than reading as "already gone".
 - Older volumes are offered only when nothing that could own them is left in
   the region, and never while a `clusterMode: provided` environment in the same
   file may run there.

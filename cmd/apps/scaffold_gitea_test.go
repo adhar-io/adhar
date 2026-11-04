@@ -126,8 +126,15 @@ func TestARenderedSkeletonIsCommittedOnceToANewRepository(t *testing.T) {
 	if strings.Join(f.writes, ",") != strings.Join(want, ",") {
 		t.Fatalf("writes %v, want %v", f.writes, want)
 	}
-	if len(f.commit.Files) != 3 || f.commit.Message != "scaffold billing from go-web-service" || f.commit.Branch != "main" {
-		t.Fatalf("commit: %d files, %q on %q", len(f.commit.Files), f.commit.Message, f.commit.Branch)
+	// The skeleton ships no catalog-info.yaml, so the descriptor the Console's
+	// scaffolder generates for one (buildCatalogInfo) lands in the same commit.
+	var paths []string
+	for _, op := range f.commit.Files {
+		paths = append(paths, op.Path)
+	}
+	if strings.Join(paths, ",") != "README.md,deploy/base/kustomization.yaml,public/logo.png,catalog-info.yaml" ||
+		f.commit.Message != "scaffold billing from go-web-service" || f.commit.Branch != "main" {
+		t.Fatalf("commit: %v, %q on %q", paths, f.commit.Message, f.commit.Branch)
 	}
 	if s.CloneURL != "https://gitea.example.io/adhar/billing.git" || s.ManifestPath != "deploy" || s.TemplateName != "go-web-service" {
 		t.Fatalf("scaffolded %+v", s)

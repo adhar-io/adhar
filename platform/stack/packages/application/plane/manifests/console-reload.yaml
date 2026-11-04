@@ -121,6 +121,15 @@ spec:
               #    oidc-reload.yaml, 2026-10-28). A pod list that FAILS ends the
               #    hook: read as "no pod", an API timeout restarted the console.
               SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              #    A ROTATED key (the setup Job moved the console key to the
+              #    Keycloak platform admin and deactivated the old one) leaves
+              #    creationTimestamp where it was, so the Job also stamps the
+              #    key's mint time; whichever is later is what the pod must
+              #    postdate. Same format (RFC 3339, seconds, Z), same digits.
+              TOKEN_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.annotations.adhar\.io/token-created-at}')
+              if [ -n "$TOKEN_TS" ] && [ "${TOKEN_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
+                SECRET_TS=$TOKEN_TS
+              fi
               if ! STARTED=$(kubectl -n "$NS" get pods -l app=console \
                                -o jsonpath='{range .items[*]}{.status.startTime}{"\n"}{end}'); then
                 echo "cannot list the console pods; leaving the console as-is (retries next sync)"

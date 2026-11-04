@@ -65,7 +65,12 @@ back until the cloud confirms it is gone. --yes/--force skips the question;
 --keep-volumes keeps them and prints how to delete them later. Re-running the
 same 'adhar down' after the cluster is gone finishes the job — except that
 volumes kept ON PURPOSE (--keep-volumes, or a "no" at the prompt) are deleted
-only after a confirmation typed at a terminal, never by --yes. Volumes from
+only after a confirmation typed at a terminal, never by --yes. The same holds
+for a cluster adhar never saw deleted: one this machine still records as
+running that the provider no longer lists (deleted outside adhar, or a lookup
+that missed it). Its volumes are listed but never offered while any of them is
+attached, and a lookup that could not be completed stops the teardown instead
+of reading as "already gone". Volumes from
 clusters created before volumes were tagged are offered only when nothing that
 could own them is left, and only after a confirmation typed at a terminal.
 AKS deletes the disks of its node resource group together with the cluster,
@@ -475,10 +480,10 @@ func (m downModel) View() string {
 			}
 			body := fmt.Sprintf("%s %s\n\n%s\n\n%s\n",
 				helpers.WarningStyle.Render("!"),
-				helpers.WarningStyle.Render("Nothing was deleted"),
+				helpers.WarningStyle.Render(absentHeadline(m.outcome)),
 				helpers.PanelSubtitleStyle.Render(wrapText(
 					"No cluster for "+target+" was found in any provider that "+
-						downConfigFile+" configures, so nothing was removed.", boxTextWidth)),
+						downConfigFile+" configures, so no cluster was removed.", boxTextWidth)),
 				helpers.InfoStyle.Render(wrapText(searched+
 					". If the environment is running in a cloud, check that this file "+
 					"defines that provider — a file that only configures `kind` can "+
@@ -1010,11 +1015,14 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 			continue
 		}
 
-		// Try each candidate; the first one a provider actually has wins. Only the
-		// LAST error matters for reporting — if none matched, they all said the same
-		// thing ("no provider has it"), and that is a successful teardown.
+		// Try each candidate; the first one a provider actually has wins. When none
+		// matched, the cluster is gone only if EVERY candidate's lookup was
+		// conclusive. Keeping just the last error read a lookup that failed for
+		// "adhar" (a 503, a rate limit) followed by a conclusive "no dev" as
+		// "already gone" — and the volume step then listed the RUNNING cluster's
+		// volumes by its install id and deleted the detached ones.
 		var found *helpers.ResolvedCluster
-		var err error
+		var err, inconclusive error
 		for _, candidate := range candidates {
 			found, err = findCluster(ctx, cfg, env.ResolvedProvider, candidate, envOpts, func(w string) { detail("  ! %s", w) })
 			if err == nil {
@@ -1024,6 +1032,13 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 				clusterName = candidate
 				break
 			}
+			var nf *helpers.NotFoundError
+			if inconclusive == nil && !(errors.As(err, &nf) && nf.Conclusive()) {
+				inconclusive = err
+			}
+		}
+		if err != nil && inconclusive != nil {
+			err = inconclusive
 		}
 		if err != nil {
 			var nf *helpers.NotFoundError
@@ -1135,12 +1150,22 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		detail("  ● deleted %s", clusterName)
 		outcome.Deleted = append(outcome.Deleted, envName)
 		deletedClusters = append(deletedClusters, clusterName)
+		// Written down at once, before the volume step: a teardown cut short
+		// from here on (a crash, a Ctrl+C) must leave records saying the cluster
+		// was SEEN deleted, so a re-run finishes its volumes under --yes. A
+		// record still marked running is only ever acted on at a terminal
+		// (volumes.go, unconfirmedGone).
+		if _, err := pfactory.MarkClusterInstallsDeleted(found.ProviderName, env.ResolvedRegion, clusterName,
+			"deleted by `adhar down`; its volumes are listed by the volume step"); err != nil {
+			detail("  ! could not record that %s was deleted (%v); this run still deals with its volumes", clusterName, err)
+		}
 		// Its block volumes are the volume step's: listed, confirmed, deleted
 		// and verified once this screen is done (volumes.go).
 		outcome.VolumeJobs = append(outcome.VolumeJobs, volumeJob{
 			Env: envName, ProviderName: found.ProviderName, Region: env.ResolvedRegion,
 			ClusterNames: []string{clusterName}, ClusterMode: mode, ProvidedNeighbours: neighbours,
 			Provider: found.Provider, ProviderOpts: envOpts, ProviderClusterID: found.Cluster.ID, ClusterDeleted: true,
+			DeletedName: clusterName,
 		})
 	}
 	// Reaches the UI before DoneMsg, so the final screen knows whether anything
@@ -1311,6 +1336,18 @@ func runTeardownPlain() {
 	}
 }
 
+// absentHeadline heads the report of a teardown that found no cluster to
+// delete. "Nothing was deleted" is only true when no volume step follows: a
+// gone cluster's volumes are still listed — and deleted, when confirmed —
+// right after this summary, and a report that says "Nothing was deleted" above
+// "Deleted 1 volume(s)" contradicts itself.
+func absentHeadline(outcome teardownOutcome) string {
+	if len(outcome.VolumeJobs) > 0 {
+		return "No cluster was deleted — any block volumes it left are dealt with below"
+	}
+	return "Nothing was deleted"
+}
+
 // printPlainOutcome is the final summary of the plain (non-terminal) path.
 func printPlainOutcome(outcome teardownOutcome) {
 	if downConfigFile != "" && len(outcome.Deleted) == 0 && len(outcome.Preserved) > 0 {
@@ -1337,7 +1374,7 @@ func printPlainOutcome(outcome teardownOutcome) {
 				outcome.PurgedVolumes, target)
 			return
 		}
-		helpers.Printf("\n! Nothing was deleted.\n")
+		helpers.Printf("\n! %s.\n", absentHeadline(outcome))
 		fmt.Printf("  No cluster for %s was found in any provider that %s configures (%s).\n",
 			target, downConfigFile, searched)
 		fmt.Printf("  If that environment is running in a cloud, check that this file defines\n")

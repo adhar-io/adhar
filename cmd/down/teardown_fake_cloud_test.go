@@ -55,6 +55,9 @@ type teardownRun struct {
 	keep, purge bool
 	// clusters are what findCluster finds, by name; anything else is absent.
 	clusters map[string]*helpers.ResolvedCluster
+	// lookupFails are the names whose lookup cannot be completed (the provider
+	// could not be queried), so "not found" for them proves nothing.
+	lookupFails map[string]bool
 	// installID is what the cluster's adhar-cluster-spec says (about this very
 	// cluster); spec, when set, replaces the whole answer; readErr fails the
 	// read instead.
@@ -91,6 +94,9 @@ func (tr teardownRun) run(t *testing.T) teardownResult {
 	var res teardownResult
 	findCluster = func(_ context.Context, _ *config.Config, providerName, name string, _ map[string]interface{}, _ func(string)) (*helpers.ResolvedCluster, error) {
 		res.searched = append(res.searched, providerName+"/"+name)
+		if tr.lookupFails[name] {
+			return nil, &helpers.NotFoundError{Name: name, Failures: []helpers.LookupFailure{{Provider: providerName, Reason: "503 Service Unavailable"}}}
+		}
 		if c, ok := tr.clusters[name]; ok && c.ProviderName == providerName {
 			return c, nil
 		}
@@ -457,8 +463,22 @@ func TestAClusterOfTheSameNameElsewhereIsNotTheEnvironments(t *testing.T) {
 	if len(r.outcome.VolumeJobs) != 1 || r.outcome.VolumeJobs[0].ProviderName != "digitalocean" {
 		t.Fatalf("jobs = %+v; the gone cluster's volumes must still be dealt with", r.outcome.VolumeJobs)
 	}
-	if ok, out := volumeStepFor(cloud, r.outcome.VolumeJobs); !ok || strings.Join(cloud.deleted, ",") != "vol-1" {
+	// This machine never saw that cluster deleted — its record still says it
+	// is running — so one listing is all the evidence that it is gone: --yes
+	// does not delete its volumes, and its record is left as it was.
+	if _, out := volumeStepFor(cloud, r.outcome.VolumeJobs); len(cloud.deleted) != 0 || !strings.Contains(out, "confirm at a terminal") {
+		t.Fatalf("--yes deleted %v of a cluster nobody saw deleted:\n%s", cloud.deleted, out)
+	}
+	if a, err := pfactory.ActiveClusterInstall("digitalocean", "blr1", "adhar"); err != nil || a == nil || a.ID != inst.ID {
+		t.Fatalf("record = %+v (%v); it must be left exactly as it was", a, err)
+	}
+	// A person at a terminal can say it is gone.
+	step, out := testStep(cloud, stepOpts{interactive: true, input: "yes\n"})
+	if !step.run(r.outcome.VolumeJobs) || strings.Join(cloud.deleted, ",") != "vol-1" {
 		t.Fatalf("deleted %v:\n%s", cloud.deleted, out)
+	}
+	if recs, _ := pfactory.LoadClusterInstalls("digitalocean", "blr1", "adhar"); len(recs) != 0 {
+		t.Fatalf("the record outlived its last volume: %+v", recs)
 	}
 }
 
@@ -513,5 +533,50 @@ func TestAnInstallIDFromAnotherClusterOfTheSameNameIsIgnored(t *testing.T) {
 	// The same spelling of the same cloud is the same cluster.
 	if !sameCluster(clusterSpecIdentity{Provider: "do", Region: "BLR1", ClusterName: "adhar"}, "digitalocean", "blr1", "adhar") {
 		t.Error("do/digitalocean and BLR1/blr1 were treated as different clusters")
+	}
+}
+
+// A lookup that could not be completed for ONE of an environment's candidate
+// names proves nothing about that name, whatever the lookup of another name
+// said. The loop kept only the LAST candidate's error, so when the provider
+// failed to answer for "adhar" (a 503, a rate limit, a network blip) and then
+// answered for the legacy name "dev", the environment was reported as already
+// gone — and the volume step went on to list the volumes carrying the RUNNING
+// cluster's install id, delete the detached ones (under --yes, without a
+// question) and mark the cluster's record deleted.
+func TestAnInconclusiveLookupIsNeverReadAsAGoneCluster(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	inst, err := pfactory.RecordClusterInstall("digitalocean", "blr1", "adhar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud := newFakeCloud()
+	cloud.add("vol-attached", inst.ID, false)
+	cloud.vols["vol-attached"].AttachedTo = []string{"droplet 1"}
+	// Detached, and still the running cluster's: a StatefulSet scaled to zero.
+	cloud.add("vol-scaled-to-zero", inst.ID, false)
+
+	r := teardownRun{file: writeConfig(t, "compute", false), env: "dev", lookupFails: map[string]bool{"adhar": true}}.run(t)
+	if strings.Join(r.searched, ",") != "digitalocean/adhar,digitalocean/dev" {
+		t.Fatalf("searched %v", r.searched)
+	}
+	if r.err == nil || !strings.Contains(r.err.Error(), "could not be consulted") {
+		t.Fatalf("err = %v; a lookup that could not be completed must fail the teardown, not read as \"already gone\"", r.err)
+	}
+	if len(r.outcome.Absent) != 0 || len(r.outcome.VolumeJobs) != 0 {
+		t.Fatalf("absent=%v jobs=%+v; nothing may be queued for a cluster nobody could look for", r.outcome.Absent, r.outcome.VolumeJobs)
+	}
+	if ok, out := volumeStepFor(cloud, r.outcome.VolumeJobs); !ok || len(cloud.deleted) != 0 {
+		t.Fatalf("deleted %v (ok=%v) — volumes of a cluster that may still be running:\n%s", cloud.deleted, ok, out)
+	}
+	if a, err := pfactory.ActiveClusterInstall("digitalocean", "blr1", "adhar"); err != nil || a == nil || a.ID != inst.ID {
+		t.Fatalf("the running cluster's record = %+v (%v); it must stay active", a, err)
+	}
+
+	// The other order already failed safe, and still does: the legacy name's
+	// lookup failing after "adhar" was conclusively absent is a failure too.
+	r = teardownRun{file: writeConfig(t, "compute", false), env: "dev", lookupFails: map[string]bool{"dev": true}}.run(t)
+	if r.err == nil || len(r.outcome.VolumeJobs) != 0 {
+		t.Fatalf("err=%v jobs=%+v", r.err, r.outcome.VolumeJobs)
 	}
 }

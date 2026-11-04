@@ -71,7 +71,10 @@ type backstageTemplate struct {
 	Spec struct {
 		// The component type (service, website, function, …) a generated
 		// catalog-info.yaml declares (consoleCatalogInfo).
-		Type       string `yaml:"type"`
+		Type string `yaml:"type"`
+		// The template's own owner: what an `owner` parameter left unset
+		// defaults to (templateOwnerDefault).
+		Owner      string `yaml:"owner"`
 		Parameters []struct {
 			Title      string                       `yaml:"title"`
 			Required   []string                     `yaml:"required"`
@@ -181,8 +184,9 @@ func loadBackstageTemplate(gc *gitea.Client, id string) (*backstageTemplate, err
 
 // resolveParameters builds the `parameters` context: declared defaults first,
 // then the caller's --param overrides, with `name` and the repo location always
-// set so a template can be instantiated without naming them twice.
-func resolveParameters(t *backstageTemplate, appName, repoOwner, repoName, host string, overrides map[string]string) (map[string]any, error) {
+// set so a template can be instantiated without naming them twice. giteaBase
+// is the platform Gitea's public base URL (scaffoldGiteaBase).
+func resolveParameters(t *backstageTemplate, appName, repoOwner, repoName, giteaBase string, overrides map[string]string) (map[string]any, error) {
 	params := map[string]any{}
 	declared := map[string]templateParameter{}
 	for _, group := range t.Spec.Parameters {
@@ -199,9 +203,19 @@ func resolveParameters(t *backstageTemplate, appName, repoOwner, repoName, host 
 	}
 
 	params["name"] = appName
-	// RepoUrlPicker values are `host?owner=X&repo=Y`; the skeletons parse them
-	// back with `| parseRepoUrl`, so the CLI must produce the same shape.
-	params["repoUrl"] = fmt.Sprintf("%s?owner=%s&repo=%s", host, url.QueryEscape(repoOwner), url.QueryEscape(repoName))
+	// RepoUrlPicker values are `<host>?owner=X&repo=Y`; the skeletons parse them
+	// back with `| parseRepoUrl`, so the CLI must produce the same shape — the
+	// one the Console synthesises, `${publicGitea}?owner=${org}&repo=${name}`,
+	// scheme included (parseRepoUrl strips it from `.host`).
+	params["repoUrl"] = fmt.Sprintf("%s?owner=%s&repo=%s", giteaBase, url.QueryEscape(repoOwner), url.QueryEscape(repoName))
+
+	// The Console never scaffolds without an owner: its wizard always sends
+	// one. Left unset here, eleven of the sixteen shipped skeletons wrote
+	// `owner:` with no value into catalog-info.yaml — a Component Backstage
+	// rejects, since spec.owner is required.
+	if owner, ok := templateOwnerDefault(t, overrides); ok {
+		params["owner"] = owner
+	}
 
 	for key, raw := range overrides {
 		p, known := declared[key]
@@ -228,6 +242,26 @@ func resolveParameters(t *backstageTemplate, appName, repoOwner, repoName, host 
 		}
 	}
 	return params, nil
+}
+
+// templateOwnerDefault is the owner a scaffold gets when the template declares
+// an `owner` parameter with no default and --param owner is not given: the
+// template's own spec.owner. The Console's wizard seeds the owner from that
+// same field (seedDefaults, `group:${template.owner}`) before matching it to a
+// team, and the function skeletons fall back to it themselves
+// (`values.owner or 'group:platform-engineers'`). An owner given explicitly,
+// even empty, is the caller's.
+func templateOwnerDefault(t *backstageTemplate, overrides map[string]string) (string, bool) {
+	if _, given := overrides["owner"]; given {
+		return "", false
+	}
+	owner := strings.TrimSpace(t.Spec.Owner)
+	for _, g := range t.Spec.Parameters {
+		if p, ok := g.Properties["owner"]; ok {
+			return owner, p.Default.IsZero() && owner != ""
+		}
+	}
+	return "", false
 }
 
 func sortedKeys(m map[string]templateParameter) []string {
@@ -270,6 +304,16 @@ func coerceParameter(raw, typ string) (any, error) {
 // buildValues evaluates the `fetch:template` step's input.values against the
 // parameters, producing the `values` context the skeleton is rendered with.
 func buildValues(spec map[string]yaml.Node, params map[string]any) (map[string]any, error) {
+	if spec == nil {
+		// A fetch:template step with no values map renders with the parameters
+		// themselves, as the Console's computeValues does; an empty map
+		// (`values: {}`) is a values map and gives an empty context, there too.
+		values := make(map[string]any, len(params))
+		for k, v := range params {
+			values[k] = v
+		}
+		return values, nil
+	}
 	ctx := map[string]any{"parameters": params}
 	values := map[string]any{}
 	for key, node := range spec {
@@ -711,6 +755,11 @@ func evalCondition(cond string, ctx map[string]any) (bool, error) {
 			i++
 			return v, nil
 		case strings.HasPrefix(t, "'") || strings.HasPrefix(t, `"`):
+			// A lone quote (an unterminated literal is tokenised as one) is
+			// JavaScript's "'".slice(1, -1): empty. t[1:len(t)-1] panicked.
+			if len(t) < 2 {
+				return "", nil
+			}
 			return t[1 : len(t)-1], nil
 		case numberRe.MatchString(t):
 			f, _ := strconv.ParseFloat(t, 64)
@@ -840,11 +889,13 @@ func scaffoldGiteaBase(giteaURL string) string {
 // (apps/console/app/server/scaffolder.ts), so both produce one repository
 // from one template. It touches nothing, so that parity can be tested.
 func scaffoldContext(t *backstageTemplate, valueSpec map[string]yaml.Node, giteaURL, appName, env string, overrides map[string]string) (map[string]any, error) {
-	host := "gitea"
-	if u, uerr := url.Parse(scaffoldGiteaBase(giteaURL)); uerr == nil && u.Host != "" {
+	host, giteaBase := "gitea", scaffoldGiteaBase(giteaURL)
+	if u, uerr := url.Parse(giteaBase); uerr == nil && u.Host != "" {
 		host = u.Host
+	} else {
+		giteaBase = host
 	}
-	params, err := resolveParameters(t, appName, globals.GiteaPlatformOrg, appName, host, overrides)
+	params, err := resolveParameters(t, appName, globals.GiteaPlatformOrg, appName, giteaBase, overrides)
 	if err != nil {
 		return nil, err
 	}
@@ -1088,7 +1139,11 @@ func jsJSON(v any) (string, error) {
 		return "", err
 	}
 	out := strings.TrimSuffix(b.String(), "\n")
-	if !strings.Contains(out, ` `) && !strings.Contains(out, ` `) && !strings.Contains(out, `�`) {
+	// The ESCAPES encoding/json wrote, not the characters: until 2026-11-04 this
+	// looked for a literal U+2028/U+2029/U+FFFD, which an encoded string never
+	// holds, so a description carrying U+2028 was committed as `\u2028` where
+	// the Console writes the character (TestDumpWritesLineSeparatorsAsJSONStringifyDoes).
+	if !strings.Contains(out, `\u2028`) && !strings.Contains(out, `\u2029`) && !strings.Contains(out, `\ufffd`) {
 		return out, nil
 	}
 	// Undo just those escapes. Backslashes appear only inside strings, each
@@ -1129,10 +1184,12 @@ var htmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"
 func skeletonRenderContext(scaffoldCtx map[string]any) map[string]any {
 	values, _ := scaffoldCtx["values"].(map[string]any)
 	out := make(map[string]any, len(values)+1)
+	// In that order: the spread comes second, so a value that is itself named
+	// `values` shadows the map there too.
+	out["values"] = values
 	for k, v := range values {
 		out[k] = v
 	}
-	out["values"] = values
 	return out
 }
 

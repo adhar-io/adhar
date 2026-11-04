@@ -105,15 +105,33 @@ func applicationNamespaces(namespaceSet bool, ns string) []string {
 
 // findApplication returns the Application named name from the first of
 // namespaces that holds one.
+//
+// A namespace this identity may not read is passed over while another is
+// left to ask: a team member's kubeconfig may read dev but not adhar-system,
+// and asking adhar-system first must not stop `status` and `delete` finding
+// the dev Application they found before adhar-system was asked at all. If
+// nothing is found, that refusal is the answer, since the app may be there.
 func findApplication(ctx context.Context, dc dynamic.Interface, namespaces []string, name string) (*unstructured.Unstructured, error) {
-	for _, ns := range namespaces {
+	var forbidden error
+	for i, ns := range namespaces {
 		app, err := dc.Resource(applicationGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
-		if err == nil {
+		switch {
+		case err == nil:
 			return app, nil
+		case k8serrors.IsNotFound(err):
+		case k8serrors.IsForbidden(err) && i < len(namespaces)-1:
+			if forbidden == nil {
+				forbidden = fmt.Errorf("get application %s/%s: %w", ns, name, err)
+			}
+		default:
+			if forbidden == nil {
+				return nil, fmt.Errorf("get application %s/%s: %w", ns, name, err)
+			}
+			return nil, forbidden
 		}
-		if !k8serrors.IsNotFound(err) {
-			return nil, fmt.Errorf("get application %s/%s: %w", ns, name, err)
-		}
+	}
+	if forbidden != nil {
+		return nil, forbidden
 	}
 	return nil, fmt.Errorf("%w: %s in %s", ErrApplicationNotFound, name, strings.Join(namespaces, " or "))
 }
@@ -691,7 +709,11 @@ func waitForApplicationReady(ctx context.Context, kubeconfigPath, namespace, nam
 	if err != nil {
 		return nil, err
 	}
+	return waitForApplicationReadyWith(ctx, dc, namespace, name, timeout)
+}
 
+// waitForApplicationReadyWith is waitForApplicationReady with its client.
+func waitForApplicationReadyWith(ctx context.Context, dc dynamic.Interface, namespace, name string, timeout time.Duration) (*ApplicationStatusView, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

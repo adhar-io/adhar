@@ -336,6 +336,37 @@ func RecordProviderClusterID(provider, region, cluster, cloudID string) (bool, e
 	return true, writeClusterInstalls(provider, region, cluster, installs)
 }
 
+// MarkClusterInstallsDeleted records that the cluster of this name is gone:
+// every record still marked active for it (its install id, and a managed
+// cluster's UUID record) gets ClusterDeletedAt. Called by `adhar down` the
+// moment DeleteCluster succeeds, BEFORE the volume step: a teardown cut short
+// in between (a crash, a Ctrl+C) leaves records that say the cluster was seen
+// deleted, so a re-run can finish its volumes under --yes. A record still
+// marked active for a cluster the provider merely failed to list is treated
+// far more carefully (cmd/down/volumes.go), because one listing call is all the
+// evidence there is that it is gone. Reports how many records changed.
+func MarkClusterInstallsDeleted(provider, region, cluster, note string) (int, error) {
+	installs, err := LoadClusterInstalls(provider, region, cluster)
+	if err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC()
+	changed := 0
+	for i := range installs {
+		if !installs[i].Active() {
+			continue
+		}
+		t := now
+		installs[i].ClusterDeletedAt = &t
+		installs[i].Note = note
+		changed++
+	}
+	if changed == 0 {
+		return 0, nil
+	}
+	return changed, writeClusterInstalls(provider, region, cluster, installs)
+}
+
 // SaveClusterInstall inserts or replaces one record (matched by its id, or by
 // the cloud's cluster UUID when it has no install id).
 func SaveClusterInstall(inst ClusterInstall) error {

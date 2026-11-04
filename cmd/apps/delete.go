@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 )
 
 // deleteCmd represents the delete command
@@ -77,24 +78,33 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
+	return deleteApplication(ctx, dynamicClient, applicationNamespaces(cmd.Flags().Changed("namespace"), namespace), appName,
+		func(deleteNamespace string) bool {
+			if force {
+				return true
+			}
+			helpers.Printf("Delete application %q in namespace %q? [y/N]: ", appName, deleteNamespace)
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.ToLower(strings.TrimSpace(answer))
+			return answer == "y" || answer == "yes"
+		})
+}
+
+// deleteApplication deletes the Application named appName from the first of
+// namespaces that holds one, once confirm agrees to that namespace.
+func deleteApplication(ctx context.Context, dynamicClient dynamic.Interface, namespaces []string, appName string, confirm func(namespace string) bool) error {
 	// Find it first, so the question names the namespace it is actually in:
 	// a template deploy registers its Application in adhar-system, not dev.
-	app, err := findApplication(ctx, dynamicClient,
-		applicationNamespaces(cmd.Flags().Changed("namespace"), namespace), appName)
+	app, err := findApplication(ctx, dynamicClient, namespaces, appName)
 	if err != nil {
 		return err
 	}
 	deleteNamespace := app.GetNamespace()
 
-	if !force {
-		helpers.Printf("Delete application %q in namespace %q? [y/N]: ", appName, deleteNamespace)
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		answer = strings.ToLower(strings.TrimSpace(answer))
-		if answer != "y" && answer != "yes" {
-			logger.Info("Aborted.")
-			return nil
-		}
+	if !confirm(deleteNamespace) {
+		logger.Info("Aborted.")
+		return nil
 	}
 
 	logger.Info(fmt.Sprintf("✖ Deleting application: %s", appName))

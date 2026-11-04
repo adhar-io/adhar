@@ -20,6 +20,17 @@ packages:
     namespace: "adhar-system"
     category: "observability"
     manifestPath: "observability/hubble/manifests"
+  # Observe-only L7 (HTTP/gRPC/DNS) visibility for app namespaces: a
+  # CiliumClusterwideNetworkPolicy that never denies (enableDefaultDeny off,
+  # allow-all L7 rules, egress only). Feeds the console Service map's
+  # req/s, errors and latency. Costs an Envoy hop per app request — see
+  # observability/hubble/manifests/l7-visibility/l7-visibility.yaml.
+  # Off with the hubble package it belongs to (local profile).
+  - name: "hubble-l7-visibility"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "observability"
+    manifestPath: "observability/hubble/manifests/l7-visibility"
   - name: "falco"
     enabled: "false"
     namespace: "adhar-system"

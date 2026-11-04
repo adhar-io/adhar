@@ -26,22 +26,49 @@
 #
 # Plus the instance admin itself: until an instance admin has completed the
 # "god-mode" setup, Plane's sign-in page shows "No authentication methods
-# available" — so this Job completes it. It creates the instance admin with a
-# generated password (surfaced by `adhar get secrets -p plane`), marks the
-# instance set up, and enables password login + sign-up. Idempotent and
-# re-runnable, and it VERIFIES the result through the same API the web app
-# reads (/api/instances/) before exiting: if the instance is not set up, or no
-# authentication method is enabled, the Job exits non-zero and ArgoCD retries.
-# A Job that exits 0 having enabled nothing is exactly the bug this guards.
+# available" — so this Job completes it. It creates a LOCAL break-glass instance
+# admin (plane-admin@adhar.local) with a generated password (surfaced by
+# `adhar get secrets -p plane`), marks the instance set up, and enables password
+# login + sign-up. That account exists for /god-mode/ only: the fork's god-mode
+# sign-in (/api/instances/admins/sign-in/, apps/admin sign-in-form.tsx) is an
+# email/password form checked against InstanceAdmin rows, on its own admin
+# session cookie — it has no Keycloak button, so a Keycloak identity cannot be
+# the instance admin. Idempotent and re-runnable, and it VERIFIES the result
+# through the same API the web app reads (/api/instances/) before exiting: if
+# the instance is not set up, or no authentication method is enabled, the Job
+# exits non-zero and ArgoCD retries. A Job that exits 0 having enabled nothing
+# is exactly the bug this guards.
 #
-# It also makes the Define phase of the console work without a human first
-# clicking through Plane: it creates the platform workspace (slug `adhar`, the
-# console's `planeWorkspace` default) owned by that admin, mints a Plane API
-# key for the admin, and writes both into the `plane-api-token` Secret
-# (PLANE_URL / PLANE_TOKEN / PLANE_WORKSPACE). The console's ExternalSecret
-# (core/adhar-console) copies that into its pod env — Plane only speaks
-# X-API-Key on /api/v1, and the public route sits behind oauth2-proxy, so
-# the console needs the adhar-controlplane URL + a real key, not the user's session.
+# Everything a PERSON sees belongs to the Keycloak platform admin, not to that
+# local account. The Job resolves the realm's platform admin from the
+# keycloak-directory ConfigMap the keycloak package publishes (every realm user
+# with their groups, no credentials; the group is the KEYCLOAK_ADMIN_GROUPS
+# below) and pre-creates them in Plane by email — no usable password,
+# last_login_medium "keycloak" — so their first "Continue with Keycloak" signs
+# into THAT account (the fork's complete_login_or_signup() looks users up by
+# email and logs an existing one in). The platform admin then:
+#   - owns the platform workspace (slug `adhar`, the console's `planeWorkspace`
+#     default) and is its admin member,
+#   - owns the console's Plane API key, so everything the console does through
+#     the API (projects, work items …) is attributed to a real person,
+#   - takes over project lead / default assignee and project-admin seats the
+#     local account held.
+# Existing clusters migrate on the next sync: workspace ownership moves off the
+# local account, a new key is minted for the platform admin and written to
+# `plane-api-token` (PLANE_URL / PLANE_TOKEN / PLANE_WORKSPACE), the old key is
+# deactivated, and the local account leaves the workspace (it is re-added while
+# Keycloak is NOT verified, because then it is the only way in). Rows are moved
+# with queryset updates, so created_by/updated_by history is never rewritten.
+# If no platform admin can be resolved the Job logs a WARNING and keeps the
+# workspace/key with whoever holds them now — never back-migrates, never
+# blocks sign-in.
+#
+# The console reads `plane-api-token` into its env key by key
+# (core/adhar-console) when its pod starts, so the Secret carries
+# the key's mint time in `adhar.io/token-created-at` and plane-console-reload
+# restarts the console when its pod predates it. Plane only speaks X-API-Key on
+# /api/v1, and the public route sits behind oauth2-proxy, so the console needs
+# the in-cluster URL + a real key, not the user's session.
 # (Plain .yaml on purpose: the ESO template directives must survive seeding.)
 ---
 apiVersion: v1
@@ -73,6 +100,12 @@ rules:
     resources: ["secrets"]
     resourceNames: ["plane-api-token"]
     verbs: ["create", "patch"]
+  # The realm's user directory (KEYCLOAK_DIRECTORY_CONFIGMAP below), read to
+  # find the platform admin who owns the workspace and the console key.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["keycloak-directory"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -195,19 +228,29 @@ spec:
               value: PLANE_APP_CLIENT_ID
             - name: KEYCLOAK_CLIENT_SECRET_KEY
               value: PLANE_APP_CLIENT_SECRET
+            # Published by the keycloak package (publish_directory in
+            # keycloak-config.yaml, on its sync Job and every 5 minutes by the
+            # keycloak-client-reconcile CronJob): [{username, email, firstName,
+            # lastName, groups}]. The platform admin is resolved from it.
+            - name: KEYCLOAK_DIRECTORY_CONFIGMAP
+              value: keycloak-directory
           command: [sh, -c]
           args:
             - |
               set -e
               cd /code
               python manage.py shell <<'PY'
-              import base64, json, os, ssl, sys, time, urllib.error, urllib.parse, urllib.request, uuid
-              from plane.db.models import APIToken, User, Workspace, WorkspaceMember
+              import base64, datetime, json, os, ssl, sys, time, urllib.error, urllib.parse, urllib.request, uuid
+              from django.db import transaction
+              from django.db.models import Min
+              from plane.db.models import (APIToken, Profile, Project, ProjectMember, ProjectUserProperty, User,
+                                           Workspace, WorkspaceMember)
               from plane.license.models import Instance, InstanceAdmin, InstanceConfiguration
               from plane.license.utils.encryption import decrypt_data, encrypt_data
               from plane.utils.cache import invalidate_cache_directly
 
               failures = []
+              ADMIN_ROLE = 20
 
               def cfg(key, value, category, encrypted=False):
                   InstanceConfiguration.objects.update_or_create(
@@ -215,17 +258,21 @@ spec:
                       defaults={"value": encrypt_data(value) if encrypted else value,
                                 "category": category, "is_encrypted": encrypted})
 
-              # ── 1. instance admin + credential login ─────────────────────────
+              # ── 1. break-glass instance admin + credential login ─────────────
+              # A LOCAL account, for /god-mode/ only (see the header): the fork's
+              # god-mode sign-in is email/password against InstanceAdmin rows and
+              # offers no Keycloak. It owns nothing a person uses — section 4
+              # gives the workspace and the console key to the platform admin.
               email = os.environ["ADMIN_EMAIL"].strip().lower()
               password = os.environ["ADMIN_PASSWORD"]
-              user, created = User.objects.get_or_create(email=email, defaults={
+              local_admin, created = User.objects.get_or_create(email=email, defaults={
                   "username": uuid.uuid4().hex, "first_name": "Adhar", "last_name": "Admin",
                   "is_active": True, "is_email_verified": True})
-              user.set_password(password)
-              user.is_password_autoset = False
-              user.is_active = True
-              user.is_email_verified = True
-              user.save()
+              local_admin.set_password(password)
+              local_admin.is_password_autoset = False
+              local_admin.is_active = True
+              local_admin.is_email_verified = True
+              local_admin.save()
 
               # The Instance row is created by the api-migrate Job. Wait for it
               # rather than dying immediately — this Job is a PostSync hook and a
@@ -242,7 +289,7 @@ spec:
 
               instance.is_setup_done = True
               instance.save()
-              InstanceAdmin.objects.get_or_create(instance=instance, user=user, defaults={"role": 20})
+              InstanceAdmin.objects.get_or_create(instance=instance, user=local_admin, defaults={"role": 20})
               cfg("ENABLE_SIGNUP", "1", "AUTHENTICATION")
               cfg("ENABLE_MAGIC_LINK_LOGIN", "0", "AUTHENTICATION")
               # Email/password starts ON and is switched off further down once
@@ -250,7 +297,7 @@ spec:
               # it here first means an instance is never left with zero usable
               # methods, which renders as "No authentication methods available".
               cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
-              print(f"instance setup done; admin {'created' if created else 'updated'}: {email}", flush=True)
+              print(f"instance setup done; break-glass instance admin {'created' if created else 'updated'}: {email}", flush=True)
 
               # In-cluster kube API, used to read keycloak-clients (2) and to
               # write the console's token Secret (4).
@@ -260,7 +307,8 @@ spec:
               ctx = ssl.create_default_context(cafile=f"{sa}/ca.crt")
               khost = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
               kport = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
-              base = f"https://{khost}:{kport}/api/v1/namespaces/{ns}/secrets"
+              api = f"https://{khost}:{kport}/api/v1/namespaces/{ns}"
+              base = f"{api}/secrets"
 
               # ── 2. Plane's OWN Keycloak login (the fork's OIDC provider) ─────
               # Env is only the provider's FALLBACK: it reads InstanceConfiguration
@@ -383,28 +431,217 @@ spec:
                   print("auth: KEEPING email/password — the Keycloak provider is not ready, so removing "
                         "the form would leave no way in", flush=True)
 
-              # ── 4. platform workspace + console API key ──────────────────────
+              # ── 4. the Keycloak platform admin: who owns the workspace and the key ──
+              # Resolved from the realm's user directory (KEYCLOAK_DIRECTORY_CONFIGMAP),
+              # never hardcoded: the members of the group KEYCLOAK_ADMIN_GROUPS names
+              # above. The keycloak package republishes it every five minutes, so when
+              # Keycloak is verified the Job WAITS for it like it waits for the client
+              # secret — a PostSync hook that skips does not come back until the next
+              # sync. Without Keycloak there is nobody to sign in as the platform admin
+              # yet, so one read is enough.
+              ADMIN_GROUP = "platform-admin"  # == KEYCLOAK_ADMIN_GROUPS above
               slug = os.environ["WORKSPACE_SLUG"]
+
+              def kube_get(url):
+                  req = urllib.request.Request(url, headers={"Authorization": f"Bearer {bearer}", "Accept": "application/json"})
+                  with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+                      return json.loads(r.read().decode())
+
+              def directory_admins():
+                  """[(email, first, last)] of the realm's platform admins, sorted by email."""
+                  name = os.environ.get("KEYCLOAK_DIRECTORY_CONFIGMAP") or "keycloak-directory"
+                  tries = 72 if keycloak_ready else 1
+                  why = "not attempted"
+                  for attempt in range(tries):
+                      try:
+                          users = json.loads((kube_get(f"{api}/configmaps/{name}").get("data") or {}).get("users.json") or "[]")
+                          found = {}
+                          for u in users if isinstance(users, list) else []:
+                              if not isinstance(u, dict):
+                                  continue
+                              groups = {str(g).strip().strip("/").rsplit("/", 1)[-1] for g in (u.get("groups") or [])}
+                              mail = str(u.get("email") or "").strip().lower()
+                              if ADMIN_GROUP in groups and "@" in mail:
+                                  found[mail] = (mail, str(u.get("firstName") or ""), str(u.get("lastName") or ""))
+                          if found:
+                              return [found[k] for k in sorted(found)], f"ConfigMap {name}"
+                          why = f"ConfigMap {name} lists nobody in group {ADMIN_GROUP}"
+                      except urllib.error.HTTPError as err:
+                          if err.code != 404:
+                              raise
+                          why = f"ConfigMap {name} is not published yet"
+                      if attempt + 1 < tries:
+                          print(f"platform admin: waiting — {why} … {attempt + 1}/{tries}", flush=True)
+                          time.sleep(5)
+                  return [], why
+
+              def ensure_platform_admin(mail, first, last):
+                  """The Plane account the platform admin's first Keycloak sign-in lands in.
+
+                  The fork's complete_login_or_signup() looks the user up by email and logs
+                  an EXISTING account in (no signup, no duplicate), refusing only bots and
+                  accounts deactivated through Plane (inactive with last_logout_time set) —
+                  so a pre-created, active, never-logged-out row is exactly what it links."""
+                  u = User.objects.filter(email=mail).first()
+                  if u is None:
+                      u = User(email=mail, username=uuid.uuid4().hex, first_name=first, last_name=last,
+                               display_name=User.get_display_name(mail), is_active=True, is_email_verified=True,
+                               is_password_autoset=True, last_login_medium="keycloak")
+                      u.set_unusable_password()  # Keycloak is its only way in
+                      u.save()
+                      Profile.objects.get_or_create(user=u)
+                      return u, "pre-created (first Keycloak sign-in links to it by email)"
+                  if u.is_bot:
+                      return None, "is a bot account in Plane"
+                  if not u.is_active:
+                      if u.last_logout_time is not None:
+                          return None, "was deactivated in Plane — not overriding that"
+                      User.objects.filter(pk=u.pk).update(is_active=True)
+                      u.is_active = True
+                  return u, f"present (last sign-in via {u.last_login_medium})"
+
+              ws = Workspace.objects.filter(slug=slug).select_related("owner").first()
+              platform_admin = None
+              try:
+                  admins, source = directory_admins()
+                  # Sticky: once a platform admin owns the workspace it stays theirs while
+                  # they remain in the group; otherwise the first by email.
+                  pick = next((a for a in admins if ws is not None and ws.owner.email == a[0]), admins[0] if admins else None)
+                  if pick is None:
+                      print(f"WARNING: platform admin NOT resolved — {source}. The workspace and the console key stay "
+                            f"with their current owner ({ws.owner.email if ws else email}); the next sync retries.", flush=True)
+                  elif pick[0] == email:
+                      print(f"WARNING: the directory names the break-glass account {email} as platform admin; ignoring", flush=True)
+                  else:
+                      platform_admin, note = ensure_platform_admin(*pick)
+                      print(f"platform admin {pick[0]} (from {source}): {note}", flush=True)
+                      if platform_admin is None:
+                          print("WARNING: workspace and console key stay with their current owner", flush=True)
+              except Exception as exc:  # noqa: BLE001 — ownership is never worth a broken sign-in
+                  detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
+                  print(f"WARNING: platform admin lookup FAILED ({type(exc).__name__}: {detail}); workspace and console "
+                        "key stay with their current owner", flush=True)
+                  platform_admin = None
+
+              # ── 5. platform workspace, ownership migration, console API key ──────────
+              if platform_admin is not None:
+                  owner = platform_admin
+              elif ws is not None and ws.owner.is_active:
+                  owner = ws.owner          # never back-migrate on a lookup that failed
+              else:
+                  owner = local_admin       # fresh cluster without a resolvable admin
               ws, ws_created = Workspace.objects.get_or_create(slug=slug, defaults={
-                  "name": os.environ.get("WORKSPACE_NAME") or slug, "owner": user})
-              WorkspaceMember.objects.get_or_create(workspace=ws, member=user, defaults={"role": 20, "is_active": True})
+                  "name": os.environ.get("WORKSPACE_NAME") or slug, "owner": owner})
               print(f"workspace {slug} {'created' if ws_created else 'present'}", flush=True)
+
+              def ensure_admin_member(member):
+                  wm = WorkspaceMember.objects.filter(workspace=ws, member=member).first()
+                  if wm is None:
+                      WorkspaceMember.objects.create(workspace=ws, member=member, role=ADMIN_ROLE, is_active=True)
+                      return "added as admin"
+                  if wm.role < ADMIN_ROLE or not wm.is_active:
+                      WorkspaceMember.objects.filter(pk=wm.pk).update(role=ADMIN_ROLE, is_active=True)
+                      return "raised to admin"
+                  return None
+
+              members_changed = False
+              if platform_admin is not None:
+                  if ws.owner_id == local_admin.id:
+                      # .update(), not save(): BaseModel.save() outside a request blanks
+                      # created_by/updated_by, and history is not ours to rewrite.
+                      Workspace.objects.filter(pk=ws.pk).update(owner=platform_admin)
+                      print(f"workspace {slug}: ownership transferred {email} -> {platform_admin.email}", flush=True)
+                  elif ws.owner_id != platform_admin.id:
+                      print(f"workspace {slug} is owned by {ws.owner.email}, not the break-glass account; ownership left as is", flush=True)
+                  note = ensure_admin_member(platform_admin)
+                  if note:
+                      members_changed = True
+                      print(f"workspace {slug}: {platform_admin.email} {note}", flush=True)
+
+                  # Projects the local account led or administered pass to the platform
+                  # admin (plane-project-access adds every workspace admin to every project
+                  # too, but on a 5-minute schedule; this closes that window before the
+                  # local account's seats are released below).
+                  for field in ("project_lead", "default_assignee"):
+                      n = Project.objects.filter(workspace=ws, **{field: local_admin}).update(**{field: platform_admin})
+                      if n:
+                          print(f"projects: {field} moved to {platform_admin.email} on {n} project(s)", flush=True)
+                  seats = list(ProjectMember.objects.filter(workspace=ws, member=local_admin, is_active=True, role=ADMIN_ROLE)
+                               .values_list("project_id", flat=True))
+                  if seats:
+                      have = {pm.project_id: pm for pm in ProjectMember.objects.filter(project_id__in=seats, member=platform_admin)}
+                      props = set(ProjectUserProperty.objects.filter(project_id__in=seats, user=platform_admin)
+                                  .values_list("project_id", flat=True))
+                      floor = ProjectUserProperty.objects.filter(workspace=ws, user=platform_admin).aggregate(v=Min("sort_order"))["v"]
+                      create, prop_rows, raise_ids = [], [], []
+                      for pid in seats:
+                          pm = have.get(pid)
+                          if pm is None:
+                              create.append(ProjectMember(member=platform_admin, role=ADMIN_ROLE, project_id=pid, workspace_id=ws.id))
+                          elif not pm.is_active or pm.role < ADMIN_ROLE:
+                              raise_ids.append(pm.pk)
+                          if pid not in props:
+                              floor = floor - 10000 if floor is not None else 65535
+                              prop_rows.append(ProjectUserProperty(user=platform_admin, project_id=pid, workspace_id=ws.id, sort_order=floor))
+                      # Plane's own add-member path (bulk_create, ignore_conflicts) — the
+                      # same as plane-project-access; ProjectMember.save() would insert a
+                      # second ProjectUserProperty for a previously soft-deleted member.
+                      with transaction.atomic():
+                          ProjectMember.objects.filter(pk__in=raise_ids).update(is_active=True, role=ADMIN_ROLE)
+                          ProjectMember.objects.bulk_create(create, batch_size=50, ignore_conflicts=True)
+                          ProjectUserProperty.objects.bulk_create(prop_rows, batch_size=50, ignore_conflicts=True)
+                      if create or raise_ids:
+                          print(f"projects: {platform_admin.email} made admin of {len(create) + len(raise_ids)} project(s) "
+                                f"{email} administered", flush=True)
+
+              # The break-glass account is a workspace member only while it is the way in:
+              # with Keycloak verified and a platform admin in charge it leaves the
+              # workspace (and its project seats), so it shows up nowhere a person works;
+              # while Keycloak is NOT verified the password form is back on and this
+              # account is re-admitted, because then nobody else can sign in. A lookup
+              # that merely failed changes nothing (no flapping on a transient error).
+              if platform_admin is not None and keycloak_ready:
+                  n = WorkspaceMember.objects.filter(workspace=ws, member=local_admin, is_active=True).update(is_active=False)
+                  p = ProjectMember.objects.filter(workspace=ws, member=local_admin, is_active=True).update(is_active=False)
+                  if n or p:
+                      members_changed = True
+                      print(f"workspace {slug}: break-glass {email} removed from the workspace and {p} project(s); "
+                            "it keeps /god-mode/ only", flush=True)
+              elif not keycloak_ready or ws.owner_id == local_admin.id:
+                  note = ensure_admin_member(local_admin)
+                  if note:
+                      members_changed = True
+                      print(f"workspace {slug}: break-glass {email} {note} (Keycloak not verified, or it still owns the workspace)", flush=True)
+              if members_changed:
+                  invalidate_cache_directly(path=f"/api/workspaces/{slug}/members/", url_params=False, user=False, multiple=True)
+
+              # The console's key belongs to the platform admin — or, unresolved, to the
+              # workspace owner as it stands, so a failed lookup never rotates it back.
+              ws.refresh_from_db()
+              key_user = platform_admin or (ws.owner if ws.owner.is_active else local_admin)
+              if key_user.id != local_admin.id:
+                  ensure_admin_member(key_user)
               label = "adhar-console"
-              token = APIToken.objects.filter(user=user, label=label, is_active=True, workspace__isnull=True).order_by("created_at").first()
+              token = APIToken.objects.filter(user=key_user, label=label, is_active=True, workspace__isnull=True).order_by("created_at").first()
               if token is None:
-                  token = APIToken.objects.create(user=user, label=label,
+                  token = APIToken.objects.create(user=key_user, label=label,
                       description="Server-side key the Adhar Console uses for the Define phase (generated by plane-instance-setup).",
                       user_type=0, is_active=True)
-                  print("console API key minted", flush=True)
+                  print(f"console API key minted for {key_user.email}", flush=True)
               else:
-                  print("console API key present", flush=True)
+                  print(f"console API key present for {key_user.email}", flush=True)
 
-              # ── 5. hand it to the console through a Secret (kube API, adhar-controlplane SA) ──
+              # ── 6. hand it to the console through a Secret (kube API, adhar-controlplane SA) ──
+              # adhar.io/token-created-at is the key's mint time, stable across runs and
+              # new on rotation: plane-console-reload restarts the console when its pod
+              # predates it (env is read once, at start).
               name = os.environ["TOKEN_SECRET_NAME"]
               b64 = lambda s: base64.b64encode(s.encode()).decode()
+              minted = token.created_at.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
               body = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
                       "metadata": {"name": name, "namespace": ns,
-                                   "labels": {"app.kubernetes.io/part-of": "plane", "adhar.io/package-name": "plane"}},
+                                   "labels": {"app.kubernetes.io/part-of": "plane", "adhar.io/package-name": "plane"},
+                                   "annotations": {"adhar.io/token-created-at": minted, "adhar.io/token-owner": key_user.email}},
                       "data": {"PLANE_URL": b64(os.environ["PLANE_API_URL"]), "PLANE_TOKEN": b64(token.token), "PLANE_WORKSPACE": b64(slug)}}
               def kube(method, url, payload, ctype="application/json"):
                   req = urllib.request.Request(url, method=method, data=json.dumps(payload).encode(),
@@ -417,9 +654,16 @@ spec:
               # authorised against the name, and the Role grants this one.
               st = kube("PATCH", f"{base}/{name}?fieldManager=plane-instance-setup&force=true",
                         body, "application/apply-patch+yaml")
-              print(f"secret {ns}/{name} written (http {st})", flush=True)
+              print(f"secret {ns}/{name} written (http {st}; key of {key_user.email}, minted {minted})", flush=True)
 
-              # ── 6. VERIFY through the API the web app actually reads ─────────
+              # Only now that the Secret carries the new key: retire every other console
+              # key (the local account's, from before the migration). plane-project-access
+              # also reads "the" console key by this label, so exactly one stays active.
+              retired = APIToken.objects.filter(label=label, is_active=True, workspace__isnull=True).exclude(pk=token.pk).update(is_active=False)
+              if retired:
+                  print(f"console API key: {retired} superseded key(s) deactivated", flush=True)
+
+              # ── 7. VERIFY through the API the web app actually reads ─────────
               # The sign-in screen renders "No authentication methods available"
               # purely from this payload. Exiting 0 without asserting it is what
               # let a broken instance ship, so assert it here and fail loudly.
@@ -476,6 +720,13 @@ spec:
                   # an upstream (non-fork) image has no KEYCLOAK category at all.
                   failures.append("KEYCLOAK rows written but /api/instances/ does not report is_keycloak_enabled "
                                   "— is plane-api running the adhar-io fork image?")
+              # The migration, asserted in the database it wrote.
+              if platform_admin is not None:
+                  ws.refresh_from_db()
+                  if ws.owner_id == local_admin.id:
+                      failures.append(f"workspace {slug} is still owned by the break-glass account {email}")
+                  if token.user_id != platform_admin.id or not APIToken.objects.filter(pk=token.pk, is_active=True).exists():
+                      failures.append(f"the console key is not an active key of the platform admin {platform_admin.email}")
               if failures:
                   raise SystemExit("FATAL: " + "; ".join(failures))
               print(f"OK: Plane is set up. Sign-in page offers {drawable}; "

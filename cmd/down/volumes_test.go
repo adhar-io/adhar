@@ -117,9 +117,11 @@ func testStep(cloud *fakeCloud, o stepOpts) (*volumeStep, *bytes.Buffer) {
 	}, out
 }
 
+// deletedJob is the job the teardown loop queues for a cluster it has just
+// deleted — DeletedName included, exactly as teardownFromConfig sets it.
 func deletedJob() volumeJob {
 	return volumeJob{Env: "dev", ProviderName: "aws", Region: "ap-southeast-1", ClusterNames: []string{"adhar"},
-		ClusterMode: pfactory.ClusterModeCompute, ClusterDeleted: true}
+		ClusterMode: pfactory.ClusterModeCompute, ClusterDeleted: true, DeletedName: "adhar"}
 }
 
 // recordInstall writes the CLI's record of a cluster, as `adhar up` does.

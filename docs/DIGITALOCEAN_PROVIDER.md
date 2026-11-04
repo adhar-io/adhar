@@ -974,7 +974,11 @@ adhar down -f config.yaml --env dev --keep-volumes   # keep the volumes and thei
 ```
 
 `adhar down` prompts before it destroys anything, and again over the exact list
-of volumes; `--yes` (or `--force`) skips both. Omitting `--env` tears down
+of volumes; `--yes` (or `--force`) skips both — except for volumes kept on
+purpose earlier and volumes of a cluster adhar never saw deleted (still recorded
+as running on this machine, but no longer listed by DigitalOcean, whose cluster
+listing answers without an error when its droplet half failed): those need a
+confirmation typed at a terminal. Omitting `--env` tears down
 **every** environment in the file. `adhar cluster delete dev --force -f
 config.yaml` still deletes the cluster's volumes together with the droplets,
 without listing them.

@@ -203,6 +203,15 @@ func TestAClusterWithoutAnInstallIDOwnsNoVolumesByName(t *testing.T) {
 	if err != nil || len(got) != 0 {
 		t.Fatalf("ClusterVolumes without an install id = %v, %v; want nothing", got, err)
 	}
+	// The early return is the guard, not the filter: with an EMPTY id the tag
+	// re-check (`tag value == ""`) holds for every volume WITHOUT the tag, so a
+	// filter that lets everything through would hand the volume step every
+	// untagged volume in the region.
+	p := &Provider{config: &Config{Region: "ap-southeast-1"}, volumeAPI: sloppyFilterEC2{f}}
+	got, err = p.ClusterVolumes(context.Background(), provider.VolumeOwner{ClusterName: "adhar"})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("ClusterVolumes without an install id, behind a filter that does not filter = %v, %v; want nothing", got, err)
+	}
 }
 
 // Legacy volumes are offered only when nothing in the region could own them.

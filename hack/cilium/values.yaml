@@ -1463,12 +1463,25 @@ hubble:
   # -- Buffer size of the channel Hubble uses to receive monitor events. If this
   # value is not set, the queue size is set to the default monitor queue size.
   # eventQueueSize: ""
+  # Adhar: 16384 (not the nproc*1024 default, i.e. 2-4k on the 2-4 vCPU
+  # droplets) so bursts from the L7 visibility policy are not dropped between
+  # the monitor and Hubble (LostEvent OBSERVER_EVENTS_QUEUE). It holds pointers
+  # to in-flight events only: a few MiB at most per agent.
+  eventQueueSize: "16384"
 
   # -- Number of recent flows for Hubble to cache. Defaults to 4095.
   # Possible values are:
   #   1, 3, 7, 15, 31, 63, 127, 255, 511, 1023,
   #   2047, 4095, 8191, 16383, 32767, 65535
   # eventBufferCapacity: "4095"
+  # Adhar: 65535 (16x the default). With 4095 the ring overflowed under normal
+  # load — the console's live Service map reported ~900 lost events per window
+  # (LostEvent HUBBLE_RING_BUFFER: a follower that lags more than the ring's
+  # depth loses the overwritten flows). Memory: the ring keeps the decoded flows
+  # alive, ~0.5-1.5 KiB each, so a full ring is roughly 32-96 MiB extra RSS per
+  # cilium-agent (the agent has no memory limit). Drop to 32767/16383 on very
+  # small nodes.
+  eventBufferCapacity: "65535"
 
   # -- The interval at which Hubble will send out lost events from the Observer server, if any.
   # lostEventSendInterval: 1s
@@ -1496,13 +1509,24 @@ hubble:
     #
     #   --set hubble.metrics.enabled="{dns:query;ignoreAAAA,drop,tcp,flow,icmp,http}"
     #
+    # Adhar: `httpV2` (not `http`) with per-edge workload context, so Prometheus
+    # has `hubble_http_requests_total{source_namespace,source_workload,
+    # destination_namespace,destination_workload,method,protocol,status,reporter}`
+    # and `hubble_http_request_duration_seconds` — the console Service map's
+    # 1-minute fallback tier and golden signals read exactly these labels.
+    # httpV2 replaces `http` (both register the same metric names); it has no
+    # hubble_http_responses_total — the status is a label on requests_total.
+    # CARDINALITY: one series per (client workload, server workload, method,
+    # status, reporter) per node, x ~12 histogram buckets for the duration. With
+    # L7 visibility limited to app namespaces this is bounded by the number of
+    # real app-to-app edges; pod names / IPs are deliberately NOT in the context.
     enabled:
       - dns:query;ignoreAAAA
       - drop
       - tcp
       - flow
       - icmp
-      - http
+      - httpV2:labelsContext=source_namespace,source_workload,destination_namespace,destination_workload
     # -- Enables exporting hubble metrics in OpenMetrics format.
     enableOpenMetrics: true
     # -- Configure the port the hubble metric server listens on.
@@ -2826,7 +2850,11 @@ envoy:
   # -- Maximum number of global downstream connections
   maxGlobalDownstreamConnections: 50000
   # -- Maximum number of retries for each HTTP request
-  httpRetryCount: 3
+  # Adhar: 0. The policy L7 proxy (used for the app L7 visibility policy in the
+  # hubble package) must be transparent: with 3 retries on 5xx a failing
+  # non-idempotent request would be replayed up to 3 times. Gateway API routes
+  # are unaffected (their retries come from the HTTPRoute).
+  httpRetryCount: 0
   # -- ProxyMaxRequestsPerConnection specifies the max_requests_per_connection setting for Envoy
   maxRequestsPerConnection: 0
   # -- Set Envoy HTTP option max_connection_duration seconds. Default 0 (disable)
@@ -2836,7 +2864,9 @@ envoy:
   idleTimeoutDurationSeconds: 60
   # -- Set Envoy the amount of time that the connection manager will allow a stream to exist with no upstream or downstream activity.
   # default 5 minutes
-  streamIdleTimeoutDurationSeconds: 300
+  # Adhar: 1 hour, so idle websockets / SSE / gRPC streams of proxied app traffic
+  # (L7 visibility policy) are not cut after 5 minutes of silence.
+  streamIdleTimeoutDurationSeconds: 3600
   # -- Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the ingress L7 policy enforcement Envoy listeners.
   xffNumTrustedHopsL7PolicyIngress: 0
   # -- Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the egress L7 policy enforcement Envoy listeners.

@@ -142,14 +142,16 @@ func TestOrTakesTheDefaultOnlyWhenTheParameterIsMissing(t *testing.T) {
 // the attribute and `<` opens a tag — so an unescaped description is not a
 // cosmetic problem, it is a different HTML document. Before this filter
 // existed the CLI refused the expression outright and could not scaffold
-// either SPA template.
+// either SPA template. The quote is the Console's &quot; (escapeHtml in
+// template-render.ts), not html.EscapeString's &#34;, so both tools write the
+// same index.html.
 func TestEscapeFilterHTMLEscapesForAttributes(t *testing.T) {
 	ctx := map[string]any{"values": map[string]any{"description": `Tom's "fast" <app> & more`}}
 	got, err := evalExpression("values.description | escape", ctx)
 	if err != nil {
 		t.Fatalf("escape returned an error: %v", err)
 	}
-	want := "Tom&#39;s &#34;fast&#34; &lt;app&gt; &amp; more"
+	want := "Tom&#39;s &quot;fast&quot; &lt;app&gt; &amp; more"
 	if stringify(got) != want {
 		t.Errorf("escape rendered %q, want %q", stringify(got), want)
 	}

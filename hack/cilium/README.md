@@ -61,6 +61,23 @@ hubble:
     replicas: 1
 ```
 
+Adhar overrides in `values.yaml` (see the comments there and
+`platform/stack/packages/observability/hubble/README.md`):
+
+- `hubble.eventBufferCapacity: "65535"`, `hubble.eventQueueSize: "16384"`:
+  stop the flow ring overflowing (lost events in the console Service map).
+  Costs roughly 32-96 MiB more RSS per agent when the ring is full.
+- `hubble.metrics.enabled`: `httpV2:labelsContext=source_namespace,source_workload,destination_namespace,destination_workload`
+  in place of `http`, for per-edge HTTP metrics in Prometheus.
+- `envoy.httpRetryCount: 0`, `envoy.streamIdleTimeoutDurationSeconds: 3600`:
+  keep the policy L7 proxy transparent for the app L7 visibility policy.
+
+After changing `values.yaml`, run `generate-manifests.sh`, or hand-apply the
+same rendered diff to `install.yaml`, which carries a few hand edits. Then run
+`adhar upgrade --yes` and restart the agents once
+(`kubectl -n adhar-system rollout restart ds/cilium`). Hubble options are read
+only at start-up.
+
 ### 🎯 **Operator Configuration**
 ```yaml
 operator:

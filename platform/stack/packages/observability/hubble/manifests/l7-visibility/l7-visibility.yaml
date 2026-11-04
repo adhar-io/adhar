@@ -1,0 +1,111 @@
+# L7 (HTTP / gRPC / DNS) VISIBILITY for application workloads — observe only,
+# never enforce. Wired as its own ApplicationSet element, `hubble-l7-visibility`,
+# so it can be switched off without touching the rest of the hubble package.
+#
+# WHY: without an L7 policy Cilium only sees L3/L4, so Hubble flows for team
+# apps carry no method / path / status / latency. The console's Service map then
+# has edges but no req/s, error rate or p95, and the `hubble_http_*` metrics
+# (httpV2, see hack/cilium/values.yaml) stay empty except for Gateway traffic,
+# whose own Envoy already produces L7 records. Redirecting app traffic through
+# Cilium's L7 proxy is the only way Hubble gets those fields.
+#
+# WHY THIS CANNOT BLOCK ANYTHING:
+#   * `enableDefaultDeny: {ingress: false, egress: false}` (Cilium >= 1.15; the
+#     1.20 CRD documents it, and `enable-non-default-deny-policies: "true"` is
+#     set in cilium-config). Without it, ANY policy with egress rules puts the
+#     selected pods into egress default-deny and every port not listed here
+#     would be dropped.
+#   * EGRESS ONLY. An ingress rule `toPorts: 8080` with no peer would ALLOW every
+#     identity in the cluster to reach 8080, quietly widening the environment's
+#     ingress default-deny NetworkPolicy (env composition: same-namespace +
+#     adhar-system + Gateway only) into "anyone, on 8080". Egress in app
+#     namespaces is not restricted by any platform policy, so an egress allow
+#     adds nothing that was not already allowed. The L7 record is taken at the
+#     CLIENT's egress proxy: app->app, app->external HTTP and DNS are all seen;
+#     Gateway->app is already L7 from the Gateway's Envoy.
+#     CAVEAT: Cilium policies are additive. If an EGRESS default-deny is ever
+#     introduced for app namespaces (docs/PRODUCTION.md checklist), these rules
+#     would allow the listed ports to any destination for the selected pods;
+#     at that point give them `toEndpoints`/`toEntities` matching that policy,
+#     or switch this element off.
+#   * Every L7 rule is allow-all (`http: [{}]`, `dns: [{matchPattern: "*"}]`).
+#     Envoy re-originates the connection with the original source identity
+#     (`proxy-use-original-source-address`), so the DESTINATION's ingress policy
+#     still decides exactly as before.
+#
+# SCOPE: pods in namespaces labelled `adhar.io/plane` = `workload` (Environment,
+# Project, Organisation compositions and `adhar up production`) or `preview`
+# (adhar-preview-environments). adhar-system is `adhar.io/plane: control` and
+# kube-system has no plane label, so the platform's own traffic is never
+# proxied. An environment opts out with the namespace label
+# `adhar.io/l7-visibility: disabled` — set it through the Environment XR,
+# `spec.parameters.labels: {adhar.io/l7-visibility: disabled}`, not with
+# kubectl (provider-kubernetes owns the Namespace object).
+#
+# PORTS: L7 parsing needs explicit ports (no ranges with L7 rules). Only ports
+# that are HTTP by overwhelming convention, and that the Adhar app templates use,
+# are listed. The proxy assumes the port speaks plaintext HTTP/1.1 or h2c: TLS or
+# a non-HTTP protocol on one of these ports would be rejected by Envoy's HTTP
+# parser — opt that environment out (or remove the port) if a workload does that.
+# Data services composed beside apps (Postgres 5432, Valkey 6379, Kafka 9092,
+# RabbitMQ 5672, MongoDB 27017, Dapr 50001/50002 mTLS) are deliberately absent.
+# With kube-proxy replacement the egress port is the BACKEND (targetPort) port,
+# so a Service on :80 in front of a pod on :8080 is matched on 8080.
+#
+# COST (why it is switchable): every matched request takes a detour through the
+# node's cilium-envoy — typically sub-millisecond to ~1-2 ms added p50, more at
+# the tail under load, plus Envoy CPU/memory proportional to request rate, and
+# every app DNS lookup goes through the agent's DNS proxy (a cilium-agent restart
+# briefly delays lookups for these pods). Hubble also emits ~2 extra events per
+# request (request + response), which is why hubble-event-buffer-capacity was
+# raised alongside this. Behaviour notes: a request to a destination that the
+# destination's policy denies now fails as an HTTP 503 from Envoy instead of a
+# TCP timeout; Envoy's automatic retries are turned off (envoy.httpRetryCount=0
+# in hack/cilium/values.yaml) so a failing POST is never replayed; the stream
+# idle timeout is raised to 1h so idle websockets/SSE are not cut at 5 min.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: adhar-app-l7-visibility
+  labels:
+    app.kubernetes.io/name: hubble-l7-visibility
+    app.kubernetes.io/part-of: cilium
+    adhar.io/component: observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  description: "Adhar: L7 visibility (observe-only) for application namespaces; never denies traffic."
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.cilium.k8s.namespace.labels.adhar.io/plane
+        operator: In
+        values: [workload, preview]
+      - key: k8s:io.cilium.k8s.namespace.labels.adhar.io/l7-visibility
+        operator: NotIn
+        values: [disabled]
+  # Never put the selected pods into default-deny (see header).
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egress:
+    # DNS: names for external destinations on the map (and DNS errors).
+    - toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # HTTP/1.1, h2c and gRPC (gRPC is HTTP/2; Envoy's auto codec parses both).
+    - toPorts:
+        - ports:
+            - {port: "80", protocol: TCP}
+            - {port: "3000", protocol: TCP}
+            - {port: "5000", protocol: TCP}
+            - {port: "8000", protocol: TCP}
+            - {port: "8080", protocol: TCP}
+            - {port: "8081", protocol: TCP}
+            - {port: "50051", protocol: TCP}
+          rules:
+            http:
+              - {}

@@ -205,7 +205,10 @@ to its CSI driver in the cloud's own vocabulary:
    cluster reports that cannot be written down stops THAT cluster's deletion.
 2. `DeleteCluster` runs with the cluster's volumes left alone (every provider
    honours `keepClusterVolumes`; Azure keeps an Adhar-created resource group
-   that still holds CSI disks until they are dealt with).
+   that still holds CSI disks until they are dealt with). The moment it
+   succeeds, the record says the cluster was **seen deleted** — before the
+   volume step, so a teardown cut short there (a crash, a Ctrl+C) is finished
+   by a re-run under `--yes`.
 3. Once the instances are gone (so the volumes detach) it lists every volume
    carrying the id — VOLUME, SIZE, PVC, CREATED, STATE, INSTALL, never
    shortened — and asks. `--yes`/`--force` skips the question;
@@ -224,6 +227,24 @@ marked so in the record, and a later `adhar down --yes` (a script, or the
 teardown of the next cluster of the same name) does not delete them; only a
 confirmation typed at a terminal does. A volume left by a deletion that FAILED
 is not a choice, and the next `--yes` finishes it.
+
+**"Not found" is one listing call, and it is treated as such.** Several
+providers' listings answer without an error when half of them failed —
+DigitalOcean and Civo log a failed droplet/instance listing and return the
+managed clusters alone, AWS does the same for a failed EKS listing, Azure keeps
+a partial discovery, GCP lists from local state. So:
+
+- When the lookup of ANY of an environment's candidate names could not be
+  completed, the environment is a failure, never "already gone" (the loop used
+  to keep only the last candidate's answer, so a 503 for `adhar` followed by a
+  clean "no `dev`" read as gone).
+- A cluster this machine still records as **running** that the provider no
+  longer lists — deleted outside adhar, or a lookup that missed it — is never
+  acted on by `--yes`. Its volumes are listed; none is offered while any of
+  them is still attached (the strongest sign the cluster runs); otherwise only a
+  confirmation typed at a terminal deletes them; and its record is left exactly
+  as it was unless a person confirms. Marking it deleted would let the next
+  `--yes` act on the same single listing.
 
 **Volumes from before install ids** are offered only when the provider can
 prove nothing that could own them is left, and only after a confirmation typed

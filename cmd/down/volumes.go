@@ -76,6 +76,10 @@ type volumeJob struct {
 	// ClusterDeleted is true when this run deleted the cluster, false when it
 	// was already gone.
 	ClusterDeleted bool
+	// DeletedName is the name of the cluster this run deleted (when
+	// ClusterDeleted): the one cluster whose records may still read "running"
+	// and be acted on without a terminal — this run SAW it deleted.
+	DeletedName string
 	// ProvidedNeighbours are the environments in the same file whose cluster is
 	// PROVIDED and may run where this one did (providedNeighbours). Their
 	// volumes carry no install id, so while one exists an untagged volume here
@@ -200,7 +204,7 @@ func mergeVolumeJobs(jobs []volumeJob) []volumeJob {
 			}
 		}
 		if j.ClusterDeleted && !m.ClusterDeleted {
-			m.ClusterDeleted, m.Provider, m.ProviderClusterID = true, j.Provider, j.ProviderClusterID
+			m.ClusterDeleted, m.Provider, m.ProviderClusterID, m.DeletedName = true, j.Provider, j.ProviderClusterID, j.DeletedName
 		}
 		if !pfactory.ClusterLifecycleIsOurs(j.ClusterMode) {
 			m.ClusterMode = j.ClusterMode
@@ -227,6 +231,34 @@ func containsString(list []string, s string) bool {
 type tracked struct {
 	rec       pfactory.ClusterInstall
 	persisted bool
+	// unconfirmed is a record this machine still marks as RUNNING, for a
+	// cluster this run did not delete: the only evidence that it is gone is
+	// one listing call that did not name it. See unconfirmedGone.
+	unconfirmed bool
+	// confirmedGone is set when a person, at a terminal, confirmed deleting an
+	// unconfirmed record's volumes — and with that, that its cluster is gone.
+	confirmedGone bool
+}
+
+// unconfirmedGone reports whether a record describes a cluster the CLI still
+// records as running while the job's cluster was not deleted by this run.
+//
+// "Not found" is only as good as the provider's listing, and several listings
+// answer without an error when part of them failed — DigitalOcean and Civo
+// log a failed droplet/instance listing and carry on with the managed half;
+// AWS does the same for a failed EKS listing; Azure keeps a partial discovery
+// when local state answered; GCP lists from local state. Read as "already
+// gone", that sent a RUNNING cluster's volumes, by its install id, into a
+// step that deletes the detached ones under --yes. So the install id still
+// proves whose they are, but not that their cluster is gone: they are listed,
+// never offered while any of them is attached, and deleted only after a
+// confirmation typed at a terminal — and the record is left exactly as it was
+// unless a person confirms.
+func unconfirmedGone(j volumeJob, r pfactory.ClusterInstall) bool {
+	if !r.Active() {
+		return false // the CLI itself recorded the cluster as gone
+	}
+	return !(j.ClusterDeleted && r.ClusterName == j.DeletedName)
 }
 
 func (s *volumeStep) runJob(j volumeJob) bool {
@@ -256,23 +288,29 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			return false
 		}
 		for _, r := range recs {
-			records = append(records, tracked{rec: r, persisted: true})
+			records = append(records, tracked{rec: r, persisted: true, unconfirmed: unconfirmedGone(j, r)})
 		}
 	}
 	if pfactory.IsCloudClusterUUID(j.ProviderClusterID) && !hasCloudRecord(records, j.ProviderClusterID) {
+		// Only a job whose cluster this run deleted carries the cluster's cloud
+		// id, so this record is the deleted cluster's: never unconfirmed.
 		records = append(records, tracked{rec: pfactory.ClusterInstall{
 			ProviderClusterID: j.ProviderClusterID, Provider: j.ProviderName, Region: j.Region,
 			ClusterName: name, CreatedAt: s.now().UTC(),
-		}})
+		}, unconfirmed: !j.ClusterDeleted})
 	}
 
 	// 1. What carries this cluster's attribution. Volumes a previous teardown
 	// kept ON PURPOSE (--keep-volumes, or a "no") are set apart: a blanket --yes
-	// must not undo a choice somebody made about their data.
-	var attributed, keptEarlier []pfactory.BlockVolume
+	// must not undo a choice somebody made about their data. So are the volumes
+	// of a cluster this machine still records as running that this run did not
+	// delete (unconfirmedGone): an install id proves whose they are, not that
+	// their cluster is gone.
+	var attributed, keptEarlier, unconfirmed []pfactory.BlockVolume
 	seen := map[string]bool{}
 	installOf := map[string]string{}
-	for _, t := range records {
+	recordOf := map[string]int{}
+	for i, t := range records {
 		vols, err := mgr.ClusterVolumes(s.ctx, t.rec.Owner())
 		if err != nil {
 			s.printf("\n%s Could not list the volumes of %s (%s): %v\n", helpers.IconFailed, name, ownerLabel(t.rec), err)
@@ -285,15 +323,20 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			}
 			seen[v.ID] = true
 			installOf[v.ID] = recordLabel(t.rec)
-			if t.rec.KeptByChoice {
+			recordOf[v.ID] = i
+			switch {
+			case t.rec.KeptByChoice:
 				keptEarlier = append(keptEarlier, v)
-			} else {
+			case t.unconfirmed:
+				unconfirmed = append(unconfirmed, v)
+			default:
 				attributed = append(attributed, v)
 			}
 		}
 	}
 	pfactory.SortVolumes(attributed)
 	pfactory.SortVolumes(keptEarlier)
+	pfactory.SortVolumes(unconfirmed)
 
 	// 2. What is provably this cluster's from before attribution existed.
 	ok := true
@@ -321,7 +364,7 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 		}
 	}
 
-	if len(attributed) == 0 && len(keptEarlier) == 0 && len(legacyVols) == 0 {
+	if len(attributed) == 0 && len(keptEarlier) == 0 && len(unconfirmed) == 0 && len(legacyVols) == 0 {
 		s.printf("\n%s No block volumes left by %s in %s.\n", helpers.IconReady, name, where)
 		s.noteUnprovable(legacy)
 		return s.settle(mgr, j, records, nil, nil) && ok
@@ -334,7 +377,11 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 	// (stdin closed: a script that passed neither --yes nor --keep-volumes).
 	// Nobody consented, so they are kept — but nobody chose to keep them either,
 	// so they are not marked kept-on-purpose and a later --yes finishes the job.
-	var approved, keptByChoice, unanswered []pfactory.BlockVolume
+	//
+	// heldBack are volumes of a cluster not seen deleted (unconfirmedGone) that
+	// were not deleted: their record is left exactly as it was, so they are
+	// neither a choice to keep nor an unfinished deletion.
+	var approved, keptByChoice, unanswered, heldBack []pfactory.BlockVolume
 	keepReason := map[string]string{}
 	if len(attributed) > 0 {
 		s.printf("\n%s left %d block volume(s), %d GiB, tagged with its install id:\n\n", name, len(attributed), pfactory.TotalGiB(attributed))
@@ -392,6 +439,52 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			}
 		}
 	}
+	if len(unconfirmed) > 0 {
+		s.printf("\n%d volume(s), %d GiB, carry the install id of a cluster %s that this machine still records as RUNNING,\n"+
+			"and %s did not list it — it was deleted outside adhar, or the lookup missed it:\n\n",
+			len(unconfirmed), pfactory.TotalGiB(unconfirmed), name, where)
+		fmt.Fprintln(s.out, volumeTable(unconfirmed, installOf))
+		var attached []string
+		for _, v := range unconfirmed {
+			if v.Attached() {
+				attached = append(attached, v.Label())
+			}
+		}
+		switch {
+		case s.keep:
+			for _, v := range unconfirmed {
+				keepReason[v.ID] = "kept (--keep-volumes)"
+			}
+		case len(attached) > 0:
+			// Something still uses them: the strongest sign there is that the
+			// cluster is running and the lookup missed it.
+			s.printf("%s %s still attached, so that cluster may well be running: none of these is offered.\n",
+				strings.Join(attached, ", "), pluralVerb(len(attached), "is", "are"))
+			for _, v := range unconfirmed {
+				keepReason[v.ID] = "kept (a volume of the same install is attached: its cluster may be running)"
+			}
+		case legacyNeedsATerminal(s.assumeYes, s.interactive):
+			s.printf("Nothing but one listing says that cluster is gone, so --yes / --force does not delete these;\n" +
+				"only a confirmation typed at a terminal does.\n")
+			for _, v := range unconfirmed {
+				keepReason[v.ID] = "kept (its cluster was not seen deleted; confirm at a terminal to delete)"
+			}
+		case s.ask(fmt.Sprintf("Is %s really gone? Delete these %d volume(s)? Their data cannot be recovered.", name, len(unconfirmed))) == answerYes:
+			approved = append(approved, unconfirmed...)
+			for _, v := range unconfirmed {
+				records[recordOf[v.ID]].confirmedGone = true
+			}
+		default:
+			for _, v := range unconfirmed {
+				keepReason[v.ID] = "kept (not confirmed)"
+			}
+		}
+		for _, v := range unconfirmed {
+			if _, kept := keepReason[v.ID]; kept {
+				heldBack = append(heldBack, v)
+			}
+		}
+	}
 	if len(legacyVols) > 0 {
 		s.printf("\n%d volume(s), %d GiB, from before clusters were tagged with an install id — %s:\n\n",
 			len(legacyVols), pfactory.TotalGiB(legacyVols), legacy.Reason)
@@ -429,7 +522,7 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 		s.printf("\nDeleting %d volume(s) — waiting for each to detach, then reading it back until it is gone…\n", len(approved))
 		res = pfactory.ReapVolumes(s.ctx, mgr, approved, opts)
 	}
-	kept := append(append([]pfactory.BlockVolume{}, keptByChoice...), unanswered...)
+	kept := append(append(append([]pfactory.BlockVolume{}, keptByChoice...), unanswered...), heldBack...)
 	s.report(res, kept, keepReason)
 	if len(res.Failed) > 0 || len(res.StillAttached) > 0 {
 		ok = false
@@ -549,6 +642,15 @@ func (s *volumeStep) settle(mgr pfactory.ClusterVolumeManager, j volumeJob, reco
 	ok := true
 	fin, hasFinalizer := mgr.(pfactory.ClusterVolumeFinalizer)
 	for _, t := range records {
+		if t.unconfirmed && !t.confirmedGone {
+			// A cluster this machine still records as running, and nobody has
+			// said otherwise: not marked deleted, not forgotten, no finalizer.
+			// Marking it deleted would let the next `--yes` delete its volumes
+			// on the strength of the same single listing.
+			s.printf("  %s is still recorded as running on this machine (%s); %s did not list it, so its record is left as it is.\n",
+				t.rec.ClusterName, ownerLabel(t.rec), strings.TrimSpace(j.ProviderName+" "+j.Region))
+			continue
+		}
 		left, err := mgr.ClusterVolumes(s.ctx, t.rec.Owner())
 		if err != nil {
 			s.printf("%s Could not confirm what is left of %s (%v); its record is kept.\n", helpers.IconFailed, ownerLabel(t.rec), err)
