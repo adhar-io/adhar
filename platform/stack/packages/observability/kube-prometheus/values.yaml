@@ -2632,7 +2632,7 @@ kube-state-metrics:
   metricLabelsAllowlist:
     - jobs=[adhar.io/batch-job,adhar.io/application,adhar.io/environment]
     - pods=[adhar.io/batch-job,adhar.io/application,adhar.io/environment]
-    - cronjobs=[adhar.io/batch-job]
+    - cronjobs=[adhar.io/batch-job,adhar.io/application]
 
   ## Enable scraping via kubernetes-service-endpoints
   ## Disabled by default as we service monitor is enabled below

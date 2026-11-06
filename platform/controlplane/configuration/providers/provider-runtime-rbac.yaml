@@ -243,6 +243,13 @@ rules:
     resources: ["clusterroles"]
     resourceNames: ["adhar-kargo-verification-jobs"]
     verbs: ["bind"]
+  # An Environment in prod binds its team to the batch operator role (core/adhar-batch,
+  # design 0025 §10.2). The provider holds none of it, so the same refusal would leave
+  # the team able to see its jobs and unable to run them. Pinned by name again.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["adhar-batch-operator"]
+    verbs: ["bind"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["roles"]
     resourceNames: ["adhar-resilience-gate"]

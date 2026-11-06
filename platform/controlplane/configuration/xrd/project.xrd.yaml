@@ -60,6 +60,15 @@ spec:
                     default: dev
                     description: Guardrail tier of the project HOME namespace (the Kargo project namespace). Environment
                       tiers are set per entry of `environments`.
+                  batchOperations:
+                    type: string
+                    enum:
+                    - team
+                    - none
+                    default: team
+                    description: 'Whether the team may operate its deployed BatchJobs in prod, where its access is
+                      `view`: run, stop, restart and hold. It changes no definition, and it can only ever run
+                      what is deployed (core/adhar-batch). `none` leaves it to the organisation''s admins.'
                   cpuQuota:
                     type: string
                     default: '16'

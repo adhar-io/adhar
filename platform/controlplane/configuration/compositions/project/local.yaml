@@ -85,6 +85,10 @@ spec:
                    strict — needs no new field. Their environment checks are Knative's
                    (the analysis below). */ -}}
             {{- $functions := dict -}}
+            {{- /* The same for batch applications (type `batch`, or the label adhar.io/workload:
+                   batch; design 0025 §6.6). A completed run pod reports Ready=False/PodCompleted,
+                   so the pod and Rollout checks would fail every one of them. */ -}}
+            {{- $batches := dict -}}
             {{- range (default (list) (getExtraResources . "applications")) -}}
             {{-   $a := default (dict) .resource -}}
             {{-   $am := default (dict) (get $a "metadata") -}}
@@ -95,6 +99,9 @@ spec:
             {{-     $_ := set $apps (get $am "name") $d -}}
             {{-     if or (eq (toString (dig "spec" "parameters" "type" "" $a)) "function") (eq (toString (dig "metadata" "labels" "adhar.io/workload" "" $a)) "function") -}}
             {{-       $_ := set $functions (get $am "name") true -}}
+            {{-     end -}}
+            {{-     if or (eq (toString (dig "spec" "parameters" "type" "" $a)) "batch") (eq (toString (dig "metadata" "labels" "adhar.io/workload" "" $a)) "batch") -}}
+            {{-       $_ := set $batches (get $am "name") true -}}
             {{-     end -}}
             {{-   end -}}
             {{- end -}}
@@ -292,6 +299,7 @@ spec:
                 team: {{ $team }}
                 project: {{ $name }}
                 access: {{ .access }}
+                batchOperations: {{ dig "batchOperations" "team" $p }}
                 cpuQuota: {{ .cpu | quote }}
                 memoryQuota: {{ .mem }}
                 podQuota: {{ .pods }}
@@ -713,7 +721,55 @@ spec:
                              it — never on a release that is merely in progress. */ -}}
                       {{- $vs := int (default 480 (get $v "settleSeconds")) -}}
                       {{- $pods := printf "%s-[a-z0-9]+-[a-z0-9]+" $app }}
-                      {{- if get $functions $app }}
+                      {{- if get $batches $app }}
+                      {{- /* A BATCH application (design 0025 §6.6). It may legitimately run nothing
+                             during verification, so each check passes on silence and fails only on
+                             evidence, as for a function scaled to zero. A run is found by the label
+                             the BatchJob composition stamps on it, through kube-state-metrics'
+                             allowlist, never by its name: an application may own several BatchJobs.
+                             The window is the settle window, so a run that failed shortly before
+                             this promotion can read as inside it; a night's failure cannot. */ -}}
+                      {{- $batchArgoApp := printf "%s-%s-%s" $name $app $en }}
+                      {{- $batchRuns := printf "kube_job_labels{namespace=\"%s\",label_adhar_io_application=\"%s\"}" $ens $app }}
+                      {{- $batchPods := printf "kube_pod_labels{namespace=\"%s\",label_adhar_io_application=\"%s\"}" $ens $app }}
+                      # The BatchJob's own verdict: Argo CD's health check reads its
+                      # Synced and PrerequisitesReady conditions, and a job on hold or a run
+                      # that failed is still Healthy. Degraded fails now; anything but
+                      # Healthy for the whole settle window fails too.
+                      - name: {{ quote (printf "%s-batchjob-healthy" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (printf "(count(argocd_app_info{name=\"%s\",health_status=\"Degraded\"} == 1) or vector(0)) + min_over_time(((count(argocd_app_info{name=\"%s\",health_status!=\"Healthy\"} == 1)) or vector(0))[%ds:30s])" $batchArgoApp $batchArgoApp $vs) }}
+                      # A run of this application that started during verification and failed.
+                      - name: {{ quote (printf "%s-runs-not-failing" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (printf "count((kube_job_failed{namespace=\"%s\",condition=\"true\"} == 1) and on(namespace, job_name) %s and on(namespace, job_name) ((time() - kube_job_created{namespace=\"%s\"}) < %d)) or vector(0)" $ens $batchRuns $ens $vs) }}
+                      # A run pod killed for memory. restartPolicy is Never, so the kill is the
+                      # container's CURRENT state: last_terminated_reason alone never fires.
+                      - name: {{ quote (printf "%s-no-oom" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: result[0] < 1
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (printf "count((max by (namespace, pod) (kube_pod_container_status_terminated_reason{namespace=\"%s\",reason=\"OOMKilled\"} == 1 or kube_pod_container_status_last_terminated_reason{namespace=\"%s\",reason=\"OOMKilled\"} == 1)) and on(namespace, pod) %s and on(namespace, pod) ((time() - kube_pod_created{namespace=\"%s\"}) < %d)) or vector(0)" $ens $ens $batchPods $ens $vs) }}
+                      {{- else if get $functions $app }}
                       {{- /* A FUNCTION (Knative). It has no Rollout, so rollout_info says
                              nothing, and its pods are revisions named
                              <app>-<5-digit generation>-deployment-<rs>-<pod>, which the
@@ -830,7 +886,9 @@ spec:
                              Knative Service has neither — so every function would be held in
                              test for ever. Its checks above are its gate until the runner
                              learns Knative workloads. */ -}}
-                      {{- if and (eq $tier "test") (not (get $functions $app)) }}
+                      {{- /* Nor for a batch application, which has neither either (design 0025 §6.6).
+                             Its resilience check is the chaos restart test (Phase 3). */ -}}
+                      {{- if and (eq $tier "test") (not (get $functions $app)) (not (get $batches $app)) }}
                       # THE PROMOTION GATE. In the environment before prod, a build
                       # is verified only once the application's own load test and
                       # chaos suite pass against it here: this Job starts the

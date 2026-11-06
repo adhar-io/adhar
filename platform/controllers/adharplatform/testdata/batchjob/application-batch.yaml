@@ -1,0 +1,24 @@
+# A batch application as the console creates one from springboot-batch-job. Its
+# repository's deploy/envs/<env> overlays hold BatchJob XRs. The label is what a
+# scaffolder stamps; a dashboard.type naming another template still reads batch-jvm.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata:
+  name: importer
+  namespace: adhar-system
+  labels:
+    adhar.io/workload: batch
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: apps
+        topology: multi-env
+  parameters:
+    type: batch
+    project: adhar
+    displayName: importer
+    source:
+      repoURL: https://gitea.cloud.example.com/adhar/importer.git
+      path: deploy
+      targetRevision: main

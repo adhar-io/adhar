@@ -67,10 +67,10 @@ COMPOSITION = os.path.join(ROOT, "platform", "controlplane", "configuration", "c
 BEGIN = "{{- /* BEGIN GENERATED APP DASHBOARD (hack/dashboards/build-app-dashboard.py) */ -}}"
 END = "{{- /* END GENERATED APP DASHBOARD */ -}}"
 
-TYPES = ("backend-jvm", "backend-generic", "frontend", "fullstack")
+TYPES = ("backend-jvm", "backend-generic", "frontend", "fullstack", "batch-jvm")
 # Go-template variable each type's JSON is bound to in the composition.
 TEMPLATE_VAR = {"backend-jvm": "$appDashBackendJvm", "backend-generic": "$appDashBackendGeneric",
-                "frontend": "$appDashFrontend", "fullstack": "$appDashFullstack"}
+                "frontend": "$appDashFrontend", "fullstack": "$appDashFullstack", "batch-jvm": "$appDashBatchJvm"}
 
 PROM = {"type": "prometheus", "uid": "prometheus"}
 MIMIR = {"type": "prometheus", "uid": "mimir"}
@@ -1271,7 +1271,7 @@ def logs_section(b, kind):
          "Error-level log lines per interval, per component and pod: one pod erroring alone points at that node or that "
          "pod's state; errors in db/cache/events point below the app.", ds=LOKI, decimals=0, draw="bars", stack=True, w=12,
          no_value="No error lines")
-    if kind == "backend-jvm":
+    if kind in ("backend-jvm", "batch-jvm"):
         b.table("Top Error Loggers", [(f'topk(10, sum by (logger) {logq(cnt, " | detected_level=~\"error|fatal|warn\" | json logger | __error__=\"\"", "$__range", sel=APP_ONLY)})', "Lines")],
                 "The classes logging the most warnings and errors (adhar-kit's JSON 'logger' field).", w=12, ds=LOKI,
                 rename={"logger": "Logger"}, sort=("Lines", True), no_value="No warnings or errors")
@@ -1314,9 +1314,149 @@ def traces_section(b, kind):
                  "Latest browser traces containing an error span.", w=12, no_value="No browser trace with an error")
 
 
+# ---------------------------------------------------------------- batch-jvm
+# A run pod lives minutes and is never scraped, so everything from inside the JVM
+# arrives by OTLP push into Mimir (design 0025 §5.13, §11.1), keyed by the resource
+# attributes the BatchJob composition sets. Everything about the run ITSELF comes
+# from kube-state-metrics, joined on the labels its allowlist exports, so those
+# panels work in the local profile, where there is no Alloy and no Mimir.
+BATCH_OTLP = 'adhar_application="__APP__",k8s_namespace_name=~"$env|",k8s_pod_name=~"$pod|"'
+NO_BATCH_OTLP = ("No metrics yet: they arrive from the run by OTLP (production profile, kit runner). "
+                 "Nothing means no run in this range, or no Alloy in this profile")
+BATCH_JOBS = 'kube_job_labels{namespace="$env",label_adhar_io_application="__APP__"}'
+BATCH_PODS = 'kube_pod_labels{namespace="$env",label_adhar_io_application="__APP__"}'
+BATCH_RUN_LABELS = "label_adhar_io_batch_job"
+NO_RUNS = "No runs in this range"
+
+
+def batch_family(name, suffix):
+    """A Micrometer timer's OTLP name carries its base unit, which depends on the registry."""
+    return f'{{__name__=~"{name}_(seconds|milliseconds)_{suffix}",{BATCH_OTLP}}}'
+
+
+def batch_oomkilled():
+    return (f'count((max by (namespace, pod) (kube_pod_container_status_terminated_reason{{namespace="$env",reason="OOMKilled"}} == 1 '
+            f'or kube_pod_container_status_last_terminated_reason{{namespace="$env",reason="OOMKilled"}} == 1)) and on(namespace, pod) {BATCH_PODS}) or vector(0)')
+
+
+def overview_batch(b):
+    """Two rows of stats: what the runs did, then what they are made of."""
+    run_seconds = f'(kube_job_status_completion_time{{namespace="$env"}} - kube_job_status_start_time{{namespace="$env"}}) and on(namespace, job_name) {BATCH_JOBS}'
+    memory_limit = f'sum(kube_pod_container_resource_limits{{{SEL},{APP_CONTAINER},resource="memory"}})'
+    b.stat("Argo CD", argocd_code(), "Health and sync of the Argo CD Application __ARGO_APP__<env>: the definition, not its runs. "
+           "A run failing is an alert, never health.", mappings=ARGO_MAP, no_value="No Argo CD app", w=3)
+    b.stat("Runs Active", f'sum(kube_job_status_active{{namespace="$env"}} * on(namespace, job_name) group_left() {BATCH_JOBS}) or vector(0)',
+           "Runs of this application executing now.", th=steps((None, BLUE)), w=3)
+    b.stat("Runs Succeeded", f'count((max_over_time(kube_job_complete{{namespace="$env",condition="true"}}[$__range]) == 1) and on(namespace, job_name) max_over_time({BATCH_JOBS}[$__range])) or vector(0)',
+           "Runs that completed in the selected range. A run that found its work already done exits 0 and counts here.", th=steps((None, GREEN)), w=3)
+    b.stat("Runs Failed", f'count((max_over_time(kube_job_failed{{namespace="$env",condition="true"}}[$__range]) == 1) and on(namespace, job_name) max_over_time({BATCH_JOBS}[$__range])) or vector(0)',
+           "Runs that ended Failed in the selected range. The latest one failing raises BatchRunFailed.", th=steps((None, GREEN), (1, RED)), w=3)
+    b.stat("OOM Kills", batch_oomkilled(),
+           "Run pods killed for memory. A run pod is restartPolicy: Never, so this reads its current state as well as its last. "
+           "The run restarts from its last commit, and will be killed at the same place unless resources.memory grows.",
+           th=steps((None, GREEN), (1, RED)), w=3)
+    b.stat("Pods Pending", f'count((kube_pod_status_phase{{namespace="$env",phase="Pending"}} == 1) and on(namespace, pod) {BATCH_PODS}) or vector(0)',
+           "Run pods waiting to be placed. Batch never preempts, so this is capacity: read the scheduler's message on the pod.",
+           th=steps((None, GREEN), (1, AMBER)), w=3)
+    b.stat("Schedules Suspended", 'count((kube_cronjob_spec_suspend{namespace="$env"} == 1) and on(namespace, cronjob) kube_cronjob_labels{namespace="$env",label_adhar_io_application="__APP__"}) or vector(0)',
+           "Schedules that are held, suspended in Git, or waiting on a prerequisite. Dev suspends its schedule on purpose.",
+           th=steps((None, GREEN), (1, AMBER)), w=3)
+    b.stat("Since Last Success", 'time() - max(kube_cronjob_status_last_successful_time{namespace="$env"} and on(namespace, cronjob) kube_cronjob_labels{namespace="$env",label_adhar_io_application="__APP__"})',
+           "How long ago a scheduled run of this application last succeeded.", unit="s", no_value="No scheduled success",
+           th=steps((None, GREEN), (93600, AMBER), (172800, RED)), w=3)
+    b.stat("Longest Run", f'max({run_seconds})', "The longest run still on record. BatchRunTooLong fires past the job's sla.maxDuration.",
+           unit="s", no_value=NO_RUNS, th=steps((None, BLUE)), w=4)
+    b.stat("Last Commit Age", f'time() - max({{__name__=~"adhar_batch_last_commit.*",{BATCH_OTLP}}})',
+           "Seconds since a run of this application last committed a chunk. Climbing while a run is active = stuck, not slow.",
+           unit="s", ds=MIMIR, no_value="No run reporting", th=steps((None, GREEN), (900, AMBER), (3600, RED)), w=4)
+    b.stat("Items Read", f'round(sum(increase({batch_family("spring_batch_item_read", "count")}[$__range])))',
+           "Items read in the selected range, as Spring Batch counts them.", ds=MIMIR, no_value="No run reporting", th=steps((None, BLUE)), w=4)
+    b.stat("Dead-lettered", f'round(sum(increase({{__name__=~"adhar_batch_items_dead_lettered.*",{BATCH_OTLP}}}[$__range]))) or vector(0)',
+           "Items skipped into the dead-letter table in the selected range.", ds=MIMIR, th=steps((None, GREEN), (1, AMBER)), w=4)
+    b.stat("Memory / Limit", f'sum(container_memory_working_set_bytes{{{SEL},{APP_CONTAINER}}}) / {nonzero(memory_limit)}',
+           "Working set over the memory limit of the runs executing now. Near 100% = next OOM kill.", unit="percentunit", decimals=0,
+           th=steps((None, GREEN), (0.75, AMBER), (0.9, RED)), no_value="No run executing", w=4)
+    b.stat("Running Version", f'max by (version) (label_replace(kube_pod_container_info{{{SEL},container="batch"}}, "version", "$1", "image_spec", ".*(?:@sha256:|:)([0-9a-f]{{12}}).*"))',
+           "Image digest (first 12 hex) of the newest run's container; Kargo promotes by digest.", text_mode="name", legend="{{version}}",
+           no_value="—", w=4, th=steps((None, PURPLE)))
+
+
+def batch_runs_section(b):
+    b.row("Runs", collapsed=False)
+    b.ts("Runs by Outcome", [
+        (f'count((max_over_time(kube_job_complete{{namespace="$env",condition="true"}}[1d]) == 1) and on(namespace, job_name) max_over_time({BATCH_JOBS}[1d]))', "completed"),
+        (f'count((max_over_time(kube_job_failed{{namespace="$env",condition="true"}}[1d]) == 1) and on(namespace, job_name) max_over_time({BATCH_JOBS}[1d]))', "failed")],
+        "Runs finished in the trailing day, by outcome. Read from kube-state-metrics, so it also covers runs whose objects have since been deleted by their TTL or the history limit.",
+        decimals=0, no_value=NO_RUNS, overrides=[co("completed", GREEN), co("failed", RED)])
+    b.ts("Run Duration", [
+        (f'max by (job_name) (kube_job_status_completion_time{{namespace="$env"}} - kube_job_status_start_time{{namespace="$env"}}) * on(job_name) group_left() max by (job_name) ({BATCH_JOBS})', "{{job_name}}"),
+        (f'max by (job_name) (time() - kube_job_status_start_time{{namespace="$env"}}) * on(job_name) group_left() max by (job_name) (kube_job_status_active{{namespace="$env"}} > 0) * on(job_name) group_left() max by (job_name) ({BATCH_JOBS})', "{{job_name}} (running)")],
+        "How long each run took, or has taken so far. BatchRunTooLong fires past the job's sla.maxDuration.", unit="s", decimals=0, no_value=NO_RUNS, draw="points")
+    b.ts("Items Read / Written / Skipped", [
+        (f'sum(rate({batch_family("spring_batch_item_read", "count")}[{W}]))', "read"),
+        (f'sum(rate({batch_family("spring_batch_chunk_write", "count")}[{W}]))', "chunks written"),
+        (f'sum(rate({{__name__=~"adhar_batch_items_dead_lettered.*",{BATCH_OTLP}}}[{W}]))', "dead-lettered")],
+        "Spring Batch's own meters, per second. Throughput falling while a run is active is the first sign of a slow query or a growing table.",
+        unit="ops", decimals=2, ds=MIMIR, no_value=NO_BATCH_OTLP, overrides=[co("dead-lettered", RED)], w=8)
+    b.ts("Dead-lettered Items", [(f'sum by (job, step) (increase({{__name__=~"adhar_batch_items_dead_lettered.*",{BATCH_OTLP}}}[{W}]))', "{{job}} {{step}}")],
+         "Items skipped into the dead-letter table, per interval. Replay them with the kit's ops job.", decimals=0, draw="bars", ds=MIMIR, no_value="No dead-lettered items", w=8)
+    b.ts("Job and Step Time", [
+        (f'max by (spring_batch_job_name) ({batch_family("spring_batch_job", "max")})', "{{spring_batch_job_name}}"),
+        (f'max by (spring_batch_step_name) ({batch_family("spring_batch_step", "max")})', "step {{spring_batch_step_name}}")],
+        "The longest job and step execution Spring Batch recorded recently, in the unit its registry reports.", decimals=1, ds=MIMIR, no_value=NO_BATCH_OTLP, w=8)
+    b.table("Run Pods", [(f'max by (pod) (kube_pod_status_phase{{namespace="$env",phase="Pending"}} == 1 and on(namespace, pod) {BATCH_PODS})', "Pending"),
+                         (f'max by (pod) (kube_pod_status_phase{{namespace="$env",phase="Running"}} == 1 and on(namespace, pod) {BATCH_PODS})', "Running")],
+            "Run pods that are waiting or executing. A pod Pending for 15 minutes raises BatchRunStuckPending: batch never preempts, so read the scheduler's message.",
+            w=12, rename={"pod": "Pod"}, no_value="No run pods right now")
+    b.ts("Pod Restarts & Failures", [
+        (f'sum(increase(kube_pod_container_status_restarts_total{{namespace="$env"}}[{W}]) * on(namespace, pod) group_left() {BATCH_PODS})', "restarts"),
+        (f'count((kube_pod_status_phase{{namespace="$env",phase="Failed"}} == 1) and on(namespace, pod) {BATCH_PODS})', "failed pods retained")],
+        "A run pod restarts by being replaced, so failures show as failed pods the Job keeps until its TTL.", decimals=0, no_value=NO_RUNS, w=12, overrides=[co("failed pods retained", RED)])
+
+
+def batch_jvm_section(b):
+    b.row("JVM (OTLP)")
+    b.ts("Heap Used / Max", [
+        (f'sum by (k8s_pod_name) (jvm_memory_used_bytes{{{BATCH_OTLP},jvm_memory_type="heap"}} or jvm_memory_used_bytes{{{BATCH_OTLP},area="heap"}})', "used {{k8s_pod_name}}"),
+        (f'sum(jvm_memory_max_bytes{{{BATCH_OTLP},area="heap"}} > 0)', "max")],
+        "Java heap of the run. Used touching max with frequent GC = undersized for this run's data.", unit="bytes", decimals=1, ds=MIMIR, no_value=NO_BATCH_OTLP, overrides=[co("max", RED)])
+    b.ts("GC Pause Time", [(f'sum by (gc) (rate({batch_family("jvm_gc_pause", "sum")}[{W}]))', "{{gc}}")],
+         "Time paused in GC per second, in the unit the registry reports.", decimals=3, ds=MIMIR, no_value=NO_BATCH_OTLP)
+
+
+def batch_saturation(b):
+    b.row("Resources", collapsed=True)
+    b.ts("CPU vs Request", [
+        (f'sum by (pod) (rate(container_cpu_usage_seconds_total{{{SEL},{APP_CONTAINER}}}[{W}]))', "{{pod}}"),
+        (f'max(kube_pod_container_resource_requests{{{SEL},{APP_CONTAINER},resource="cpu"}})', "request")],
+        "CPU cores per run pod against its request. A run has no CPU limit unless it asked for one.", unit="none", decimals=2,
+        overrides=[co("request", AMBER)])
+    b.ts("Memory vs Limit", [
+        (f'sum by (pod) (container_memory_working_set_bytes{{{SEL},{APP_CONTAINER}}})', "{{pod}}"),
+        (f'max(kube_pod_container_resource_limits{{{SEL},{APP_CONTAINER},resource="memory"}})', "limit")],
+        "Working set per run pod against its limit, which equals its request. Crossing it is an OOM kill.", unit="bytes", decimals=1,
+        overrides=[co("limit", RED)])
+
+
+def batch_traces(b):
+    b.row("Traces (Tempo)")
+    b.traces("Recent Runs", '{resource.service.name="__APP__"}', "Latest job and step spans. Per-item work stays metrics-only, so a million-item run is not a million spans.", w=12,
+             no_value="No traces yet: a run exports them by OTLP (production profile)")
+    b.traces("Runs with Errors", '{resource.service.name="__APP__" && status=error}', "Latest spans with an error status.", w=12, no_value="No run with an error span")
+
+
 # ---------------------------------------------------------------- per type
 def panels(kind):
     b = Board()
+    if kind == "batch-jvm":
+        b.row("Overview", collapsed=False)
+        overview_batch(b)
+        batch_runs_section(b)
+        batch_jvm_section(b)
+        batch_saturation(b)
+        logs_section(b, kind)
+        batch_traces(b)
+        return b.panels
     overview(b, kind)
     if kind == "backend-jvm":
         golden_signals_scraped(b)
@@ -1347,6 +1487,7 @@ DESCRIPTION = {
     "backend-generic": "golden signals (Prometheus or OTLP), dependencies, runtime, resources, logs, traces, delivery",
     "frontend": "real-user monitoring (Core Web Vitals, JS errors, browser network, pages, releases), what nginx served, resources, logs, traces, delivery",
     "fullstack": "real-user monitoring, the Node.js server's golden signals and runtime, dependencies, resources, logs, traces, delivery",
+    "batch-jvm": "runs by outcome, duration, items read and written, dead letters, last commit, JVM, resources, logs, traces",
 }
 
 
@@ -1357,6 +1498,14 @@ def dashboard(kind):
                   "query": {"qryType": 1, "query": 'label_values(kube_pod_info{namespace="$env",pod=~"__POD_RE__"}, pod)', "refId": "var-pod"},
                   "includeAll": True, "multi": True, "allValue": "__POD_RE__", "refresh": 2, "sort": 1,
                   "current": {"text": ["All"], "value": ["$__all"]}, "options": [], "hide": 0}]
+    if kind == "batch-jvm":
+        # A run's pods are named after its BatchJob, and an application may own several
+        # with names of their own, so they are found by label rather than by name.
+        batch_pods = 'label_values(kube_pod_labels{namespace="$env",label_adhar_io_application="__APP__"}, pod)'
+        variables[1] = {"name": "pod", "label": "Run pod", "type": "query", "datasource": PROM, "definition": batch_pods,
+                        "query": {"qryType": 1, "query": batch_pods, "refId": "var-pod"},
+                        "includeAll": True, "multi": True, "refresh": 2, "sort": 1,
+                        "current": {"text": ["All"], "value": ["$__all"]}, "options": [], "hide": 0}
     if kind == "backend-jvm":
         variables.append(
             {"name": "business_metric", "label": "Business metric", "type": "query", "datasource": PROM,
@@ -1364,7 +1513,7 @@ def dashboard(kind):
              "query": {"qryType": 1, "query": 'label_values({__name__=~"adhar_business_.+_(total|count)",namespace="$env",pod=~"$pod"}, __name__)', "refId": "var-business_metric"},
              "includeAll": True, "multi": True, "refresh": 2, "sort": 1, "hide": 2,
              "current": {"text": ["All"], "value": ["$__all"]}, "options": []})
-    if kind != "frontend":
+    if kind not in ("frontend", "batch-jvm"):
         variables.append(
             {"name": "slo", "label": "Availability SLO", "type": "custom", "query": "0.99,0.995,0.999",
              "current": {"text": "0.995", "value": "0.995"}, "includeAll": False, "multi": False, "hide": 0,

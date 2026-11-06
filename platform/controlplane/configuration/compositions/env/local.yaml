@@ -56,6 +56,7 @@ spec:
             {{- $team := dig "team" "platform" $p -}}
             {{- $project := dig "project" "" $p -}}
             {{- $access := dig "access" "admin" $p -}}
+            {{- $batchOperations := dig "batchOperations" "team" $p -}}
             {{- $cpu := dig "cpuQuota" "4" $p -}}
             {{- $mem := dig "memoryQuota" "8Gi" $p -}}
             {{- $pods := dig "podQuota" 20 $p -}}
@@ -254,6 +255,36 @@ spec:
                   roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $access }} }
                   subjects:
                     - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s.%s" $org $team | quote }} }
+            {{- if and (eq $tier "prod") (ne $batchOperations "none") }}
+            ---
+            # Operating a job is not changing it (design 0025 §10.2). The team is `view`
+            # here because its production changes arrive through a Release; this lets it
+            # run, stop, restart and hold what is already deployed, and core/adhar-batch's
+            # Kyverno policies keep that to the deployed definition.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: team-batch-operator
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ $name }}-team-batch-operator
+                    namespace: {{ $name }}
+                    labels:
+                      adhar.io/organisation: {{ $org | quote }}
+                      adhar.io/team: {{ $team | quote }}
+                      adhar.io/environment: {{ $env | quote }}
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: adhar-batch-operator }
+                  subjects:
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s.%s" $org $team | quote }} }
+            {{- end }}
             ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object

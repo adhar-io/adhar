@@ -185,7 +185,7 @@ spec:
                   "OTEL_EXPORTER_OTLP_ENDPOINT" $otlp
                   "OTEL_EXPORTER_OTLP_PROTOCOL" "http/protobuf"
                   "OTEL_METRICS_EXPORTER" "otlp"
-                  "OTEL_RESOURCE_ATTRIBUTES" (printf "deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s" $env $env $ns)
+                  "OTEL_RESOURCE_ATTRIBUTES" (printf "deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s,k8s.namespace.name=%s,k8s.pod.name=$(POD_NAME),adhar.application=%s,adhar.batch.job=%s" $env $env $ns $ns $app $name)
                   "BPL_JVM_THREAD_COUNT" (toString (int (dig "jvm" "threads" 50 $p)))
                   "JAVA_TOOL_OPTIONS" $javaOpts -}}
             {{- /* The caller's env wins over the platform's defaults; the refusals above

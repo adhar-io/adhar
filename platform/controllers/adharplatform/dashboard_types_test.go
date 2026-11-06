@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var dashboardTypes = []string{"backend-jvm", "backend-generic", "frontend", "fullstack"}
+var dashboardTypes = []string{"backend-jvm", "backend-generic", "frontend", "fullstack", "batch-jvm"}
 
 // composedDashboardConfigMap renders the composition for app `cart` and returns
 // the dashboard ConfigMap.
@@ -148,6 +148,14 @@ func TestEachDashboardTemplateCarriesOnlyItsKindsSections(t *testing.T) {
 				"Server: Golden Signals (RED)", "Server: Node.js Runtime", "Dependencies (what this service calls)", "Saturation & Resources", "Logs (Loki)", "Traces (Tempo)"},
 			want:      []string{faro, "unwrap inp", scrapedRED, "nodejs_eventloop_lag_p99_seconds", "nodejs_heap_size_used_bytes", "traces_service_graph_request_total"},
 			forbidden: []string{jvm, "hikaricp_", "adhar_business_", "pattern "},
+		},
+		"batch-jvm": {
+			rows: []string{"Overview", "Runs", "JVM (OTLP)", "Resources", "Logs (Loki)", "Traces (Tempo)"},
+			// The label joins are what the kube-state-metrics allowlist exists for, and the
+			// run pod's own OOM is its current state, not its last (restartPolicy: Never).
+			want: []string{`label_adhar_io_application="cart"`, "kube_job_failed", "kube_job_complete", "kube_job_status_start_time",
+				"kube_pod_container_status_terminated_reason", "spring_batch_item_read", "adhar_batch_items_dead_lettered", "adhar_batch_last_commit", "jvm_memory_used_bytes"},
+			forbidden: []string{scrapedRED, faro, "rollout_info", "nodejs_", "kube_pod_status_ready"},
 		},
 	}
 	for _, kind := range dashboardTypes {
@@ -355,8 +363,8 @@ func TestTheApplicationXRDNamesEveryDashboardTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(gen), `TYPES = ("backend-jvm", "backend-generic", "frontend", "fullstack")`) {
-		t.Error("the generator's TYPES no longer match the four templates the composition selects between")
+	if !strings.Contains(string(gen), `TYPES = ("backend-jvm", "backend-generic", "frontend", "fullstack", "batch-jvm")`) {
+		t.Error("the generator's TYPES no longer match the templates the composition selects between")
 	}
 }
 

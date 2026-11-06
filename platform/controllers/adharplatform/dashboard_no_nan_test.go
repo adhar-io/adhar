@@ -432,6 +432,14 @@ func TestAppDashboardsNeverDivideByAnIdleRate(t *testing.T) {
 			}
 			// Each template has ratios and quantiles to guard; finding none means this
 			// check stopped looking, not that the template is safe.
+			if kind == "batch-jvm" {
+				// Runs are counted and timed, not rated against traffic: nothing here divides by
+				// an idle rate or takes a quantile, except the one guarded memory ratio.
+				if c.divisions < 1 {
+					t.Errorf("checked %d divisions; the scanner is not reading the template", c.divisions)
+				}
+				return
+			}
 			if c.divisions < 4 || (kind != "frontend" && c.quantiles < 4) {
 				t.Errorf("checked %d divisions and %d quantiles; the scanner is not reading the template", c.divisions, c.quantiles)
 			}

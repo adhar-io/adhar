@@ -63,7 +63,11 @@ spec:
                       deploy/envs/<env> overlays; its pods are Knative revisions
                       (<name>-<revision>-deployment-…), which the delivery checks select by
                       label rather than by name.
-                    enum: [service, web, worker, data, ai, function]
+                      `batch` is one or more BatchJobs (platform.adhar.io BatchJob XR in each
+                      environment) deployed from the same overlays. Its pods are runs, which finish:
+                      the dashboard is batch-jvm, and the delivery checks read run failures rather
+                      than pod readiness, since a completed pod reports Ready=False.
+                    enum: [service, web, worker, data, ai, function, batch]
                     default: service
                   dashboard:
                     type: object
@@ -80,10 +84,12 @@ spec:
                           metrics), `backend-generic` (Go, Python, Node.js, anything else: RED from
                           Prometheus or OTLP metrics, runtime panels), `frontend` (SPA / static:
                           Faro real-user monitoring, what nginx served) or `fullstack` (TanStack
-                          Start: both). `auto` (the default) uses the label
-                          adhar.io/dashboard-type, else `frontend` for a browser app (type `web` or
-                          label adhar.io/frontend: "true"), else `backend-generic`.
-                        enum: [auto, backend-jvm, backend-generic, frontend, fullstack]
+                          Start: both) or `batch-jvm` (Spring Batch: runs by outcome, duration,
+                          items, dead letters, last commit, JVM over OTLP). `auto` (the default) uses
+                          the label adhar.io/dashboard-type, else `frontend` for a browser app (type
+                          `web` or label adhar.io/frontend: "true"), else `backend-generic`. A batch
+                          application always gets `batch-jvm`.
+                        enum: [auto, backend-jvm, backend-generic, frontend, fullstack, batch-jvm]
                         default: auto
                   ai:
                     type: object

@@ -1,0 +1,35 @@
+# A Spring Batch job on the platform: one Kubernetes run per job-instance attempt,
+# restartable from its last commit. It lives in an environment namespace, whose labels
+# decide its organisation, team, project and environment. docs/BATCH.md is the guide,
+# and `springboot-batch-job` is the template that writes one of these for you.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: importer
+  namespace: dev
+spec:
+  parameters:
+    displayName: Nightly importer
+    job: importJob                        # the Spring Batch job's bean name
+    image: harbor-core.adhar-system.svc.cluster.local/library/importer:1.0.0
+    schedule:                             # leave it out for an on-demand job
+      cron: "30 1 * * *"
+      timeZone: Asia/Singapore
+    parameters:
+      - name: businessDate
+        type: date
+        source: schedule                  # derived from the scheduled time, in timeZone
+      - name: source
+        default: inbound/records.csv
+        pattern: "^[a-zA-Z0-9/._-]+$"
+      - name: dryRun
+        type: boolean
+        identifying: false                # not part of the run's identity
+        default: "false"
+    resources:
+      cpu: "1"
+      memory: 1536Mi
+    database:
+      secretRef: importer-db-app          # CNPG's Secret for the application's Database
+    sla:
+      maxDuration: 3h
