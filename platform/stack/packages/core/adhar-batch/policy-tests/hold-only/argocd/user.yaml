@@ -1,0 +1,8 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: argocd
+userInfo:
+  username: system:serviceaccount:adhar-system:argocd-application-controller
+  groups: [system:serviceaccounts, system:serviceaccounts:adhar-system, system:authenticated]
+clusterRoles: [argocd-application-controller]

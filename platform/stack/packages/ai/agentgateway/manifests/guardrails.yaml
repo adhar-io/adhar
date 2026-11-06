@@ -197,6 +197,23 @@ spec:
                 # focused session spend a third of the daily budget in an hour
                 # and still leaves the day covered.
                 tokens: 250000
+        # PR-Agent (ai/pr-agent): automated review of every pull request, as
+        # its own ServiceAccount. Its OWN bucket, ahead of the generic
+        # ServiceAccount entry below that k8sgpt and every agent share: one
+        # opened PR is a describe, a review and an improve pass (several
+        # completions, tens of thousands of tokens), so sharing would let a
+        # busy morning of PRs 429 the SRE assistant — and a looping dev agent
+        # stall reviews. Raise it here if the PRAgentOverBudget alert fires
+        # for expected volume.
+        - condition: >-
+            default(jwt.sub, "") == "system:serviceaccount:adhar-system:pr-agent"
+          policy:
+            local:
+              - unit: Minutes
+                requests: 60
+                burst: 30
+              - unit: Hours
+                tokens: 250000
         # Agents, by environment tier. An agent's identity is its ServiceAccount
         # (`system:serviceaccount:<agent>-<env>:agent`, see security.yaml), so
         # the environment is readable off the subject with no lookup. Production

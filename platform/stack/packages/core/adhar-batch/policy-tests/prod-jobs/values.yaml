@@ -1,0 +1,9 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: prod-jobs
+namespaceSelector:
+  - name: prod
+    labels: { adhar.io/environment: prod }
+  - name: dev
+    labels: { adhar.io/environment: dev }

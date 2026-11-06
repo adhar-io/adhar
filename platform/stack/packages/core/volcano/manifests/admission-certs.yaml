@@ -1,0 +1,77 @@
+# The serving certificate for volcano-admission, replacing the chart's
+# admission-init Job (a helm hook Argo CD does not read).
+#
+# A self-signed CA, then a leaf from it: the API server needs a CA to trust, and
+# cainjector distributes the CA, not the leaf. Same shape as
+# security/adhar-tenant-quotas/manifests/webhook.yaml.
+#
+# Ten years, because the binary reads these files ONCE at startup and has no reload
+# (cmd/webhook-manager/app/util.go, configTLS). A short-lived certificate would keep
+# renewing into a Secret the pod never re-reads, and the webhook would then serve an
+# expired certificate from a healthy-looking pod. Upstream's own generator also
+# issues for ten years, so this is not a downgrade.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: volcano-selfsign
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: volcano-admission-ca
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  isCA: true
+  commonName: volcano-admission-ca
+  secretName: volcano-admission-ca
+  duration: 87600h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: volcano-selfsign
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: volcano-admission-ca
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  ca:
+    secretName: volcano-admission-ca
+---
+# secretName is what the admission Deployment mounts; its keys (tls.crt, tls.key,
+# ca.crt) are what the binary's --tls-cert-file, --tls-private-key-file and
+# --ca-cert-file read. The webhook configurations name this Certificate in their
+# cert-manager.io/inject-ca-from annotation.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: volcano-admission
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  secretName: volcano-admission-secret
+  duration: 87600h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  dnsNames:
+    - volcano-admission-service.adhar-system.svc
+    - volcano-admission-service.adhar-system.svc.cluster.local
+  issuerRef:
+    name: volcano-admission-ca
+    kind: Issuer
+    group: cert-manager.io

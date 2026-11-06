@@ -121,6 +121,10 @@ e2e: build ## Run the e2e tests on Docker or Podman (ENGINE=docker|podman|nerdct
 validate-packages: ## Validate every package marketplace contract (platform/stack/packages/*/*/adhar-package.yaml).
 	./hack/validate-packages.sh
 
+.PHONY: policy-test
+policy-test: ## Prove every Kyverno policy the stack ships against its policy-tests/ fixtures (kyverno CLI pinned to the platform's admission controller, downloaded into bin/).
+	KYVERNO_VERSION=$(KYVERNO_VERSION) LOCALBIN=$(LOCALBIN) ./hack/policy-test.sh
+
 .PHONY: gen-package-contracts
 gen-package-contracts: ## Scaffold adhar-package.yaml for packages that do not have one yet (never overwrites).
 	./hack/gen-package-contracts.sh
@@ -344,6 +348,10 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= latest
 HELM_VERSION ?= v4.2.4
+# The kyverno CLI `make policy-test` runs: the version of the admission controller
+# the platform deploys (platform/stack/packages/security/kyverno, chart 3.9.0), so
+# a fixture proves what the cluster will actually admit.
+KYVERNO_VERSION ?= v1.19.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.

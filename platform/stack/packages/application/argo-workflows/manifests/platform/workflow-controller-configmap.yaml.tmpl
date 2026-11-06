@@ -1,0 +1,184 @@
+# The workflow controller's configuration (docs/design/0026 §5.2). argo-server
+# reads the same ConfigMap (sso, persistence, links).
+#
+# Rendered at seed time ONLY for the SSO trust root; everything else is literal,
+# and the host convention (adhar.localtest.me:8443) is rewritten to the platform's
+# own host by the stack staging step like every other package.
+#
+# The controller parses this with yaml.UnmarshalStrict (config/controller.go): a
+# key v4.1.6's Config does not define stops it from loading its configuration at
+# all. Every key below was read against v4.1.6 config/config.go, and
+# TestArgoWorkflowDefaultsBoundEveryRun pins the ones that bound a run.
+#
+# There is deliberately NO controller-wide `artifactRepository` (D-12): a team
+# namespace must never inherit a repository whose credential Secret does not
+# exist there. adhar-system's repository is the `artifact-repositories`
+# ConfigMap (artifacts.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-controller-configmap
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  # ── Admission before pods exist: what Argo queues, the API server never sees ──
+  # Running workflows cluster-wide, and per namespace. A namespace raises or lowers
+  # its own share with the label workflows.argoproj.io/parallelism-limit, which the
+  # Environment composition sets (W1).
+  parallelism: "25"
+  namespaceParallelism: "5"
+  # Pod creations per second across the controller: protects the API server and
+  # the scheduler from a fan-out.
+  resourceRateLimit: |
+    limit: 5
+    burst: 10
+  # ── Events: Kubernetes Events are the most numerous object kind on this API
+  # server. Node events are off; workflow events are transition-only and cheap,
+  # and nothing automates on them (upstream: "do not use Kubernetes events for
+  # automation" — the console's recorder watches Argo's own labels instead).
+  nodeEvents: |
+    enabled: false
+  workflowEvents: |
+    enabled: true
+  # ── The init/wait containers Argo adds to every step pod. Without this the team
+  # LimitRange defaults each to 100m/128Mi requests and 500m/512Mi limits, charged
+  # against the team's quota on every step.
+  executor: |
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    securityContext:
+      runAsNonRoot: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+  # ── Merged into every Workflow; a value the author sets explicitly wins (INV-5:
+  # every run is bounded — a TTL, pod clean-up, a deadline and a parallelism cap).
+  #   serviceAccountName  adhar-workflow exists only in tenant namespaces (W1); in
+  #                       adhar-system nothing has that name, so a workflow that
+  #                       names no ServiceAccount FAILS CLOSED instead of running
+  #                       as `default`.
+  #   activeDeadline      6 h. Kyverno caps an explicit value at 24 h in workload
+  #                       namespaces (W1).
+  #   ttlStrategy         history lives in the archive (D-9): the live object goes
+  #                       a day after success, three after a failure.
+  #   podGC               failed pods stay for inspection until the TTL.
+  #   podSpecPatch        adhar-system holds ~290 Services; without this every step
+  #                       pod gets two env vars per Service, and a strict decoder
+  #                       can crash on one (CONFLICTS.md, cosign WEBHOOK_PORT).
+  workflowDefaults: |
+    spec:
+      serviceAccountName: adhar-workflow
+      activeDeadlineSeconds: 21600
+      parallelism: 10
+      ttlStrategy:
+        secondsAfterSuccess: 86400
+        secondsAfterFailure: 259200
+      podGC:
+        strategy: OnPodSuccess
+        deleteDelayDuration: 60s
+      podSpecPatch: '{"enableServiceLinks": false}'
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+  # A backstop on top of the TTL: never more than this many finished Workflow
+  # objects of each kind in etcd, whatever their age.
+  retentionPolicy: |
+    completed: 300
+    failed: 100
+    errored: 100
+  # Recreate a pod that was evicted before its main container ever ran (memory or
+  # disk pressure on a crowded node) instead of failing the step.
+  failedPodRestart: |
+    enabled: true
+    maxRestarts: 3
+  # ── History: a Postgres archive (archive-db.yaml, a `Database` the control plane
+  # composes). Node status stays ON the Workflow object (gzip-compressed when large)
+  # so the console reads it through the API server; offloading would make it
+  # visible only through argo-server (D-9).
+  #
+  # reconnectionConfig: the upstream default gives up after five retries that
+  # start at 100 ms — about three seconds, less than a CNPG pod takes to restart.
+  # This rides out a database restart of up to ~3 minutes.
+  persistence: |
+    archive: true
+    archiveTTL: 60d
+    nodeStatusOffLoad: false
+    connectionPool:
+      maxIdleConns: 2
+      maxOpenConns: 8
+      connMaxLifetime: 300s
+    reconnectionConfig:
+      maxRetries: 10
+      baseDelaySeconds: 1
+      maxDelaySeconds: 30
+      retryMultiple: 2
+    postgresql:
+      host: argo-workflows-db-rw.adhar-system.svc.cluster.local
+      port: 5432
+      database: argo
+      tableName: argo_workflows
+      userNameSecret:
+        name: argo-workflows-db-credentials
+        key: username
+      passwordSecret:
+        name: argo-workflows-db-credentials
+        key: password
+      ssl: true
+      sslMode: require
+  # ── Metrics: plain HTTP on 9090, reachable only from Prometheus
+  # (networkpolicy.yaml). Upstream defaults `secure` to TRUE, and a PodMonitor
+  # scraping http against a TLS port reads `up == 0` forever
+  # (TestArgoMetricsScrapeMatchesTheControllerScheme).
+  metricsConfig: |
+    enabled: true
+    path: /metrics
+    port: 9090
+    secure: false
+  # ── The native UI links each run back to its page in the console.
+  links: |
+    - name: Open in Adhar console
+      scope: workflow
+      url: https://console.adhar.localtest.me:8443/platform?section=workflow-runs&run=${metadata.namespace}/${metadata.name}
+  # ── SSO for the native UI, platform staff only (D-11, §5.4 — sso.yaml maps the
+  # groups to Argo-scoped ServiceAccounts; nothing maps to cluster-admin).
+  #   filterGroupsRegex   only the groups a rule can match ride in the session
+  #                       cookie, which is capped at 4 KB.
+  #   rootCA              the platform's self-signed edge certificate, when it has
+  #                       one. v4.1.6 APPENDS this to the system roots
+  #                       (server/auth/sso/clients.go), so it does not stop a
+  #                       publicly trusted Keycloak from verifying, and it keeps
+  #                       sign-in working while an ACME certificate is still being
+  #                       issued. TLS is verified either way: insecureSkipVerify is
+  #                       never set (TestArgoSSONeverSkipsTLSVerification).
+  sso: |
+    issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+    clientId:
+      name: argo-workflows-sso
+      key: client-id
+    clientSecret:
+      name: argo-workflows-sso
+      key: client-secret
+    redirectUrl: https://argo-workflows.adhar.localtest.me:8443/oauth2/callback
+    scopes:
+      - openid
+      - profile
+      - email
+      - groups
+    sessionExpiry: 8h
+    filterGroupsRegex:
+      - "^platform-.*$"
+    rbac:
+      enabled: true
+{{- if .SelfSignedCert }}
+    rootCA: |
+{{ .SelfSignedCert | trim | indent 6 }}
+{{- end }}

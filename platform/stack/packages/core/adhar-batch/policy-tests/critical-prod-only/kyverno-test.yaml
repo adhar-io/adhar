@@ -1,0 +1,51 @@
+# Autogen covers Job and CronJob; the namespace's label is what decides.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: critical-prod-only
+policies:
+  - ../../manifests/kyverno-critical-prod-only.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-critical-priority-only-in-prod
+    kind: Job
+    resources: [critical-in-dev]
+    result: fail
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-critical-priority-only-in-prod
+    kind: Job
+    resources: [standard-in-dev]
+    result: pass
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-critical-priority-only-in-prod
+    kind: Job
+    resources: [critical-in-prod]
+    result: skip
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-cronjob-critical-priority-only-in-prod
+    kind: CronJob
+    resources: [critical-cron-in-test]
+    result: fail
+  - policy: adhar-batch-critical-prod-only
+    rule: critical-priority-only-in-prod
+    kind: Pod
+    resources: [critical-pod-in-dev]
+    result: fail
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-scale-up-only-in-prod
+    kind: Job
+    resources: [scale-up-in-test]
+    result: fail
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-scale-up-only-in-prod
+    kind: Job
+    resources: [standard-in-dev]
+    result: pass
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-scale-up-only-in-prod
+    kind: Job
+    resources: [scale-up-in-prod]
+    result: skip

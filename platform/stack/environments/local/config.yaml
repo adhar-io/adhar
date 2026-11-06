@@ -82,6 +82,13 @@ packages:
     namespace: "adhar-system"
     category: "ai"
     manifestPath: "ai/k8sgpt/manifests"
+  # PR-Agent: automated pull-request review through one Gitea system webhook;
+  # model calls through agentgateway. Enabled exactly where agentgateway is.
+  - name: "pr-agent"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/pr-agent/manifests"
   # Self-hosted vLLM inference — three elements from one package directory
   # (shared surface + one Deployment per profile). Enable "vllm" plus EXACTLY
   # ONE of vllm-cpu / vllm-gpu; all three are off by default because vLLM is
@@ -341,6 +348,23 @@ packages:
     namespace: "adhar-system"
     category: "core"
     manifestPath: "core/Kamaji/manifests"
+  - name: "volcano"
+    # The batch scheduler (ADR-0028, docs/design/0025 §4). Opt-in in every profile:
+    # pinned v1.16.0 predates Kubernetes 1.37 support (v1.17 is the production gate,
+    # design §4.6), so it is enabled from the Marketplace, knowingly. Needs
+    # cert-manager. Only pods naming schedulerName: volcano ever reach it.
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "core"
+    manifestPath: "core/volcano/manifests"
+  # Batch on Kubernetes (design 0025): PriorityClasses, the aggregated roles and the
+  # Kyverno policies that bound operating a job to its deployed template. Runs no
+  # workloads. Every BatchJob needs its PriorityClass, so it is on everywhere.
+  - name: "adhar-batch"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "core"
+    manifestPath: "core/adhar-batch/manifests"
   - name: "cert-manager"
     enabled: "false"
     namespace: "adhar-system"
@@ -419,12 +443,13 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/tekton/manifests"
-  # argo-workflows disabled by default: a workflow engine, opt-in per cluster.
+  # argo-workflows: the platform's orchestration engine (docs/design/0026). Off in
+  # the local core until `adhar up` is measured with it on (D-2); opt-in.
   - name: "argo-workflows"
     enabled: "false"
     namespace: "adhar-system"
     category: "application"
-    manifestPath: "application/argo-workflows/manifests/dev"
+    manifestPath: "application/argo-workflows/manifests/platform"
   - name: "adhar-console"
     enabled: "true"
     namespace: "adhar-system"

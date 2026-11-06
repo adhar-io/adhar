@@ -1,0 +1,64 @@
+# Adhar marketplace contract for the pr-agent package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: pr-agent
+category: ai
+version: "0.49.0"
+appVersion: "0.49.0"
+description: "Automated pull-request review for every Gitea repository: PR-Agent describes, reviews and suggests improvements on each PR and answers /review, /describe, /improve and /ask comments, as a read-only bot whose model calls go through agentgateway under its own identity and budget."
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+# Upstream is MIT since v0.43.0 (it was AGPL-3.0 from 2025-05 to 2026-05; no
+# release from that window is used). The package runs the unmodified upstream
+# image and ships no upstream source.
+license: MIT
+homepage: https://github.com/The-PR-Agent/pr-agent
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # Every review is an LLM call through the AI data plane, under the grant in
+  # manifests/gateway-grant.yaml.
+  - name: agentgateway
+    category: ai
+  # Generates the webhook secret Gitea and PR-Agent share.
+  - name: external-secrets
+    category: security
+  # The git server whose pull requests are reviewed (bootstrap component).
+  - name: gitea
+  # The ServiceMonitor and PrometheusRule in manifests/observability.yaml.
+  - name: kube-prometheus
+    category: observability
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: alpha   # enabled exactly where agentgateway is
+resources:
+  cpu: "65m"
+  memory: "528Mi"
+  storage: "0"
+  footprint: small
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml (AI is opt-in)
+  notes: >-
+    One server pod (PR-Agent 50m/512Mi with two web workers, gateway proxy
+    5m/16Mi) plus a short reconcile Job every ten minutes (10m/32Mi). No
+    persistent storage. Model spend is bounded by PR-Agent's own bucket in
+    agentgateway-budget.
+keywords:
+  - ai
+  - code-review
+  - pull-request
+  - gitea
+  - pr-agent
+  - agentgateway
+verification:
+  status: unverified

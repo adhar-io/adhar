@@ -1,0 +1,32 @@
+# Switching the package off must be able to finish: Argo CD deletes the
+# controller and its ConfigMap, and the garbage collector's finalizer removal on
+# the object being deleted goes through. The same identity editing a LIVE object
+# is still refused — the precondition, not the identity, is what lets it pass.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: single-controller-garbage-collector
+policies:
+  - ../../../manifests/platform/policies.yaml
+resources:
+  - ../deleting.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: Deployment
+    resources: [adhar-system/workflow-controller]
+    operation: UPDATE
+    result: skip
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: ConfigMap
+    resources: [adhar-system/workflow-controller-configmap]
+    operation: UPDATE
+    result: skip
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: Deployment
+    resources: [argo/workflow-controller]
+    operation: UPDATE
+    result: fail

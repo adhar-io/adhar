@@ -1,0 +1,106 @@
+# The workflow archive: run history that outlives the Workflow objects (D-9).
+#
+# Finished Workflows leave etcd a day after success and three days after a
+# failure (workflowDefaults.ttlStrategy). The controller copies each one into this
+# Postgres database first, and argo-server serves them back for 60 days
+# (persistence.archiveTTL) — to the console's run history (W1) and the native UI.
+#
+# A `Database` the control plane composes (compositions/database/local-cnpg.yaml):
+# a CNPG cluster on the node-bound priority class, its daily barman base backup
+# into s3://adhar-backups/cnpg/argo-workflows-db and a PodMonitor. The password is
+# minted here by ESO and never written down.
+#
+# INV-11: disabling the package must not destroy history, so the Database AND the
+# credential it was bootstrapped with carry Delete=false,Prune=false. Keeping the
+# Database without its credential would be worse than losing both: on re-enable a
+# fresh password would be minted for a database that still only knows the old one,
+# and the controller — which does not start without its archive — would crash-loop.
+# Purging both is an explicit runbook (README.md#purge).
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: argo-workflows-db
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: archive
+  annotations:
+    argocd.argoproj.io/sync-wave: "-6"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  length: 28
+  digits: 5
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argo-workflows-db-credentials
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: archive
+  annotations:
+    argocd.argoproj.io/sync-wave: "-6"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Delete=false,Prune=false
+spec:
+  # Minted once: a refresh would rotate the password under a running database.
+  refreshInterval: "0"
+  target:
+    name: argo-workflows-db-credentials
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          adhar.io/cli-secret: "true"
+          adhar.io/package-name: argo-workflows
+      engineVersion: v2
+      data:
+        username: argo
+        password: "{{ .PASSWORD }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: argo-workflows-db
+      # A Password generator emits one key, `password`; the template reads
+      # PASSWORD (TestGeneratorBackedTemplatesOnlyReadKeysTheyAreGiven).
+      rewrite:
+        - transform:
+            template: PASSWORD
+---
+# Asked for rather than built: `databaseName`, the owner and the bootstrap
+# credential are the only things this package decides. ~500 runs a day of 10-100
+# KiB each for 60 days is under 3 GiB; ArgoWorkflowsArchiveVolumeFilling
+# (rules.yaml) fires at 70% of the volume.
+#
+# Wave -5: the controller (wave 10) runs the archive's schema migration at start
+# and does not start if it fails, so the database must be Ready first. Argo CD reads
+# a Database's health from its composite Ready condition.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
+metadata:
+  name: argo-workflows-db
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows-db
+    adhar.io/component: argo-workflows
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Delete=false,Prune=false
+spec:
+  parameters:
+    databaseName: argo
+    credentials:
+      masterUsername: argo
+    credentialsSecret: argo-workflows-db-credentials
+    storageSize: 10Gi
+    component: argo-workflows
+    backupSchedule: 0 40 3 * * *
+    resources:
+      cpu: 50m
+      memory: 192Mi
+      memoryLimit: 512Mi

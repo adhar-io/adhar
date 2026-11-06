@@ -1,0 +1,571 @@
+---
+# BatchJob on plain Kubernetes (design 0025 §6.4): the native path, the first
+# thing that ships and the permanent fallback when no batch scheduler is
+# installed. README.md beside this file maps every parameter to what it becomes.
+#
+# What one BatchJob produces, all in the XR's own namespace and composed directly
+# (no provider-kubernetes: nothing here leaves the namespace):
+#   ServiceAccount, Role, RoleBinding  <name>-batch  the runner's two GETs
+#   ConfigMap   <name>-run    the RUN TEMPLATE every client starts a run from
+#   CronJob     <name>        when `schedule` is set
+#   PrometheusRule <name>-batch  the alerts of §11.3
+#
+# The run template and the CronJob's jobTemplate are the SAME object built by the
+# same loop, differing only in the trigger, so a run started by a person cannot
+# drift from a run started by the clock. adhar-batch-run-integrity (Kyverno)
+# refuses any run that differs from the template in anything but the handful of
+# fields §6.5 lets a client set, so the API-server defaults a Job acquires on its
+# way in are written out here too (fieldRef.apiVersion, onPodConditions[].status,
+# schedulerName): the comparison is exact.
+#
+# Statusless kinds publish no Ready condition, and function-auto-ready would hold
+# the XR unready forever because of one, so each carries the ready annotation once
+# its UID has been observed. A missing prerequisite keeps the objects and suspends
+# the schedule: removing the CronJob would cascade to a run in flight.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: batchjob-kubernetes
+  labels:
+    feature: batchjob
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: BatchJob
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $platformNS := "adhar-system" -}}
+            {{- $otlp := "http://alloy.adhar-system.svc.cluster.local:4318" -}}
+            {{- $priority := dig "priority" "standard" $p -}}
+            {{- $priorityClass := ternary "adhar-batch-critical" "adhar-batch" (eq $priority "critical") -}}
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ExtraResources
+            requirements:
+              namespace:
+                apiVersion: v1
+                kind: Namespace
+                matchName: {{ $ns | quote }}
+              priorityClass:
+                apiVersion: scheduling.k8s.io/v1
+                kind: PriorityClass
+                matchName: {{ $priorityClass | quote }}
+              schedulerDescriptor:
+                apiVersion: v1
+                kind: ConfigMap
+                matchName: adhar-batch-scheduler
+                namespace: {{ $platformNS | quote }}
+            {{- /* The first call has none of them yet: a namespace always exists, so its
+                   absence means this is the pass that only asks. Every refusal below
+                   reads the namespace, and must not fire on a pass that cannot see it. */ -}}
+            {{- $nsItems := default (list) (getExtraResources . "namespace") -}}
+            {{- if $nsItems -}}
+            {{- $nsLabels := dict -}}
+            {{- range $nsItems }}{{ $nsLabels = dig "resource" "metadata" "labels" (dict) . }}{{ end -}}
+            {{- $org := get $nsLabels "adhar.io/organisation" -}}
+            {{- $team := get $nsLabels "adhar.io/team" -}}
+            {{- $project := get $nsLabels "adhar.io/project" -}}
+            {{- $env := get $nsLabels "adhar.io/environment" -}}
+            {{- $overridden := list -}}
+            {{- range $k := list "organisation" "team" "project" "environment" -}}
+            {{-   $lv := get $nsLabels (printf "adhar.io/%s" $k) -}}
+            {{-   $pv := dig $k "" $p -}}
+            {{-   if and $lv $pv (ne $lv $pv) }}{{ $overridden = append $overridden (printf "%s %q (the namespace is %q)" $k $pv $lv) }}{{ end -}}
+            {{- end -}}
+
+            {{- /* Refusals: a readable message on Synced=False instead of a definition
+                   that is accepted and then fails at run time, in the middle of a night. */ -}}
+            {{- if or (gt (len $name) 40) (not (regexMatch "^[a-z]([-a-z0-9]*[a-z0-9])?$" $name)) -}}
+            {{-   fail (printf "BatchJob name %q must be a DNS-1035 label of at most 40 characters (lowercase letters, digits and '-', starting with a letter): a CronJob name is at most 52 and every run name adds a suffix" $name) -}}
+            {{- end -}}
+            {{- if eq $ns $platformNS -}}
+            {{-   fail (printf "a BatchJob may not live in %s: runs belong in an environment namespace of their project, inside its quota" $platformNS) -}}
+            {{- end -}}
+            {{- if not $env -}}
+            {{-   fail (printf "namespace %s is not an environment namespace (it has no adhar.io/environment label): nothing there applies the quota, limits and network boundary a run is promised; put the BatchJob in one of its project's environments" $ns) -}}
+            {{- end -}}
+            {{- if and (eq $priority "critical") (ne $env "prod") -}}
+            {{-   fail (printf "priority critical is for prod only, and namespace %s is environment %s; the dev and test overlays must not set it" $ns $env) -}}
+            {{- end -}}
+            {{- if and (eq (toString (dig "scaleUp" false $p)) "true") (ne $env "prod") -}}
+            {{-   fail (printf "scaleUp is for prod only, and namespace %s is environment %s: a dev or test backlog never buys a node" $ns $env) -}}
+            {{- end -}}
+            {{- $schedule := dig "schedule" (dict) $p -}}
+            {{- $cron := dig "cron" "" $schedule -}}
+            {{- $concurrency := dig "concurrencyPolicy" "Forbid" $schedule -}}
+            {{- if eq $concurrency "Replace" -}}
+            {{-   fail "schedule.concurrencyPolicy Replace is refused: it would SIGTERM a healthy run whenever the next fire arrives; use Forbid or Allow" -}}
+            {{- end -}}
+            {{- $grace := int (dig "timeouts" "terminationGracePeriodSeconds" 120 $p) -}}
+            {{- $deadline := int (dig "timeouts" "activeDeadlineSeconds" 21600 $p) -}}
+            {{- if ge $grace $deadline -}}
+            {{-   fail (printf "timeouts.terminationGracePeriodSeconds %d must be shorter than timeouts.activeDeadlineSeconds %d" $grace $deadline) -}}
+            {{- end -}}
+            {{- $image := dig "image" "" $p -}}
+            {{- $job := dig "job" "" $p -}}
+            {{- $dbSecret := dig "database" "secretRef" "" $p -}}
+            {{- if or (not $image) (not $job) (not $dbSecret) -}}
+            {{-   fail "parameters.job, parameters.image and parameters.database.secretRef must all be set" -}}
+            {{- end -}}
+            {{- range $k, $v := (dig "env" (dict) $p) -}}
+            {{-   if or (hasPrefix "ADHAR_BATCH_" $k) (has $k (list "ADHAR_ENVIRONMENT" "POD_NAME" "POD_UID" "NODE_NAME" "SPRING_DATASOURCE_URL" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD")) -}}
+            {{-     fail (printf "env %s is owned by the runner's contract and cannot be set on a BatchJob; parameters go in parameters.parameters and the database in parameters.database" $k) -}}
+            {{-   end -}}
+            {{- end -}}
+
+            {{- /* Prerequisites. Missing ones suspend the schedule and read as
+                   PrerequisitesReady=False, which Argo CD reports as Degraded. */ -}}
+            {{- $missing := list -}}
+            {{- $missingReason := "" -}}
+            {{- if not (getExtraResources . "priorityClass") -}}
+            {{-   $missing = append $missing (printf "PriorityClass %s does not exist: the core/adhar-batch package is not installed" $priorityClass) -}}
+            {{-   $missingReason = "PriorityClassMissing" -}}
+            {{- end -}}
+            {{- $hasDescriptor := gt (len (default (list) (getExtraResources . "schedulerDescriptor"))) 0 -}}
+            {{- $schedulerAsked := dig "scheduler" "auto" $p -}}
+            {{- /* Phase 1 has one path. `auto` is that path; `volcano` is a request this
+                   composition cannot honour yet, and running it natively anyway would
+                   ignore what the definition said (design 0025 D3). */ -}}
+            {{- if eq $schedulerAsked "volcano" -}}
+            {{-   $missingReason = "SchedulerUnavailable" -}}
+            {{-   if $hasDescriptor -}}
+            {{-     $missing = append $missing "scheduler volcano needs the composition's Volcano path, which arrives with Phase 2; use auto or kubernetes" -}}
+            {{-   else -}}
+            {{-     $missing = append $missing (printf "scheduler volcano needs ConfigMap %s/adhar-batch-scheduler, and Volcano is not installed on this cluster; use auto or kubernetes" $platformNS) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- $prereqOK := not $missing -}}
+
+            {{- /* Hold: operators set one annotation, the composition suspends the schedule. */ -}}
+            {{- $annotations := dig "metadata" "annotations" (dict) $xr -}}
+            {{- $isHeld := hasKey $annotations "adhar.io/batch-hold" -}}
+            {{- $holdReason := get $annotations "adhar.io/batch-hold" | default "no reason given" -}}
+            {{- $holdSince := dig "status" "held" "since" "" $xr | default (dateInZone "2006-01-02T15:04:05Z" now "UTC") -}}
+            {{- $declaredSuspend := eq (toString (dig "suspend" false $schedule)) "true" -}}
+            {{- $suspend := or $declaredSuspend $isHeld (not $prereqOK) -}}
+
+            {{- /* Identity on everything; the run's pods are what policy, dashboards and cost read. */ -}}
+            {{- $app := dig "application" "" $p | default $name -}}
+            {{- $labels := dict
+                  "app.kubernetes.io/name" $name
+                  "adhar.io/organisation" $org
+                  "adhar.io/team" $team
+                  "adhar.io/application" $app
+                  "adhar.io/environment" $env
+                  "adhar.io/plane" "workload"
+                  "adhar.io/workload" "batch"
+                  "adhar.io/batch-job" $name -}}
+            {{- if $project }}{{ $_ := set $labels "adhar.io/project" $project }}{{ end -}}
+            {{- $scaleUp := eq (toString (dig "scaleUp" false $p)) "true" -}}
+
+            {{- /* The run: built once per trigger, so the template and the CronJob cannot differ. */ -}}
+            {{- $tz := dig "timeZone" "UTC" $schedule -}}
+            {{- $codeCache := dig "jvm" "codeCache" "64M" $p -}}
+            {{- $javaOpts := printf "-XX:ReservedCodeCacheSize=%s" $codeCache -}}
+            {{- with dig "jvm" "options" "" $p }}{{ $javaOpts = printf "%s %s" $javaOpts . }}{{ end -}}
+            {{- $shutdown := sub $grace 30 -}}
+            {{- if lt $shutdown 10 }}{{ $shutdown = 10 }}{{ end -}}
+            {{- $platformEnv := dict
+                  "OTEL_SERVICE_NAME" $name
+                  "OTEL_EXPORTER_OTLP_ENDPOINT" $otlp
+                  "OTEL_EXPORTER_OTLP_PROTOCOL" "http/protobuf"
+                  "OTEL_METRICS_EXPORTER" "otlp"
+                  "OTEL_RESOURCE_ATTRIBUTES" (printf "deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s" $env $env $ns)
+                  "BPL_JVM_THREAD_COUNT" (toString (int (dig "jvm" "threads" 50 $p)))
+                  "JAVA_TOOL_OPTIONS" $javaOpts -}}
+            {{- /* The caller's env wins over the platform's defaults; the refusals above
+                   already keep it off the runner's contract. */ -}}
+            {{- $declaredEnv := dig "env" (dict) $p -}}
+            {{- range $k, $v := $declaredEnv }}{{ $_ := set $platformEnv $k $v }}{{ end -}}
+            {{- $requests := dict "cpu" (dig "resources" "cpu" "1" $p) "memory" (dig "resources" "memory" "1536Mi" $p) -}}
+            {{- $limits := dict "memory" (dig "resources" "memory" "1536Mi" $p) -}}
+            {{- with dig "resources" "cpuLimit" "" $p }}{{ $_ := set $limits "cpu" . }}{{ end -}}
+            {{- $pullSecrets := list -}}
+            {{- if hasKey $p "imagePullSecrets" -}}
+            {{-   range (default (list) (get $p "imagePullSecrets")) }}{{ $pullSecrets = append $pullSecrets (dict "name" .) }}{{ end -}}
+            {{- else -}}
+            {{-   $pullSecrets = list (dict "name" "harbor-dockercfg") -}}
+            {{- end -}}
+            {{- $sa := dig "serviceAccountName" "" $p | default (printf "%s-batch" $name) -}}
+            {{- $runs := dict -}}
+            {{- range $trigger := list "schedule" "manual" -}}
+            {{-   $runLabels := dict -}}
+            {{-   range $k, $v := $labels }}{{ $_ := set $runLabels $k $v }}{{ end -}}
+            {{-   $_ := set $runLabels "adhar.io/batch-role" "single" -}}
+            {{-   $_ := set $runLabels "adhar.io/batch-trigger" $trigger -}}
+            {{-   if $scaleUp }}{{ $_ := set $runLabels "adhar.io/scale-up" "true" }}{{ end -}}
+            {{-   $podAnnotations := dict "adhar.io/batch-actor" "" -}}
+            {{-   if eq (dig "disruption" "avoid" $p) "avoid" }}{{ $_ := set $podAnnotations "cluster-autoscaler.kubernetes.io/safe-to-evict" "false" }}{{ end -}}
+            {{-   $envList := list
+                    (dict "name" "ADHAR_BATCH_JOB" "value" $job)
+                    (dict "name" "ADHAR_BATCH_NAME" "value" $name)
+                    (dict "name" "ADHAR_BATCH_ROLE" "value" "single")
+                    (dict "name" "ADHAR_BATCH_TRIGGER" "value" $trigger)
+                    (dict "name" "ADHAR_BATCH_PARAMS" "value" "{}")
+                    (dict "name" "ADHAR_BATCH_TIME_ZONE" "value" $tz)
+                    (dict "name" "ADHAR_BATCH_REPOSITORY_SCHEMA" "value" (dig "database" "schema" "batch" $p))
+                    (dict "name" "ADHAR_BATCH_SHUTDOWN_TIMEOUT" "value" (printf "%ds" $shutdown))
+                    (dict "name" "ADHAR_BATCH_K8S_JOB" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.labels['batch.kubernetes.io/job-name']")))
+                    (dict "name" "ADHAR_BATCH_ACTOR" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.annotations['adhar.io/batch-actor']")))
+                    (dict "name" "POD_NAME" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.name")))
+                    (dict "name" "POD_UID" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.uid")))
+                    (dict "name" "NODE_NAME" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "spec.nodeName")))
+                    (dict "name" "ADHAR_ENVIRONMENT" "value" $env)
+                    (dict "name" "SPRING_DATASOURCE_URL" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "jdbc-uri")))
+                    (dict "name" "SPRING_DATASOURCE_USERNAME" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "username")))
+                    (dict "name" "SPRING_DATASOURCE_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "password"))) -}}
+            {{-   range $k := (keys $platformEnv | sortAlpha) }}{{ $envList = append $envList (dict "name" $k "value" (get $platformEnv $k)) }}{{ end -}}
+            {{-   $container := dict
+                    "name" "batch"
+                    "image" $image
+                    "env" $envList
+                    "resources" (dict "requests" $requests "limits" $limits)
+                    "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")))
+                    "volumeMounts" (list (dict "name" "tmp" "mountPath" "/tmp")) -}}
+            {{-   with dig "envFrom" (list) $p }}{{ $_ := set $container "envFrom" . }}{{ end -}}
+            {{-   $podSpec := dict
+                    "restartPolicy" "Never"
+                    "schedulerName" "default-scheduler"
+                    "priorityClassName" $priorityClass
+                    "serviceAccountName" $sa
+                    "terminationGracePeriodSeconds" $grace
+                    "enableServiceLinks" false
+                    "securityContext" (dict "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault"))
+                    "containers" (list $container)
+                    "volumes" (list (dict "name" "tmp" "emptyDir" (dict "sizeLimit" (dig "resources" "tmpSize" "1Gi" $p)))) -}}
+            {{-   if $pullSecrets }}{{ $_ := set $podSpec "imagePullSecrets" $pullSecrets }}{{ end -}}
+            {{-   $jobSpec := dict
+                    "parallelism" 1
+                    "completions" 1
+                    "backoffLimit" (int (dig "retry" "backoffLimit" 2 $p))
+                    "activeDeadlineSeconds" $deadline
+                    "ttlSecondsAfterFinished" (int (dig "history" "ttlSecondsAfterFinished" 604800 $p))
+                    "podReplacementPolicy" "Failed"
+                    "podFailurePolicy" (dict "rules" (list
+                      (dict "action" "Ignore" "onPodConditions" (list (dict "type" "DisruptionTarget" "status" "True")))
+                      (dict "action" "FailJob" "onExitCodes" (dict "containerName" "batch" "operator" "In" "values" (list 2 3 4 6 7)))))
+                    "template" (dict "metadata" (dict "labels" $runLabels "annotations" $podAnnotations) "spec" $podSpec) -}}
+            {{-   $_ := set $runs $trigger (dict "metadata" (dict "labels" $runLabels "annotations" (dict "adhar.io/batch-actor" "")) "spec" $jobSpec) -}}
+            {{- end -}}
+            {{- $manualRun := get $runs "manual" -}}
+            {{- $runTemplate := dict "apiVersion" "batch/v1" "kind" "Job" "metadata" (dict "namespace" $ns "labels" (dig "metadata" "labels" (dict) $manualRun) "annotations" (dig "metadata" "annotations" (dict) $manualRun)) "spec" (get $manualRun "spec") -}}
+
+            {{- /* parameters.json is complete on its own: every default written out, so a
+                   client needs no schema to build a form or check a value. */ -}}
+            {{- $declared := list -}}
+            {{- range $d := (dig "parameters" (list) $p) -}}
+            {{-   $e := dict
+                    "name" (get $d "name")
+                    "type" (get $d "type" | default "string")
+                    "identifying" (ne (toString (dig "identifying" true $d)) "false")
+                    "required" (eq (toString (dig "required" false $d)) "true")
+                    "source" (get $d "source" | default "input")
+                    "sensitive" (eq (toString (dig "sensitive" false $d)) "true") -}}
+            {{-   range $opt := list "default" "pattern" "allowed" "description" -}}
+            {{-     if hasKey $d $opt }}{{ $_ := set $e $opt (get $d $opt) }}{{ end -}}
+            {{-   end -}}
+            {{-   $declared = append $declared $e -}}
+            {{- end -}}
+
+            {{- /* What has been observed: a statusless kind is ready once it exists. */ -}}
+            {{- $seen := dict -}}
+            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "rules" -}}
+            {{-   $_ := set $seen $r (ne (toString (dig $r "resource" "metadata" "uid" "" $observed)) "") -}}
+            {{- end -}}
+            {{- $composeSA := eq (dig "serviceAccountName" "" $p) "" -}}
+            {{- $cronSeen := get $seen "schedule-native" -}}
+            {{- $cronStatus := dig "schedule-native" "resource" "status" (dict) $observed -}}
+            {{- $activeRuns := list -}}
+            {{- range (dig "active" (list) $cronStatus) }}{{ $activeRuns = append $activeRuns (get . "name") }}{{ end -}}
+
+            {{- /* A job firing every few minutes pays a JVM start each time (§14). */ -}}
+            {{- $notes := list -}}
+            {{- $cadence := 60 -}}
+            {{- if $cron -}}
+            {{-   $minute := first (splitList " " (regexReplaceAll "\\s+" (trim $cron) " ")) -}}
+            {{-   if eq $minute "*" -}}
+            {{-     $cadence = 1 -}}
+            {{-   else if hasPrefix "*/" $minute -}}
+            {{-     $cadence = int (trimPrefix "*/" $minute) -}}
+            {{-   else if contains "," $minute -}}
+            {{-     $cadence = div 60 (len (splitList "," $minute)) -}}
+            {{-   end -}}
+            {{-   if lt $cadence 10 -}}
+            {{-     $notes = append $notes (printf "this job fires every %d minute(s), and each run pays a JVM start (about 154 s measured on a busy node); a job this frequent belongs in embedded mode in a service, or in a Function" $cadence) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- if $overridden }}{{ $notes = append $notes (printf "ignored %s: an environment namespace decides where its jobs run" (join ", " $overridden)) }}{{ end -}}
+
+            {{- /* Conditions and the summary line. */ -}}
+            {{- $scheduleCond := dict "status" "True" "reason" "OnDemand" "message" "no schedule: this job runs when somebody starts it" -}}
+            {{- if $cron -}}
+            {{-   if not $prereqOK -}}
+            {{-     $scheduleCond = dict "status" "False" "reason" "PrerequisitesMissing" "message" "the schedule is suspended until the prerequisites are met" -}}
+            {{-   else if not $cronSeen -}}
+            {{-     $scheduleCond = dict "status" "Unknown" "reason" "Creating" "message" (printf "creating CronJob %s" $name) -}}
+            {{-   else if $isHeld -}}
+            {{-     $scheduleCond = dict "status" "True" "reason" "Held" "message" (printf "%q in %s, suspended by a hold: %s" $cron $tz $holdReason) -}}
+            {{-   else if $declaredSuspend -}}
+            {{-     $scheduleCond = dict "status" "True" "reason" "SuspendedInGit" "message" (printf "%q in %s, suspended by the definition (schedule.suspend)" $cron $tz) -}}
+            {{-   else -}}
+            {{-     $scheduleCond = dict "status" "True" "reason" "Scheduled" "message" (printf "%q in %s" $cron $tz) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- $templateCond := dict "status" "True" "reason" "Published" "message" (printf "runs start from ConfigMap %s-run" $name) -}}
+            {{- if not (get $seen "run-template") }}{{ $templateCond = dict "status" "Unknown" "reason" "Creating" "message" (printf "creating ConfigMap %s-run" $name) }}{{ end -}}
+            {{- $prereqCond := dict "status" "True" "reason" "Met" "message" (printf "PriorityClass %s exists" $priorityClass) -}}
+            {{- if not $prereqOK }}{{ $prereqCond = dict "status" "False" "reason" $missingReason "message" (join "; " $missing) }}{{ end -}}
+            {{- $message := "" -}}
+            {{- if not $prereqOK -}}
+            {{-   $message = join "; " $missing -}}
+            {{- else if $isHeld -}}
+            {{-   $message = printf "held: %s" $holdReason -}}
+            {{- else if $cron -}}
+            {{-   $message = printf "scheduled %q in %s" $cron $tz -}}
+            {{- else -}}
+            {{-   $message = "on demand" -}}
+            {{- end -}}
+            {{- if $notes }}{{ $message = printf "%s; %s" $message (join "; " $notes) }}{{ end -}}
+
+            {{- /* Alert thresholds, in seconds: PromQL compares numbers. */ -}}
+            {{- $seconds := dict -}}
+            {{- range $k, $v := dict "maxDuration" (dig "sla" "maxDuration" "" $p) "staleAfter" (dig "alerts" "staleAfter" "26h" $p) -}}
+            {{-   $total := 0 -}}
+            {{-   range $part := regexFindAll "[0-9]+[hms]" $v -1 -}}
+            {{-     $n := int (regexReplaceAll "[hms]$" $part "") -}}
+            {{-     if hasSuffix "h" $part }}{{ $total = add $total (mul $n 3600) }}{{ else if hasSuffix "m" $part }}{{ $total = add $total (mul $n 60) }}{{ else }}{{ $total = add $total $n }}{{ end -}}
+            {{-   end -}}
+            {{-   $_ := set $seconds $k $total -}}
+            {{- end -}}
+            {{- $maxDuration := get $seconds "maxDuration" -}}
+            {{- if not $maxDuration }}{{ $maxDuration = $deadline }}{{ end -}}
+            {{- $staleAfter := get $seconds "staleAfter" -}}
+            {{- $severity := dig "alerts" "severity" "auto" $p -}}
+            {{- if eq $severity "auto" }}{{ $severity = ternary "critical" "warning" (eq $env "prod") }}{{ end -}}
+            {{- $alertsOn := ne (toString (dig "alerts" "enabled" true $p)) "false" -}}
+            {{- $alertLabels := dict "severity" $severity "team" $team "adhar_batch_job" $name "adhar_application" $app "adhar_environment" $env -}}
+            {{- $sel := printf "namespace=\"%s\"" $ns -}}
+            {{- $jobSel := printf "label_adhar_io_batch_job=\"%s\"" $name -}}
+            {{- if $composeSA }}
+            ---
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: {{ $name }}-batch
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: runner-sa
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "runner-sa") | quote }}
+            {{- end }}
+            ---
+            # The runner's two GETs (design 0025 §5.5): its owner Job for the scheduled
+            # time, its own pod for the image digest. Nothing else.
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              name: {{ $name }}-batch
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: runner-role
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (and (get $seen "runner-role") $prereqOK) | quote }}
+            rules:
+              - apiGroups: ["batch", "batch.volcano.sh"]
+                resources: ["jobs"]
+                verbs: ["get"]
+              - apiGroups: [""]
+                resources: ["pods"]
+                verbs: ["get"]
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              name: {{ $name }}-batch
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: runner-rolebinding
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "runner-rolebinding") | quote }}
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: Role
+              name: {{ $name }}-batch
+            subjects:
+              - kind: ServiceAccount
+                name: {{ $sa }}
+                namespace: {{ $ns }}
+            ---
+            # The run template (design 0025 §6.5). A client changes only the name, the
+            # adhar.io/batch-trigger label and the ADHAR_BATCH_PARAMS, _TRIGGER,
+            # _RESTART_OF, _COMMAND and _EXECUTION_ID environment variables; Kyverno
+            # refuses anything else.
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ $name }}-run
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: run-template
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "run-template") | quote }}
+            data:
+              template.yaml: {{ toYaml $runTemplate | toJson }}
+              parameters.json: {{ toJson $declared | toJson }}
+              kind: Job
+              naming: v1
+            {{- if $cron }}
+            ---
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: schedule-native
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" $cronSeen | quote }}
+            spec:
+              schedule: {{ $cron | quote }}
+              timeZone: {{ $tz | quote }}
+              startingDeadlineSeconds: {{ int (dig "startingDeadlineSeconds" 3600 $schedule) }}
+              concurrencyPolicy: {{ $concurrency }}
+              suspend: {{ $suspend }}
+              successfulJobsHistoryLimit: {{ int (dig "history" "successfulJobsHistoryLimit" 3 $p) }}
+              failedJobsHistoryLimit: {{ int (dig "history" "failedJobsHistoryLimit" 3 $p) }}
+              jobTemplate: {{ toJson (get $runs "schedule") }}
+            {{- end }}
+            {{- if $alertsOn }}
+            ---
+            # The alerts of design 0025 §11.3. Severity `auto` is critical in prod; the
+            # team label routes them through Alertmanager to Grafana OnCall. A run's own
+            # failure is an alert and never Argo CD health: the CronJob is composed, not in
+            # the application source, so a failed night cannot block a promotion (§6.6).
+            apiVersion: monitoring.coreos.com/v1
+            kind: PrometheusRule
+            metadata:
+              name: {{ $name }}-batch
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: rules
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "rules") | quote }}
+            spec:
+              groups:
+                - name: {{ printf "adhar.batch.%s.%s" $ns $name }}
+                  rules:
+                    - alert: BatchRunFailed
+                      expr: {{ printf "kube_job_failed{%s,condition=\"true\"} == 1 and on(namespace,job_name) topk by (namespace,label_adhar_io_batch_job) (1, kube_job_created{%s} * on(namespace,job_name) group_left(label_adhar_io_batch_job) kube_job_labels{%s,%s})" $sel $sel $sel $jobSel | quote }}
+                      for: 1m
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "The latest run of BatchJob %s/%s failed" $ns $name | quote }}
+                        description: "The newest run of this job failed; the alert resolves when a newer run exists. `adhar batch runs` and the Console's run detail show the exit code and the step that failed."
+                    {{- if $cron }}
+                    - alert: BatchScheduleMissed
+                      expr: {{ printf "time() - kube_cronjob_next_schedule_time{%s,cronjob=\"%s\"} > 600 and on(namespace,cronjob) kube_cronjob_spec_suspend{%s,cronjob=\"%s\"} == 0 unless on(namespace,cronjob) kube_cronjob_status_active{%s,cronjob=\"%s\"} > 0" $sel $name $sel $name $sel $name | quote }}
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "BatchJob %s/%s did not start on schedule" $ns $name | quote }}
+                        description: "A scheduled fire is more than ten minutes late and nothing is running: the CronJob controller is behind, or the fire fell outside the misfire window."
+                    - alert: BatchNoRecentSuccess
+                      expr: {{ printf "time() - kube_cronjob_status_last_successful_time{%s,cronjob=\"%s\"} > %d and on(namespace,cronjob) kube_cronjob_spec_suspend{%s,cronjob=\"%s\"} == 0" $sel $name $staleAfter $sel $name | quote }}
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "BatchJob %s/%s has not succeeded recently" $ns $name | quote }}
+                        description: "The last successful run is older than the job's alerts.staleAfter. A job on hold does not raise this."
+                    {{- end }}
+                    - alert: BatchRunTooLong
+                      expr: {{ printf "time() - kube_job_status_start_time{%s} > %d and on(namespace,job_name) kube_job_status_active{%s} > 0 and on(namespace,job_name) kube_job_labels{%s,%s}" $sel $maxDuration $sel $sel $jobSel | quote }}
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "A run of BatchJob %s/%s is past its maxDuration" $ns $name | quote }}
+                        description: "The run has been active longer than sla.maxDuration. activeDeadlineSeconds stays the hard stop."
+                    - alert: BatchRunStuckPending
+                      expr: {{ printf "kube_pod_status_phase{%s,phase=\"Pending\"} == 1 and on(namespace,pod) kube_pod_labels{%s,%s}" $sel $sel $jobSel | quote }}
+                      for: 15m
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "A run pod of BatchJob %s/%s has been Pending for 15 minutes" $ns $name | quote }}
+                        description: "A batch pod that cannot be placed is a capacity question, never a priority one: batch never preempts. Read the scheduler's message on the pod."
+                    # A run pod is restartPolicy: Never, so its OOM is its CURRENT state
+                    # (`terminated_reason`), not the `last_terminated_reason` a restarted
+                    # container would report. Bounded to a day: the pod stays until the
+                    # run's TTL, and a week-old kill is not an incident.
+                    - alert: BatchRunOOMKilled
+                      expr: {{ printf "max by (namespace,pod) (kube_pod_container_status_terminated_reason{%s,reason=\"OOMKilled\"} == 1 or kube_pod_container_status_last_terminated_reason{%s,reason=\"OOMKilled\"} == 1) and on(namespace,pod) kube_pod_labels{%s,%s} and on(namespace,pod) time() - kube_pod_created{%s} < 86400" $sel $sel $sel $jobSel $sel | quote }}
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "A run pod of BatchJob %s/%s was OOM-killed" $ns $name | quote }}
+                        description: "The run restarts from its last commit, and will be killed again at the same place unless resources.memory grows."
+            {{- end }}
+            ---
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: BatchJob
+            status:
+              scheduler: kubernetes
+              runTemplate: {{ printf "%s-run" $name | quote }}
+              {{- if $cron }}
+              cronJob: {{ $name | quote }}
+              {{- end }}
+              {{- with get $cronStatus "lastScheduleTime" }}
+              lastScheduleTime: {{ . | quote }}
+              {{- end }}
+              {{- with get $cronStatus "lastSuccessfulTime" }}
+              lastSuccessfulTime: {{ . | quote }}
+              {{- end }}
+              activeRuns: {{ toJson $activeRuns }}
+              {{- if $isHeld }}
+              held:
+                reason: {{ $holdReason | quote }}
+                since: {{ $holdSince | quote }}
+              {{- end }}
+              message: {{ $message | quote }}
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ClaimConditions
+            conditions:
+              - type: PrerequisitesReady
+                status: {{ get $prereqCond "status" | quote }}
+                reason: {{ get $prereqCond "reason" | quote }}
+                message: {{ get $prereqCond "message" | quote }}
+                target: Composite
+              - type: TemplateReady
+                status: {{ get $templateCond "status" | quote }}
+                reason: {{ get $templateCond "reason" | quote }}
+                message: {{ get $templateCond "message" | quote }}
+                target: Composite
+              - type: ScheduleReady
+                status: {{ get $scheduleCond "status" | quote }}
+                reason: {{ get $scheduleCond "reason" | quote }}
+                message: {{ get $scheduleCond "message" | quote }}
+                target: Composite
+              - type: Held
+                status: {{ ternary "True" "False" $isHeld | quote }}
+                reason: {{ ternary "OnHold" "NotHeld" $isHeld | quote }}
+                message: {{ ternary (printf "held: %s" $holdReason) "the schedule is not on hold" $isHeld | quote }}
+                target: Composite
+              - type: Placement
+                status: "True"
+                reason: {{ ternary "ParameterOverridden" "EnvironmentNamespace" (gt (len $overridden) 0) | quote }}
+                message: {{ printf "environment %s of %s (team %s, organisation %s)%s" $env (ternary (printf "project %s" $project) "no project" (ne (toString $project) "")) $team $org (ternary (printf "; %s" (join "; " $notes)) "" (gt (len $notes) 0)) | quote }}
+                target: Composite
+            {{- end }}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

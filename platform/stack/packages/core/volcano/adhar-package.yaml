@@ -1,0 +1,46 @@
+# Adhar marketplace contract for the volcano package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: volcano
+category: core
+version: "1.16.0"
+appVersion: "v1.16.0"
+description: Volcano batch scheduler — queues, fair share, reclaim and all-or-nothing gang scheduling for workloads that name schedulerName volcano. Every other pod stays with kube-scheduler.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://volcano.sh
+adharCompatibility:
+  minVersion: "0.1.0"
+  notes: >-
+    Upstream's compatibility matrix stops at Kubernetes 1.36 and the platform runs 1.37.
+    The production gate is Volcano v1.17 or a maintainer sign-off with the 1.37 canary green
+    (ADR-0028, docs/design/0025 §4.6), so this stays opt-in in every profile until then.
+dependencies:
+  - name: cert-manager        # issues the admission webhook's serving certificate
+    category: security
+  - name: kube-prometheus     # ServiceMonitor CRD; the components run without it
+    category: observability
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: volcano-sh/helm-charts (release asset volcano-1.16.0.tgz)
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: data-plane      # it schedules workload pods (ADR-0023)
+stability: alpha               # beta after the canary in docs/design/0025 §15, Phase 2
+resources:
+  localSafe: false             # the local profile runs batch on the native path (design 0025 INV-8)
+keywords:
+  - batch
+  - scheduler
+  - gang-scheduling
+  - queues
+  - volcano

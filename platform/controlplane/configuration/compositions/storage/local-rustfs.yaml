@@ -6,8 +6,8 @@
 #
 # RustFS, not MinIO. RustFS is the platform's primary S3 store and MinIO is
 # disabled in every profile, so a bucket created in MinIO would land in a store
-# nothing else can reach. The endpoint below is the RustFS Service; `mc` is only
-# a client and speaks to any S3 endpoint, so the tool is unchanged.
+# nothing else can reach. The endpoint below is the RustFS Service, and the client
+# is RustFS's own `rc` (see bucket/local-rustfs.yaml for why not minio/mc).
 #
 # A Job creates the bucket; a connection Secret `<name>-bucket` exposes the S3
 # endpoint + bucket name. Credentials are the platform object-store root, in
@@ -55,14 +55,14 @@ spec:
                 spec:
                   restartPolicy: OnFailure
                   containers:
-                    - name: mc
-                      image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+                    - name: rc
+                      image: docker.io/rustfs/rc:v0.1.37
                       command: [sh, -c]
                       args:
                         - |
                           set -e
-                          mc alias set local {{ $endpoint }} "$S3_USER" "$S3_PASS"
-                          mc mb --ignore-existing "local/{{ $bucket }}"
+                          rc alias set local {{ $endpoint }} "$S3_USER" "$S3_PASS" --bucket-lookup path
+                          rc bucket create --ignore-existing "local/{{ $bucket }}"
                           echo "bucket {{ $bucket }} ready"
                       env:
                         - name: S3_USER

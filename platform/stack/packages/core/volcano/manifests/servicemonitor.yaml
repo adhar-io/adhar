@@ -1,0 +1,55 @@
+# Volcano Prometheus ServiceMonitors. The chart's own monitoring stack is off
+# (custom.metrics_enable: false); the platform's Prometheus scrapes the components'
+# chart-rendered Services, on the port named "metrics":
+#   volcano-scheduler-service    8080   volcano_e2e_*, volcano_queue_*, volcano_unschedule_*
+#   volcano-controllers-service  8081   job, podgroup and queue controller series
+# Prometheus serviceMonitorSelector is empty ({}), so these are scraped as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: volcano-scheduler
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/component: scheduler
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: volcano-scheduler
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: volcano-controllers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/component: controllers
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: volcano-controller
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s

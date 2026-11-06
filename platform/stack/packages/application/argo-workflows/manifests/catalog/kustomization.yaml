@@ -1,0 +1,17 @@
+# The platform step catalogue: ClusterWorkflowTemplates every team's workflows can
+# call by `templateRef` (docs/design/0026 §5.7). Each carries the label
+# `adhar.io/catalog: "true"`, an `adhar.io/node-kind` annotation and Argo's
+# workflows.argoproj.io/title and /description annotations; the console designer
+# builds its "Platform steps" palette from them, so a new step needs no console
+# release.
+#
+# Phases add their files here as `<name>.yaml.tmpl` (rendered at seed time with
+# the platform image, so step code and control plane are one release):
+#   adhar-steps          approval, http-check, wait-healthy, k6-load, run-gameday (W2/G2)
+#   adhar-gameday-steps  the vetted game-day step library (G1)
+#   adhar-batch-steps    start a BatchJob run and wait for it (0025 D10)
+# and list the RENDERED name below. Only Argo CD writes ClusterWorkflowTemplates
+# (policy adhar-cwt-platform-only).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: []

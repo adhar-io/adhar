@@ -1,0 +1,62 @@
+# The workflow controller, as this platform runs it (docs/design/0026 §5.3).
+#
+# One replica with upstream's leader election (TestNoPackageWorkloadShipsMoreThanOneReplica).
+# No priority class: upstream's own (1,000,000, PreemptLowerPriority) is removed by
+# the generator, because it outranked the node-bound databases a scheduling squeeze
+# must never evict (TestNoStackPriorityClassPreemptsNodePinnedWorkloads).
+#
+# Wave 10: after the archive Database (wave -5). "If migration fails, the
+# controller does not start", and the migration needs that database.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-controller
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  template:
+    spec:
+      # adhar-system holds ~290 Services; the controller discovers nothing through
+      # service links.
+      enableServiceLinks: false
+      containers:
+        - name: workflow-controller
+          # Fewer workers than upstream's 32/4/4/8, and a gentler client: upstream
+          # warns that raising qps/burst "can increase the load on the Kubernetes
+          # API server", the platform's binding constraint (§13.2).
+          args:
+            - --workflow-workers=8
+            - --workflow-ttl-workers=2
+            - --pod-cleanup-workers=2
+            - --cron-workflow-workers=2
+            - --qps=15
+            - --burst=25
+          env:
+            # Traces only. The generic OTEL_EXPORTER_OTLP_ENDPOINT would ALSO start
+            # an OTLP metrics exporter (util/telemetry/metrics.go), duplicating every
+            # series Prometheus already scrapes from :9090.
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: http://alloy.adhar-system.svc.cluster.local:4317
+            - name: OTEL_SERVICE_NAME
+              value: argo-workflow-controller
+            # Upstream renews its lease within 10 s of a 15 s lease. On a loaded API
+            # server that deadline is what fails first — kube-controller-manager and
+            # kube-scheduler crash-looped on exactly that on 2026-10-11 — and a
+            # controller that cannot renew must exit. With one replica there is no
+            # standby to hand over to, so a longer lease costs nothing.
+            - name: LEADER_ELECTION_LEASE_DURATION
+              value: 60s
+            - name: LEADER_ELECTION_RENEW_DEADLINE
+              value: 40s
+            - name: LEADER_ELECTION_RETRY_PERIOD
+              value: 10s
+          resources:
+            # Calibrate from container_memory_working_set_bytes after a week of real
+            # load. The limit stays above the 256Mi floor for informer-holding
+            # containers in the shared namespace.
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi

@@ -501,6 +501,44 @@ func keys(m map[string]bool) []string {
 // allowed to write them. Live on 2026-10-11 `kubectl auth can-i patch
 // organisations.platform.adhar.io --as=system:serviceaccount:adhar-system:console`
 // said no — the console could read every XR and provision none.
+// A Gitea push does not refresh Argo CD (its webhook names the public host), so
+// the Marketplace annotates the owning Application after flipping an element.
+// Without this grant a user who may toggle packages but not patch Applications
+// sees "Enabling..." for a whole reconciliation period.
+func TestConsoleMayRefreshThePlatformApplicationSet(t *testing.T) {
+	dec := yaml.NewDecoder(strings.NewReader(readStackFile(t, "core/adhar-console/manifests/install.yaml")))
+	for {
+		var doc map[string]any
+		if err := dec.Decode(&doc); err != nil {
+			break
+		}
+		if doc == nil || doc["kind"] != "ClusterRole" {
+			continue
+		}
+		if name, _ := doc["metadata"].(map[string]any); toString(name["name"]) != "console-tenant-provisioner" {
+			continue
+		}
+		for _, raw := range toSlice(doc["rules"]) {
+			rule, _ := raw.(map[string]any)
+			res := toSlice(rule["resources"])
+			if len(res) != 1 || toString(res[0]) != "applications" {
+				continue
+			}
+			names := toSlice(rule["resourceNames"])
+			if len(names) != 1 || toString(names[0]) != "adhar-platform-applicationset" {
+				t.Fatalf("the console may patch Applications beyond the platform ApplicationSet: %v", names)
+			}
+			for _, v := range toSlice(rule["verbs"]) {
+				if toString(v) == "patch" {
+					return
+				}
+			}
+		}
+		t.Fatal("console-tenant-provisioner may not patch adhar-platform-applicationset")
+	}
+	t.Fatal("no ClusterRole console-tenant-provisioner")
+}
+
 func TestConsoleMayWriteTenancyXRs(t *testing.T) {
 	src := readStackFile(t, "core/adhar-console/manifests/install.yaml")
 	dec := yaml.NewDecoder(strings.NewReader(src))

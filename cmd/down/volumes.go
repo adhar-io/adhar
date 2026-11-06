@@ -13,8 +13,10 @@ package down
 //  1. After the cluster's instances (or managed cluster) are deleted — so its
 //     volumes detach — list every volume carrying an install id the CLI recorded
 //     for this cluster name, plus a managed cluster's cloud UUID.
-//  2. Show exactly that list (id, size, PVC, created) and, unless --yes/--force,
-//     ask. --keep-volumes keeps them and says how to delete them later.
+//  2. Delete them without asking again: the teardown's one confirmation (or
+//     --yes/--force) already said the volumes go, and this step cannot run
+//     without it. The list (id, size, PVC, created) is printed under --verbose.
+//     --keep-volumes keeps them, lists them and says how to delete them later.
 //  3. Wait (bounded) for each to detach, delete it, and READ IT BACK until the
 //     cloud says it is gone. Anything left is reported by id, with the command
 //     that finishes the job.
@@ -26,7 +28,9 @@ package down
 // provider can PROVE no running cluster could own them, and only after a typed
 // confirmation at an interactive terminal — see legacyNeedsATerminal. The same
 // terminal rule protects volumes an earlier teardown kept ON PURPOSE
-// (--keep-volumes, or a "no"): a later blanket --yes does not undo that choice.
+// (--keep-volumes, or a "no" at one of those prompts) and the volumes of a cluster
+// this run did not see deleted: the teardown's confirmation is about the cluster
+// it names, so it covers neither, and they are still listed and asked about.
 //
 // A provided cluster (clusterMode: provided) never reaches this step: the
 // teardown loop skips it before locating anything, and runJob refuses one again.
@@ -106,6 +110,9 @@ type volumeStep struct {
 	assumeYes bool
 	// keep is --keep-volumes.
 	keep bool
+	// verbose is --verbose: the cluster's own volumes are listed and followed
+	// one by one instead of reported in a line.
+	verbose bool
 	// finish is the command that re-runs this teardown, printed with anything
 	// left behind.
 	finish string
@@ -125,6 +132,7 @@ func newVolumeStep(cfg *config.Config, providerOpts map[string]interface{}) *vol
 		interactive: term.IsTerminal(int(os.Stdin.Fd())),
 		assumeYes:   forceDelete,
 		keep:        keepVolumes,
+		verbose:     verboseDown,
 		finish:      finishCommand(),
 		managerFor: func(j volumeJob) (pfactory.ClusterVolumeManager, error) {
 			p := j.Provider
@@ -373,41 +381,25 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 
 	// 3. Decide.
 	//
-	// unanswered are volumes kept because the prompt got NO answer at all
-	// (stdin closed: a script that passed neither --yes nor --keep-volumes).
-	// Nobody consented, so they are kept — but nobody chose to keep them either,
-	// so they are not marked kept-on-purpose and a later --yes finishes the job.
-	//
 	// heldBack are volumes of a cluster not seen deleted (unconfirmedGone) that
 	// were not deleted: their record is left exactly as it was, so they are
 	// neither a choice to keep nor an unfinished deletion.
-	var approved, keptByChoice, unanswered, heldBack []pfactory.BlockVolume
+	var approved, keptByChoice, heldBack []pfactory.BlockVolume
 	keepReason := map[string]string{}
 	if len(attributed) > 0 {
-		s.printf("\n%s left %d block volume(s), %d GiB, tagged with its install id:\n\n", name, len(attributed), pfactory.TotalGiB(attributed))
-		fmt.Fprintln(s.out, volumeTable(attributed, installOf))
-		reply := answerYes
-		if !s.keep && !s.assumeYes {
-			reply = s.ask(fmt.Sprintf("Delete these %d volume(s)? Their data cannot be recovered.", len(attributed)))
+		// Never a second question: reaching this step takes a typed "yes" at the
+		// teardown's confirmation, whose panel says the volumes go, or --yes.
+		if s.keep || s.verbose {
+			s.printf("\n%s left %d block volume(s), %d GiB, tagged with its install id:\n\n", name, len(attributed), pfactory.TotalGiB(attributed))
+			fmt.Fprintln(s.out, volumeTable(attributed, installOf))
 		}
-		switch {
-		case s.keep:
+		if s.keep {
 			keptByChoice = append(keptByChoice, attributed...)
 			for _, v := range attributed {
 				keepReason[v.ID] = "kept (--keep-volumes)"
 			}
-		case reply == answerYes:
+		} else {
 			approved = append(approved, attributed...)
-		case reply == answerNone:
-			unanswered = append(unanswered, attributed...)
-			for _, v := range attributed {
-				keepReason[v.ID] = "kept (no answer: stdin was closed; --yes deletes them)"
-			}
-		default:
-			keptByChoice = append(keptByChoice, attributed...)
-			for _, v := range attributed {
-				keepReason[v.ID] = "kept (not confirmed)"
-			}
 		}
 	}
 	if len(keptEarlier) > 0 {
@@ -426,7 +418,7 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			for _, v := range keptEarlier {
 				keepReason[v.ID] = "kept (kept on purpose earlier; confirm at a terminal to delete)"
 			}
-		case s.ask(fmt.Sprintf("Delete these %d volume(s) that were kept on purpose? Their data cannot be recovered.", len(keptEarlier))) == answerYes:
+		case s.ask(fmt.Sprintf("Delete these %d volume(s) that were kept on purpose? Their data cannot be recovered.", len(keptEarlier))):
 			approved = append(approved, keptEarlier...)
 		default:
 			for _, v := range keptEarlier {
@@ -469,7 +461,7 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			for _, v := range unconfirmed {
 				keepReason[v.ID] = "kept (its cluster was not seen deleted; confirm at a terminal to delete)"
 			}
-		case s.ask(fmt.Sprintf("Is %s really gone? Delete these %d volume(s)? Their data cannot be recovered.", name, len(unconfirmed))) == answerYes:
+		case s.ask(fmt.Sprintf("Is %s really gone? Delete these %d volume(s)? Their data cannot be recovered.", name, len(unconfirmed))):
 			approved = append(approved, unconfirmed...)
 			for _, v := range unconfirmed {
 				records[recordOf[v.ID]].confirmedGone = true
@@ -500,7 +492,7 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 			for _, v := range legacyVols {
 				keepReason[v.ID] = "kept (needs an interactive confirmation)"
 			}
-		case s.ask(fmt.Sprintf("Delete these %d volume(s) too? Nothing names their cluster; they are offered because nothing that could own them is left.", len(legacyVols))) == answerYes:
+		case s.ask(fmt.Sprintf("Delete these %d volume(s) too? Nothing names their cluster; they are offered because nothing that could own them is left.", len(legacyVols))):
 			approved = append(approved, legacyVols...)
 		default:
 			for _, v := range legacyVols {
@@ -515,15 +507,24 @@ func (s *volumeStep) runJob(j volumeJob) bool {
 	}
 
 	// 4. Delete, and prove it.
+	//
+	// Volumes a person has just been shown keep the full account. The cluster's
+	// own get one line unless --verbose; anything that goes wrong is reported in
+	// full either way, because a volume left behind keeps billing.
+	detailed := s.verbose || len(approved) > len(attributed)
 	var res pfactory.ReapResult
 	if len(approved) > 0 {
 		opts := s.reap
-		opts.Progress = func(line string) { s.printf("  … %s\n", line) }
-		s.printf("\nDeleting %d volume(s) — waiting for each to detach, then reading it back until it is gone…\n", len(approved))
+		if detailed {
+			opts.Progress = func(line string) { s.printf("  … %s\n", line) }
+			s.printf("\nDeleting %d volume(s) — waiting for each to detach, then reading it back until it is gone…\n", len(approved))
+		} else {
+			s.printf("\nDeleting %d block volume(s) left by %s…\n", len(approved), name)
+		}
 		res = pfactory.ReapVolumes(s.ctx, mgr, approved, opts)
 	}
-	kept := append(append(append([]pfactory.BlockVolume{}, keptByChoice...), unanswered...), heldBack...)
-	s.report(res, kept, keepReason)
+	kept := append(append([]pfactory.BlockVolume{}, keptByChoice...), heldBack...)
+	s.report(res, kept, keepReason, detailed)
 	if len(res.Failed) > 0 || len(res.StillAttached) > 0 {
 		ok = false
 	}
@@ -571,43 +572,27 @@ func legacyNeedsATerminal(assumeYes, interactive bool) bool {
 	return assumeYes || !interactive
 }
 
-// answer is what came back from a prompt.
-type answer int
-
-const (
-	// answerNone: nothing was read — stdin is closed or empty. Nobody decided
-	// anything, so the volumes are kept but NOT recorded as kept on purpose.
-	answerNone answer = iota
-	// answerNo: an answer other than "yes" was given — a choice to keep them.
-	answerNo
-	answerYes
-)
-
-func (s *volumeStep) ask(question string) answer {
+// ask reports whether a person typed "yes". It is only reached at a terminal.
+func (s *volumeStep) ask(question string) bool {
 	s.printf("\n%s\n", question)
 	fmt.Fprint(s.out, helpers.Indent("Type yes to delete, anything else keeps them: "))
 	if s.in == nil {
 		fmt.Fprintln(s.out)
-		return answerNone
+		return false
 	}
-	line, err := s.in.ReadString('\n')
-	switch {
-	case strings.TrimSpace(line) == "yes":
-		return answerYes
-	case err != nil && strings.TrimSpace(line) == "":
-		// End of input with nothing typed: the prompt was never answered.
-		fmt.Fprintln(s.out)
-		return answerNone
-	default:
-		return answerNo
-	}
+	line, _ := s.in.ReadString('\n')
+	return strings.TrimSpace(line) == "yes"
 }
 
-func (s *volumeStep) report(res pfactory.ReapResult, kept []pfactory.BlockVolume, keepReason map[string]string) {
+func (s *volumeStep) report(res pfactory.ReapResult, kept []pfactory.BlockVolume, keepReason map[string]string, detailed bool) {
 	if len(res.Deleted) > 0 {
-		s.printf("\n%s Deleted %d volume(s), %d GiB — each read back as gone:\n", helpers.IconReady, len(res.Deleted), pfactory.TotalGiB(res.Deleted))
-		for _, v := range res.Deleted {
-			s.printf("  %s  %d GiB  %s\n", v.Label(), v.SizeGiB, v.PVC())
+		if detailed {
+			s.printf("\n%s Deleted %d volume(s), %d GiB — each read back as gone:\n", helpers.IconReady, len(res.Deleted), pfactory.TotalGiB(res.Deleted))
+			for _, v := range res.Deleted {
+				s.printf("  %s  %d GiB  %s\n", v.Label(), v.SizeGiB, v.PVC())
+			}
+		} else {
+			s.printf("%s Deleted %d block volume(s), %d GiB.\n", helpers.IconReady, len(res.Deleted), pfactory.TotalGiB(res.Deleted))
 		}
 	}
 	if len(res.StillAttached) > 0 {
@@ -635,8 +620,8 @@ func (s *volumeStep) report(res pfactory.ReapResult, kept []pfactory.BlockVolume
 // volume; one that still points at volumes is kept, with them listed.
 //
 // keptByChoice are the volumes this run kept because somebody said so
-// (--keep-volumes, a "no", or an earlier such choice not overturned at a
-// terminal): a record left pointing at any of them is marked KeptByChoice, so
+// (--keep-volumes, a "no" at a prompt, or an earlier such choice not overturned
+// at a terminal): a record left pointing at any of them is marked KeptByChoice, so
 // a later blanket --yes does not delete them.
 func (s *volumeStep) settle(mgr pfactory.ClusterVolumeManager, j volumeJob, records []tracked, remaining []pfactory.BlockVolume, keptByChoice map[string]bool) bool {
 	ok := true
@@ -734,8 +719,8 @@ func recordLabel(r pfactory.ClusterInstall) string {
 	return label
 }
 
-// volumeTable is the list a person confirms: exactly the volumes, by id —
-// and, when installOf is given, the install each one carries.
+// volumeTable is the list a person confirms or audits: exactly the volumes, by
+// id — and, when installOf is given, the install each one carries.
 //
 // Unbounded: the table never shortens a cell. A confirmation over an id cut to
 // "vol-0aaa…" — or an Azure disk id, ~150 characters of ARM path, cut anywhere
@@ -766,7 +751,7 @@ func volumeTable(vols []pfactory.BlockVolume, installOf map[string]string) strin
 
 // teardownProviderOptions are the per-run options every provider this teardown
 // builds receives. KeepClusterVolumesOption is always set: the cluster's own
-// volumes are this step's to list, confirm and verify, so DeleteCluster must not
+// volumes are this step's to delete and verify, so DeleteCluster must not
 // delete them unasked — which is also the only way --keep-volumes can be
 // honoured at all.
 func teardownProviderOptions() map[string]interface{} {

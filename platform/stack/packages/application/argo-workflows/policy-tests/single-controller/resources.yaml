@@ -1,0 +1,196 @@
+# Admission requests for policy adhar-argo-single-controller (manifests/platform/policies.yaml).
+# Each kyverno-test.yaml beside this file replays them as one identity; the
+# operation (CREATE / UPDATE / DELETE) is set per expected result.
+#
+# What a ChaosCenter "connect chaos infrastructure" manifest brings (Litmus 3.33.0,
+# Argo v3.3.1) — refused for everyone, Argo CD included:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: litmus-workflow-controller
+  namespace: litmus
+spec:
+  containers:
+    - name: workflow-controller
+      image: litmuschaos/workflow-controller:v3.3.1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: litmus-subscriber
+  namespace: litmus
+spec:
+  containers:
+    - name: subscriber
+      image: docker.io/litmuschaos/litmusportal-subscriber:3.33.0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: litmus-event-tracker
+  namespace: litmus
+spec:
+  containers:
+    - name: tracker
+      image: litmuschaos/litmusportal-event-tracker:3.33.0
+---
+# The executor arriving as an init container still counts.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: litmus-argoexec-init
+  namespace: litmus
+spec:
+  initContainers:
+    - name: init
+      image: litmuschaos/argoexec:v3.3.1
+  containers:
+    - name: main
+      image: docker.io/library/busybox:1.37.0
+---
+# The controller that would create those pods is refused before it creates a
+# ReplicaSet (Kyverno's generated rule for Pod controllers).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-infrastructure-controller
+  namespace: litmus
+spec:
+  selector:
+    matchLabels: {app: chaos-infrastructure-controller}
+  template:
+    metadata:
+      labels: {app: chaos-infrastructure-controller}
+    spec:
+      containers:
+        - name: workflow-controller
+          image: litmuschaos/workflow-controller:v3.3.1
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chaos-infrastructure-heartbeat
+  namespace: litmus
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: subscriber
+              image: litmuschaos/litmusportal-subscriber:3.33.0
+---
+# The platform's OWN engine images must never match the Litmus patterns: a step
+# pod runs quay.io/argoproj/argoexec as its init/wait containers.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: platform-workflow-step
+  namespace: team-a-dev
+spec:
+  initContainers:
+    - name: init
+      image: quay.io/argoproj/argoexec:v4.1.6
+  containers:
+    - name: main
+      image: docker.io/alpine/k8s:1.37.1
+    - name: wait
+      image: quay.io/argoproj/argoexec:v4.1.6
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: platform-workflow-controller
+  namespace: adhar-system
+spec:
+  containers:
+    - name: workflow-controller
+      image: quay.io/argoproj/workflow-controller:v4.1.6
+---
+# A second controller under the upstream name in another namespace: the chaos
+# infrastructure's own Deployment and ConfigMap names.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-controller
+  namespace: litmus
+spec:
+  selector:
+    matchLabels: {app: workflow-controller}
+  template:
+    metadata:
+      labels: {app: workflow-controller}
+    spec:
+      containers:
+        - name: workflow-controller
+          image: quay.io/argoproj/workflow-controller:v3.3.1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-controller-configmap
+  namespace: litmus
+data:
+  containerRuntimeExecutor: k8sapi
+---
+# The platform's own controller and configuration: only Argo CD writes them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-controller
+  namespace: adhar-system
+spec:
+  selector:
+    matchLabels: {app: workflow-controller}
+  template:
+    metadata:
+      labels: {app: workflow-controller}
+    spec:
+      containers:
+        - name: workflow-controller
+          image: quay.io/argoproj/workflow-controller:v4.1.6
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-controller-configmap
+  namespace: adhar-system
+data:
+  parallelism: "25"
+---
+# An Argo v3 schema replacing the platform's CRD.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: workflows.argoproj.io
+spec:
+  group: argoproj.io
+  names: {kind: Workflow, listKind: WorkflowList, plural: workflows, singular: workflow, shortNames: [wf]}
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterworkflowtemplates.argoproj.io
+spec:
+  group: argoproj.io
+  names: {kind: ClusterWorkflowTemplate, listKind: ClusterWorkflowTemplateList, plural: clusterworkflowtemplates, singular: clusterworkflowtemplate}
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

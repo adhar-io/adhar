@@ -152,13 +152,13 @@ commands:
     claimKind: Pipeline
     status: production-ready
     compositions:
-      - name: argo-workflows
-        file: configuration/compositions/pipeline/argo-workflows.yaml
-        readiness: production
       - name: tekton
         file: configuration/compositions/pipeline/tekton.yaml
         readiness: production
-    description: CI/CD pipeline orchestration with Argo Workflows and Tekton.
+    # A Pipeline is CI (Tekton, or the local runner `pipeline-local`, the XRD's
+    # default). Orchestration on Argo Workflows is a WorkflowTemplate, not a
+    # Pipeline: the Argo composition was removed (docs/design/0026 §5.12).
+    description: CI/CD pipelines on Tekton.
   - name: policy
     group: platform.adhar.io
     version: v1alpha1

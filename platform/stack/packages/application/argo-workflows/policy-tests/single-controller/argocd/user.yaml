@@ -1,0 +1,12 @@
+# Argo CD's application controller: the one identity that syncs the
+# argo-workflows Application (its ServiceAccount in the platform namespace).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: argocd-application-controller
+userInfo:
+  username: system:serviceaccount:adhar-system:argocd-application-controller
+  groups:
+    - system:serviceaccounts
+    - system:serviceaccounts:adhar-system
+    - system:authenticated

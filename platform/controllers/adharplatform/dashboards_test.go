@@ -225,7 +225,8 @@ func TestEachFolderHoldsAFewDashboards(t *testing.T) {
 // whatever is enabled), the packages it is about (ApplicationSet element names). A
 // dashboard whose packages are disabled in BOTH profiles is a page of "No data" on every
 // cluster — MySQL, MinIO, Spark, Chaos Mesh, VictoriaMetrics, Cosign, Kubescape,
-// Terraform, Argo Workflows, Pyroscope, Beyla and Fluent Bit all had one until 2026-10-23.
+// Terraform, Argo Workflows, Pyroscope, Beyla and Fluent Bit all had one until 2026-10-23
+// (Argo Workflows came back as a row of delivery-ci when production enabled it).
 // A dashboard shipped INSIDE a package (e.g. ai/vllm) is deployed only with its package,
 // so it is exempt by construction.
 var dashboardCoverage = map[string][]string{
@@ -243,7 +244,7 @@ var dashboardCoverage = map[string][]string{
 	"rabbitmq-overview":       {"rabbitmq"},
 	"data-analytics":          {"opensearch", "posthog", "open-metadata", "trino", "rustfs", "jupyterhub"},
 	"delivery-gitops":         {"argo-rollout", "kargo"},
-	"delivery-ci":             {"tekton", "argo-events", "harbor", "nexus", "buildpack"},
+	"delivery-ci":             {"tekton", "argo-events", "harbor", "nexus", "buildpack", "argo-workflows"},
 	"delivery-dev-platform":   {"crossplane", "coder", "dapr"},
 	"delivery-dapr":           {"dapr"},
 	"security-policy":         {"kyverno", "trivy"},

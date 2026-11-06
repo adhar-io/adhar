@@ -2,12 +2,14 @@
 # Bucket — an S3 bucket on RustFS, the platform's primary object store.
 #
 # RustFS, not MinIO: MinIO is disabled in every profile, so a bucket created
-# there would land in a store nothing else can reach. `mc` is only a client and
-# speaks to any S3 endpoint, which is why the tool is unchanged.
+# there would land in a store nothing else can reach. The client is RustFS's own
+# `rc`: minio/mc can no longer be pulled anonymously from Docker Hub or Quay, which
+# left every Bucket's Job in ImagePullBackOff on a node without it cached. Quota
+# goes through the RustFS admin API, which `rc` speaks and only `rc` is built for.
 #
-# Everything the Job does is idempotent (`mb --ignore-existing`, and setting a
-# policy/lifecycle/quota to the value it already has), because this runs again on
-# every reconcile.
+# Everything the Job does is idempotent, because the Job is recreated after its TTL
+# and runs again. `rc ilm rule add` is the one call that is not: every run appends
+# another rule, so it only runs when the declared rule is missing.
 #
 # The lifecycle rule is the one setting worth arguing about: a bucket of build
 # artefacts with no expiry grows until the store's volume is full, which takes
@@ -71,8 +73,8 @@ spec:
                 spec:
                   restartPolicy: OnFailure
                   containers:
-                    - name: mc
-                      image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+                    - name: rc
+                      image: docker.io/rustfs/rc:v0.1.37
                       env:
                         - name: S3_USER
                           valueFrom: { secretKeyRef: { name: root-creds, key: rootUser } }
@@ -82,24 +84,27 @@ spec:
                       args:
                         - |
                           set -e
-                          mc alias set local {{ $endpoint }} "$S3_USER" "$S3_PASS"
-                          mc mb --ignore-existing "local/{{ $bucket }}"
+                          rc alias set local {{ $endpoint }} "$S3_USER" "$S3_PASS" --bucket-lookup path
+                          rc bucket create --ignore-existing "local/{{ $bucket }}"
                           {{- if $versioning }}
-                          mc version enable "local/{{ $bucket }}"
+                          rc bucket version enable "local/{{ $bucket }}"
                           {{- else }}
-                          mc version suspend "local/{{ $bucket }}" || true
+                          rc bucket version suspend "local/{{ $bucket }}"
                           {{- end }}
                           {{- if gt (int $quota) 0 }}
-                          mc quota set "local/{{ $bucket }}" --size {{ $quota }}gi
+                          rc bucket quota set "local/{{ $bucket }}" {{ $quota }}G
                           {{- end }}
                           {{- if gt (int $expire) 0 }}
-                          mc ilm rule add --expire-days {{ $expire }} "local/{{ $bucket }}" 2>/dev/null \
-                            || echo "lifecycle rule already present"
+                          if ! rc ilm rule list "local/{{ $bucket }}" --json \
+                            | jq -e '[.rules[]? | select(.expiration.days == {{ $expire }})] | length == 1' >/dev/null; then
+                            rc ilm rule remove "local/{{ $bucket }}" --all
+                            rc ilm rule add "local/{{ $bucket }}" --expiry-days {{ $expire }}
+                          fi
                           {{- end }}
                           {{- if $public }}
-                          mc anonymous set download "local/{{ $bucket }}"
+                          rc bucket anonymous set download "local/{{ $bucket }}"
                           {{- else }}
-                          mc anonymous set none "local/{{ $bucket }}"
+                          rc bucket anonymous set private "local/{{ $bucket }}"
                           {{- end }}
                           echo "bucket {{ $bucket }} ready"
                       resources:

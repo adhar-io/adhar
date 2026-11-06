@@ -1,26 +1,190 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Renders the Argo Workflows base install from the upstream namespace-install
-# manifest. We vendor the upstream manifest (rather than the Helm chart) because
-# the dev overlay (manifests/dev/kustomization.yaml) strategic-merge patches the
-# upstream resource names ("workflow-controller-configmap" and "argo-server"),
-# which the Helm chart prefixes with the release name. The dev overlay layers SSO
-# config, the admin SA, the external secret and the Gateway API HTTPRoute on top.
+# Argo Workflows — the platform's orchestration engine
+# (docs/design/0026-workflows-and-gamedays.md §5.1).
 #
-# Gateway API only -- the upstream manifest ships NO Ingress; external routing is
-# handled by manifests/dev/ingress.yaml (an HTTPRoute that strips /argo-workflows).
+# Renders manifests/base/ from the upstream CLUSTER install (one controller for
+# the whole cluster, not a namespace install) of a pinned, patched release.
+# manifests/base/ is GENERATED ONLY. Every platform decision lives in
+# manifests/platform/ — the Argo CD element's manifestPath — which patches these
+# objects by their upstream names (workflow-controller, argo-server,
+# workflow-controller-configmap). A rename upstream therefore fails THIS script
+# rather than silently leaving a patch with nothing to patch.
+#
+#   base/install.yaml       upstream release install.yaml minus:
+#                             * every CustomResourceDefinition — the full v4
+#                               schemas are 4.84 MiB of JSON on an API server that
+#                               has run at 96% node memory; the minimal set below
+#                               is ~0.30 MiB (D-3);
+#                             * PriorityClass/workflow-controller (1,000,000,
+#                               PreemptLowerPriority), which outranked the
+#                               platform's node-bound databases, and the
+#                               controller's priorityClassName with it;
+#                           namespace argo -> adhar-system (ADR-0011).
+#   base/crds-minimal.yaml  upstream manifests/base/crds/minimal/* at the same
+#                           tag, annotated sync-wave -10 and
+#                           Delete=false,Prune=false,ServerSideApply=true:
+#                           switching the package off must never take every
+#                           team's templates and runs with it (INV-11), and the
+#                           largest minimal CRD (workflowtasksets, ~205 KiB)
+#                           does not fit a client-side last-applied annotation.
+#   base/kustomization.yaml
+#
+# Each output carries the upstream tag and the sha256 of what was downloaded;
+# TestArgoWorkflowsIsPinnedToAPatchedRelease holds the generator, the package
+# contract and these headers to one version, at or above the floor below.
+#
+# To move to the FULL CRDs (validation in the API server, `kubectl explain`),
+# replace CRD_DIR with "full" — only after the §13.2 measurement shows the API
+# server can afford them.
+#
+# Requires curl and python3 with PyYAML. Run from anywhere.
 
-INSTALL_YAML="manifests/base/install.yaml"
-APP_VERSION="v4.1.2"
+APP_VERSION="v4.1.6"
+# v4.1.4 fixed GHSA-vm9v-p987-xm32 (artifact path traversal, CVSS 8.8) and
+# GHSA-q65w-j2vp-47c4 (cross-namespace archived-workflow IDOR). Never below.
+MIN_VERSION="v4.1.4"
+CRD_DIR="minimal"
+REPO="argoproj/argo-workflows"
+INSTALL_URL="https://github.com/${REPO}/releases/download/${APP_VERSION}/install.yaml"
+CRD_URL="https://raw.githubusercontent.com/${REPO}/${APP_VERSION}/manifests/base/crds/${CRD_DIR}"
+CRDS=(
+  clusterworkflowtemplates
+  cronworkflows
+  workflowartifactgctasks
+  workfloweventbindings
+  workflows
+  workflowtaskresults
+  workflowtasksets
+  workflowtemplates
+)
 
-echo "# ARGO WORKFLOWS INSTALL RESOURCES" >${INSTALL_YAML}
-echo "# This file is auto-generated with 'platform/stack/packages/application/argo-workflows/generate-manifests.sh'" >>${INSTALL_YAML}
-echo "# Argo Workflows ${APP_VERSION} (upstream install.yaml)" >>${INSTALL_YAML}
+HERE="$(cd "$(dirname "$0")" && pwd)"
+OUT="${HERE}/manifests/base"
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
+mkdir -p "${OUT}"
 
-curl -sSL "https://github.com/argoproj/argo-workflows/releases/download/${APP_VERSION}/install.yaml" >>${INSTALL_YAML}
+curl -fsSL "${INSTALL_URL}" -o "${WORK}/install.yaml"
+for crd in "${CRDS[@]}"; do
+  curl -fsSL "${CRD_URL}/argoproj.io_${crd}.yaml" -o "${WORK}/crd-${crd}.yaml"
+done
 
-# Upstream installs into the `argo` namespace; the platform runs everything in
-# adhar-system (and the dev overlay patches target adhar-system). Rewrite it.
-sed -i.bak 's/^\( *namespace: \)argo *$/\1adhar-system/g' ${INSTALL_YAML}
-rm -f ${INSTALL_YAML}.bak
+python3 - "${APP_VERSION}" "${MIN_VERSION}" "${CRD_DIR}" "${INSTALL_URL}" "${CRD_URL}" "${WORK}" "${OUT}" "${CRDS[@]}" <<'PYEOF'
+import hashlib
+import os
+import sys
+
+import yaml
+
+version, floor, crd_dir, install_url, crd_url, work, out = sys.argv[1:8]
+crds = sys.argv[8:]
+SCRIPT = "platform/stack/packages/application/argo-workflows/generate-manifests.sh"
+
+
+def semver(v):
+    return tuple(int(p) for p in v.lstrip("v").split("."))
+
+
+if semver(version) < semver(floor):
+    sys.exit(f"refusing {version}: below the patched floor {floor} (GHSA-vm9v-p987-xm32, GHSA-q65w-j2vp-47c4)")
+
+
+def sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def dump(docs):
+    return "---\n".join(yaml.safe_dump(d, sort_keys=False, width=4096) for d in docs)
+
+
+def header(title, sources):
+    lines = [
+        f"# GENERATED by {SCRIPT} — do not edit; change the generator or manifests/platform/.",
+        f"# Argo Workflows {version} — {title}",
+    ]
+    for url, digest in sources:
+        lines.append(f"# source: {url}")
+        lines.append(f"# source-sha256: {digest}")
+    return "\n".join(lines) + "\n"
+
+
+# ── install.yaml ────────────────────────────────────────────────────────────
+src = os.path.join(work, "install.yaml")
+docs = [d for d in yaml.safe_load_all(open(src)) if d]
+kept, dropped = [], []
+for d in docs:
+    kind, name = d.get("kind"), (d.get("metadata") or {}).get("name")
+    if kind == "CustomResourceDefinition":
+        dropped.append(f"CustomResourceDefinition/{name}")
+        continue
+    if kind == "PriorityClass":
+        dropped.append(f"PriorityClass/{name}")
+        continue
+    meta = d.setdefault("metadata", {})
+    if meta.get("namespace") == "argo":
+        meta["namespace"] = "adhar-system"
+    for s in d.get("subjects") or []:
+        if s.get("namespace") == "argo":
+            s["namespace"] = "adhar-system"
+    if kind == "Deployment":
+        pod = d["spec"]["template"]["spec"]
+        if pod.pop("priorityClassName", None):
+            dropped.append(f"Deployment/{name}.spec.template.spec.priorityClassName")
+        for c in pod.get("containers", []):
+            image = c.get("image", "")
+            if not image.endswith(":" + version):
+                sys.exit(f"{kind}/{name} container {c.get('name')} runs {image}, not {version}")
+    kept.append(d)
+
+# manifests/platform patches these by name; fail here, not silently there.
+want = {("Deployment", "workflow-controller"), ("Deployment", "argo-server"),
+        ("ConfigMap", "workflow-controller-configmap"), ("Service", "argo-server")}
+have = {(d["kind"], d["metadata"]["name"]) for d in kept}
+if not want <= have:
+    sys.exit(f"upstream no longer ships {sorted(want - have)}; update manifests/platform before regenerating")
+leftover = [d for d in kept if (d.get("metadata") or {}).get("namespace") not in (None, "adhar-system")]
+if leftover:
+    sys.exit(f"objects outside adhar-system after the rewrite: {[(d['kind'], d['metadata']['name']) for d in leftover]}")
+if sum(1 for x in dropped if x.startswith("CustomResourceDefinition/")) != len(crds):
+    sys.exit(f"upstream install ships {dropped}, expected exactly {len(crds)} CRDs to replace with the {crd_dir} set")
+
+with open(os.path.join(out, "install.yaml"), "w") as f:
+    f.write(header("upstream cluster install, CRDs and PriorityClass removed", [(install_url, sha256(src))]))
+    f.write("# removed: " + ", ".join(dropped) + "\n")
+    f.write(dump(kept))
+
+# ── crds-minimal.yaml ───────────────────────────────────────────────────────
+crd_docs, sources = [], []
+for crd in crds:
+    path = os.path.join(work, f"crd-{crd}.yaml")
+    d = yaml.safe_load(open(path))
+    if d.get("kind") != "CustomResourceDefinition" or d["metadata"]["name"] != f"{crd}.argoproj.io":
+        sys.exit(f"{path} is not the {crd}.argoproj.io CRD")
+    ann = d["metadata"].setdefault("annotations", {})
+    # Before everything that is an instance of them (platform tasks, policies).
+    ann["argocd.argoproj.io/sync-wave"] = "-10"
+    # INV-11: disabling the package leaves the CRDs — and so every team's
+    # templates, schedules and runs — in place; purge is an explicit runbook.
+    ann["argocd.argoproj.io/sync-options"] = "Delete=false,Prune=false,ServerSideApply=true"
+    crd_docs.append(d)
+    sources.append((f"{crd_url}/argoproj.io_{crd}.yaml", sha256(path)))
+
+with open(os.path.join(out, "crds-minimal.yaml"), "w") as f:
+    f.write(header(f"the {len(crds)} {crd_dir} CRDs (manifests/base/crds/{crd_dir})", sources))
+    f.write(dump(crd_docs))
+
+# ── kustomization.yaml ──────────────────────────────────────────────────────
+with open(os.path.join(out, "kustomization.yaml"), "w") as f:
+    f.write(header("kustomization", []))
+    f.write(yaml.safe_dump({
+        "apiVersion": "kustomize.config.k8s.io/v1beta1",
+        "kind": "Kustomization",
+        "resources": ["crds-minimal.yaml", "install.yaml"],
+    }, sort_keys=False))
+
+print(f"argo-workflows {version}: {len(kept)} objects in install.yaml, removed {len(dropped)}; "
+      f"{len(crd_docs)} {crd_dir} CRDs")
+PYEOF

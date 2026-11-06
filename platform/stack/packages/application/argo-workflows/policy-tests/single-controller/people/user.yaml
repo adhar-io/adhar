@@ -1,0 +1,11 @@
+# A person, and the most powerful kind the platform has: a platform-admin signed
+# in through Keycloak (the API server prefixes OIDC users and groups with oidc:).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: platform-admin
+userInfo:
+  username: oidc:admin@noreply.com
+  groups:
+    - oidc:platform-admin
+    - system:authenticated

@@ -1,0 +1,44 @@
+# Stamp who started a run (design 0025 §10.3, INV-6). On the Job and on its pod
+# template: the runner reads it through the downward API as ADHAR_BATCH_ACTOR, and
+# anything a client wrote there is overwritten, which is why the run template
+# carries an empty annotation for the policy to overwrite.
+#
+# failurePolicy Ignore: a Kyverno outage must never stop a scheduled run over a
+# provenance stamp. Manual runs are fail-closed anyway, by the integrity policy.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-batch-actor
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    policies.kyverno.io/title: "Batch: stamp the actor"
+    policies.kyverno.io/category: Batch
+    policies.kyverno.io/subject: Job
+    policies.kyverno.io/description: >-
+      Records the identity that created a batch run on the Job and on its pod
+      template, overwriting anything the client wrote.
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
+  rules:
+    - name: stamp-the-actor
+      match:
+        any:
+          - resources:
+              kinds: ["batch/v1/Job"]
+              operations: ["CREATE"]
+              selector:
+                matchExpressions:
+                  - key: adhar.io/batch-job
+                    operator: Exists
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              adhar.io/batch-actor: "{{ request.userInfo.username }}"
+          spec:
+            template:
+              metadata:
+                annotations:
+                  adhar.io/batch-actor: "{{ request.userInfo.username }}"

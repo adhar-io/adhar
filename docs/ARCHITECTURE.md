@@ -135,7 +135,7 @@ Bootstrap manifests (Cilium, Gateway API, Gateway, CNPG, ArgoCD, Gitea, Crosspla
 |---|---|---|
 | Kubernetes (default) | `v1.37.0` | `globals.DefaultKubernetesVersion`; `adhar up --kube-version` overrides on **every** provider, then the environment's `clusterConfig`, then this default |
 | Cilium | `v1.20.0` | `platform/controllers/adharplatform/resources/cilium/` |
-| ArgoCD | `v3.5.1` (chart 10.3.3) | `.../resources/argocd/` |
+| ArgoCD | `v3.6.1` (chart 10.12.1) | `.../resources/argocd/` |
 | Gitea | `1.27.0` (chart 12.7.0) | `.../resources/gitea/` |
 | Crossplane | `v2.4.2` | `.../resources/crossplane/` |
 

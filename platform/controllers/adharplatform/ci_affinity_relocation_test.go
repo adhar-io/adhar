@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -241,9 +242,13 @@ type relCall struct {
 
 func (c relCall) verb() string { return c.Args[0] }
 
-// relStubKubectl serves the fixtures for every `get` and records every call.
-// Its interpreter line is filled in by runRelocator.
+// relStubKubectl serves the fixtures and records every call. A collection is
+// served only as the API server pages it — `get --raw <path>?limit=N`, with a
+// continue token while items remain — so a script that reads a whole list in
+// one call (`get pods -A -o json`) gets nothing. Its interpreter line is filled
+// in by runRelocator.
 const relStubKubectl = `import json, os, sys
+from urllib.parse import parse_qs, urlsplit
 d = os.environ["FIXTURES"]
 args = sys.argv[1:]
 stdin = sys.stdin.read() if "-f" in args else ""
@@ -253,24 +258,32 @@ fail = os.environ.get("STUB_FAIL", "")
 if fail and " ".join(args).startswith(fail):
     sys.stderr.write(os.environ.get("STUB_FAIL_MSG", "Error from server (Forbidden): refused") + "\n")
     sys.exit(1)
+def unexpected():
+    sys.stderr.write("unexpected kubectl call\n")
+    sys.exit(2)
 def serve(name):
     p = os.path.join(d, name + ".json")
     if not os.path.exists(p):
         sys.stderr.write('Error from server (NotFound): "%s" not found\n' % name)
         sys.exit(1)
     sys.stdout.write(open(p).read())
-if args[0] == "get":
-    if args[1] == "pods":
-        serve("all-pods" if "-A" in args else "run-pods")
-    elif args[1] in ("nodes", "csinodes"):
-        serve(args[1])
-    else:
-        serve(args[1] + "-" + args[2])
+LISTS = {"/api/v1/pods": "all-pods", "/api/v1/nodes": "nodes", "/apis/storage.k8s.io/v1/csinodes": "csinodes",
+         "/api/v1/namespaces/adhar-system/pods": "run-pods"}
+if args[0] == "get" and args[1] == "--raw":
+    u = urlsplit(args[2])
+    q = parse_qs(u.query)
+    if u.path not in LISTS or "limit" not in q:
+        unexpected()
+    items = json.load(open(os.path.join(d, LISTS[u.path] + ".json")))["items"]
+    start, limit = int(q.get("continue", ["0"])[0]), int(q["limit"][0])
+    md = {"continue": str(start + limit)} if start + limit < len(items) else {}
+    sys.stdout.write(json.dumps({"kind": "List", "metadata": md, "items": items[start:start + limit]}))
+elif args[0] == "get" and args[1] not in ("pods", "nodes", "csinodes"):
+    serve(args[1] + "-" + args[2])
 elif args[0] in ("patch", "delete", "create", "annotate"):
     sys.exit(0)
 else:
-    sys.stderr.write("unexpected kubectl call\n")
-    sys.exit(2)
+    unexpected()
 `
 
 var (
@@ -297,6 +310,18 @@ func relPython(t *testing.T) string {
 
 // runRelocator runs one pass of the shipped script against the cluster.
 func runRelocator(t *testing.T, c *relCluster, env ...string) ([]relCall, string) {
+	t.Helper()
+	return runRelocatorArgs(t, c, []string{"--once"}, env...)
+}
+
+// runRelocatorPasses runs the loop for n passes with no pause between them, as
+// one process, so whatever it remembers from one pass to the next is in play.
+func runRelocatorPasses(t *testing.T, c *relCluster, n int, env ...string) ([]relCall, string) {
+	t.Helper()
+	return runRelocatorArgs(t, c, nil, append([]string{fmt.Sprintf("PASSES=%d", n), "INTERVAL_SECONDS=0"}, env...)...)
+}
+
+func runRelocatorArgs(t *testing.T, c *relCluster, args []string, env ...string) ([]relCall, string) {
 	t.Helper()
 	py := relPython(t)
 	dir := t.TempDir()
@@ -339,7 +364,7 @@ func runRelocator(t *testing.T, c *relCluster, env ...string) ([]relCall, string
 	if err := os.WriteFile(script, []byte(relocatorScript(t)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(py, "-I", "-S", script, "--once")
+	cmd := exec.Command(py, append([]string{"-I", "-S", script}, args...)...)
 	cmd.Env = append([]string{
 		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"FIXTURES=" + dir, "NOW=" + relNow, "SETTLE_SECONDS=0",
@@ -534,7 +559,8 @@ func TestAffinityRelocatorLeavesARunAloneWhenItCannotHelp(t *testing.T) {
 				"matchExpressions": []obj{{"key": "kubernetes.io/hostname", "operator": "In", "values": []string{"worker-1"}}}}}}}}}
 		}, note: "cannot be attached to any other node"},
 		{name: "the workspace volume cannot be read", setup: func(c *relCluster) { c.pv = nil }},
-		{name: "the pod list is refused", setup: func(c *relCluster) {}, env: []string{"STUB_FAIL=get pods -n"}},
+		{name: "the pod list is refused", setup: func(c *relCluster) {}, env: []string{"STUB_FAIL=get --raw /api/v1/namespaces/" + relNS + "/pods"}},
+		{name: "the cluster-wide pod list is refused", setup: func(c *relCluster) {}, env: []string{"STUB_FAIL=get --raw /api/v1/pods"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -688,7 +714,145 @@ func TestAffinityRelocatorCountsRequestsLikeTheScheduler(t *testing.T) {
 	}
 }
 
+// Collections are read a page at a time — a whole pod list in one call is what
+// got the loop evicted — so every page must be read: with one item per page the
+// script must reach the decision it reaches with every item on one page. A
+// skipped page of the run's pods loses the waiting pod, of the nodes loses the
+// targets, and of the cluster's pods makes the fuller worker-2 look as empty as
+// worker-3.
+func TestAffinityRelocatorReadsEveryPage(t *testing.T) {
+	calls, out := runRelocator(t, defaultRelCluster(), "PAGE_SIZE=1")
+	patch := templatePatch(t, calls)
+	if patch == nil {
+		t.Fatalf("not moved when every list came one item per page:\n%s", out)
+	}
+	if got := pinnedNodes(t, patch); strings.Join(got, ",") != "worker-3,worker-2" {
+		t.Fatalf("pinned to %v with one item per page; want [worker-3 worker-2], as with whole pages\n%s", got, out)
+	}
+	continued := map[string]bool{}
+	for _, c := range calls {
+		if c.verb() == "get" && len(c.Args) > 2 && c.Args[1] == "--raw" && strings.Contains(c.Args[2], "continue=") {
+			continued[strings.SplitN(c.Args[2], "?", 2)[0]] = true
+		}
+	}
+	for _, path := range []string{"/api/v1/namespaces/" + relNS + "/pods", "/api/v1/nodes", "/api/v1/pods"} {
+		if !continued[path] {
+			t.Errorf("%s was not read past its first page", path)
+		}
+	}
+}
+
+// A run that no node has room for is looked at again after REPLAN_SECONDS, not
+// on every pass: each look reads every pod in the cluster, and every 20 s that
+// cost ~210m CPU for as long as the run waited (measured against the 426 pods
+// of the DigitalOcean cluster of 2026-11-03).
+func TestAffinityRelocatorWaitsBeforeLookingAgainWhenNoNodeHasRoom(t *testing.T) {
+	full := func() *relCluster {
+		c := defaultRelCluster()
+		c.busy = append(c.busy, busy("filler-2b", "worker-2", "1", "2Gi"), busy("filler-3b", "worker-3", "1", "5Gi"))
+		return c
+	}
+	podReads := func(calls []relCall) int {
+		n := 0
+		for _, c := range calls {
+			if c.verb() == "get" && len(c.Args) > 2 && strings.HasPrefix(c.Args[2], "/api/v1/pods?") {
+				n++
+			}
+		}
+		return n
+	}
+	calls, out := runRelocatorPasses(t, full(), 3)
+	if n := podReads(calls); n != 1 {
+		t.Fatalf("read every pod %d times in 3 passes, within REPLAN_SECONDS of finding no room; want once:\n%s", n, out)
+	}
+	// The same passes with no wait read them every time, or this test could
+	// not tell the difference.
+	if calls, out := runRelocatorPasses(t, full(), 3, "REPLAN_SECONDS=0"); podReads(calls) != 3 {
+		t.Fatalf("with REPLAN_SECONDS=0, every pod was read %d times in 3 passes; want 3:\n%s", podReads(calls), out)
+	}
+}
+
 // ── the manifest ───────────────────────────────────────────────────────────
+
+// relocatorMeasuredPeak is the loop's peak memory (cgroup memory.peak, page
+// cache included; 64.3 MiB at most) in its own image, against the 426 active
+// pods and the CRDs captured from the DigitalOcean cluster of 2026-11-03, read
+// page by page, over passes that found no room and passes that moved an
+// assistant. Reading every pod in one `get pods -A -o json` peaked at
+// 160-192 MiB.
+const relocatorMeasuredPeak = "65Mi"
+
+// The loop is needed when nodes are full, which is when the kubelet evicts the
+// pods using more memory than they request — first among them, on 2026-11-03,
+// this one at a 64Mi request. A request half as much again above its measured
+// peak keeps it out of that first round.
+func TestAffinityRelocatorRequestsMoreMemoryThanItUses(t *testing.T) {
+	dep := findDoc(t, relocatorDocs(t), "Deployment", "tekton-affinity-relocator")
+	c := sgDig(dep, "spec", "template", "spec", "containers", 0)
+	peak := resource.MustParse(relocatorMeasuredPeak)
+	req, err := resource.ParseQuantity(fmt.Sprint(sgDig(c, "resources", "requests", "memory")))
+	if err != nil || 2*req.Value() < 3*peak.Value() {
+		t.Errorf("memory request %v is under 1.5 x the loop's measured peak (%s): under memory pressure it is evicted when it is needed most",
+			sgDig(c, "resources", "requests", "memory"), relocatorMeasuredPeak)
+	}
+	lim, err := resource.ParseQuantity(fmt.Sprint(sgDig(c, "resources", "limits", "memory")))
+	if err != nil || lim.Value() < 2*peak.Value() {
+		t.Errorf("memory limit %v leaves under 2 x the loop's measured peak (%s); a larger cluster's pages would OOM-kill it",
+			sgDig(c, "resources", "limits", "memory"), relocatorMeasuredPeak)
+	}
+}
+
+// The loop is needed from the first CI run on, and the platform starts its own
+// library releases while the rest of the platform is still converging. Argo CD
+// applies a sync wave only once every object of the earlier waves is Healthy,
+// and the Tekton dashboard's oauth2-proxy (wave 0) waits for Keycloak: from
+// wave 5 the loop arrived after release-adhar-ui had been pinned (DigitalOcean,
+// 2026-11-03). Nothing in the Tekton Application may come before it, and its
+// Deployment may not come before the ServiceAccount, RBAC and ConfigMap it uses.
+func TestAffinityRelocatorRunsFromTheTektonApplicationsFirstWave(t *testing.T) {
+	wave := func(d map[string]any) int {
+		s, ok := sgDig(d, "metadata", "annotations", "argocd.argoproj.io/sync-wave").(string)
+		if !ok {
+			return 0
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			t.Fatalf("%v/%v: sync-wave %q is not a number", d["kind"], sgDig(d, "metadata", "name"), s)
+		}
+		return n
+	}
+	mine := map[string]int{}
+	for _, d := range relocatorDocs(t) {
+		mine[fmt.Sprintf("%v/%v", d["kind"], sgDig(d, "metadata", "name"))] = wave(d)
+	}
+	first, firstObj, others := 0, "", 0
+	for _, path := range yamlFilesIn(t, filepath.Join(stackPackagesDir(t), "application", "tekton", "manifests")) {
+		if filepath.Base(path) == filepath.Base(relocatorManifest) {
+			continue
+		}
+		for _, d := range yamlDocs(t, path) {
+			if w := wave(d); others == 0 || w < first {
+				first, firstObj = w, fmt.Sprintf("%v/%v in %s", d["kind"], sgDig(d, "metadata", "name"), filepath.Base(path))
+			}
+			others++
+		}
+	}
+	if others < 10 {
+		t.Fatalf("found only %d other objects in the Tekton Application; this guard is not reading it", others)
+	}
+	dep, ok := mine["Deployment/tekton-affinity-relocator"]
+	if !ok {
+		t.Fatal("no Deployment/tekton-affinity-relocator")
+	}
+	for obj, w := range mine {
+		if w > first {
+			t.Errorf("%s is in sync wave %d, after %s (wave %d): Argo CD applies it only once that is Healthy", obj, w, firstObj, first)
+		}
+		if w > dep {
+			t.Errorf("%s (wave %d) comes after the Deployment that uses it (wave %d)", obj, w, dep)
+		}
+	}
+}
 
 func TestAffinityRelocatorIsDeployedWithTheLeastItNeeds(t *testing.T) {
 	docs := relocatorDocs(t)
@@ -735,9 +899,6 @@ func TestAffinityRelocatorIsDeployedWithTheLeastItNeeds(t *testing.T) {
 	if sc["allowPrivilegeEscalation"] != false || sc["readOnlyRootFilesystem"] != true || sgDig(pod, "securityContext", "runAsNonRoot") != true {
 		t.Errorf("the container is not locked down: %v / %v", sc, pod["securityContext"])
 	}
-	if q, err := resource.ParseQuantity(fmt.Sprint(sgDig(c, "resources", "requests", "memory"))); err != nil || q.IsZero() {
-		t.Error("the container declares no memory request")
-	}
 	tolerates := false
 	for _, tol := range pod["tolerations"].([]any) {
 		if sgDig(tol, "key") == "node-role.kubernetes.io/control-plane" {
@@ -783,9 +944,14 @@ func TestAutoscalerWaitsLongerThanTheRelocatorReacts(t *testing.T) {
 			env[fmt.Sprint(sgDig(e, "name"))] = n
 		}
 	}
-	// One grace to notice, one pass to act, and one retarget if the first
-	// target filled up meanwhile.
-	react := 2*env["GRACE_SECONDS"] + 2*env["INTERVAL_SECONDS"]
+	if _, ok := env["REPLAN_SECONDS"]; !ok {
+		t.Fatal("the Deployment does not set REPLAN_SECONDS; the reaction time below cannot be computed")
+	}
+	// One grace to notice and one pass to act; then either a retarget, when the
+	// first target filled up meanwhile (one more grace and pass), or, when no
+	// node had room at the first look, one more look REPLAN_SECONDS later.
+	react := env["GRACE_SECONDS"] + env["INTERVAL_SECONDS"] +
+		max(env["GRACE_SECONDS"], env["REPLAN_SECONDS"]) + env["INTERVAL_SECONDS"]
 	if minutes*60 <= react {
 		t.Fatalf("the autoscaler counts a pinned pod after %d s, but the relocator may need %d s", minutes*60, react)
 	}

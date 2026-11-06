@@ -1,0 +1,11 @@
+# The Kubernetes CronJob controller, under --use-service-account-credentials.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: cronjob-controller
+userInfo:
+  username: system:serviceaccount:kube-system:cronjob-controller
+  groups:
+    - system:serviceaccounts
+    - system:serviceaccounts:kube-system
+    - system:authenticated

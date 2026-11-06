@@ -1,0 +1,20 @@
+# The design's scheduled example (0025 §6.3), as the template's prod overlay writes it.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: importer
+  namespace: prod
+spec:
+  parameters:
+    job: importJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schedule: { cron: "30 1 * * *", timeZone: Asia/Singapore }
+    parameters:
+      - { name: businessDate, type: date, source: schedule }
+      - { name: source, type: string, default: inbound/records.csv, pattern: "^[a-zA-Z0-9/._-]+$" }
+      - { name: dryRun, type: boolean, identifying: false, default: "false" }
+    resources: { cpu: "1", memory: 1536Mi }
+    priority: critical
+    database: { secretRef: importer-db-app }
+    envFrom: [ { secretRef: { name: importer-inbound-bucket } } ]
+    sla: { maxDuration: 3h }

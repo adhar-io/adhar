@@ -468,7 +468,8 @@ reports but does not delete.
   The cluster's own PD CSI disks carry its install id (`adhar-block` and
   `adhar-ci` label them `adhar-cluster-id=<id>`; on GKE the id is a cluster
   resource label GKE copies onto attached disks): once the instances are gone
-  they are listed, confirmed (or `--yes`), deleted and read back, and
+  they are deleted under the teardown's confirmation (or `--yes`) and read
+  back, and
   `--keep-volumes` keeps them. Unattached `pvc-*` disks with NO install id are
   offered — behind a confirmation typed at a terminal — only when no platform or
   GKE node is left in the region, or deleted unlisted with

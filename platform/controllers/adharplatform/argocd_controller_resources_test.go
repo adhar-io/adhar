@@ -1,11 +1,16 @@
 package adharplatform
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
+	sigsyaml "sigs.k8s.io/yaml"
 )
 
 // The application controller must declare memory, in the file that INSTALLS it.
@@ -53,23 +58,83 @@ func TestTheArgoCDControllerDeclaresItsMemoryInBothPlaces(t *testing.T) {
 	}
 
 	// And the generated manifests — the files that actually install — must
-	// carry it on the container, or the values are decoration.
-	for _, rel := range []string{
-		"platform/controllers/adharplatform/resources/argocd/install.yaml",
-		"platform/controllers/adharplatform/resources/argocd/install-ha.yaml",
+	// carry the SAME request on the container, or the values are decoration.
+	//
+	// Read the way the controller reads them (applyManifestFull's decoder), not
+	// by searching the text. From 2026-10-15 both files carried a hand-copied
+	// `resources:` block right under the container's name, and a text search
+	// found it and passed — but the chart already renders `resources:` further
+	// down the same container, the decoder keeps the LAST of two equal keys, and
+	// clusters kept running 1Gi (install.yaml) and no request at all
+	// (install-ha.yaml) until the manifests were regenerated for Argo CD v3.6.1.
+	for _, pair := range [][2]string{
+		{"hack/argocd/values.yaml", "platform/controllers/adharplatform/resources/argocd/install.yaml"},
+		{"hack/argocd/values-ha.yaml", "platform/controllers/adharplatform/resources/argocd/install-ha.yaml"},
 	} {
-		body := read(rel)
-		i := strings.Index(body, "name: application-controller\n")
-		if i < 0 {
-			t.Fatalf("%s no longer defines the application-controller container", rel)
-		}
-		// Look only at the container, not the RBAC `resources:` lists elsewhere.
-		win := body[i:min(i+1200, len(body))]
-		if !strings.Contains(win, "resources:") || !strings.Contains(win, "memory:") {
-			t.Errorf("%s installs the application controller with no memory request, so the "+
-				"scheduler accounts nothing for a process measured at 2510Mi", rel)
+		want := valuesControllerRequests(t, pair[0], read(pair[0]))
+		got := installedControllerRequests(t, pair[1], read(pair[1]))
+		for _, res := range []string{"cpu", "memory"} {
+			if want[res] == "" {
+				t.Errorf("%s declares no controller.resources.requests.%s", pair[0], res)
+				continue
+			}
+			if got[res] != want[res] {
+				t.Errorf("%s installs the application controller with requests.%s %q, but %s asks for %q; "+
+					"the scheduler sees the decoded manifest, so a process measured at 2510Mi is "+
+					"accounted as %q", pair[1], res, got[res], pair[0], want[res], got[res])
+			}
 		}
 	}
+}
+
+// valuesControllerRequests returns controller.resources.requests from a Helm
+// values file.
+func valuesControllerRequests(t *testing.T, rel, body string) map[string]string {
+	t.Helper()
+	var values struct {
+		Controller struct {
+			Resources struct {
+				Requests map[string]string `json:"requests"`
+			} `json:"resources"`
+		} `json:"controller"`
+	}
+	if err := sigsyaml.Unmarshal([]byte(body), &values); err != nil {
+		t.Fatalf("parsing %s: %v", rel, err)
+	}
+	return values.Controller.Resources.Requests
+}
+
+// installedControllerRequests decodes a generated Argo CD manifest exactly as
+// applyManifestFull does and returns the application-controller container's
+// resource requests as the API server would receive them.
+func installedControllerRequests(t *testing.T, rel, body string) map[string]string {
+	t.Helper()
+	dec := k8syaml.NewYAMLOrJSONDecoder(strings.NewReader(body), 100)
+	for {
+		obj := &unstructured.Unstructured{}
+		err := dec.Decode(obj)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decoding %s the way the controller does: %v", rel, err)
+		}
+		if obj.GetKind() != "StatefulSet" || obj.GetName() != "argo-cd-argocd-application-controller" {
+			continue
+		}
+		containers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+		for _, c := range containers {
+			container, _ := c.(map[string]interface{})
+			if container["name"] != "application-controller" {
+				continue
+			}
+			requests, _, _ := unstructured.NestedStringMap(container, "resources", "requests")
+			return requests
+		}
+		t.Fatalf("%s: the application-controller StatefulSet has no application-controller container", rel)
+	}
+	t.Fatalf("%s no longer defines the argo-cd-argocd-application-controller StatefulSet", rel)
+	return nil
 }
 
 // controllerBlock returns the top-level `controller:` mapping only.

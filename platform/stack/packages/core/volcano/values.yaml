@@ -1,0 +1,141 @@
+# Volcano — the platform's batch scheduler (ADR-0028, docs/design/0025 §4).
+#
+# Regenerate manifests/install.yaml with ./generate-manifests.sh after any change
+# here. What the chart cannot express (no pod priority, service links off, probes,
+# narrowed admission RBAC, cert-manager CA injection, no JobFlow CRDs) is applied
+# by the generator, anchored so an upstream rename fails the render loudly.
+# TestVolcano* in platform/controllers/adharplatform/volcano_package_test.go pins
+# the result.
+
+basic:
+  # The chart's own default tag moved to a real version in 1.16, but pin it here
+  # so a chart bump is a decision and never an accident. Every image in the
+  # package is this one tag.
+  image_tag_version: "v1.16.0"
+  # "Always" re-resolves the tag on every restart, against a registry the node may
+  # not reach; the platform pins by tag and mirrors through the registry cache.
+  image_pull_policy: "IfNotPresent"
+  # Written by the cert-manager Certificate in manifests/admission-certs.yaml. It
+  # carries tls.crt, tls.key and ca.crt, the same three keys the chart's
+  # admission-init Job wrote, which the generator removes.
+  admission_secret_name: "volcano-admission-secret"
+
+custom:
+  # Volcano's own bundled Prometheus, Grafana and kube-state-metrics. The platform
+  # runs those already; manifests/servicemonitor.yaml scrapes the components.
+  metrics_enable: false
+  scheduler_metrics_enable: true
+  controller_metrics_enable: true
+
+  # ONE copy of every component (TestNoPackageWorkloadShipsMoreThanOneReplica).
+  # Design 0025 §4.1 sketched two admission replicas; nothing outside Volcano's
+  # own kinds depends on admission (see enabled_admissions below), so while the
+  # single pod rolls, the only thing refused is a Volcano object, and that is
+  # retried by whoever submitted it.
+  admission_replicas: 1
+  controller_replicas: 1
+  scheduler_replicas: 1
+  # One replica has nobody to elect against. It would also add a Lease a loaded
+  # API server can fail to renew, and a lost lease is a process exit.
+  leader_elect_enable: false
+
+  # WHAT THE ADMISSION WEBHOOKS MAY TOUCH. This list is the load-bearing line of
+  # the whole package, because each entry renders a webhook with
+  # `failurePolicy: Fail` and there is one admission pod.
+  #
+  # Every path here names a Volcano kind. `/pods/mutate` and `/pods/validate` are
+  # deliberately absent (the binary's built-in default enables them, this flag
+  # overrides it): those are the two that would intercept pod creation, so with
+  # them on, an admission outage would stop pods in every workload namespace of
+  # the cluster. Without them, a dead volcano-admission can refuse a Volcano Job,
+  # CronJob, PodGroup, Queue or HyperNode, and nothing else on the platform.
+  # `/pods/mutate` is also how Volcano's resourceGroups feature rewrites the
+  # schedulerName of pods that never asked for it, so leaving it off is half of
+  # what keeps Volcano from becoming anyone's scheduler by surprise.
+  enabled_admissions: "/jobs/mutate,/jobs/validate,/podgroups/validate,/queues/mutate,/queues/validate,/hypernodes/validate,/cronjobs/validate"
+  # Upstream's namespaceSelector already excludes the release namespace
+  # (adhar-system) and kube-system from the namespaced kinds. Team batch runs in
+  # <project>-<env>, so that exclusion costs nothing. Consequence worth knowing: a
+  # Volcano Job created IN adhar-system skips admission defaulting and validation.
+  webhooks_namespace_selector_expressions: ~
+  # ValidatingAdmissionPolicy / MutatingAdmissionPolicy replacements for those
+  # webhooks. They match pods with failurePolicy Fail and hardcode volcano-system.
+  vap_enable: false
+  map_enable: false
+
+  # Left unset on purpose: the binaries default to "volcano", so only a pod naming
+  # `schedulerName: volcano` is ever considered. kube-scheduler keeps every other
+  # pod. Setting this to default-scheduler is how Volcano takes over a cluster.
+  scheduler_name: ~
+
+  # Controllers the package does not support:
+  #   jobflow / jobtemplate   their CRDs are not installed (≈0.5 MB of API server
+  #                           memory, ADR-0028), and an informer on an absent CRD
+  #                           never syncs.
+  #   colocation-config       colocation agent is not installed; it would watch
+  #                           every pod on the cluster to serve nothing.
+  #   sharding                upstream's own default-off.
+  controller_enabled_controllers: "*,-sharding-controller,-jobflow-controller,-jobtemplate-controller,-colocation-config-controller"
+  # Network-topology discovery has nothing to discover here. The chart appends
+  # -hyperNode-controller to the list above for this mode. The HyperNode CRD stays:
+  # the scheduler's informer needs it.
+  hypernode_controller_mode: disabled
+  # Live-reloadable config for the sharding controller, which is off.
+  sharding_configmap_enable: false
+
+  # Not installed: the colocation agent (needs BPF + SETFCAP and reads the CNI
+  # config path, beside Cilium's datapath) and the agent scheduler.
+  colocation_enable: false
+  agent_scheduler_enable: false
+
+  # The chart's 2000 QPS assumes an API server with room to spare. This platform's
+  # measured failure mode is an API server under load losing every controller's
+  # leader-election lease (CLAUDE.md, 2026-10-11), so batch does not get to be the
+  # client that causes it. 50/100 is what the chart gives the controllers.
+  scheduler_kube_api_qps: 50
+  scheduler_kube_api_burst: 100
+
+  # Chart defaults are 3-4, which logs every queue and pod per scheduling cycle
+  # into a shared Loki.
+  admission_log_level: 2
+  scheduler_log_level: 2
+  controller_log_level: 2
+
+  # The chart sets no requests. An estimate until the canary measures it
+  # (design 0025 §4.1, acceptance A2.8): ≈0.35 CPU / ≈0.9 GiB requested in total.
+  # GOMEMLIMIT = the limit, so a busy cache collects before the kernel kills it.
+  go_memlimit_enable: true
+  scheduler_resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  controller_resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  admission_resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+  # The stable core from ADR-0028, design 0025 §4.2. Deferred until they leave
+  # alpha: NamespaceQueue, fairshare, gangPreempt/gangReclaim.
+  #
+  # `enablePreemptable: false` on gang and drf is upstream's own setting in both
+  # its default and its hierarchical configs. It looks like a detail and is not:
+  # with gang's vote on, a gang running exactly at minAvailable can never be a
+  # victim (pkg/scheduler/plugins/gang/gang.go), so prod could never reclaim from
+  # a dev gang, which is acceptance A2.4. A reclaimed gang restarts whole.
+  scheduler_config_override: |
+    actions: "enqueue, allocate, backfill, reclaim, preempt"
+    tiers:
+    - plugins:
+      - name: priority
+      - name: gang
+        enablePreemptable: false
+      - name: conformance
+    - plugins:
+      - name: drf
+        enablePreemptable: false
+      - name: predicates
+      - name: capacity
+        enableHierarchy: true
+      - name: nodeorder
+      - name: binpack

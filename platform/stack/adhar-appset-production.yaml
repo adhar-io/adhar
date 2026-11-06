@@ -132,6 +132,18 @@ spec:
             category: "ai"
             plane: "control"
             manifestPath: "ai/k8sgpt/manifests"
+          # PR-Agent (ai/pr-agent): automated pull-request review for every Gitea
+          # repository — describe, review and improve on open/push, plus /review,
+          # /describe, /improve and /ask comments — through ONE Gitea system
+          # webhook, as a restricted read-only bot. Every model call goes through
+          # agentgateway as its own ServiceAccount identity, one model, own
+          # budget. Enabled exactly where agentgateway is: no gateway, no model.
+          - name: "pr-agent"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/pr-agent/manifests"
           # Self-hosted, OpenAI-compatible LLM inference (vLLM). THREE elements
           # from one package directory: "vllm" is the shared surface (model-cache
           # PVC, Service, HTTPRoute, ServiceMonitor, Grafana dashboard, optional
@@ -419,6 +431,23 @@ spec:
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/Kamaji/manifests"
+          - name: "volcano"
+            # The batch scheduler (ADR-0028, docs/design/0025 §4). Opt-in in every profile:
+            # pinned v1.16.0 predates Kubernetes 1.37 support (v1.17 is the production gate,
+            # design §4.6), so it is enabled from the Marketplace, knowingly. Needs
+            # cert-manager. Only pods naming schedulerName: volcano ever reach it.
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "core"
+            manifestPath: "core/volcano/manifests"
+          # Batch on Kubernetes (design 0025): PriorityClasses, the aggregated roles and the
+          # Kyverno policies that bound operating a job to its deployed template. Runs no
+          # workloads. Every BatchJob needs its PriorityClass, so it is on everywhere.
+          - name: "adhar-batch"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "core"
+            manifestPath: "core/adhar-batch/manifests"
           - name: "cert-manager"
             enabled: "true"
             namespace: "adhar-system"
@@ -505,12 +534,14 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/tekton/manifests"
-          # argo-workflows disabled by default: a workflow engine, opt-in per cluster.
+          # argo-workflows: the platform's orchestration engine — automation, approvals,
+          # batch orchestration and game days (docs/design/0026-workflows-and-gamedays.md).
+          # Minimal CRDs, run objects invisible to Argo CD, platform staff on the native UI.
           - name: "argo-workflows"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/argo-workflows/manifests/dev"
+            manifestPath: "application/argo-workflows/manifests/platform"
           - name: "adhar-console"
             enabled: "true"
             namespace: "adhar-system"

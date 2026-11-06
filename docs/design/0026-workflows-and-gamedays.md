@@ -178,6 +178,8 @@ Findings F-1 to F-10 are from the research notes. F-11 to F-16 are new in this d
 | D-19 | Step image | Game-day and platform steps run `ghcr.io/adhar-io/adhar:<platform version>` (distroless, non-root 65532), rendered into the stack at seed time | Safety logic in tested Go; CLI parity | Design |
 | D-20 | YAML library | Add `yaml@2.9.1` (eemeli/yaml, published 2026-09-11 [S42]) to `modules/platform` and the BFF, for parse, edit and print with comments. The hand-written emitter stays for its current users. | Round trip needs a real parser (`manifest-yaml.ts:13-16` refuses to hand-roll one) | Design |
 | D-21 | CLI naming | New `adhar workflow` (alias `wf`) and `adhar gameday`. `adhar pipeline template …` is deprecated toward `adhar workflow template …` for one release. | "Pipelines" are Tekton (`platform-tasks.yaml` header) | Design |
+| D-22 | MVP game-day steps (G0) | Every console game-day step runs `docker.io/litmuschaos/k8s:3.33.0` as a sized, non-root (65532) container. `litmus-checker` is **not** used. A scenario step is a **kubectl verdict gate**: it refuses an existing engine of the same name, clears a stale `<engine>-<fault>` ChaosResult, creates the engine, polls the ChaosResult, and exits 0 **only on `Pass`**. Its reason goes to the termination log, which Argo makes the step's message. `Stopped` with a `Failed` probe is reported as a failed hypothesis, because a failing `stopOnFailure` steady-state probe stops the fault. The `revert` exit handler tries every engine, bounds each delete (`--timeout=60s`) and has its own `activeDeadlineSeconds`. Engines carry `adhar.io/application` when the target selector names an application. | `litmus-checker` (identical at 3.31.0 and 3.33.0) exits 0 when `engineStatus` reads `completed` or `stopped` and never reads the verdict, so the MVP never stopped at a failed hypothesis. Argo exempts exit handlers from the workflow deadline (v4.1.6 `workflow/controller/workflowpod.go`). Kyverno #8 requires `adhar.io/application`. The G1 Go step library replaces these scripts. | Design (G0 build, 2026-11-05) |
+| D-23 | Game-day retention (G0) | `buildGameDay` sets **all three** `ttlStrategy` fields (`secondsAfterCompletion`, `secondsAfterSuccess`, `secondsAfterFailure`) to 604800 (7 days) and keeps `podGC: OnWorkflowSuccess`. | The controller merges `workflowDefaults` into each Workflow field by field (`util.MergeTo`), and its GC reads `secondsAfterFailure`/`secondsAfterSuccess` before `secondsAfterCompletion`. Under §5.2's defaults, a completion-only TTL resolves to 1 day after success and 3 days after failure, never 7. Checked with the v4.1.6 validator and merge code. | Design (G0 build, 2026-11-05) |
 
 ---
 
@@ -2200,7 +2202,7 @@ W0 ─┬─► W1 ─► W2 ─► W3 ─► W4 ─► W5
 | G0-2 | adhar | `application/litmus/manifests/{policies.yaml, chaos-settings.yaml}`, `policy-tests/chaosengine/`; ApplicationSet `ignoreDifferences` for `ConfigMap/adhar-chaos-settings` `.data` in both appsets | Kyverno #8 (catalogue, overrides, labels, lever, node faults; the tenancy rule waits for G1), the settings ConfigMap |
 | G0-3 | adhar | `application/litmus/{values.yaml, generate-manifests.sh}`, `manifests/{core,experiments}.yaml` | Execution plane 3.31.0 → **3.33.0** and hub branch `v3.33.x`, **after** confirming the Docker Hub tags and branch exist (G1 F5) and re-running the runner suite and gate live |
 | G0-4 | adhar | `application/adhar-scorecards/manifests/scorer-cronjob.yaml` (~l.532) + `scorecard_resilience_test.go` | F1: select by the `adhar.io/chaos-gameday` label (`TestScorerCountsOnlyGameDays`) |
-| G0-C1 | adhar-console | `modules/platform/src/data/chaos-scenarios.ts` (+ test) | Images `docker.io/litmuschaos/litmus-checker:3.33.0` / `k8s:3.33.0`. `buildGameDay` adds `ttlStrategy: {secondsAfterCompletion: 604800}` and keeps `podGC`. |
+| G0-C1 | adhar-console | `modules/platform/src/data/chaos-scenarios.ts` (+ test) | Every step on `docker.io/litmuschaos/k8s:3.33.0`. The scenario step is a kubectl verdict gate instead of `litmus-checker`, and the revert is bounded (D-22). `buildGameDay` sets all three `ttlStrategy` fields to 604800 (D-23) and keeps `podGC`. |
 | G0-C2 | adhar-console | `modules/platform/src/data/chaos.ts:378-381` | Correct the comment claiming ChaosCenter can read console game days (unverified, W1 D.5) |
 
 **Acceptance (live)**
@@ -2449,7 +2451,7 @@ All are Deno `*_test.ts` beside pure modules, following the existing convention.
 | Q5 | Does `app-ci` build on `deploy/**`-only commits, so workflow changes ride freight? | W3 | document "a workflow-only change needs a CI run" |
 | Q6 | Is `Delete=false` honoured for CRDs on the platform's Argo CD version when an Application is deleted? | W0 canary (disable and re-enable) | `adhar.io/keep` plus documentation |
 | Q7 | Can team members open PRs on project repositories through `Sudo` (repository and team permissions)? | W3 | publish to app repos only until fixed |
-| Q8 | RustFS per-user policies through `mc admin` (scoped credentials) | W5 | no team artifact repositories |
+| Q8 | RustFS per-user policies through `rc admin` (scoped credentials) | W5 | no team artifact repositories |
 | Q9 | Can `mail.ts` attach an `.ics` invite? | G2 | a link to the calendar view |
 | Q10 | Do the Litmus 3.33.0 execution-plane images and hub branch exist, and does the runner suite pass? | G0 | stay on 3.31.0 (images are still pinned) |
 | Q11 | Kyverno admission latency for large Workflow specs with list JMESPath | W1 | simplify the rule to top-level fields plus Argo's own `templateReferencing` for game days |
@@ -2500,6 +2502,11 @@ Verified:
 3. `chaos.ts:378-381` claims console game days are "also readable" in ChaosCenter. That is unverified, and no chaos infrastructure exists (fixed in G0-C2).
 4. The design README numbering convention (design N ↔ ADR N) is broken by this file's requested number (§0.2).
 5. The live cluster is unreachable as of this writing. Every live number is from 2026-11-03.
+6. **G0 build (2026-11-05):** `litmus-checker` never reads the verdict. Its `main.go` and `pkg/chaos-checker/check.go` are identical at test-tools 3.31.0 and 3.33.0, and both exit 0 on `engineStatus` `completed` or `stopped`. The MVP's claim that a game day "stops at the first failed hypothesis" was therefore false. Fixed by D-22.
+7. **G0 build:** G0-C1's `ttlStrategy: {secondsAfterCompletion: 604800}` would give 1 day / 3 days under §5.2's defaults, not 7 days. Fixed by D-23.
+8. **§17 Q1, from source:** v4.1.6 `workflow/controller/workflowpod.go` builds an exit-handler pod without the workflow deadline, "so they still run if the deadline has passed". So `onExit` should run after `activeDeadlineSeconds`. The G0 live check still has to confirm it. Because of this exemption, the MVP `revert` carries its own deadline.
+9. **W0-C1:** the console's `workflowToArgo` has had no caller since `123babe` (2026-10-17) deleted `packages/builder/src/lib/project-export.ts`. The fix keeps the exported library correct (v4 `schedules`, task names that do not start with a digit, names that do not end with a hyphen), but nothing in the UI exports Argo YAML today.
+10. **Finding for W0-1 (§5.2), not yet acted on:** the `workflowDefaults` TTL sets only `secondsAfterSuccess` and `secondsAfterFailure`. In v4.1.6, `WorkflowStatus.Failed()` is true only for phase `Failed`, so a Workflow that ends in **`Error`** matches neither field. With no `secondsAfterCompletion`, it is never TTL-deleted, and only `retentionPolicy.errored` bounds it. That contradicts INV-5 ("every run has a TTL"). Adding `secondsAfterCompletion` (for example 259200) to the defaults closes the gap. Game days set all three fields (D-23).
 
 ---
 

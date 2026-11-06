@@ -56,6 +56,15 @@ const (
 	// mirrorPodAnnotation identifies static pods, which the kubelet owns and
 	// no eviction can move.
 	mirrorPodAnnotation = "kubernetes.io/config.mirror"
+	// safeToEvictAnnotation is upstream cluster-autoscaler's convention for a pod
+	// that must not be evicted to retire a node. The BatchJob composition sets it
+	// to "false" on every run pod unless `disruption: allow` (design 0025 §4.7).
+	safeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict"
+	// workloadLabel names what a pod is; `batch` marks a BatchJob's run pods.
+	workloadLabel = "adhar.io/workload"
+	// scaleUpLabel opts a batch run into buying nodes. The composition sets it
+	// only for `scaleUp: true`, and Kyverno permits that only in prod namespaces.
+	scaleUpLabel = "adhar.io/scale-up"
 )
 
 // capacityShortageMarkers are the scheduler messages that mean "no node has
@@ -314,20 +323,26 @@ func Decide(s Snapshot) Decision {
 	//
 	// Either dimension triggers: a cluster at 95% CPU and 40% memory cannot place
 	// another CPU-bound pod, and the platform's catalogue is CPU-bound.
-	if upThreshold := spec.ScaleUpThreshold(); util.CPU >= upThreshold || util.Memory >= upThreshold {
+	//
+	// Batch that may not buy nodes does not count here either: a queue of dev runs
+	// filling a cluster would otherwise do through this door exactly what
+	// pendingForCapacity refuses at the other one. It still counts below, because
+	// it is real load and the question there is whether a node can go.
+	up := scaleUpUtilization(workers, s.Pods, util)
+	if upThreshold := spec.ScaleUpThreshold(); up.CPU >= upThreshold || up.Memory >= upThreshold {
 		switch {
 		case int32(len(workers)) >= spec.MaxWorkers:
 			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold but maxWorkers=%d reached",
-				util.CPU*100, util.Memory*100, upThreshold*100, spec.MaxWorkers)
+				up.CPU*100, up.Memory*100, upThreshold*100, spec.MaxWorkers)
 			return d
 		case !cooledDown(s.Status.LastScaleUp, s.Now, spec.ScaleUpCooldown.Duration):
 			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold; waiting out the %s cooldown",
-				util.CPU*100, util.Memory*100, upThreshold*100, spec.ScaleUpCooldown.Duration)
+				up.CPU*100, up.Memory*100, upThreshold*100, spec.ScaleUpCooldown.Duration)
 			return d
 		default:
 			d.Action = ActionScaleUp
 			d.ScaleUpBy = 1
-			if util.Measured && util.MeasuredCPU >= upThreshold {
+			if up.Measured && up.MeasuredCPU >= upThreshold {
 				// A fleet whose every core is busy cannot say how much more it
 				// needs — usage is capped at capacity. Growing by half is the
 				// smallest step that gets a starved bring-up moving in one
@@ -335,7 +350,7 @@ func Decide(s Snapshot) Decision {
 				d.ScaleUpBy = saturationBurst(int32(len(workers)), spec.MaxWorkers)
 			}
 			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% (measured %.0f%%) memory=%.0f%% at or above the %.0f%% scale-up threshold; adding %d worker(s) (%d/%d)",
-				util.CPU*100, util.MeasuredCPU*100, util.Memory*100, upThreshold*100, d.ScaleUpBy, int32(len(workers))+d.ScaleUpBy, spec.MaxWorkers)
+				up.CPU*100, up.MeasuredCPU*100, up.Memory*100, upThreshold*100, d.ScaleUpBy, int32(len(workers))+d.ScaleUpBy, spec.MaxWorkers)
 			return d
 		}
 	}
@@ -480,6 +495,11 @@ func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node, now time.Time)
 		if p.Status.Phase != corev1.PodPending || p.Spec.NodeName != "" || p.DeletionTimestamp != nil {
 			continue
 		}
+		// A pending batch pod is a question of capacity the job's own team
+		// answers (design 0025 G3, INV-5): a dev or test backlog never buys a node.
+		if batchMayNotBuyNodes(p) {
+			continue
+		}
 		msg, ok := unschedulableMessage(p)
 		if !ok {
 			continue
@@ -513,6 +533,52 @@ func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node, now time.Time)
 	}
 	sort.Strings(out)
 	return out
+}
+
+// batchMayNotBuyNodes reports whether the pod is a batch run that has not opted
+// into growing the cluster. The label is what the composition and Kyverno agree on,
+// and it travels on the pod because that is all a tick reads.
+func batchMayNotBuyNodes(p corev1.Pod) bool {
+	return p.Labels[workloadLabel] == "batch" && p.Labels[scaleUpLabel] != "true"
+}
+
+// scaleUpUtilization is util without the batch runs that may not buy nodes, for the
+// one comparison that decides to buy them. Requests are exact. Measured CPU cannot be
+// attributed to a pod from the node-level figures a tick has, so those runs' CPU
+// requests are subtracted from it as the best available estimate: a run with no CPU
+// limit bursting well above its request can still read as load, and the cooldown and
+// maxWorkers remain the bound on that.
+func scaleUpUtilization(workers []corev1.Node, pods []corev1.Pod, util Utilization) Utilization {
+	var others []corev1.Pod
+	var batchCPU int64
+	onWorker := map[string]bool{}
+	var allocCPU int64
+	for _, n := range workers {
+		onWorker[n.Name] = true
+		allocCPU += n.Status.Allocatable.Cpu().MilliValue()
+	}
+	for _, p := range pods {
+		if batchMayNotBuyNodes(p) {
+			if onWorker[p.Spec.NodeName] && !isTerminated(p) {
+				c, _ := podRequests(p)
+				batchCPU += c
+			}
+			continue
+		}
+		others = append(others, p)
+	}
+	up := utilization(workers, others)
+	up.Measured = util.Measured
+	if util.Measured && allocCPU > 0 {
+		up.MeasuredCPU = util.MeasuredCPU - float64(batchCPU)/float64(allocCPU)
+		if up.MeasuredCPU < 0 {
+			up.MeasuredCPU = 0
+		}
+		if up.MeasuredCPU > up.CPU {
+			up.CPU = up.MeasuredCPU
+		}
+	}
+	return up
 }
 
 // unschedulableMessage extracts the scheduler's explanation from the
@@ -669,6 +735,13 @@ func unsafeToDrain(pods []corev1.Pod, rwoClaims map[string]bool) string {
 		if isDaemonSetPod(p) || isMirrorPod(p) {
 			continue
 		}
+		// A run mid-chunk restarts from its last commit if evicted, but somebody
+		// asked for it not to be, and a node's retirement is never urgent enough to
+		// overrule that. byNode holds live pods only, so a finished run waiting out
+		// its TTL does not pin the node for a week.
+		if refusesEviction(p) {
+			return fmt.Sprintf("pod %s/%s is annotated %s: \"false\"", p.Namespace, p.Name, safeToEvictAnnotation)
+		}
 		for _, v := range p.Spec.Volumes {
 			if v.PersistentVolumeClaim == nil {
 				continue
@@ -685,6 +758,11 @@ func unsafeToDrain(pods []corev1.Pod, rwoClaims map[string]bool) string {
 		}
 	}
 	return ""
+}
+
+// refusesEviction reports whether the pod asked not to be evicted to retire a node.
+func refusesEviction(p corev1.Pod) bool {
+	return p.Annotations[safeToEvictAnnotation] == "false"
 }
 
 func isDaemonSetPod(p corev1.Pod) bool {

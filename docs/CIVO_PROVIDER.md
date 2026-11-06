@@ -198,7 +198,7 @@ makes the network deletion fail and the next run inherits it:
 | --- | --- | --- |
 | provider | instances, firewall, network, SSH key | yes |
 | cloud-controller-manager | one load balancer per `LoadBalancer` Service | yes |
-| CSI driver (managed k3s) | volumes Civo stamped with this cluster's UUID (`ClusterID`) | yes — under `adhar down`, after the cluster is gone: listed, confirmed (or `--yes`), deleted and read back; `--keep-volumes` keeps them. `adhar cluster delete` detaches and deletes them with the cluster |
+| CSI driver (managed k3s) | volumes Civo stamped with this cluster's UUID (`ClusterID`) | yes — under `adhar down`, after the cluster is gone: deleted under the teardown's confirmation (or `--yes`) and read back; `--keep-volumes` keeps them. `adhar cluster delete` detaches and deletes them with the cluster |
 | CSI driver | unattached `pvc-*` volumes claimed by nobody | offered behind a confirmation typed at a terminal when no Kubernetes cluster and no platform instance is left in the region; or `--purge-orphaned-volumes` (unlisted) |
 | anything | a volume attached elsewhere, or tagged for another cluster | never |
 

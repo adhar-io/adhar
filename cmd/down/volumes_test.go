@@ -95,8 +95,8 @@ func (f *fakeCloud) AfterClusterVolumes(_ context.Context, owner pfactory.Volume
 }
 
 type stepOpts struct {
-	interactive, yes, keep bool
-	input                  string
+	interactive, yes, keep, verbose bool
+	input                           string
 }
 
 func testStep(cloud *fakeCloud, o stepOpts) (*volumeStep, *bytes.Buffer) {
@@ -108,6 +108,7 @@ func testStep(cloud *fakeCloud, o stepOpts) (*volumeStep, *bytes.Buffer) {
 		interactive: o.interactive,
 		assumeYes:   o.yes,
 		keep:        o.keep,
+		verbose:     o.verbose,
 		finish:      "adhar down -f config.aws.yaml --env dev",
 		managerFor: func(volumeJob) (pfactory.ClusterVolumeManager, error) {
 			return cloud, nil
@@ -143,7 +144,7 @@ func TestTheVolumeStepDeletesOnlyThisClustersVolumesAndForgetsItsRecord(t *testi
 	cloud.add("vol-same-name-other-install", "zzzzzzzzzzzzzzzz", false)
 	cloud.add("vol-untagged", "", false)
 
-	step, out := testStep(cloud, stepOpts{yes: true})
+	step, out := testStep(cloud, stepOpts{yes: true, verbose: true})
 	if !step.run([]volumeJob{deletedJob()}) {
 		t.Fatalf("the step reported failure:\n%s", out)
 	}
@@ -201,20 +202,77 @@ func TestKeepVolumesDeletesNothingAndKeepsTheRecordPointingAtThem(t *testing.T) 
 	}
 }
 
-func TestADeclinedConfirmationDeletesNothing(t *testing.T) {
+// The teardown's confirmation says the volumes go, so the cluster's own are
+// deleted with no second question and no list: one line of outcome. Stdin is not
+// even read, or a piped answer meant for something else would be consumed.
+func TestTheClustersOwnVolumesNeedNoSecondQuestion(t *testing.T) {
+	for _, o := range []stepOpts{
+		{interactive: true, input: "no\n"},
+		{interactive: false, input: "no\n"},
+		{interactive: true, yes: true, input: "no\n"},
+	} {
+		inst := recordInstall(t)
+		cloud := newFakeCloud()
+		cloud.add("vol-1", inst.ID, false)
+		step, out := testStep(cloud, o)
+		if !step.run([]volumeJob{deletedJob()}) {
+			t.Fatalf("%+v: the step reported failure:\n%s", o, out)
+		}
+		if strings.Join(cloud.deleted, ",") != "vol-1" {
+			t.Fatalf("%+v: deleted %v", o, cloud.deleted)
+		}
+		if rest, _ := step.in.ReadString('\n'); rest != "no\n" {
+			t.Errorf("%+v: the step read stdin, leaving %q", o, rest)
+		}
+		for _, unwanted := range []string{"Type yes", "Delete these", "vol-1", "read back", "tagged with its install id"} {
+			if strings.Contains(out.String(), unwanted) {
+				t.Errorf("%+v: output contains %q:\n%s", o, unwanted, out)
+			}
+		}
+		if !strings.Contains(out.String(), "Deleted 1 block volume(s), 4 GiB.") {
+			t.Errorf("%+v: output does not report the outcome:\n%s", o, out)
+		}
+		if recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar"); len(recs) != 0 {
+			t.Fatalf("%+v: the record outlived its last volume: %+v", o, recs)
+		}
+	}
+}
+
+// Volumes the teardown's confirmation does not cover still get their own, and a
+// "no" there is a choice a later --yes respects.
+func TestADeclinedLegacyConfirmationDeletesNothing(t *testing.T) {
 	inst := recordInstall(t)
 	cloud := newFakeCloud()
-	cloud.add("vol-1", inst.ID, false)
+	cloud.add("vol-mine", inst.ID, false)
+	cloud.add("vol-legacy", "", true)
 	step, out := testStep(cloud, stepOpts{interactive: true, input: "no\n"})
 	step.run([]volumeJob{deletedJob()})
-	if len(cloud.deleted) != 0 {
-		t.Fatalf("a declined confirmation deleted %v", cloud.deleted)
+	if strings.Join(cloud.deleted, ",") != "vol-mine" {
+		t.Fatalf("deleted %v; only the cluster's own volume may go", cloud.deleted)
 	}
-	if !strings.Contains(out.String(), "Delete these 1 volume(s)?") || !strings.Contains(out.String(), "kept (not confirmed)") {
-		t.Errorf("output:\n%s", out)
+	for _, want := range []string{"vol-legacy", "Delete these 1 volume(s) too?", "kept (not confirmed)", "cloud volume delete vol-legacy"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
-	if recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar"); len(recs) != 1 {
-		t.Fatalf("the record of kept volumes was dropped: %+v", recs)
+}
+
+// Quiet is for what went right: a volume left behind keeps billing, so it is
+// named, with the command that removes it, with or without --verbose.
+func TestAVolumeLeftBehindIsAlwaysReportedInFull(t *testing.T) {
+	inst := recordInstall(t)
+	cloud := newFakeCloud()
+	cloud.add("vol-gone", inst.ID, false)
+	cloud.add("vol-stuck", inst.ID, false)
+	cloud.stuck["vol-stuck"] = true
+	step, out := testStep(cloud, stepOpts{interactive: true})
+	if step.run([]volumeJob{deletedJob()}) {
+		t.Fatalf("an unverified deletion was reported as success:\n%s", out)
+	}
+	for _, want := range []string{"Deleted 1 block volume(s)", "vol-stuck", "still exists", "cloud volume delete vol-stuck", "adhar down -f config.aws.yaml --env dev"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -359,8 +417,8 @@ func TestEveryProviderThisTeardownBuildsLeavesTheVolumesToTheStep(t *testing.T) 
 
 func TestTheConfirmationSaysWhatHappensToTheVolumes(t *testing.T) {
 	plan := teardownPlan{ConfigFile: "config.aws.yaml", Environments: []string{"dev"}, CloudResources: true}
-	if out := RenderTeardownConfirmation(plan); !strings.Contains(out, "you confirm before any") {
-		t.Errorf("the panel does not say volumes are confirmed separately:\n%s", out)
+	if out := RenderTeardownConfirmation(plan); !strings.Contains(out, "your yes here covers them") {
+		t.Errorf("the panel does not say this confirmation covers the volumes:\n%s", out)
 	}
 	plan.KeepVolumes = true
 	if out := RenderTeardownConfirmation(plan); !strings.Contains(out, "Kept (--keep-volumes)") || strings.Contains(out, "destroyed with the volumes") {
@@ -467,47 +525,6 @@ func TestADeletionThatFailedIsNotAChoiceToKeep(t *testing.T) {
 	step, out := testStep(cloud, stepOpts{yes: true})
 	if !step.run([]volumeJob{deletedJob()}) {
 		t.Fatalf("the re-run did not finish the job:\n%s", out)
-	}
-}
-
-// A prompt that got NO answer — stdin closed, as in a script that passed
-// neither --yes nor --keep-volumes — keeps the volumes, but nobody chose to keep
-// them: the record is not marked kept-on-purpose, so the documented re-run with
-// --yes finishes the job. Recording it as a choice (which an EOF used to be)
-// locked those volumes away from every later --yes. An explicit answer other
-// than "yes" is still a choice.
-func TestAnUnansweredPromptKeepsTheVolumesWithoutRecordingAChoice(t *testing.T) {
-	inst := recordInstall(t)
-	cloud := newFakeCloud()
-	cloud.add("vol-1", inst.ID, false)
-
-	step, out := testStep(cloud, stepOpts{}) // not a terminal, no --yes, stdin already closed
-	step.run([]volumeJob{deletedJob()})
-	if len(cloud.deleted) != 0 {
-		t.Fatalf("an unanswered prompt deleted %v", cloud.deleted)
-	}
-	recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar")
-	if len(recs) != 1 || recs[0].KeptByChoice || strings.Join(recs[0].RetainedVolumes, ",") != "vol-1" {
-		t.Fatalf("record = %+v; want it kept, pointing at vol-1, and NOT marked kept on purpose", recs)
-	}
-	if !strings.Contains(out.String(), "no answer") {
-		t.Errorf("the output does not say the prompt went unanswered:\n%s", out)
-	}
-
-	step, out = testStep(cloud, stepOpts{yes: true})
-	if !step.run([]volumeJob{deletedJob()}) || strings.Join(cloud.deleted, ",") != "vol-1" {
-		t.Fatalf("the re-run with --yes did not finish the job: %v\n%s", cloud.deleted, out)
-	}
-
-	next, err := pfactory.RecordClusterInstall("aws", "ap-southeast-1", "adhar")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cloud.add("vol-2", next.ID, false)
-	step, _ = testStep(cloud, stepOpts{input: "no\n"})
-	step.run([]volumeJob{deletedJob()})
-	if recs, _ := pfactory.LoadClusterInstalls("aws", "ap-southeast-1", "adhar"); len(recs) != 1 || !recs[0].KeptByChoice {
-		t.Fatalf("record = %+v; an explicit \"no\" is a choice to keep", recs)
 	}
 }
 

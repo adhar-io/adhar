@@ -600,7 +600,7 @@ See `examples/` directory for complete samples:
 
 #### 1. Pipeline (CI/CD)
 **XRD**: `pipelines.platform.adhar.io`
-- **Compositions**: `argo-workflows`, `tekton`
+- **Compositions**: `tekton`, `local` (the default). Argo Workflows is the platform's orchestration engine, reached through WorkflowTemplates rather than a `Pipeline` (docs/design/0026)
 - **Features**: Multi-stage pipelines, Git/schedule/manual triggers, artifact storage, notifications, timeout management
 
 #### 2. Policy (Compliance & Security)

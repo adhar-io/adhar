@@ -107,6 +107,20 @@ rules:
   - apiGroups: ["mongodbcommunity.mongodb.com"]
     resources: ["mongodbcommunity", "mongodbcommunity/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # BatchJob (compositions/batchjob) reads the PriorityClasses core/adhar-batch
+  # installs, as its prerequisite check, and composes the runner's Role. A Role can
+  # grant only what its creator holds, so Crossplane must itself hold the runner's
+  # two GETs: `get` on pods, and on Volcano Jobs, which a rule may name before the
+  # CRD exists (batch/v1 Jobs are granted above).
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
   # The Qdrant chart (provider-helm, same ClusterRole) emits a
   # PodDisruptionBudget when a Vector asks for more than one replica.
   - apiGroups: ["policy"]

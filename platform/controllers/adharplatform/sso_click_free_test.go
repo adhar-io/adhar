@@ -28,7 +28,7 @@ func TestEveryExposedUIHasAKeycloakSignInPath(t *testing.T) {
 		"adhar-ai-runtime":   "agent runtime API; every call carries a Keycloak bearer (no UI)",
 		"adhar-sso-start":    "the same-origin page that STARTS an app's own Keycloak login (Kargo PKCE, Penpot POST); serves only /adhar-sso/",
 		"adhar-ai-gateway":   "agentgateway; JWT-validated LLM/MCP API (no UI)",
-		"argo-server":        "argo-workflows --auth-mode=sso (disabled in every profile)",
+		"argo-server":        "Argo Workflows native SSO, platform staff only; the route sends the UI's GET /login into /oauth2/redirect",
 		"coder":              "Coder native OIDC; the route sends a session-less GET / into its OIDC start",
 		"coder-sso":          "Coder's sign-in edge: page loads only; asks Coder whether the session is live, starts Coder's own Keycloak OIDC when it is not",
 		"console":            "the Adhar Console's own Keycloak sign-in (the place a person signs in once)",
@@ -276,6 +276,70 @@ func TestRustFSBareHostStartsTheKeycloakLogin(t *testing.T) {
 	// read as Go template syntax if it were ever renamed to .tmpl.
 	if strings.Contains(readStackFile(t, "data/rustfs/manifests/console-sso.yaml"), "kind: HTTPRoute") {
 		t.Error("console-sso.yaml declares an HTTPRoute again; the route lives in httproute.yaml.tmpl")
+	}
+}
+
+// The native Argo Workflows UI (platform staff only, docs/design/0026 §5.4). On a 401
+// the UI sends the browser to /login?redirect=<page>, which draws a "Login" button
+// and a token box. argo-server's SSO start, /oauth2/redirect, reads the same
+// `redirect` parameter, so the route sends that GET there — query kept, port
+// stated (a redirect without one drops a local platform to 443) — and a person
+// with a Keycloak session lands back on the page they asked for. The API under
+// /api/ is untouched: a bearer-token client never asks for /login.
+func TestArgoWorkflowsLoginGoesStraightToKeycloak(t *testing.T) {
+	route := readStackFile(t, "application/argo-workflows/manifests/platform/httproute.yaml.tmpl")
+	var doc struct {
+		Spec struct {
+			Rules []struct {
+				Matches []struct {
+					Path struct {
+						Type  string `yaml:"type"`
+						Value string `yaml:"value"`
+					} `yaml:"path"`
+					Method string `yaml:"method"`
+				} `yaml:"matches"`
+				Filters []struct {
+					Type            string `yaml:"type"`
+					RequestRedirect struct {
+						Path struct {
+							Type            string `yaml:"type"`
+							ReplaceFullPath string `yaml:"replaceFullPath"`
+						} `yaml:"path"`
+						Port       any `yaml:"port"`
+						StatusCode int `yaml:"statusCode"`
+					} `yaml:"requestRedirect"`
+				} `yaml:"filters"`
+			} `yaml:"rules"`
+		} `yaml:"spec"`
+	}
+	if !strings.Contains(route, "port: {{ .Port }}") {
+		t.Error("the argo-workflows /login redirect does not state the platform's port: Gateway API defaults a " +
+			"redirect to the scheme's port, and a local platform on 8443 gets a Location nothing listens on")
+	}
+	if err := yaml.Unmarshal([]byte(strings.ReplaceAll(route, "{{ .Port }}", "443")), &doc); err != nil {
+		t.Fatalf("parsing the argo-workflows route: %v", err)
+	}
+	found := false
+	for _, rule := range doc.Spec.Rules {
+		for _, m := range rule.Matches {
+			if m.Path.Value != "/login" {
+				continue
+			}
+			if m.Path.Type != "Exact" || m.Method != "GET" {
+				t.Errorf("the /login redirect matches %s %s; it must be an Exact GET so nothing else is redirected",
+					m.Path.Type, m.Method)
+			}
+			for _, f := range rule.Filters {
+				if f.Type == "RequestRedirect" && f.RequestRedirect.Path.Type == "ReplaceFullPath" &&
+					f.RequestRedirect.Path.ReplaceFullPath == "/oauth2/redirect" {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("the argo-workflows route does not send GET /login to /oauth2/redirect: a platform engineer with a " +
+			"Keycloak session sees Argo's own Login button and token box instead of landing in the UI")
 	}
 }
 

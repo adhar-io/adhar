@@ -1,0 +1,28 @@
+# The step catalogue as Argo CD, syncing it from the packages repository.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cwt-platform-only-argocd
+policies:
+  - ../../../manifests/platform/policies.yaml
+resources:
+  - ../resources.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-cwt-platform-only
+    rule: clusterworkflowtemplates-from-argocd-only
+    kind: ClusterWorkflowTemplate
+    resources: [adhar-steps]
+    result: skip
+  - policy: adhar-cwt-platform-only
+    rule: clusterworkflowtemplates-from-argocd-only
+    kind: ClusterWorkflowTemplate
+    resources: [adhar-steps]
+    operation: UPDATE
+    result: skip
+  - policy: adhar-cwt-platform-only
+    rule: clusterworkflowtemplates-from-argocd-only
+    kind: ClusterWorkflowTemplate
+    resources: [adhar-steps]
+    operation: DELETE
+    result: skip

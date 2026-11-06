@@ -1,0 +1,81 @@
+# INV-1 as a person: even a platform-admin cannot start a second Argo, edit the
+# platform's controller or its configuration, or replace or delete the workflow
+# CRDs. Only the platform's own engine images pass the image rule.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: single-controller-people
+policies:
+  - ../../../manifests/platform/policies.yaml
+resources:
+  - ../resources.yaml
+userinfo: user.yaml
+results:
+  # Litmus chaos-infrastructure images, wherever they appear.
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-images
+    kind: Pod
+    resources: [litmus/litmus-workflow-controller, litmus/litmus-subscriber, litmus/litmus-event-tracker, litmus/litmus-argoexec-init]
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-workloads
+    kind: Deployment
+    resources: [litmus/chaos-infrastructure-controller]
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-workloads
+    kind: CronJob
+    resources: [litmus/chaos-infrastructure-heartbeat]
+    result: fail
+  # The platform's own engine is not Litmus.
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-images
+    kind: Pod
+    resources: [team-a-dev/platform-workflow-step, adhar-system/platform-workflow-controller]
+    result: pass
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-workloads
+    kind: Deployment
+    resources: [adhar-system/workflow-controller]
+    result: pass
+  # A second controller in another namespace, and edits to the platform's own.
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: Deployment
+    resources: [litmus/workflow-controller, adhar-system/workflow-controller]
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: ConfigMap
+    resources: [litmus/workflow-controller-configmap, adhar-system/workflow-controller-configmap]
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: Deployment
+    resources: [adhar-system/workflow-controller]
+    operation: UPDATE
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: ConfigMap
+    resources: [adhar-system/workflow-controller-configmap]
+    operation: UPDATE
+    result: fail
+  # The CRDs: no replacement, no edit, no deletion.
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-workflow-crds
+    kind: CustomResourceDefinition
+    resources: [workflows.argoproj.io, clusterworkflowtemplates.argoproj.io]
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-workflow-crds
+    kind: CustomResourceDefinition
+    resources: [workflows.argoproj.io]
+    operation: UPDATE
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-workflow-crds
+    kind: CustomResourceDefinition
+    resources: [workflows.argoproj.io]
+    operation: DELETE
+    result: fail

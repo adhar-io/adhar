@@ -1,14 +1,18 @@
 # Adhar marketplace contract for the argo-workflows package.
 # Validated against platform/stack/packages/marketplace.schema.json
 # (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
-# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
-# package changes; the generator never overwrites an existing contract.
+#
+# The platform's orchestration engine (docs/design/0026-workflows-and-gamedays.md):
+# on in the production profile, opt-in locally. `verification` below is written
+# ONLY by `adhar stack verify --write` from live Argo CD health (ADR-0014) — the
+# record still describes the v4.1.2 dev overlay this package replaced, and the next
+# verified run on the v4.1.6 platform overlay rewrites it.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: argo-workflows
 category: application
-version: "v4.1.2"
-description: Argo Workflows container-native workflow engine for running CI and batch jobs as Kubernetes DAGs.
+version: "v4.1.6"
+description: Argo Workflows, the platform's orchestration engine — DAGs of containers, Kubernetes resources, HTTP calls and approvals for automation, batch and game days.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -17,7 +21,11 @@ license: Apache-2.0
 homepage: https://argo-workflows.readthedocs.io
 adharCompatibility:
   minVersion: "0.1.0"
-  notes: Manifests vendored from https://github.com/argoproj/argo-workflows/releases (no upstream Helm chart).
+  notes: >-
+    Vendored from the upstream v4.1.6 release install (cluster-wide) with the
+    MINIMAL CRDs and no PriorityClass (generate-manifests.sh); never below v4.1.4
+    (GHSA-vm9v-p987-xm32, GHSA-q65w-j2vp-47c4). Upgrading from v4.1.2 changes the
+    SSO cookie format, so every native-UI user signs in once more.
 dependencies:
   - name: external-secrets
     category: security
@@ -26,6 +34,15 @@ dependencies:
     optional: true
   - name: rustfs
     category: data
+  # The run archive is a `Database` the control plane composes into a CNPG cluster.
+  - name: cnpg
+    category: data
+  - name: crossplane
+    category: infrastructure
+  # Admission policies hold INV-1 (one controller per cluster) and keep the step
+  # catalogue Git-only.
+  - name: kyverno
+    category: security
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
@@ -34,15 +51,28 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
+# beta until the designer (W2) is live-verified.
 stability: beta
 resources:
-  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+  cpu: "200m"
+  memory: "576Mi"
+  storage: "10Gi"
+  footprint: small
+  # Two small pods and a 10 Gi CNPG archive; still OFF in the local profile by
+  # default (D-2) until `adhar up` is measured with it on.
+  localSafe: true
+  notes: >-
+    workflow-controller 100m/256Mi (limit 1Gi), argo-server 50m/128Mi (limit 512Mi),
+    archive database 50m/192Mi (limit 512Mi, 10 Gi volume). Each step pod adds an
+    executor sidecar at 10m/64Mi.
 keywords:
   - workflows
-  - ci
+  - orchestration
   - batch
   - dag
   - argo
+  - approvals
+  - gameday
 verification:
   status: verified
   profile: production

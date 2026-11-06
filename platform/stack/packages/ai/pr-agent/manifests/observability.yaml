@@ -1,0 +1,85 @@
+# PR-Agent in the platform's observability.
+#
+#   Metrics  PR-Agent's own counters on GET /metrics (commands run, AI calls,
+#            tokens — [otel] in config.yaml) scraped below; its MODEL traffic is
+#            already on the gateway's dashboards, attributed as
+#            adhar_agent="system:serviceaccount:adhar-system:pr-agent"
+#            (ai/agentgateway security.yaml), tokens and cost included.
+#   Logs     JSON on stdout, collected with every other pod's:
+#              {namespace="adhar-system", container="pr-agent"}
+#            and the proxy's one line per model call:
+#              {namespace="adhar-system", container="gateway-proxy"}
+#   Alerts   below — the ways reviews stop silently.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pr-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: observability
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  namespaceSelector:
+    matchNames: [adhar-system]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pr-agent
+  endpoints:
+    - port: http
+      path: /metrics
+      # Counters about minute-scale work.
+      interval: 60s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pr-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  groups:
+    - name: adhar.ai.pr-agent
+      rules:
+        - alert: PRAgentUnavailable
+          expr: >-
+            max(kube_deployment_status_replicas_available{namespace="adhar-system", deployment="pr-agent"}) < 1
+          for: 15m
+          labels: {severity: warning, source: pr-agent}
+          annotations:
+            summary: "PR-Agent is down: pull requests are not being reviewed"
+            description: "No PR-Agent pod has been available for 15 minutes, so Gitea's webhooks fail and no pull request gets an automated review. Check `kubectl -n adhar-system describe deploy/pr-agent` — a missing Secret/pr-agent-gitea means the pr-agent-reconcile CronJob has not minted the bot's token."
+        - alert: PRAgentRefusedByTheGateway
+          expr: >-
+            sum(increase(agentgateway_requests_total{adhar_agent="system:serviceaccount:adhar-system:pr-agent", status="403"}[15m])) > 0
+          for: 0m
+          labels: {severity: warning, source: pr-agent}
+          annotations:
+            summary: "The AI gateway refuses PR-Agent's model calls (403)"
+            description: "PR-Agent authenticated but no Allow rule admitted the request. Either a repository's .pr_agent.toml asks for a model other than the one ai/pr-agent/manifests/gateway-grant.yaml grants, or the grant and config.yaml disagree. The gateway log line says `authorization failed`."
+        - alert: PRAgentOverBudget
+          expr: >-
+            sum(increase(agentgateway_requests_total{adhar_agent="system:serviceaccount:adhar-system:pr-agent", status="429"}[30m])) > 0
+          for: 0m
+          labels: {severity: info, source: pr-agent}
+          annotations:
+            summary: "PR-Agent has spent its gateway budget"
+            description: "Reviews are being rate-limited (429) by PR-Agent's own bucket in agentgateway-budget (ai/agentgateway/manifests/guardrails.yaml). Raise it there if the review volume is expected."
+        - alert: PRAgentReconcilerStale
+          expr: >-
+            time() - max(kube_cronjob_status_last_successful_time{namespace="adhar-system", cronjob="pr-agent-reconcile"}) > 3600
+          for: 10m
+          labels: {severity: warning, source: pr-agent}
+          annotations:
+            summary: "PR-Agent's Gitea reconciler has not succeeded for an hour"
+            description: "New organisations do not get PR-Agent's read team, and a revoked token or deleted webhook is not repaired. Read the last pr-agent-reconcile Job's log."

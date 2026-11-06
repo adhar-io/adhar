@@ -423,6 +423,12 @@ func (r *Reconciler) drainNode(ctx context.Context, nodeName string) (cordonedHe
 			if p.DeletionTimestamp != nil {
 				continue
 			}
+			// The decision saw no such pod, and one has landed here since (the
+			// node was schedulable until the cordon above). Give the node back
+			// rather than evict something that asked not to be.
+			if refusesEviction(p) {
+				return cordonedHere, fmt.Errorf("pod %s/%s on %s is annotated %s: \"false\"; not draining", p.Namespace, p.Name, nodeName, safeToEvictAnnotation)
+			}
 			evict := &policyv1.Eviction{ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace}}
 			if err := r.SubResource("eviction").Create(ctx, &p, evict); err != nil {
 				// 429 means a PodDisruptionBudget is holding the pod back —

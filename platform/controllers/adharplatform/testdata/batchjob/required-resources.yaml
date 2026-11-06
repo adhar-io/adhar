@@ -1,0 +1,55 @@
+# What the composition reads from the cluster (ExtraResources): the namespace for
+# the hierarchy labels, the PriorityClasses core/adhar-batch installs. No
+# ConfigMap adhar-batch-scheduler: Volcano is not installed.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    kubernetes.io/metadata.name: prod
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: prod
+    adhar.io/plane: workload
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    kubernetes.io/metadata.name: dev
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: dev
+    adhar.io/plane: workload
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-media
+  labels:
+    kubernetes.io/metadata.name: team-media
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-system
+  labels:
+    kubernetes.io/metadata.name: adhar-system
+    adhar.io/environment: prod
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch
+value: -100
+preemptionPolicy: Never
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-critical
+value: 0
+preemptionPolicy: Never

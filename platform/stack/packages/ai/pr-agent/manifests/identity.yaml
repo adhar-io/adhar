@@ -1,0 +1,163 @@
+# PR-Agent — who it is, and the one shared secret it holds with Gitea.
+#
+# THREE identities, none of them a person's:
+#
+#   pr-agent               the server's ServiceAccount. It never calls the
+#                          Kubernetes API (no token is automounted); it exists so
+#                          kubelet can project an `agentgateway`-audience token for
+#                          it, which is how the AI gateway knows the caller is
+#                          PR-Agent (gateway-grant.yaml, server.yaml).
+#   pr-agent-provisioner   the Job/CronJob that reconciles the Gitea side
+#                          (gitea-provision.yaml). It may read the Gitea admin
+#                          credential and the webhook secret, write ONE Secret (the
+#                          bot's token) and restart ONE Deployment. Nothing else.
+#   pr-agent-bot           a Gitea account (not a Kubernetes object) the
+#                          provisioner creates: restricted, read-only on code,
+#                          allowed to comment. See gitea-provision.yaml.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pr-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+# The server needs no Kubernetes API access at all. The only token it gets is
+# the projected, gateway-audience one, mounted into the gateway proxy alone.
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pr-agent-provisioner
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent-provisioner
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pr-agent-provisioner
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent-provisioner
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  # The Gitea admin credential (bootstrap) and the webhook secret (ESO, below).
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [gitea-credential, pr-agent-webhook]
+    verbs: [get]
+  # The bot's token: read to check it is still the live one, written when it
+  # is (re)minted. `create` cannot be narrowed by name, hence its own rule.
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [pr-agent-gitea]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  # `kubectl rollout restart` after a re-mint: the server reads its token from
+  # the environment, so it only sees a new one when its pods are replaced.
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [pr-agent]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pr-agent-provisioner
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent-provisioner
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+subjects:
+  - kind: ServiceAccount
+    name: pr-agent-provisioner
+    namespace: adhar-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pr-agent-provisioner
+---
+# The webhook secret Gitea signs every delivery with (X-Gitea-Signature,
+# HMAC-SHA256 of the body) and PR-Agent verifies before it does anything:
+# a missing secret is a 403, a missing signature a 400, a wrong one a 401.
+#
+# Generated in-cluster, never in Git. CreatedOnce: Gitea stores the secret
+# inside the system webhook and cannot be told a new one (its API never edits a
+# hook's secret), so a rotated value would make every delivery fail signature
+# checks until the provisioner recreated the hook. It does recreate it — the hook
+# URL carries a fingerprint of the secret it was created with — but there is no
+# reason to invite that window.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: pr-agent-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  # 64 alphanumerics: an HMAC key, not something a person types.
+  length: 64
+  digits: 16
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: pr-agent-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 30s
+  target:
+    name: pr-agent-webhook
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: pr-agent
+      data:
+        WEBHOOK_SECRET: "{{ .WEBHOOK_SECRET }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: pr-agent-webhook
+      # A Password generator emits ONE key, `password`; the template above
+      # reads WEBHOOK_SECRET, so it is renamed here
+      # (TestGeneratorBackedTemplatesOnlyReadKeysTheyAreGiven).
+      rewrite:
+        - transform:
+            template: "WEBHOOK_SECRET"

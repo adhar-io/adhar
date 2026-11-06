@@ -2,14 +2,76 @@
 
 This directory contains Helm values files for deploying ArgoCD (GitOps Continuous Delivery) in different environments, optimized for both local development and production use cases.
 
-## 🔼 Version: ArgoCD v3.5.1 (argo-cd chart 10.3.3)
+## 🔼 Version: Argo CD v3.6.1 (argo-cd chart 10.12.1)
 
-Bumped from v3.4.3 (chart 9.5.19). Regenerate with `./generate-manifests.sh`
-(`ARGOCD_VERSION` pins the **chart** version; chart 10.3.3 → app v3.5.1). The
-chart-9→10 major changed defaults/behaviour, not the values key surface, so the
-Adhar customizations carried over unchanged — verified via a ConfigMap-level diff
-(`argocd-cm`/`argocd-cmd-params-cm`/`argocd-rbac-cm` identical except the version
-labels).
+Bumped from v3.5.1 (chart 10.3.3) on 2026-11-05. 3.6.0 went GA on 2026-11-03;
+3.6.1 (2026-11-04) fixes a 3.6.0 UI regression that broke `--rootpath` /
+`--basehref`. Regenerate with `./generate-manifests.sh` (`ARGOCD_VERSION` pins
+the **chart**; chart 10.12.1 → app v3.6.1) using the Makefile-pinned Helm
+(`make helm`, v4.2.4 — `make embedded-resources` puts it first on `PATH`).
+
+**The values files are the only source.** Never edit `install.yaml` /
+`install-ha.yaml`. Until this bump both carried hand-edits a regeneration would
+have reverted (templated `url`/issuer, five health checks, controller processors
+16/8/4) and two **duplicate keys** that the controller's YAML decoder silently
+resolved to the last occurrence: a hand-copied application-controller memory
+request (so clusters kept 1Gi non-HA and *no request* HA; both renderings now
+request cpu 500m / memory 2560Mi, as the values have said since 2026-10-15) and a
+second ScheduledBackup health check. All of it now lives here, and three guards keep it
+so: `TestTheGeneratedArgoCDManifestsHaveNoDuplicateKeys`,
+`TestTheArgoCDControllerDeclaresItsMemoryInBothPlaces` (decodes the manifest the
+way the controller does) and `TestArgoCDVersionIsPinnedConsistently` (generator ↔
+both manifests ↔ values ↔ this heading ↔ `docs/ARCHITECTURE.md`).
+
+The platform host is filled in per cluster when the controller renders the
+manifest as a Go template. The chart passes `configs.cm.url` through Helm's
+`tpl` (argo-helm #3888, inside this chart range), so `url` wraps each
+placeholder in a raw string — ``{{`{{ .Host }}`}}`` — while `oidc.config` (not
+`tpl`'d) carries `{{ .Host }}` plainly.
+
+**What 3.6 changes here** (upstream `docs/operator-manual/upgrading/3.5-3.6.md`):
+
+- **Server-Side Apply implies Server-Side Diff** (the structured-merge diff is
+  removed). Every ApplicationSet app syncs with `ServerSideApply=true`. The
+  non-HA rendering already diffed server-side (`controller.diff.server.side`),
+  so nothing changes there; `values-ha.yaml` does not set that key, so the HA
+  rendering's ServerSideApply apps move to server-side diff — a dry-run apply per
+  resource on refresh, new revision, spec or `resourceVersion` change, with
+  validating webhooks (Kyverno) taking part. Opt-out per app:
+  `argocd.argoproj.io/compare-options: ServerSideDiff=false`.
+- **New and changed built-in health checks** — Kyverno `ClusterPolicy`/`Policy`,
+  `Alertmanager`, Velero `Backup`/`Restore`/`Schedule`, CNPG `Backup`/`Database`,
+  Tekton `PipelineRun`/`TaskRun`, cert-manager/ACME, Gateway API
+  `TLSRoute`/`ListenerSet`; a CRD that is not Established is now Progressing.
+  The checks in `argocd-cm` (HTTPRoute, Gateway, Tekton PipelineRun,
+  ExternalSecret, CNPG Cluster/ScheduledBackup, the `platform.adhar.io`
+  composites, Argo Workflows definitions) still take precedence. Checked on the
+  live DigitalOcean cluster before the bump: every managed object of a kind that
+  gained a check (29 Kyverno ClusterPolicies, the Alertmanager, 2 Velero
+  Schedules) evaluates Healthy under it.
+- **Refresh/hydrate requests carry a companion timestamp annotation**
+  (`argocd.argoproj.io/refresh-timestamp`, `hydrate-timestamp`), now ignored in
+  `ignoreResourceUpdates.argoproj.io_Application` as upstream's own v3.6.1
+  install does. A bare `argocd.argoproj.io/refresh` — what the console and the
+  convergence driver write — still triggers a refresh; the timestamp is optional.
+- **CRDs are additive only** — `v1alpha1` stays the only served/storage version;
+  Application gains 15 schema paths, ApplicationSet the OCI generator.
+- OpenTelemetry env renames (`ARGOCD_REPO_SERVER_OTLP_HEADERS`) do not apply:
+  tracing is off (`otlp.address: ""`). The new `rollback` RBAC action is opt-in
+  (`server.rbac.rollback.enforce.enable`, off), so no policy changes.
+
+**Bundled images follow the chart again.** The values held stale copies of old
+chart defaults, which override the chart's own: Dex v2.43.1 → v2.46.1, Redis
+7.2.8 → 8.6.4-alpine (Redis 8 is AGPLv3, OSI open source again; Argo CD keeps
+only a cache in it, so the new major starts from an empty cache),
+redis_exporter v1.75.0 → v1.97.0, extension installer v0.0.8 → v1.1.0 (neither
+rendered while disabled). `ssh.bitbucket.org` joins the SSH known hosts.
+
+### Earlier: v3.5.1 (argo-cd chart 10.3.3)
+
+Bumped from v3.4.3 (chart 9.5.19). The chart-9→10 major changed
+defaults/behaviour, not the values key surface, so the Adhar customizations
+carried over unchanged.
 
 **Adopted from v3.5:**
 

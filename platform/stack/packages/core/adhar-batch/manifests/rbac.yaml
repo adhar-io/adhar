@@ -1,0 +1,80 @@
+# Who may see and operate batch (design 0025 §10.2). The built-in admin, edit and
+# view roles already cover batch/v1 Jobs and CronJobs; these add the rest by
+# aggregation. Volcano's kinds are named from Phase 1 on purpose: a rule naming a
+# resource that does not exist yet is inert, and the roles need no change the day
+# Volcano is enabled.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-batch-view
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["batchjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["podgroups"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-batch-edit
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "patch"]
+  - apiGroups: ["bus.volcano.sh"]
+    resources: ["commands"]
+    verbs: ["create"]
+  # Patching a BatchJob is how a hold is set. adhar-batch-hold-only is what keeps
+  # it to the hold: the definition changes through Git and nowhere else.
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["batchjobs"]
+    verbs: ["patch"]
+---
+# Operating a job is not changing it. In prod a team holds `view`, because its
+# production changes arrive through a Release, so this role is what lets it run,
+# stop, restart and hold what is already deployed. It is bound by the Environment
+# composition (compositions/env/local.yaml), controlled by the Project's
+# batchOperations parameter. adhar-batch-run-integrity bounds it to the deployed
+# template, and adhar-batch-prod-jobs-name-a-batchjob closes the way around that:
+# the Job this role may create must name a BatchJob.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-batch-operator
+rules:
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["batchjobs"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["podgroups"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["bus.volcano.sh"]
+    resources: ["commands"]
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]

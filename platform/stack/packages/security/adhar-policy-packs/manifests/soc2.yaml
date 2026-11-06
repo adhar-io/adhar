@@ -218,6 +218,14 @@ spec:
                 - adhar-system
                 - crossplane-system
                 - local-path-storage
+      # A batch run has nothing to probe: it runs to completion, serves nothing, and
+      # its failure is an exit code (design 0025 §5.7). A precondition rather than an
+      # exclude: a selector in match or exclude would turn this rule's autogen off.
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.labels.\"adhar.io/workload\" || '' }}"
+            operator: NotEquals
+            value: batch
       validate:
         message: >-
           Every container must define both a livenessProbe and a

@@ -133,10 +133,18 @@ data:
     # someone deleted; checking only Gitea would re-create the app on
     # every sync and invalidate everyone's tokens (the secret is
     # returned once, at creation, and never again).
+    #
+    # The API server PRETTY-PRINTS JSON for a curl User-Agent
+    # (k8s.io/apiserver negotiation.isPrettyPrint): one field per line,
+    # `"key": "value"`. The client id is matched with or without that space.
+    # Matched without it, HAVE_ID was always empty, so EVERY sync deleted the
+    # application, registered a new one and replaced this Secret — and the
+    # running Coder kept the deleted application's client id and secret.
+    # Guard: TestCoderRestartsOntoAReRegisteredGiteaApp.
     EXISTING=$(curl -s --max-time 10 --cacert "${SA}/ca.crt" \
                  -H "Authorization: Bearer ${KTOK}" \
                  "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}" 2>/dev/null || true)
-    HAVE_ID=$(printf '%s' "${EXISTING}" | sed -n 's/.*"CODER_EXTERNAL_AUTH_0_CLIENT_ID":"\([^"]*\)".*/\1/p' | head -1)
+    HAVE_ID=$(printf '%s' "${EXISTING}" | sed -n 's/.*"CODER_EXTERNAL_AUTH_0_CLIENT_ID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
     if [ -n "${HAVE_ID}" ]; then
       HAVE_ID=$(printf '%s' "${HAVE_ID}" | base64 -d 2>/dev/null || true)
     fi

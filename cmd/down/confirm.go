@@ -208,10 +208,10 @@ func RenderTeardownConfirmation(plan teardownPlan) string {
 
 	if plan.CloudResources {
 		// What happens to the block volumes, said before anything is deleted:
-		// they are listed and confirmed AFTER the cluster is gone (that is when
-		// they detach and can be deleted), so this line is the promise the later
-		// list keeps.
-		volumes := "Listed once the cluster is gone; you confirm before any is deleted."
+		// they go AFTER the cluster (that is when they detach and can be deleted)
+		// and nothing asks again, so this line is the consent the volume step
+		// acts on.
+		volumes := "Deleted after the cluster; your yes here covers them."
 		if plan.KeepVolumes {
 			volumes = "Kept (--keep-volumes), with the command to delete them later."
 		}

@@ -1,0 +1,284 @@
+# Admission policies that make the engine's invariants true on the cluster rather
+# than in this repository (docs/design/0026 §5.8; W0 ships #1 and #2, later phases
+# append theirs to this file).
+#
+# Both are admission-only (`background: false`): a background scan writes a
+# PolicyReport per matched object, and the API server already stores ~1,200 of
+# them (TestArgoPoliciesAddNoPolicyReports).
+#
+# Both Enforce in adhar-system, an exception to "validation policies stay Audit in
+# the platform namespace" (security/kyverno). The exception is safe because each
+# rule matches only kinds and names no platform package writes except through
+# Argo CD — and Argo CD's application controller is excluded by identity. Proven
+# allow AND deny by `make policy-test` (../../policy-tests/).
+#
+# Three details every write-guard rule below needs, each one a way the guard would
+# otherwise be silently open or would wedge the cluster:
+#   allowExistingViolations: false
+#       Kyverno's default (true) SKIPS an UPDATE whose old object already "violates"
+#       the rule — and for a rule that refuses every non-Argo-CD write, every
+#       existing object does. Left at the default, these rules would refuse a
+#       create and let every later edit through. (The kyverno CLI never takes that
+#       path for a rule that has preconditions, so `make policy-test` cannot show
+#       the difference; TestOnlyOneWorkflowControllerCanExist holds the setting.)
+#   the deletionTimestamp precondition
+#       Once Argo CD deletes one of these objects (the package is switched off),
+#       the garbage collector removes its foreground-deletion finalizer with an
+#       UPDATE. Refusing that would leave the object Terminating forever.
+#   failurePolicy
+#       Declared as the design asks (#1 Fail, #2 Ignore), but note that this
+#       platform's Kyverno runs with forceFailurePolicyIgnore (security/kyverno
+#       values.yaml): every webhook is registered Ignore, so while Kyverno is
+#       down these writes go through (FM-5). The declared value takes effect on a
+#       cluster that turns that flag off.
+#
+# Wave 25: after the engine is up. A policy Kyverno cannot make Ready would hold
+# its wave, and the guarded writes come later anyway.
+---
+# 1 — One workflow controller per cluster (INV-1).
+#
+# LitmusChaos's "connect a chaos infrastructure" manifest (ChaosCenter 3.33.0)
+# installs its own Argo Workflows v3.3.1: Deployment/workflow-controller,
+# ConfigMap/workflow-controller-configmap and the argoproj.io CRDs. Applied next to
+# this package it would overwrite the CRDs with a v3 schema, fight over the
+# controller's name and ConfigMap in whatever namespace it lands, and run a second
+# controller reconciling the same Workflows (CONFLICTS.md). Game days use the
+# platform's engine instead: Litmus injects faults, it never brings an Argo.
+#
+# The images are refused on Pods AND, by a rule of their own, on the workloads
+# that create Pods, so the chaos infrastructure's Deployment is refused when it is
+# applied rather than leaving a ReplicaSet that fails to create pods forever.
+# Kyverno would normally generate the workload rule itself, but it generates
+# nothing for a policy any of whose rules matches by `names` — the two write
+# guards below do — so the workload rule is written out.
+# The pod rule rides the fail-closed webhook several pod policies on this
+# platform already use (Kyverno's default), so it adds no new failure mode.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-argo-single-controller
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: policy
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "25"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    policies.kyverno.io/title: One Argo Workflows controller per cluster (INV-1)
+    policies.kyverno.io/category: Workflows
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod, Deployment, ConfigMap, CustomResourceDefinition
+    policies.kyverno.io/description: >-
+      Only the platform's argo-workflows Application runs an Argo Workflows
+      controller. Refuses LitmusChaos's bundled Argo (workflow-controller,
+      argoexec, the ChaosCenter subscriber and event tracker) anywhere on the
+      cluster, and any write to the controller Deployment, its ConfigMap or the
+      eight argoproj.io workflow CRDs that does not come from Argo CD.
+spec:
+  background: false
+  failurePolicy: Fail
+  rules:
+    - name: refuse-litmus-chaos-infrastructure-images
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+      validate:
+        failureAction: Enforce
+        # The message is the RULE's: Kyverno refuses a policy whose rule-level
+        # message reads `element`, which exists only inside the foreach.
+        message: >-
+          This {{ request.object.kind }} runs a LitmusChaos chaos-infrastructure
+          image (workflow-controller, argoexec, subscriber or event tracker), which
+          brings its own Argo Workflows. This platform runs exactly one Argo
+          Workflows (application/argo-workflows); game days use it, and Litmus is
+          the fault engine only. Do not connect a ChaosCenter infrastructure.
+        foreach:
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                any:
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/workflow-controller*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/argoexec*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-subscriber*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-event-tracker*"}
+          # A foreach over an absent list is a no-op, so pods without init
+          # containers pass through this entry untouched.
+          - list: request.object.spec.initContainers
+            deny:
+              conditions:
+                any:
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/workflow-controller*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/argoexec*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-subscriber*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-event-tracker*"}
+    - name: refuse-litmus-chaos-infrastructure-workloads
+      match:
+        any:
+          - resources:
+              kinds: [Deployment, StatefulSet, DaemonSet, Job, CronJob]
+              operations: [CREATE, UPDATE]
+      validate:
+        failureAction: Enforce
+        message: >-
+          This {{ request.object.kind }} runs a LitmusChaos chaos-infrastructure
+          image (workflow-controller, argoexec, subscriber or event tracker), which
+          brings its own Argo Workflows. This platform runs exactly one Argo
+          Workflows (application/argo-workflows); game days use it, and Litmus is
+          the fault engine only. Do not connect a ChaosCenter infrastructure.
+        # A list the kind does not have (a Deployment has no jobTemplate) is skipped.
+        foreach:
+          - list: request.object.spec.template.spec.containers
+            deny:
+              conditions:
+                any:
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/workflow-controller*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/argoexec*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-subscriber*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-event-tracker*"}
+          - list: request.object.spec.template.spec.initContainers
+            deny:
+              conditions:
+                any:
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/workflow-controller*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/argoexec*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-subscriber*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-event-tracker*"}
+          - list: request.object.spec.jobTemplate.spec.template.spec.containers
+            deny:
+              conditions:
+                any:
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/workflow-controller*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmuschaos/argoexec*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-subscriber*"}
+                  - {key: "{{ element.image }}", operator: Equals, value: "*litmusportal-event-tracker*"}
+    - name: only-argocd-writes-the-controller
+      match:
+        any:
+          - resources:
+              kinds: [Deployment]
+              names: [workflow-controller]
+              operations: [CREATE, UPDATE]
+          - resources:
+              kinds: [ConfigMap]
+              names: [workflow-controller-configmap]
+              operations: [CREATE, UPDATE]
+      exclude:
+        any:
+          - subjects:
+              - kind: ServiceAccount
+                name: argocd-application-controller
+                namespace: adhar-system
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.deletionTimestamp || '' }}"
+            operator: Equals
+            value: ""
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: false
+        message: >-
+          {{ request.object.kind }}/{{ request.object.metadata.name }} belongs to the
+          platform's Argo Workflows and is written only by Argo CD
+          (application/argo-workflows in the packages repository). A second
+          workflow controller, or an edit to this one, would run every Workflow on
+          the cluster twice or differently. To restart the controller delete its
+          pod; to change its configuration change the package in Git.
+        deny: {}
+    - name: only-argocd-writes-the-workflow-crds
+      match:
+        any:
+          - resources:
+              kinds: [CustomResourceDefinition]
+              names:
+                - clusterworkflowtemplates.argoproj.io
+                - cronworkflows.argoproj.io
+                - workflowartifactgctasks.argoproj.io
+                - workfloweventbindings.argoproj.io
+                - workflows.argoproj.io
+                - workflowtaskresults.argoproj.io
+                - workflowtasksets.argoproj.io
+                - workflowtemplates.argoproj.io
+              operations: [CREATE, UPDATE, DELETE]
+      exclude:
+        any:
+          - subjects:
+              - kind: ServiceAccount
+                name: argocd-application-controller
+                namespace: adhar-system
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.deletionTimestamp || '' }}"
+            operator: Equals
+            value: ""
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: false
+        message: >-
+          The argoproj.io workflow CRDs are owned by the platform's argo-workflows
+          package and written only by Argo CD. Replacing them (for example with a
+          chaos infrastructure's Argo v3 schemas) or deleting them (which deletes
+          every team's templates, schedules and runs) is refused. Purging the
+          engine is a documented runbook: switch the package off first, which
+          removes this policy.
+        deny: {}
+---
+# 2 — The platform step catalogue is platform-owned (F-12, T8).
+#
+# platform-developer is bound to `edit` cluster-wide, and Argo's upstream
+# aggregate role gives `edit` create/delete on clusterworkflowtemplates — so every
+# platform developer could rewrite the steps every team's workflows call. A
+# ClusterWorkflowTemplate comes from Git through Argo CD or not at all.
+#
+# failurePolicy Ignore (declared): a Kyverno outage here fails open (FM-5); the
+# catalogue is also restored by Argo CD's self-heal on its next comparison.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-cwt-platform-only
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: policy
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "25"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    policies.kyverno.io/title: ClusterWorkflowTemplates come only from Git
+    policies.kyverno.io/category: Workflows
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: ClusterWorkflowTemplate
+    policies.kyverno.io/description: >-
+      ClusterWorkflowTemplates are the platform's shared step catalogue. They are
+      created, changed and deleted only by Argo CD from the packages repository;
+      anyone else's write is refused.
+spec:
+  background: false
+  failurePolicy: Ignore
+  rules:
+    - name: clusterworkflowtemplates-from-argocd-only
+      match:
+        any:
+          - resources:
+              kinds: [argoproj.io/v1alpha1/ClusterWorkflowTemplate]
+              operations: [CREATE, UPDATE, DELETE]
+      exclude:
+        any:
+          - subjects:
+              - kind: ServiceAccount
+                name: argocd-application-controller
+                namespace: adhar-system
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.deletionTimestamp || '' }}"
+            operator: Equals
+            value: ""
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: false
+        message: >-
+          ClusterWorkflowTemplate {{ request.name }} is part of the platform's step
+          catalogue, which only Argo CD writes (application/argo-workflows in the
+          packages repository). Propose the change there, or keep your step in a
+          WorkflowTemplate in your own namespace.
+        deny: {}

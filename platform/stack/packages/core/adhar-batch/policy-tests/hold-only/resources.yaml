@@ -1,0 +1,54 @@
+# Updates of the BatchJob in values.yaml's request.oldObject.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: set-the-hold
+  namespace: prod
+  labels: { team: payments }
+  annotations: { adhar.io/batch-hold: quarter-end freeze, example.io/note: "kept" }
+spec: { parameters: { job: importJob, image: "harbor/importer@sha256:aaaa", database: { secretRef: importer-db-app } } }
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: change-the-image
+  namespace: prod
+  labels: { team: payments }
+  annotations: { example.io/note: "kept" }
+spec: { parameters: { job: importJob, image: "docker.io/evil/image:1", database: { secretRef: importer-db-app } } }
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: hold-and-change-the-image
+  namespace: prod
+  labels: { team: payments }
+  annotations: { adhar.io/batch-hold: cover, example.io/note: "kept" }
+spec: { parameters: { job: importJob, image: "docker.io/evil/image:1", database: { secretRef: importer-db-app } } }
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: change-a-label
+  namespace: prod
+  labels: { team: someone-else }
+  annotations: { example.io/note: "kept" }
+spec: { parameters: { job: importJob, image: "harbor/importer@sha256:aaaa", database: { secretRef: importer-db-app } } }
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: change-another-annotation
+  namespace: prod
+  labels: { team: payments }
+  annotations: { example.io/note: "changed" }
+spec: { parameters: { job: importJob, image: "harbor/importer@sha256:aaaa", database: { secretRef: importer-db-app } } }
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: release-the-hold
+  namespace: prod
+  labels: { team: payments }
+  annotations: { example.io/note: "kept" }
+spec: { parameters: { job: importJob, image: "harbor/importer@sha256:aaaa", database: { secretRef: importer-db-app } } }

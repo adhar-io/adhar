@@ -1,0 +1,8 @@
+# A prod operator: RBAC lets the role create any Job, this is what narrows it.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: operator
+userInfo:
+  username: oidc:alice@example.com
+  groups: [oidc:ws-team-acme.payments, system:authenticated]

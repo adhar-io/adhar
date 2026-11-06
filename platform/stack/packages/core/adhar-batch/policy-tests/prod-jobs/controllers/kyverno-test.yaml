@@ -1,0 +1,17 @@
+# Argo CD's hooks, Kargo's verification Jobs and the CronJob controller create Jobs in prod.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: prod-jobs-controllers
+policies:
+  - ../../run-integrity/policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-prod-jobs-name-a-batchjob
+    rule: a-persons-job-in-prod-names-a-batchjob
+    kind: Job
+    resources: [one-off-in-prod]
+    result: skip

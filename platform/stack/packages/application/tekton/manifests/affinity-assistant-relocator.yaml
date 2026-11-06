@@ -62,6 +62,26 @@
 # a node that already has room; after it, no node had room, and the new worker
 # is where the assistant goes next.
 #
+# WHEN IT RUNS: from the Tekton Application's FIRST sync wave, with Tekton
+# itself. It was in wave 5, and Argo CD applies a wave only once every object
+# of the waves before it is Healthy — which includes the dashboard's
+# oauth2-proxy, waiting for Keycloak. On DigitalOcean (2026-11-03) the platform's
+# own release-adhar-ui run was pinned before the loop existed, while
+# release-adhar-kit and app-ci-deno-func were moved within ~85 s once it did. It
+# needs nothing from Tekton (kubectl and its RBAC), so it waits for nothing.
+#
+# WHAT IT COSTS: it prefers the control plane, and when that node is short of
+# memory the kubelet evicts first the pods using more than they request — this
+# loop at 64Mi on 2026-11-03, when it read every pod with `get pods -A`
+# (156 MiB in kubectl alone). Collections are now read 100 items at a time
+# (list_pages). Measured in its image against the 426 active pods and the CRDs
+# of that cluster, finding no room and moving a run: the container peaked at
+# 64 MiB (cgroup memory.peak, page cache included; sampled working set at most
+# 51 MiB), where reading every pod at once peaked at 160-192 MiB. Hence a
+# 128Mi request, twice the peak. A run with no room anywhere is looked at again
+# after REPLAN_SECONDS, not on every pass: that look reads every pod, and every
+# 20 s it cost ~210m CPU for as long as the run waited.
+#
 # PERMISSIONS: read nodes, pods, volumes and CSINodes cluster-wide (to know
 # where there is room); in adhar-system only, patch StatefulSets and delete
 # pods (only Tekton's assistants are touched: the script checks the
@@ -73,13 +93,13 @@ kind: ServiceAccount
 metadata:
   name: tekton-affinity-relocator
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: tekton-affinity-relocator
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 rules:
   - {apiGroups: [""], resources: [nodes, pods, persistentvolumes], verbs: [get, list]}
   - {apiGroups: [storage.k8s.io], resources: [csinodes], verbs: [get, list]}
@@ -88,7 +108,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: tekton-affinity-relocator
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tekton-affinity-relocator}
 subjects: [{kind: ServiceAccount, name: tekton-affinity-relocator, namespace: adhar-system}]
 ---
@@ -97,7 +117,7 @@ kind: Role
 metadata:
   name: tekton-affinity-relocator
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 rules:
   - {apiGroups: [apps], resources: [statefulsets], verbs: [get, patch]}
   - {apiGroups: [""], resources: [pods], verbs: [delete]}
@@ -109,7 +129,7 @@ kind: RoleBinding
 metadata:
   name: tekton-affinity-relocator
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tekton-affinity-relocator}
 subjects: [{kind: ServiceAccount, name: tekton-affinity-relocator, namespace: adhar-system}]
 ---
@@ -118,7 +138,7 @@ kind: ConfigMap
 metadata:
   name: tekton-affinity-relocator
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 data:
   relocate.py: |
     #!/usr/bin/env python3
@@ -151,6 +171,7 @@ data:
     import sys
     import time
     import traceback
+    import urllib.parse
     from fractions import Fraction
 
     COMPONENT = "app.kubernetes.io/component"
@@ -188,6 +209,13 @@ data:
     INTERVAL = env_int("INTERVAL_SECONDS", 20)
     MOVES_PER_PASS = env_int("MOVES_PER_PASS", 5)
     SETTLE = env_int("SETTLE_SECONDS", 30)
+    # After a look found no node with room, the next look at that assistant
+    # waits this long: every look reads every pod in the cluster.
+    REPLAN = env_int("REPLAN_SECONDS", 60)
+    PAGE = max(1, env_int("PAGE_SIZE", 100))
+    # 0 runs forever; --once is PASSES=1.
+    PASSES = env_int("PASSES", 0)
+    ACTIVE = "status.phase!=Succeeded,status.phase!=Failed"
 
 
     class KubectlError(Exception):
@@ -224,6 +252,27 @@ data:
 
     def get_json(*args):
         return json.loads(kubectl(*args, "-o", "json"))
+
+
+    def list_pages(path, **params):
+        """Every item of a collection, PAGE at a time. `kubectl get --raw` passes
+        the response through without decoding it, so neither kubectl nor this
+        process holds more than one page. `get pods -A -o json` decodes, prints
+        and returns the whole list at once: measured in this image against the
+        426 live pods of the 2026-11-03 DigitalOcean cluster, kubectl alone
+        peaked at 156 MiB and took 5.5 s, where this takes 45 MiB and 1.4 s. The
+        loop's request was 64Mi, and the kubelet evicted it under memory
+        pressure."""
+        cont = ""
+        while True:
+            q = dict(params, limit=str(PAGE))
+            if cont:
+                q["continue"] = cont
+            page = json.loads(kubectl("get", "--raw", f"{path}?{urllib.parse.urlencode(q)}"))
+            yield from page.get("items") or []
+            cont = (page.get("metadata") or {}).get("continue") or ""
+            if not cont:
+                return
 
 
     # ── quantities ───────────────────────────────────────────────────────────────
@@ -465,21 +514,28 @@ data:
     # ── where it can go ──────────────────────────────────────────────────────────
     class Cluster:
         """Nodes and what is already reserved on them; read only when a move is
-        being planned, at most once per pass."""
+        being planned, at most once per pass. The pods -- the expensive read --
+        only once some node has passed every other test."""
 
         def __init__(self):
-            self.nodes = get_json("get", "nodes")["items"]
-            pods = get_json("get", "pods", "-A", "--field-selector=status.phase!=Succeeded,status.phase!=Failed")["items"]
-            self.used = {}
-            for p in pods:
-                node = (p.get("spec") or {}).get("nodeName")
-                if node:
-                    add(self.used.setdefault(node, {}), pod_requests(p))
+            self.nodes = list(list_pages("/api/v1/nodes"))
+            self._used = None
             try:
-                self.csinodes = {c["metadata"]["name"]: c for c in get_json("get", "csinodes")["items"]}
+                self.csinodes = {c["metadata"]["name"]: c for c in list_pages("/apis/storage.k8s.io/v1/csinodes")}
             except KubectlError as e:
                 log(f"cannot read CSINodes ({e}); attachment limits are not checked")
                 self.csinodes = {}
+
+        @property
+        def used(self):
+            if self._used is None:
+                used = {}
+                for p in list_pages("/api/v1/pods", fieldSelector=ACTIVE):
+                    node = (p.get("spec") or {}).get("nodeName")
+                    if node:
+                        add(used.setdefault(node, {}), pod_requests(p))
+                self._used = used
+            return self._used
 
         def free(self, node, keys):
             alloc = {k: milli(v) for k, v in ((node.get("status") or {}).get("allocatable") or {}).items()}
@@ -672,6 +728,10 @@ data:
                 restore(sts, aa, now, f"none of {', '.join(exclude)} could take it and {why}")
             else:
                 note(sts, f"{why}; {waiting} keeps waiting")
+                # Room comes back when pods finish or a node joins -- minutes, not
+                # the INTERVAL between passes. Looking again every pass read all
+                # 426 pods of the DigitalOcean cluster every 20 s, at 210m CPU.
+                _replan_after[name] = now + dt.timedelta(seconds=REPLAN)
             return False
         current = aa["spec"].get("nodeName") or ""
         moves = moves_of(ann) + 1
@@ -711,6 +771,10 @@ data:
         if (sts["metadata"].get("labels") or {}).get(COMPONENT) != ASSISTANT or not owner(sts, "PipelineRun"):
             return None  # never touch a StatefulSet Tekton did not create for an assistant
         return sts
+
+
+    # Assistant -> when it may be looked at again after a look found no room.
+    _replan_after = {}
 
 
     def consider(inst, aa, mine, state, now):
@@ -754,14 +818,15 @@ data:
             elif required_terms(template_node_affinity(sts)) != required_terms(original_node_affinity(sts)):
                 restore(sts, aa, now, f"moved {moves_of(ann)} times without finding a node that takes it")
             return False
+        if now < _replan_after.get(sts["metadata"]["name"], now):
+            return False
         if state.get("cluster") is None:
             state["cluster"] = Cluster()
         return move(sts, aa, followers, waiting, state["cluster"], now, exclude)
 
 
     def run_pass(now):
-        pods = get_json("get", "pods", "-n", NAMESPACE, "-l", RUN_LABEL,
-                        "--field-selector=status.phase!=Succeeded,status.phase!=Failed")["items"]
+        pods = list(list_pages(f"/api/v1/namespaces/{NAMESPACE}/pods", labelSelector=RUN_LABEL, fieldSelector=ACTIVE))
         assistants, pinned = {}, {}
         for p in pods:
             p.setdefault("spec", {})
@@ -770,6 +835,9 @@ data:
                 assistants[labels[INSTANCE]] = p
             elif pinned_to(p):
                 pinned.setdefault(pinned_to(p), []).append(p)
+        # Tekton names the StatefulSet after the instance label it sets.
+        for gone in set(_replan_after) - set(assistants):
+            del _replan_after[gone]
         state, moved = {}, 0
         for inst in sorted(assistants):
             if moved >= MOVES_PER_PASS:
@@ -792,9 +860,10 @@ data:
 
 
     def main(argv):
-        once = "--once" in argv
+        passes = 1 if "--once" in argv else PASSES
         log(f"watching affinity assistants in {NAMESPACE}: grace {GRACE}s, cooldown {COOLDOWN}s, at most {MAX_MOVES} moves each")
         started = script_signature()
+        done = 0
         while True:
             now = parse_time(os.environ["NOW"]) if os.environ.get("NOW") else dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
             try:
@@ -803,9 +872,10 @@ data:
                 log(f"pass skipped: {e}")
             except Exception:  # never crash-loop on one odd object; say what it was
                 log("pass failed:\n" + traceback.format_exc())
-                if once:
+                if passes:
                     return 1
-            if once:
+            done += 1
+            if passes and done >= passes:
                 return 0
             time.sleep(INTERVAL)
             # The script is a mounted ConfigMap: when a sync changes it, carry on
@@ -829,7 +899,7 @@ metadata:
     app.kubernetes.io/part-of: tekton
     adhar.io/component: application
     adhar.io/plane: control
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
 spec:
   replicas: 1
   # One loop at a time: two would race to move the same assistant.
@@ -877,6 +947,10 @@ spec:
             - {name: COOLDOWN_SECONDS, value: "180"}
             - {name: MAX_MOVES, value: "3"}
             - {name: INTERVAL_SECONDS, value: "20"}
+            # After a look found no node with room, the next look at that run.
+            # Room comes back when pods finish or a node joins, and each look
+            # reads every pod in the cluster.
+            - {name: REPLAN_SECONDS, value: "60"}
             # Room left on the new node beyond what the waiting pods request.
             - {name: HEADROOM_MEMORY, value: 128Mi}
             - {name: HEADROOM_CPU, value: 50m}
@@ -887,7 +961,10 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
           resources:
-            requests: {cpu: 10m, memory: 64Mi}
+            # Twice the measured peak (64 MiB, see WHAT IT COSTS above): a pod
+            # within its request is the kubelet's last choice under memory
+            # pressure, and this one is needed most when nodes are full.
+            requests: {cpu: 10m, memory: 128Mi}
             limits: {memory: 256Mi}
           volumeMounts:
             - {name: script, mountPath: /scripts, readOnly: true}

@@ -1,0 +1,50 @@
+# argo-server, as this platform runs it (docs/design/0026 §5.3, §5.4).
+#
+#   --auth-mode=client  a bearer token is the caller (the console BFF, the CLI);
+#   --auth-mode=sso     the native UI, for platform staff only (sso.yaml);
+#   --secure=false      TLS terminates at the Gateway (httproute.yaml.tmpl);
+#   --api-rate-limit    per client IP. Behind the Gateway and the console BFF most
+#                       callers share a handful of IPs, so this is a ceiling, not
+#                       a per-person budget.
+#
+# Wave 20: after the controller (10) and the SSO credential (15) — argo-server
+# reads the client secret at start and does not start without it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argo-server
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  template:
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: argo-server
+          args:
+            - server
+            - --auth-mode=client
+            - --auth-mode=sso
+            - --secure=false
+            - --api-rate-limit=200
+          env:
+            # Archived-workflow and artifact endpoints. Artifacts exist only for
+            # adhar-system until teams get scoped object-store credentials (D-12).
+            - name: ARGO_ARTIFACT_SERVER
+              value: "true"
+          # Upstream probes HTTPS (it serves TLS by default) with the 1 s default
+          # timeout; this server speaks plain HTTP, and a loaded node needs room.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 2746
+              scheme: HTTP
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi

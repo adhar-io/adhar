@@ -1,0 +1,13 @@
+# Git is how a definition changes: Argo CD's application controller is exempt, and Crossplane's service account the same way.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: hold-only-argocd
+policies:
+  - ../../../manifests/kyverno-hold-only.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - { policy: adhar-batch-hold-only, rule: only-the-hold-annotation-changes, kind: BatchJob, resources: [change-the-image], operation: UPDATE, result: skip }

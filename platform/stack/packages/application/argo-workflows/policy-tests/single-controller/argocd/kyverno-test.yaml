@@ -1,0 +1,46 @@
+# INV-1 as Argo CD: the platform's own sync creates and updates the controller,
+# its configuration and the CRDs. Argo CD is NOT exempt from the image rule —
+# a package that vendored a Litmus chaos infrastructure would still be refused.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: single-controller-argocd
+policies:
+  - ../../../manifests/platform/policies.yaml
+resources:
+  - ../resources.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: Deployment
+    resources: [adhar-system/workflow-controller]
+    result: skip
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: Deployment
+    resources: [adhar-system/workflow-controller]
+    operation: UPDATE
+    result: skip
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-controller
+    kind: ConfigMap
+    resources: [adhar-system/workflow-controller-configmap]
+    operation: UPDATE
+    result: skip
+  - policy: adhar-argo-single-controller
+    rule: only-argocd-writes-the-workflow-crds
+    kind: CustomResourceDefinition
+    resources: [workflows.argoproj.io]
+    operation: UPDATE
+    result: skip
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-images
+    kind: Pod
+    resources: [litmus/litmus-workflow-controller]
+    result: fail
+  - policy: adhar-argo-single-controller
+    rule: refuse-litmus-chaos-infrastructure-workloads
+    kind: Deployment
+    resources: [litmus/chaos-infrastructure-controller]
+    result: fail

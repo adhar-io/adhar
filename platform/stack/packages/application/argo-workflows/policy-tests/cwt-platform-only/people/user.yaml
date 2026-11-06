@@ -1,0 +1,12 @@
+# A platform developer: bound to `edit` cluster-wide (security/keycloak
+# k8s-rbac.yaml), and Argo's aggregate-to-edit role gives `edit`
+# create/update/delete on clusterworkflowtemplates. RBAC says yes; policy says no.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: platform-developer
+userInfo:
+  username: oidc:user2@noreply.com
+  groups:
+    - oidc:platform-developer
+    - system:authenticated

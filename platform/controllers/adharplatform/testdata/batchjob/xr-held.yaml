@@ -1,0 +1,15 @@
+# The scheduled example with an operator's hold on it.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: importer
+  namespace: prod
+  annotations:
+    adhar.io/batch-hold: quarter-end freeze
+spec:
+  parameters:
+    job: importJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schedule: { cron: "30 1 * * *", timeZone: Asia/Singapore }
+    priority: critical
+    database: { secretRef: importer-db-app }

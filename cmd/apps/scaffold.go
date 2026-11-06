@@ -983,29 +983,19 @@ func renderScaffold(ctx context.Context, gc *gitea.Client, t *backstageTemplate,
 		return nil, err
 	}
 
-	tree, _, err := gc.GetTrees(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, gitea.ListTreeOptions{
-		Ref:       "main",
-		Recursive: true,
-		ListOptions: gitea.ListOptions{
-			PageSize: 1000,
-		},
-	})
+	tree, err := templatesTree(gc)
 	if err != nil {
-		return nil, fmt.Errorf("listing the %s repo tree: %w", globals.GitOpsRepoTemplates, err)
+		return nil, fmt.Errorf("cannot render %q: %w", templateID, err)
 	}
 	prefix := path.Join(globals.GitOpsTemplatesPath, templateID, skeleton) + "/"
 	var entries []gitea.GitEntry
-	for _, e := range tree.Entries {
+	for _, e := range tree {
 		if e.Type == "blob" && strings.HasPrefix(e.Path, prefix) {
 			entries = append(entries, e)
 		}
 	}
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("template %q has no files under %s", templateID, prefix)
-	}
-	if tree.Truncated {
-		return nil, fmt.Errorf("the %s repo tree was truncated; cannot render %q completely",
-			globals.GitOpsRepoTemplates, templateID)
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
@@ -1033,6 +1023,69 @@ func renderScaffold(ctx context.Context, gc *gitea.Client, t *backstageTemplate,
 	return r, nil
 }
 
+// templatesTreeMaxPages bounds templatesTree: a hundred of Gitea's
+// thousand-entry pages is far past any templates collection, and a server
+// that never stops answering `truncated` must not hold a scaffold forever.
+const templatesTreeMaxPages = 100
+
+// templatesTree lists every entry — files and directories — of the templates
+// repository's tree on main.
+//
+// Gitea answers a recursive tree listing in pages of at most its
+// [api] DEFAULT_GIT_TREES_PER_PAGE, 1000 by default: a larger per_page is
+// capped, the SDK's `limit` is not read at all, and each page but the last
+// says `truncated`. Until 2026-11-05 this read the first page and refused a
+// truncated one, so once the collection passed 1000 entries every template
+// failed to scaffold — the templates repository reached 1094 with the
+// devcontainer, editor and test files added that day (917 before). Verified
+// against Gitea 1.27.0: page 1 held 1000 entries, truncated, total_count
+// 1094; page 2 the other 94. (The Console's scaffolder reads that first page
+// only, and so drops whatever falls past it — tanstack-start-fullstack-app's
+// skeleton, there.)
+//
+// Every page after the first is asked for by the tree the first one
+// resolved, so a mirror sync landing between two pages cannot mix two
+// commits. A listing that ends short of the total it announced, or runs past
+// it (a server or proxy that ignores `page` answers page 1 every time), is an
+// error, not a template with missing or doubled files.
+func templatesTree(gc *gitea.Client) ([]gitea.GitEntry, error) {
+	ref, total := "main", 0
+	var entries []gitea.GitEntry
+	for page := 1; ; page++ {
+		if page > templatesTreeMaxPages {
+			return nil, fmt.Errorf("the %s repo tree is still truncated after %d pages", globals.GitOpsRepoTemplates, templatesTreeMaxPages)
+		}
+		tree, _, err := gc.GetTrees(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, gitea.ListTreeOptions{
+			Ref:         ref,
+			Recursive:   true,
+			ListOptions: gitea.ListOptions{Page: page, PageSize: 1000},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing the %s repo tree (page %d): %w", globals.GitOpsRepoTemplates, page, err)
+		}
+		if page == 1 && tree.SHA != "" {
+			ref = tree.SHA
+		}
+		if tree.TotalCount > total {
+			total = tree.TotalCount
+		}
+		entries = append(entries, tree.Entries...)
+		if total > 0 && len(entries) > total {
+			return nil, fmt.Errorf("the %s repo tree listing returned more than the %d entries it announced (is the page parameter ignored?)",
+				globals.GitOpsRepoTemplates, total)
+		}
+		// The empty page past the end stops a server that keeps saying
+		// `truncated` there too.
+		if !tree.Truncated || len(tree.Entries) == 0 {
+			break
+		}
+	}
+	if len(entries) < total {
+		return nil, fmt.Errorf("the %s repo tree lists %d entries but only %d were returned", globals.GitOpsRepoTemplates, total, len(entries))
+	}
+	return entries, nil
+}
+
 func (r *renderedScaffold) add(rel string, content []byte) {
 	r.files = append(r.files, &gitea.ChangeFileOperation{
 		Operation: "create",
@@ -1040,6 +1093,17 @@ func (r *renderedScaffold) add(rel string, content []byte) {
 		Content:   base64.StdEncoding.EncodeToString(content),
 	})
 	r.paths = append(r.paths, rel)
+}
+
+// file is the rendered content of one path of the scaffold, if it has one.
+func (r *renderedScaffold) file(rel string) ([]byte, bool) {
+	for _, op := range r.files {
+		if op.Path == rel {
+			b, err := base64.StdEncoding.DecodeString(op.Content)
+			return b, err == nil
+		}
+	}
+	return nil, false
 }
 
 // consoleStarterKustomization is the deploy starter the Console's scaffolder

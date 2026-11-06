@@ -1,0 +1,22 @@
+# The actor comes from the request, overwriting whatever the client forged.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: actor
+policies:
+  - ../../manifests/kyverno-actor.yaml
+resources:
+  - resources.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-actor
+    rule: stamp-the-actor
+    kind: Job
+    resources: [importer-09932cb3]
+    patchedResources: patched.yaml
+    result: pass
+  - policy: adhar-batch-actor
+    rule: stamp-the-actor
+    kind: Job
+    resources: [not-batch]
+    result: skip

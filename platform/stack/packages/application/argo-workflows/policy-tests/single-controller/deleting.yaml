@@ -1,0 +1,48 @@
+# The platform's controller and configuration while Argo CD deletes them (the
+# package was switched off): what remains is the garbage collector removing the
+# foreground-deletion finalizer, an UPDATE that must go through.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-controller
+  namespace: adhar-system
+  deletionTimestamp: "2026-11-05T10:00:00Z"
+  finalizers: [foregroundDeletion]
+spec:
+  selector:
+    matchLabels: {app: workflow-controller}
+  template:
+    metadata:
+      labels: {app: workflow-controller}
+    spec:
+      containers:
+        - name: workflow-controller
+          image: quay.io/argoproj/workflow-controller:v4.1.6
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-controller-configmap
+  namespace: adhar-system
+  deletionTimestamp: "2026-11-05T10:00:00Z"
+  finalizers: [foregroundDeletion]
+data:
+  parallelism: "25"
+---
+# The control for the garbage-collector test: the same identity writing a LIVE
+# controller object (here upstream's default namespace, `argo`) is refused.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-controller
+  namespace: argo
+spec:
+  selector:
+    matchLabels: {app: workflow-controller}
+  template:
+    metadata:
+      labels: {app: workflow-controller}
+    spec:
+      containers:
+        - name: workflow-controller
+          image: quay.io/argoproj/workflow-controller:v4.1.6

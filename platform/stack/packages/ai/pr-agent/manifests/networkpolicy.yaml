@@ -1,0 +1,64 @@
+# Who may reach PR-Agent, and whom PR-Agent may reach. Enforced by Cilium.
+#
+# IN: Gitea delivering webhooks, and Prometheus scraping /metrics — both on the
+# one server port. Webhooks are signed anyway (a forged one is a 401), but a
+# server that answers only Gitea cannot be used to burn the LLM budget even by
+# someone who learned the secret. kubelet's probes come from the node, which
+# Cilium always admits.
+#
+# OUT: Gitea's API (the PR, its diff, posting comments), the AI gateway (every
+# model call, through the proxy sidecar) and cluster DNS. Nothing else — no
+# model provider, no package index, no telemetry endpoint. PR-Agent reads
+# repository content and sends it to a model, so the only model it can reach
+# is the governed one. (tiktoken's encoding download is the one thing upstream
+# fetches from the internet; server.yaml serves it from the image instead.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pr-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pr-agent
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gitea
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {port: 3000, protocol: TCP}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gitea
+      ports:
+        - {port: 3000, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: adhar-ai-gateway
+      ports:
+        - {port: 8080, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}

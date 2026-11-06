@@ -1,0 +1,423 @@
+# PR-Agent's Gitea side, converged idempotently: the bot account, its token,
+# its read access to every organisation, and ONE system webhook.
+#
+# Run by a Sync hook on every Argo CD sync (wave 1: after the webhook secret
+# exists, before the server that needs the token) and by a CronJob every ten
+# minutes, which is what covers organisations created later — the console's
+# tenancy provisioning and `adhar` scaffolders create them without telling
+# anyone. Every step reads first and writes only what differs.
+#
+# WHY A SYSTEM WEBHOOK. A Gitea system webhook fires for every repository on
+# the instance, existing and future, in every organisation — so every PR is
+# reviewed with no per-repository or per-organisation setup and nothing in an
+# app repository. (An org hook, the app-ci pattern, would need one hook per
+# organisation and a reconciler to add it to new ones; the same reconciler is
+# still needed here for READ access, but a missed tick then costs access to a
+# brand-new organisation's private repositories, not its webhook.)
+#
+# WHAT THE BOT MAY DO. `pr-agent-bot` is a local, RESTRICTED Gitea account
+# (it sees only what a team grants it), never an admin, with a random password
+# nobody knows. In each organisation it is the one member of a `pr-agent` team
+# with READ on code, pull requests and issues for all repositories. Its token
+# carries two scopes: read:repository (PRs, diffs, files) and write:issue (post
+# and edit its own comments, react to commands). It cannot push, merge,
+# approve, label, edit a PR or touch settings — which is why config.yaml
+# publishes everything as a comment.
+#
+# THE TOKEN is never rotated for its own sake: Gitea shows a token's value only
+# when it is created, so the stored one is checked against Gitea's record (same
+# name, same last eight characters, same scopes). Only a missing, deleted or
+# re-scoped token is re-minted — then written to Secret/pr-agent-gitea and the
+# server restarted, because it reads the token from its environment once.
+#
+# THE WEBHOOK SECRET cannot be read back from Gitea or changed on an existing
+# hook. The hook URL therefore carries `fp=` (the first 12 hex digits of the
+# secret's SHA-256 — nothing an attacker can use): if the secret ever changes,
+# the URL no longer matches and the hook is recreated with the new one.
+#
+# Secrets never appear in a process's argv: request bodies go to curl on stdin,
+# the admin credential is a header file in a private temp dir, and jq reads
+# secrets from its environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pr-agent-provision
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent-provisioner
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  reconcile.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    GITEA_URL=${GITEA_URL:-http://gitea-http.adhar-system.svc.cluster.local:3000}
+    NAMESPACE=${NAMESPACE:-adhar-system}
+    BOT_USER=${BOT_USER:-pr-agent-bot}
+    BOT_EMAIL=${BOT_EMAIL:-pr-agent-bot@noreply.adhar.io}
+    BOT_TEAM=${BOT_TEAM:-pr-agent}
+    TOKEN_NAME=${TOKEN_NAME:-pr-agent}
+    TOKEN_SECRET=${TOKEN_SECRET:-pr-agent-gitea}
+    DEPLOYMENT=${DEPLOYMENT:-pr-agent}
+    HOOK_URL=${HOOK_URL:-http://pr-agent.adhar-system.svc.cluster.local:3000/api/v1/gitea_webhooks}
+    HOOK_NAME=${HOOK_NAME:-pr-agent}
+
+    # The whole of the bot's authority.
+    TOKEN_SCOPES='["read:repository","write:issue"]'
+    TEAM_UNITS='{"repo.code":"read","repo.issues":"read","repo.pulls":"read"}'
+    # PR opened/reopened/edited/closed, new commits on a PR, comments on a PR.
+    # NOT bare `pull_request`, which also subscribes assign, label, milestone
+    # and review events PR-Agent ignores.
+    HOOK_EVENTS='["pull_request_comment","pull_request_only","pull_request_sync"]'
+
+    : "${GITEA_ADMIN_USER:?}" "${GITEA_ADMIN_PASSWORD:?}" "${WEBHOOK_SECRET:?}"
+
+    umask 077
+    WORK=$(mktemp -d)
+    trap 'rm -rf "$WORK"' EXIT
+    # printf is a builtin: the credential reaches base64 on stdin, not argv.
+    printf 'Authorization: Basic %s\n' \
+      "$(printf '%s:%s' "$GITEA_ADMIN_USER" "$GITEA_ADMIN_PASSWORD" | base64 | tr -d '\n')" > "$WORK/admin.hdr"
+
+    # call METHOD PATH [--json] — JSON request body on stdin; sets CODE and
+    # leaves the response in $WORK/body. SUDO=<user> acts as that user.
+    call() {
+      local method=$1 path=$2
+      shift 2
+      local -a args=(-sS -o "$WORK/body" -w '%{http_code}' --max-time 30 -X "$method"
+        -H @"$WORK/admin.hdr" -H 'Accept: application/json')
+      if [ -n "${SUDO:-}" ]; then args+=(-H "Sudo: $SUDO"); fi
+      if [ "${1:-}" = "--json" ]; then args+=(-H 'Content-Type: application/json' --data-binary @-); fi
+      LAST="$method $path"
+      CODE=$(curl "${args[@]}" "$GITEA_URL/api/v1$path") || CODE=000
+    }
+    want() {
+      local c
+      for c in "$@"; do [ "$CODE" = "$c" ] && return 0; done
+      echo "ERROR: $LAST answered HTTP $CODE: $(head -c 400 "$WORK/body" 2>/dev/null)" >&2
+      exit 1
+    }
+
+    echo "waiting for Gitea at $GITEA_URL"
+    code=000
+    for _ in $(seq 1 60); do
+      # /api/healthz: the one API route REQUIRE_SIGNIN_VIEW leaves anonymous.
+      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$GITEA_URL/api/healthz" || true)
+      [ "$code" = 200 ] && break
+      sleep 5
+    done
+    [ "$code" = 200 ] || { echo "ERROR: Gitea never became healthy (last HTTP $code)" >&2; exit 1; }
+
+    # ---- 1. the bot account -------------------------------------------------
+    call GET "/users/$BOT_USER"
+    if [ "$CODE" = 404 ]; then
+      # A password nobody keeps: the account is for API tokens only.
+      json=$(PW="$(head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40)" \
+        jq -n --arg u "$BOT_USER" --arg e "$BOT_EMAIL" \
+        '{username: $u, email: $e, full_name: "PR-Agent (automated code review)",
+          password: env.PW, must_change_password: false, send_notify: false,
+          restricted: true, visibility: "private"}')
+      call POST /admin/users --json <<<"$json"
+      want 201
+      echo "created Gitea account $BOT_USER (restricted, not an admin)"
+    else
+      want 200
+      # Never adopt an account this package did not create.
+      if [ "$(jq -r '.email' "$WORK/body")" != "$BOT_EMAIL" ]; then
+        echo "ERROR: a Gitea account named $BOT_USER exists that is not PR-Agent's bot (email differs); refusing to mint a token for it" >&2
+        exit 1
+      fi
+      if [ "$(jq -r '.is_admin' "$WORK/body")" != false ] || [ "$(jq -r '.restricted' "$WORK/body")" != true ]; then
+        json=$(jq -n --arg u "$BOT_USER" '{login_name: $u, source_id: 0, admin: false, restricted: true}')
+        call PATCH "/admin/users/$BOT_USER" --json <<<"$json"
+        want 200
+        echo "reset $BOT_USER to a restricted, non-admin account"
+      fi
+    fi
+
+    # ---- 2. the bot's token -------------------------------------------------
+    stored=""
+    if out=$(kubectl -n "$NAMESPACE" get secret "$TOKEN_SECRET" -o jsonpath='{.data.token}' 2>"$WORK/kerr"); then
+      stored=$(printf '%s' "$out" | base64 -d)
+    elif ! grep -q NotFound "$WORK/kerr"; then
+      echo "ERROR: cannot read Secret $TOKEN_SECRET: $(cat "$WORK/kerr")" >&2
+      exit 1
+    fi
+    SUDO=$BOT_USER call GET "/users/$BOT_USER/tokens?limit=50"
+    want 200
+    record=$(jq -c --arg n "$TOKEN_NAME" '[.[] | select(.name == $n)][0] // empty' "$WORK/body")
+    current=false
+    if [ -n "$stored" ] && [ -n "$record" ] \
+      && [ "$(jq -r '.token_last_eight' <<<"$record")" = "${stored: -8}" ] \
+      && [ "$(jq -c '.scopes | sort' <<<"$record")" = "$(jq -c 'sort' <<<"$TOKEN_SCOPES")" ]; then
+      current=true
+    fi
+    if [ "$current" = true ]; then
+      echo "token $TOKEN_NAME in Secret $TOKEN_SECRET is the live one; left as it is"
+    else
+      if [ -n "$record" ]; then
+        SUDO=$BOT_USER call DELETE "/users/$BOT_USER/tokens/$TOKEN_NAME"
+        want 204
+      fi
+      json=$(jq -n --arg n "$TOKEN_NAME" --argjson s "$TOKEN_SCOPES" '{name: $n, scopes: $s}')
+      SUDO=$BOT_USER call POST "/users/$BOT_USER/tokens" --json <<<"$json"
+      want 201
+      # From the response straight into the Secret. Server-side apply: a
+      # client-side apply would copy the token into the
+      # last-applied-configuration annotation.
+      jq --arg name "$TOKEN_SECRET" --arg ns "$NAMESPACE" --arg u "$BOT_USER" \
+        '{apiVersion: "v1", kind: "Secret", type: "Opaque",
+          metadata: {name: $name, namespace: $ns,
+                     labels: {"app.kubernetes.io/name": "pr-agent", "app.kubernetes.io/part-of": "pr-agent", "adhar.io/component": "ai"}},
+          stringData: {token: .sha1, username: $u}}' "$WORK/body" \
+        | kubectl apply --server-side --force-conflicts --field-manager=pr-agent-provisioner -f - >/dev/null
+      : > "$WORK/body"
+      echo "minted token $TOKEN_NAME (scopes $TOKEN_SCOPES) into Secret $TOKEN_SECRET"
+      if kubectl -n "$NAMESPACE" get deployment "$DEPLOYMENT" >/dev/null 2>&1; then
+        kubectl -n "$NAMESPACE" rollout restart deployment "$DEPLOYMENT"
+      fi
+    fi
+
+    # ---- 3. read access in every organisation -------------------------------
+    : > "$WORK/orgs"
+    page=1
+    while :; do
+      call GET "/admin/orgs?page=$page&limit=50"
+      want 200
+      n=$(jq 'length' "$WORK/body")
+      jq -r '.[].username' "$WORK/body" >> "$WORK/orgs"
+      [ "$n" -lt 50 ] && break
+      page=$((page + 1))
+    done
+    find_team() { # find_team ORG -> team JSON (or empty) on stdout
+      local p=1 n
+      while :; do
+        call GET "/orgs/$1/teams?page=$p&limit=50"
+        want 200
+        jq -c --arg t "$BOT_TEAM" '.[] | select(.name == $t)' "$WORK/body"
+        n=$(jq 'length' "$WORK/body")
+        [ "$n" -lt 50 ] && break
+        p=$((p + 1))
+      done
+    }
+    team_body() {
+      jq -n --arg t "$BOT_TEAM" --argjson u "$TEAM_UNITS" \
+        '{name: $t, permission: "read", includes_all_repositories: true, can_create_org_repo: false,
+          description: "PR-Agent automated code review: read-only (managed by the pr-agent package)",
+          units: ($u | keys), units_map: $u}'
+    }
+    orgs=0
+    while IFS= read -r org; do
+      [ -n "$org" ] || continue
+      orgs=$((orgs + 1))
+      team=$(find_team "$org" | head -n 1)
+      if [ -z "$team" ]; then
+        call POST "/orgs/$org/teams" --json <<<"$(team_body)"
+        if [ "$CODE" != 201 ]; then
+          team=$(find_team "$org" | head -n 1) # created concurrently?
+          [ -n "$team" ] || want 201
+        else
+          team=$(cat "$WORK/body")
+          echo "$org: created team $BOT_TEAM (read)"
+        fi
+      fi
+      team_id=$(jq -r '.id' <<<"$team")
+      # Gitea reports a unit-based team's own permission as "none" — the
+      # access is in units_map — and returns that map in its own key order.
+      if ! jq -e '.permission == "none" or .permission == "read"' <<<"$team" >/dev/null \
+        || [ "$(jq -r '.includes_all_repositories' <<<"$team")" != true ] \
+        || [ "$(jq -cS '.units_map // {}' <<<"$team")" != "$(jq -cS '.' <<<"$TEAM_UNITS")" ]; then
+        call PATCH "/teams/$team_id" --json <<<"$(team_body)"
+        want 200
+        echo "$org: reset team $BOT_TEAM to read-only on all repositories"
+      fi
+      call GET "/teams/$team_id/members/$BOT_USER"
+      if [ "$CODE" = 404 ]; then
+        call PUT "/teams/$team_id/members/$BOT_USER"
+        want 204
+        echo "$org: added $BOT_USER to team $BOT_TEAM"
+      else
+        want 200
+      fi
+    done < "$WORK/orgs"
+
+    # ---- 4. one system webhook ----------------------------------------------
+    fp=$(printf '%s' "$WEBHOOK_SECRET" | sha256sum | cut -c1-12)
+    want_url="$HOOK_URL?fp=$fp"
+    call GET "/admin/hooks?type=system&limit=50"
+    want 200
+    ours=$(jq -c --arg base "$HOOK_URL" '[.[] | select((.config.url // "") | startswith($base))]' "$WORK/body")
+    keep=$(jq -r --arg u "$want_url" '[.[] | select(.config.url == $u)][0].id // empty' <<<"$ours")
+    for id in $(jq -r --arg k "${keep:-none}" '.[] | select((.id | tostring) != $k) | .id' <<<"$ours"); do
+      call DELETE "/admin/hooks/$id"
+      want 204
+      echo "removed stale PR-Agent system webhook $id"
+    done
+    if [ -n "$keep" ]; then
+      hook=$(jq -c --arg k "$keep" '.[] | select((.id | tostring) == $k)' <<<"$ours")
+      # Gitea reports the `pull_request_only` subscription by its event type,
+      # `pull_request`. (WRITING bare `pull_request` would subscribe every PR
+      # sub-event, so the write below keeps `pull_request_only`.)
+      reported=$(jq -c 'map(if . == "pull_request_only" then "pull_request" else . end) | sort' <<<"$HOOK_EVENTS")
+      if [ "$(jq -c '.events | sort' <<<"$hook")" != "$reported" ] \
+        || [ "$(jq -r '.active' <<<"$hook")" != true ] \
+        || [ "$(jq -r '.config.content_type' <<<"$hook")" != json ]; then
+        json=$(jq -n --arg u "$want_url" --argjson e "$HOOK_EVENTS" \
+          '{active: true, events: $e, branch_filter: "*", config: {url: $u, content_type: "json"}}')
+        call PATCH "/admin/hooks/$keep" --json <<<"$json"
+        want 200
+        echo "updated PR-Agent system webhook $keep"
+      fi
+    else
+      json=$(jq -n --arg u "$want_url" --arg name "$HOOK_NAME" --argjson e "$HOOK_EVENTS" \
+        '{type: "gitea", name: $name, active: true, events: $e, branch_filter: "*",
+          config: {url: $u, content_type: "json", http_method: "post",
+                   secret: env.WEBHOOK_SECRET, is_system_webhook: "true"}}')
+      call POST /admin/hooks --json <<<"$json"
+      want 201
+      keep=$(jq -r '.id' "$WORK/body")
+      echo "created PR-Agent system webhook $keep"
+    fi
+
+    echo "PR-Agent's Gitea side is in place: account $BOT_USER, $orgs organisation(s), system webhook $keep"
+---
+# On every sync, before the server (wave 2) that reads the token it writes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pr-agent-provision
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent-provisioner
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pr-agent-provisioner
+        app.kubernetes.io/part-of: pr-agent
+    spec:
+      restartPolicy: Never
+      serviceAccountName: pr-agent-provisioner
+      # One namespace for every package: Kubernetes would inject a <NAME>_PORT
+      # variable per Service (platform/stack/packages/CONFLICTS.md).
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: reconcile
+          image: docker.io/alpine/k8s:1.31.1
+          command: ["/bin/bash", "/scripts/reconcile.sh"]
+          env:
+            - {name: GITEA_URL, value: "http://gitea-http.adhar-system.svc.cluster.local:3000"}
+            - {name: NAMESPACE, value: adhar-system}
+            - {name: HOOK_URL, value: "http://pr-agent.adhar-system.svc.cluster.local:3000/api/v1/gitea_webhooks"}
+            - {name: HOME, value: /tmp}
+            - name: GITEA_ADMIN_USER
+              valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}
+            - name: GITEA_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}
+            - name: WEBHOOK_SECRET
+              valueFrom: {secretKeyRef: {name: pr-agent-webhook, key: WEBHOOK_SECRET}}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: scripts
+          configMap: {name: pr-agent-provision, defaultMode: 0555}
+        - name: tmp
+          emptyDir: {}
+---
+# Every ten minutes: organisations created since the last sync get the read
+# team, and anything changed by hand in Gitea (the hook deleted, the token
+# revoked, the bot made an admin) is put back.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pr-agent-reconcile
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent-provisioner
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 540
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pr-agent-provisioner
+            app.kubernetes.io/part-of: pr-agent
+        spec:
+          restartPolicy: Never
+          serviceAccountName: pr-agent-provisioner
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: reconcile
+              image: docker.io/alpine/k8s:1.31.1
+              command: ["/bin/bash", "/scripts/reconcile.sh"]
+              env:
+                - {name: GITEA_URL, value: "http://gitea-http.adhar-system.svc.cluster.local:3000"}
+                - {name: NAMESPACE, value: adhar-system}
+                - {name: HOOK_URL, value: "http://pr-agent.adhar-system.svc.cluster.local:3000/api/v1/gitea_webhooks"}
+                - {name: HOME, value: /tmp}
+                - name: GITEA_ADMIN_USER
+                  valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}
+                - name: GITEA_ADMIN_PASSWORD
+                  valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}
+                - name: WEBHOOK_SECRET
+                  valueFrom: {secretKeyRef: {name: pr-agent-webhook, key: WEBHOOK_SECRET}}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: scripts
+              configMap: {name: pr-agent-provision, defaultMode: 0555}
+            - name: tmp
+              emptyDir: {}

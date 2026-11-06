@@ -1,0 +1,74 @@
+# Alerts for the workflow engine (docs/design/0026 §5.10), routed like every other
+# platform alert to the console's Notification Center through Alertmanager.
+#
+# Metric names are v4.1.6's (docs/metrics.md at the tag, util/telemetry): the
+# Prometheus exporter prefixes `argo_workflows_` and adds NO suffix
+# (UnderscoreEscapingWithoutSuffixes), so a counter keeps the name it is documented
+# with — argo_workflows_error_count, argo_workflows_total_count. `job` is
+# `workflow-controller` (metrics.yaml, jobLabel: app). Several series exist only
+# once something has happened; those alerts wait for the first event and never
+# fire on absence.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argo-workflows
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/part-of: adhar
+    adhar.io/component: argo-workflows
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: adhar.delivery.argo-workflows.engine
+      rules:
+        - alert: ArgoWorkflowsControllerDown
+          expr: (max(argo_workflows_is_leader{job="workflow-controller", namespace="adhar-system"}) or vector(0)) < 1
+          for: 5m
+          labels: {severity: warning, source: argo-workflows}
+          annotations:
+            summary: "No Argo Workflows controller has been leading for 5 minutes"
+            description: "Nothing is processing workflows: running pods finish, but no new step starts, no schedule fires, and Stop/Suspend/Resume are not acted on. Game-day guards stop their own faults without the controller, and Litmus bounds every fault by its duration. `kubectl -n adhar-system get pods -l app=workflow-controller` and its logs; a controller that cannot reach its archive database does not start (ArgoWorkflowsArchiveDatabaseDown)."
+        - alert: ArgoWorkflowsQueueBacklog
+          expr: max(argo_workflows_queue_depth_gauge{job="workflow-controller", queue_name="workflow_queue"}) > 50
+          for: 15m
+          labels: {severity: warning, source: argo-workflows}
+          annotations:
+            summary: "Argo Workflows is {{ $value | humanize }} workflow updates behind"
+            description: "The controller's workflow queue has held more than 50 items for 15 minutes, so runs advance late. The usual cause is the API server answering slowly (argo_workflows_k8s_request_duration on the Delivery / CI & Artifacts dashboard), then a fan-out larger than the controller's 8 workers. Check kube-apiserver before raising --workflow-workers: more workers is more load on the same API server."
+        - alert: ArgoWorkflowsErrors
+          expr: sum by (cause) (increase(argo_workflows_error_count{job="workflow-controller"}[15m])) > 0
+          for: 1m
+          labels: {severity: warning, source: argo-workflows}
+          annotations:
+            summary: "Argo Workflows controller errors: {{ $labels.cause }}"
+            description: "CronWorkflowSubmissionError / CronWorkflowSpecError: a schedule could not start its run — the CronWorkflow is also Degraded in Argo CD, and its status names the reason. OperationPanic: the controller hit a bug while operating a workflow; the run it was handling is marked Error. `kubectl -n adhar-system logs deploy/workflow-controller | grep -i error`."
+        - alert: ArgoWorkflowsPodsPendingLong
+          expr: sum(argo_workflows_pods_gauge{job="workflow-controller", phase="Pending"}) > 20
+          for: 15m
+          labels: {severity: warning, source: argo-workflows}
+          annotations:
+            summary: "{{ $value | humanize }} workflow pods have been Pending for 15 minutes"
+            description: "Read the scheduler's message on one of them before assuming capacity: `kubectl get pods -A -l workflows.argoproj.io/workflow --field-selector=status.phase=Pending` then `kubectl describe pod`. A namespace quota, a volume that cannot attach, maxPods or disk pressure all read as Pending; only 'Insufficient cpu/memory' is the cluster being full, and the node autoscaler adds a worker for that on its own."
+    - name: adhar.delivery.argo-workflows.archive
+      rules:
+        - alert: ArgoWorkflowsArchiveDatabaseDown
+          expr: (max(cnpg_collector_up{namespace="adhar-system", pod=~"argo-workflows-db-[0-9]+"}) or vector(0)) < 1
+          for: 5m
+          labels: {severity: warning, source: argo-workflows}
+          annotations:
+            summary: "The Argo Workflows archive database is down"
+            description: "Finished runs are not being archived, so they disappear from history when their TTL removes them, and argo-server cannot serve archived runs. A controller that restarts now will NOT start: its archive migration needs this database. `kubectl -n adhar-system get cluster.postgresql.cnpg.io argo-workflows-db`. Break-glass if the database cannot come back: set persistence.archive to false in workflow-controller-configmap through Git (README.md, 'Archive database down')."
+        - alert: ArgoWorkflowsArchiveVolumeFilling
+          expr: |-
+            (sum(cnpg_pg_database_size_bytes{namespace="adhar-system", pod=~"argo-workflows-db-[0-9]+"})
+              + max(cnpg_collector_pg_wal{namespace="adhar-system", pod=~"argo-workflows-db-[0-9]+", value="size"}))
+            / max(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace="adhar-system", persistentvolumeclaim=~"argo-workflows-db-[0-9]+"})
+            > 0.7
+          for: 30m
+          labels: {severity: warning, source: argo-workflows}
+          annotations:
+            summary: "The Argo Workflows archive is {{ $value | humanizePercentage }} of its volume"
+            description: "Databases plus WAL against the volume the archive database asked for. Measured from Postgres rather than kubelet volume stats, which node-local volumes do not report. Shorten persistence.archiveTTL, or raise storageSize on Database/argo-workflows-db (archive-db.yaml) before it fills: a full volume stops Postgres, and then the controller."

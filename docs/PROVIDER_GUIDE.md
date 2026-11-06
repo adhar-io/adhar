@@ -209,10 +209,12 @@ to its CSI driver in the cloud's own vocabulary:
    succeeds, the record says the cluster was **seen deleted** — before the
    volume step, so a teardown cut short there (a crash, a Ctrl+C) is finished
    by a re-run under `--yes`.
-3. Once the instances are gone (so the volumes detach) it lists every volume
-   carrying the id — VOLUME, SIZE, PVC, CREATED, STATE, INSTALL, never
-   shortened — and asks. `--yes`/`--force` skips the question;
-   `--keep-volumes` keeps them and prints how to delete them later.
+3. Once the instances are gone (so the volumes detach) it takes every volume
+   carrying the id, without asking again: the teardown's one confirmation says
+   the volumes go, and this step cannot run without it or `--yes`/`--force`.
+   `--verbose` lists them — VOLUME, SIZE, PVC, CREATED, STATE, INSTALL, never
+   shortened; `--keep-volumes` keeps them, lists them and prints how to delete
+   them later.
 4. It waits for each to detach (5 minutes at most — a volume still attached
    after that is in use by something else and is never deleted), deletes it,
    and reads it back until the cloud says it is gone (3 minutes). Only a
@@ -222,7 +224,8 @@ to its CSI driver in the cloud's own vocabulary:
    volume carrying it. Re-running the same `adhar down` after the cluster is
    gone finishes the job.
 
-Volumes kept **on purpose** — `--keep-volumes`, or a "no" at the prompt — are
+Volumes kept **on purpose** — `--keep-volumes`, or a "no" at one of the prompts
+below — are
 marked so in the record, and a later `adhar down --yes` (a script, or the
 teardown of the next cluster of the same name) does not delete them; only a
 confirmation typed at a terminal does. A volume left by a deletion that FAILED

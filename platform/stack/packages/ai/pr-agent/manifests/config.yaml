@@ -1,0 +1,105 @@
+# PR-Agent's platform-wide configuration.
+#
+# Mounted into the server as /app/pr_agent/settings_prod/.secrets.toml — the
+# path upstream's Kubernetes instructions use and the LAST settings file
+# PR-Agent loads, so these values override its bundled defaults. The name is
+# upstream's; nothing secret lives here. The two real secrets (the bot's Gitea
+# token and the webhook secret) arrive as environment variables from Secrets
+# (server.yaml), and there is no LLM key at all: the gateway proxy injects a
+# short-lived ServiceAccount token (gateway-proxy.yaml).
+#
+# Precedence, lowest to highest: PR-Agent defaults < this file < env vars <
+# the repository's own `.pr_agent.toml` (read from the PR's BASE commit, so a PR
+# cannot change how it is reviewed) < arguments on a comment command. A
+# repository can tune the tools, but not where PR-Agent sends its requests:
+# every *url, *key, *token and api_base key is host-only upstream
+# (pr_agent/config_security.py) — and the gateway admits ONE model for this
+# identity, so a repository that names another model gets 403, not a bill.
+#
+# Changing this file changes the pod's adhar.io/config-hash in server.yaml
+# (TestPRAgentRollsWhenItsConfigChanges recomputes it); PR-Agent reads its
+# settings once, at start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pr-agent-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  configuration.toml: |
+    [config]
+    git_provider = "gitea"
+    # The model, spelled the way LiteLLM wants it: `openai/` names the
+    # PROTOCOL (the gateway speaks the OpenAI API) and LiteLLM strips it, so
+    # the request body carries `openai/gpt-4o-mini` — the gateway's own name
+    # for the model, routed to the llm-openai backend and the one model
+    # gateway-grant.yaml admits for this identity (both are checked by
+    # TestPRAgentAsksForTheModelItIsGranted). Measured: `openai/gpt-4o-mini`
+    # here would put `gpt-4o-mini` on the wire.
+    model = "openai/openai/gpt-4o-mini"
+    # No fallback: the grant admits one model, so a second one would only ever
+    # be refused.
+    fallback_models = []
+    # The model's context window (an unknown spelling to PR-Agent's own table)
+    # and the per-call cap PR-Agent clips large diffs to.
+    custom_model_max_tokens = 128000
+    max_model_tokens = 32000
+    # The progress comment embeds an image hosted by a third party; the eyes
+    # reaction still acknowledges every command.
+    publish_output_progress = false
+    log_level = "INFO"
+
+    [gitea]
+    # API calls stay inside the cluster...
+    url = "http://gitea-http.adhar-system.svc.cluster.local:3000"
+    # ...while links in comments point where people browse. Rewritten to the
+    # platform's real domain when the stack is seeded.
+    web_url = "https://gitea.adhar.localtest.me:8443"
+    # A repository may tune PR-Agent with this file on its default branch.
+    repo_setting = ".pr_agent.toml"
+    # Opened or reopened: describe it, review it, suggest improvements.
+    pr_commands = ["/describe", "/review", "/improve"]
+    # New commits on an open PR: refresh the description and the review. Both
+    # comments are persistent, so they are edited in place, not re-posted.
+    handle_push_trigger = true
+    push_commands = ["/describe", "/review"]
+
+    # Everything the bot publishes is a COMMENT. Editing the PR body, adding
+    # labels and posting inline review comments all need write access to the
+    # repository, which the bot deliberately does not have.
+    [pr_description]
+    publish_description_as_comment = true
+    publish_description_as_comment_persistent = true
+    publish_labels = false
+    generate_ai_title = false
+
+    [pr_reviewer]
+    persistent_comment = true
+    inline_key_issues = false
+    enable_review_labels_security = false
+    enable_review_labels_effort = false
+
+    [pr_code_suggestions]
+    committable_code_suggestions = false
+    persistent_comment = true
+
+    [openai]
+    # The gateway proxy beside the server (gateway-proxy.yaml). It replaces
+    # whatever Authorization header arrives with the pod's projected token, so
+    # this key is a placeholder that is never sent anywhere.
+    api_base = "http://127.0.0.1:8081/v1"
+    key = "replaced-by-the-gateway-proxy"
+
+    [otel]
+    # GET /metrics on the server port, scraped by observability.yaml.
+    is_enabled = true
+    exporter_type = "prometheus"
+    service_name = "pr-agent"
+    environment = "production"
+    prometheus_multiproc_dir = "/tmp/pr-agent-prometheus"

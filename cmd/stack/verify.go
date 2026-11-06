@@ -218,7 +218,7 @@ func serverVersion(ctx context.Context) string {
 
 // contractPath resolves a package's adhar-package.yaml through the
 // ApplicationSet's manifest path, not the element name: several elements
-// (vllm-cpu/-gpu, the audit and enforce policy packs, argo-workflows' dev
+// (vllm-cpu/-gpu, the audit and enforce policy packs, argo-workflows' platform
 // overlay) point INTO a package — `ai/vllm/manifests/cpu` — and share the
 // contract at its root. The search walks up from the manifest directory and
 // stops at the packages tree, so an element can never borrow a neighbour's.

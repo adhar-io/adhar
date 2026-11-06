@@ -59,13 +59,14 @@ created for that environment -- droplets/instances, load balancers, firewall,
 VPC and SSH key -- through the same provider that created them.
 
 Then it deals with the cluster's BLOCK VOLUMES, which outlive their instances:
-once the instances are gone it lists every volume tagged with the cluster's
-install id (id, size, PVC, created), asks, deletes them, and reads each one
-back until the cloud confirms it is gone. --yes/--force skips the question;
---keep-volumes keeps them and prints how to delete them later. Re-running the
-same 'adhar down' after the cluster is gone finishes the job — except that
-volumes kept ON PURPOSE (--keep-volumes, or a "no" at the prompt) are deleted
-only after a confirmation typed at a terminal, never by --yes. The same holds
+once the instances are gone it deletes every volume tagged with the cluster's
+install id, without asking again, and reads each one back until the cloud
+confirms it is gone; --verbose lists them (id, size, PVC, created). Anything it
+could not delete is listed with the command that removes it. --keep-volumes
+keeps them and prints how to delete them later. Re-running the same 'adhar down'
+after the cluster is gone finishes the job — except that volumes kept ON
+PURPOSE (--keep-volumes, or a "no" at a prompt) are deleted only after a
+confirmation typed at a terminal, never by --yes. The same holds
 for a cluster adhar never saw deleted: one this machine still records as
 running that the provider no longer lists (deleted outside adhar, or a lookup
 that missed it). Its volumes are listed but never offered while any of them is
@@ -215,8 +216,9 @@ Examples:
 			}
 		}
 		code := teardownExitCode(final)
-		// The volume step runs once the TUI has given the terminal back: it may
-		// have to ask, and it prints the exact list it asks about.
+		// The volume step runs once the TUI has given the terminal back: it reports
+		// on the terminal, and volumes the confirmation did not cover need a typed
+		// answer.
 		if m, ok := final.(downModel); ok && !m.quitting {
 			if !runVolumeStep(m.outcome.VolumeJobs) && code == 0 {
 				code = 1
@@ -277,7 +279,7 @@ func init() {
 	// environment-name scheme, so a cluster from before the rename is still found.
 	DownCmd.Flags().StringVar(&downClusterName, "name", "", "◈ Name of the cluster to tear down (default \""+globals.DefaultClusterName+"\"); must match 'adhar up --name'")
 	DownCmd.Flags().StringVar(&downEnv, "env", "", "Environment to tear down (defaults to every environment in --file)")
-	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompts (the cluster's tagged volumes are deleted without asking; legacy volumes and volumes kept on purpose still need a terminal)")
+	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompt (legacy volumes and volumes kept on purpose still need a terminal)")
 	DownCmd.Flags().BoolVarP(&forceDelete, "yes", "y", false, "Same as --force")
 	DownCmd.Flags().BoolVar(&keepVolumes, "keep-volumes", false,
 		"Keep the cluster's block volumes (and their data) instead of deleting them; prints how to delete them later. "+

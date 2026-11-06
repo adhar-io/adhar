@@ -7,18 +7,6 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: console-argo-workflows
-rules:
-- apiGroups:
-  - argoproj.io
-  resources:
-  - workflows
-  verbs:
-  - create
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
   name: read-all
 rules:
 - apiGroups:
@@ -52,19 +40,6 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: console-exec
-subjects:
-- kind: ServiceAccount
-  name: console
-  namespace: adhar-system
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: console-argo-workflows
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: console-argo-workflows
 subjects:
 - kind: ServiceAccount
   name: console
@@ -149,6 +124,15 @@ rules:
   - get
   - list
   - update
+  - patch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  resourceNames:
+  - adhar-platform-applicationset
+  verbs:
+  - get
   - patch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -467,7 +451,7 @@ spec:
         # upgraded it on any pod restart, and the console's own status card
         # reported "latest" against its build version. Bump this line to ship
         # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.171
+        image: ghcr.io/adhar-io/adhar-console:0.1.173
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -860,7 +844,6 @@ spec:
         POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
         username: console
         password: '{{.POSTGRES_PASSWORD}}'
-        ARGO_WORKFLOWS_URL: https://argo-workflows.adhar.localtest.me:8443
         AUTH_CLIENT_SECRET: '{{.ADHAR_CONSOLE_CLIENT_SECRET}}'
         AUTH_COOKIE_SECRET: adhar-console-session-signing-key-change-me-please-01
         DATABASE_URL: postgres://console:{{.POSTGRES_PASSWORD}}@console-db-rw.adhar-system.svc.cluster.local:5432/console

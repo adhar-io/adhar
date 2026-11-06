@@ -1,0 +1,49 @@
+# PR-Agent's grant on the AI gateway: one model, the completions API, nothing
+# else.
+#
+# The gateway (ai/agentgateway) authenticates PR-Agent by the ServiceAccount
+# token the proxy sidecar sends (gateway-proxy.yaml) and then denies by
+# default: its own rules admit Keycloak groups, which a ServiceAccount token
+# does not carry. Without this policy every review would end in
+# `403 authorization failed` — the same failure the adhar-ai runtime had until
+# ai/adhar-ai/manifests/gateway-grant.yaml existed.
+#
+# Same shape as k8sgpt's grant: ONE expression (the gateway OR's the entries of
+# an Allow rule — TestEveryAllowRuleIsOneExpression), keyed on the identity, not
+# on a group. Allow rules from separate policies merge, so this adds PR-Agent
+# without loosening anyone else. The model must be the one config.yaml sends
+# (LiteLLM strips the first `openai/`); a repository's `.pr_agent.toml` that
+# names another model is refused here, which is what keeps a repository from
+# choosing what the platform pays for. TestPRAgentAsksForTheModelItIsGranted
+# keeps the two in step.
+#
+# Spend: PR-Agent has its own token bucket in the gateway's budget policy
+# (ai/agentgateway/manifests/guardrails.yaml), so reviews cannot exhaust the
+# allowance k8sgpt and the platform's agents share, nor be starved by them.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: pr-agent-llm
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    authorization:
+      action: Allow
+      policy:
+        # ONE expression — the gateway OR's the entries of an Allow rule.
+        matchExpressions:
+          - >-
+            default(jwt.sub, "") == "system:serviceaccount:adhar-system:pr-agent"
+            && request.path == "/v1/chat/completions"
+            && default(request.headers["x-model"], "") == "openai/gpt-4o-mini"

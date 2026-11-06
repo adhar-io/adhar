@@ -25,7 +25,8 @@ overwrite each other's content on every sync.
 | `Secret/webhook-certs` | cosign, tekton | RESOLVED — tekton reads the name from `WEBHOOK_SECRET_NAME`, so its generator renames it to `tekton-webhook-certs`. |
 | `ConfigMap/config-logging`, `config-observability` | knative, **tekton** | RESOLVED by namespace isolation — Knative runs in `knative-serving` and `knative-eventing`; kpack's copies are renamed `buildpack-config-*` (and its `CONFIG_*_NAME` env vars repointed) by its generator. |
 | `Service/webhook` → `WEBHOOK_PORT` env | **cosign** (policy-controller) vs. any pod that parses env with a strict decoder | RESOLVED per-consumer — Kubernetes injects `WEBHOOK_PORT=tcp://<ip>:443` for every pod in the namespace, and Litmus's graphql server reads `WEBHOOK_PORT` as an integer, so it crash-looped with `converting 'tcp://10.107.33.255:443' to type int`. cosign hardcodes the Service name in its binary, so the consumer opts out: `enableServiceLinks: false` on affected workloads (applied in each package's generate-manifests.sh). Any future package that decodes env strictly needs the same. |
-| `Deployment/workflow-controller`, `ConfigMap/workflow-controller-configmap`, `ServiceAccount/argo`, `argoproj.io` CRDs | kubeflow, **argo-workflows** | RESOLVED — kubeflow's generator strips its bundled Argo Workflows control plane and runs on the shared controller. |
+| `Deployment/workflow-controller`, `ConfigMap/workflow-controller-configmap`, `ServiceAccount/argo`, `argoproj.io` CRDs | kubeflow, **argo-workflows** | RESOLVED — kubeflow's generator strips its bundled Argo Workflows control plane and runs on the shared controller. Its Workflows run in adhar-system and take that namespace's default artifact repository (`argo-artifacts`, argo-workflows' `artifact-repositories` ConfigMap); there is no controller-wide one (docs/design/0026 D-12). |
+| `Deployment/workflow-controller`, `ConfigMap/workflow-controller-configmap`, `Service/workflow-controller-metrics`, `argoproj.io` workflow CRDs | litmus (a ChaosCenter "chaos infrastructure", 3.33.0, bundles Argo Workflows v3.3.1), **argo-workflows** | REFUSED by policy — never enrol a ChaosCenter chaos infrastructure. Kyverno `adhar-argo-single-controller` (argo-workflows) refuses the Litmus Argo images on any Pod or workload, and any write to the controller, its ConfigMap or the eight CRDs that is not Argo CD's (INV-1). Game days run Litmus faults on the platform's own engine; Litmus is the fault engine only. The platform ships no `workflow-controller-metrics` Service (a PodMonitor scrapes the controller pod), so that name claims nothing of ours. |
 | `ServiceAccount/minio-sa` | mimir, **minio** | mimir bundles its own MinIO. |
 | `ClusterSecretStore/vault`, `Service/vault` | **openbao**, vault | MUTUALLY EXCLUSIVE — exactly one secrets backend may be enabled. Production enables `openbao`; `vault` is disabled. See below. |
 
@@ -98,6 +99,28 @@ Generically-named Services in the stack: `webhook` (cosign), `controller`
 configuration from env vars** (or set the variable explicitly — an explicit
 container env always wins over an injected service link). This is the standing
 ADR-0011 rule.
+
+## 3. Volcano in the shared namespace (2026-11-07)
+
+`core/volcano` was checked against this file before it was offered in the
+Marketplace. It is a plain client-go binary, not a knative-framework one, so none
+of the compiled-in collisions above apply: its certificate Secret is
+`volcano-admission-secret` (a flag), its webhooks are `volcano-admission-service-*`,
+its ConfigMaps are `volcano-*`, and with one replica of each it holds no Leases. The
+object-name scan below finds nothing shared with another package.
+
+Three things are still worth knowing:
+
+| Name | Against | What happens |
+|---|---|---|
+| `queues` (plural) | `queues.platform.adhar.io`, the self-service `Queue` XRD | Same plural in two API groups. Nothing breaks, but `kubectl get queues` is ambiguous once Volcano is on. Write `queues.scheduling.volcano.sh` or `queues.platform.adhar.io`, as with the other names in CLAUDE.md's short-name note. |
+| `jobs`, `cronjobs` (plural) | `batch/v1` | The built-in wins: rehearsed on 1.37, `kubectl get jobs` still lists `job.batch`. A Volcano Job is `vcjob`, a Volcano CronJob is `cronvcjob`. |
+| `kinds: [Job, CronJob]` with no group | Kyverno rules in `adhar-policy-packs` | A rule that names a kind with no group matches Volcano's Job and CronJob too, and their pod template is at `spec.tasks[]`, not `spec.template`. All of those rules are `Audit` today, so the cost is report noise. An `Enforce` rule written that way would refuse Volcano Jobs. |
+
+**Its webhooks use `failurePolicy: Fail`, on Volcano's own kinds only.** The binary's
+built-in default also enables `/pods/mutate` and `/pods/validate`; `--enabled-admission`
+leaves them out. That flag is what stops an admission outage becoming an outage of
+every workload namespace (`TestVolcanoWebhooksCannotBlockAnythingButVolcanoObjects`).
 
 ## Checking for new collisions
 

@@ -1,0 +1,59 @@
+# adhar-batch-critical and adhar.io/scale-up: "true" are prod's (design 0025 §4.4,
+# §4.7, §10.3): a dev or test run neither outranks a prod run nor buys a node. The
+# composition refuses the same definitions with a readable message; this is what
+# holds for a Job somebody writes by hand. Written against the Pod so autogen covers
+# Job and CronJob, and against the run as well as the pod it makes.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-batch-critical-prod-only
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    pod-policies.kyverno.io/autogen-controllers: Job,CronJob
+    policies.kyverno.io/title: "Batch: critical priority and scale-up are for prod"
+    policies.kyverno.io/category: Batch
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      The PriorityClass adhar-batch-critical and the label adhar.io/scale-up are
+      permitted only in namespaces labelled adhar.io/environment prod.
+spec:
+  background: false
+  rules:
+    - name: critical-priority-only-in-prod
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/environment: prod
+      validate:
+        failureAction: Enforce
+        message: The PriorityClass adhar-batch-critical is for prod environment namespaces only.
+        pattern:
+          spec:
+            =(priorityClassName): "!adhar-batch-critical"
+    - name: scale-up-only-in-prod
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/environment: prod
+      validate:
+        failureAction: Enforce
+        message: The label adhar.io/scale-up is for prod environment namespaces only; a dev or test backlog never buys a node.
+        pattern:
+          metadata:
+            =(labels):
+              =(adhar.io/scale-up): "!true"

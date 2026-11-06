@@ -1,0 +1,12 @@
+# The Kubernetes garbage collector, which finishes a foreground deletion by
+# removing the foregroundDeletion finalizer from the object Argo CD deleted.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: generic-garbage-collector
+userInfo:
+  username: system:serviceaccount:kube-system:generic-garbage-collector
+  groups:
+    - system:serviceaccounts
+    - system:serviceaccounts:kube-system
+    - system:authenticated

@@ -1049,8 +1049,8 @@ VPC, the SSH key and the local kubeconfig/state entries — and then, once the
 droplets are gone and their volumes detached, the block-storage volumes the CSI
 driver tagged `adhar-cluster-id:<install id>` (its one `--do-tag`; the id is in
 the cluster's `adhar-cluster-spec` and in `~/.adhar/state/installs/`). Those are
-listed (id, size, PVC, created), confirmed, deleted and read back until the API
-returns 404; `--keep-volumes` keeps them and prints the `doctl` commands that
+deleted, under the same confirmation, and read back until the API returns 404
+(`--verbose` lists them: id, size, PVC, created); `--keep-volumes` keeps them and prints the `doctl` commands that
 delete them later. A cluster from before install ids tagged its volumes
 `adhar-cluster-<name>`: that tag now survives the droplets while volumes carry
 it, and they are offered on that evidence, behind a confirmation typed at a

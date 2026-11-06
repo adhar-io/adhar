@@ -1,0 +1,64 @@
+# A BatchJob's definition is GitOps; operating it is setting one annotation (design
+# 0025 INV-7, §3.5, §10.3). An UPDATE by anyone but Argo CD's application controller
+# or Crossplane may change only adhar.io/batch-hold. That is what makes `patch
+# batchjobs` safe to hand to an operator in prod.
+#
+# `items(...)` and the `to_string` are JMESPath's comparison rather than the deny
+# operators', which would read a value holding `*` as a wildcard pattern.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-batch-hold-only
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    policies.kyverno.io/title: "Batch: operators change only the hold"
+    policies.kyverno.io/category: Batch
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: BatchJob
+    policies.kyverno.io/description: >-
+      A BatchJob changes through Git. Anyone but Argo CD and Crossplane may change only
+      its adhar.io/batch-hold annotation.
+spec:
+  background: false
+  rules:
+    - name: only-the-hold-annotation-changes
+      match:
+        any:
+          - resources:
+              kinds: ["platform.adhar.io/v1alpha1/BatchJob"]
+              operations: ["UPDATE"]
+      exclude:
+        any:
+          - subjects:
+              - kind: ServiceAccount
+                name: argocd-application-controller
+                namespace: adhar-system
+              - kind: ServiceAccount
+                name: crossplane
+                namespace: adhar-system
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: NotEquals
+            value: "system:*"
+      context:
+        - name: changed
+          variable:
+            jmesPath: >-
+              [ to_string(request.object.spec) != to_string(request.oldObject.spec) && 'its spec',
+                to_string(request.object.metadata.labels) != to_string(request.oldObject.metadata.labels) && 'its labels',
+                to_string(items(request.object.metadata.annotations || `{}`, 'k', 'v')[?k != 'adhar.io/batch-hold'])
+                  != to_string(items(request.oldObject.metadata.annotations || `{}`, 'k', 'v')[?k != 'adhar.io/batch-hold'])
+                  && 'its annotations'
+              ][?@]
+      validate:
+        failureAction: Enforce
+        message: >-
+          A BatchJob changes through Git; an operator may set or remove only the adhar.io/batch-hold annotation.
+          This update also changes {{ changed }}.
+        deny:
+          conditions:
+            all:
+              - key: "{{ length(changed) }}"
+                operator: GreaterThan
+                value: 0

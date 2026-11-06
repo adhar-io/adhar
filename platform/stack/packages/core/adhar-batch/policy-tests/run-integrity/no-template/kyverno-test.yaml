@@ -1,0 +1,17 @@
+# A label naming a BatchJob that has no run template is refused, not waved through.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: run-integrity-no-template
+policies:
+  - ../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: values.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-run-integrity
+    rule: a-run-matches-its-template
+    kind: Job
+    resources: [deny-no-template, run-ok]
+    result: fail

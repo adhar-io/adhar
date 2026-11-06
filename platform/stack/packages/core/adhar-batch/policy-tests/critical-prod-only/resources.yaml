@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata: { name: critical-in-dev, namespace: dev }
+spec:
+  template:
+    spec:
+      priorityClassName: adhar-batch-critical
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: critical-in-prod, namespace: prod }
+spec:
+  template:
+    spec:
+      priorityClassName: adhar-batch-critical
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: standard-in-dev, namespace: dev }
+spec:
+  template:
+    metadata: { labels: { adhar.io/workload: batch } }
+    spec:
+      priorityClassName: adhar-batch
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: scale-up-in-test, namespace: test }
+spec:
+  template:
+    metadata: { labels: { adhar.io/scale-up: "true" } }
+    spec:
+      priorityClassName: adhar-batch
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: scale-up-in-prod, namespace: prod }
+spec:
+  template:
+    metadata: { labels: { adhar.io/scale-up: "true" } }
+    spec:
+      priorityClassName: adhar-batch
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: critical-cron-in-test, namespace: test }
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: adhar-batch-critical
+          restartPolicy: Never
+          containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: critical-pod-in-dev, namespace: dev }
+spec:
+  priorityClassName: adhar-batch-critical
+  restartPolicy: Never
+  containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]

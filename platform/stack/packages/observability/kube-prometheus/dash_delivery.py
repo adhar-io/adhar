@@ -4,15 +4,17 @@
                          cache), Argo Rollouts, Kargo and Gitea — how a commit becomes a
                          running release.
   CI & Artifacts         Tekton pipelines / tasks / triggers, Argo Events, the image and
-                         package registries (Harbor, Nexus) and kpack builds.
+                         package registries (Harbor, Nexus), kpack builds, and Argo
+                         Workflows, the platform's orchestration engine.
   Developer Platform     Crossplane (managed resources, compositions, functions), Coder
                          workspaces and a summary of the Dapr control plane.
   Dapr                   The Dapr runtime end to end: its control plane, every sidecar by
                          namespace and app-id, service invocation, pub/sub, state, actors,
                          workflows, resiliency, mTLS and the dapr-state store.
 
-Argo Workflows (2) and Terraform dashboards were dropped with their packages (disabled
-in every profile).
+The Terraform dashboards were dropped with their package (disabled in every profile).
+The two Argo Workflows dashboards dropped with theirs came back as one row of CI &
+Artifacts when the engine was switched on (docs/design/0026 §5.10).
 """
 from dashlib import *  # noqa: F401,F403
 from dash_common import (KSM, SYS, UIDS, component_logs, controller_runtime, go_process, links, pods_ready_stat,
@@ -226,8 +228,9 @@ def ci():
     d = Dash(UIDS["ci"], "Delivery / CI & Artifacts",
              "The paved-road CI: Tekton pipelines and tasks (success rate, duration by pipeline and task, queueing, "
              "pod start latency), Tekton Triggers and Argo Events (what starts a run), and the artifact stores the "
-             "runs publish to — Harbor (images, built by kpack) and Nexus (Maven / npm / PyPI). Replaces the Tekton "
-             "Overview, Argo Events, Harbor and Nexus dashboards.",
+             "runs publish to — Harbor (images, built by kpack) and Nexus (Maven / npm / PyPI). Argo Workflows, the "
+             "platform's orchestration engine, has its own row: its controller, queues, schedules and the API server "
+             "load it adds. Replaces the Tekton Overview, Argo Events, Harbor, Nexus and Argo Workflows dashboards.",
              tags("Delivery", "tekton", "ci"),
              [ds_var(),
               qvar("pipeline", "Pipeline", f'label_values(tekton_pipelines_controller_pipelinerun_duration_seconds_count{{{TK}}}, pipeline)',
@@ -316,6 +319,85 @@ def ci():
                 T(f'sum(rate(controller_reconcile_count{{{TT}}}[$__rate_interval]))', "reconciles/s")],
                overrides=[{"matcher": {"id": "byName", "options": "reconciles/s"},
                            "properties": [{"id": "unit", "value": "ops"}, {"id": "custom.axisPlacement", "value": "right"}]}]), 8))
+
+    # Argo Workflows (application/argo-workflows; docs/design/0026 §5.10). One row, not a
+    # dashboard: the engine's own health, its admission (queues, workers, pending pods)
+    # and the API server traffic it causes — the platform's binding constraint (§13.2).
+    # Metric names are v4.1.6's: argo_workflows_ prefix, no suffix added to counters.
+    d.row("Argo Workflows")
+    AW = 'job="workflow-controller"'
+    d.line(4,
+           (up_stat("Controller", "The workflow controller's metrics endpoint (one replica, plain HTTP on :9090).",
+                    "workflow-controller"), 4),
+           (stat("Leader", "1 when the controller holds its leader lease and is processing workflows. 0 or no value "
+                 "means nothing advances: running pods finish, but no new step starts and no schedule fires.",
+                 [f'max(argo_workflows_is_leader{{{AW}}})'],
+                 mappings=vmap((0, "standby", RED), (1, "leading", GREEN)), no_value="not scraped"), 4),
+           (stat("Running workflows", "Workflows the controller holds in the Running phase. Running means scheduled, "
+                 "not that every pod runs: a workflow can sit here with Pending pods.",
+                 [f'sum(argo_workflows_gauge{{{AW}, phase="Running"}})'], color_mode="value", decimals=0,
+                 no_value="0"), 4),
+           (stat("Failed / errored (range)", "Workflows that entered Failed or Error during the time range.",
+                 [f'sum(increase(argo_workflows_total_count{{{AW}, phase=~"Failed|Error"}}[$__range])) or vector(0)'],
+                 th=OK_WARN_BAD, decimals=0), 4),
+           (stat("Workflow queue", "Workflow updates waiting for a worker. Above ~50 for long the controller is behind "
+                 "(ArgoWorkflowsQueueBacklog) — usually a slow API server, not too few workers.",
+                 [f'max(argo_workflows_queue_depth_gauge{{{AW}, queue_name="workflow_queue"}})'],
+                 th=steps((GREEN, None), (AMBER, 20), (RED, 50)), decimals=0, no_value="not scraped"), 4),
+           (stat("Pods Pending now", "Workflow pods currently Pending. Read the scheduler's message before assuming "
+                 "capacity: quota, volume attach limits and disk pressure all look like this.",
+                 [f'sum(argo_workflows_pods_gauge{{{AW}, phase="Pending"}})'],
+                 th=steps((GREEN, None), (AMBER, 5), (RED, 20)), decimals=0, no_value="0"), 4))
+    d.line(8,
+           (ts("Workflows by phase", "Workflows the controller currently holds, per phase (stacked).",
+               [T(f'sum by (phase) (argo_workflows_gauge{{{AW}}})', "{{phase}}")],
+               stack=True, decimals=0, overrides=[ov_color("Succeeded", GREEN), ov_color("Failed", RED),
+                                                  ov_color("Error", RED), ov_color("Running", BLUE),
+                                                  ov_color("Pending", AMBER)]), 8),
+           (ts("Throughput", "Workflows entering each phase per interval (bars), by namespace: the platform's own "
+               "tasks run in adhar-system, a team's in its project and environment namespaces.",
+               [T(f'sum by (phase, namespace) (increase(argo_workflows_total_count{{{AW}}}[$__rate_interval])) > 0',
+                  "{{namespace}} {{phase}}")],
+               draw="bars", stack=True, decimals=0, overrides=[ov_color(".* Failed", RED), ov_color(".* Error", RED)]), 8),
+           (ts("Schedules triggered", "CronWorkflow runs started per interval, by schedule. A schedule that stops "
+               "appearing here while its CronWorkflow exists is suspended or failing (error_count, right).",
+               [T(f'sum by (namespace, name) (increase(argo_workflows_cronworkflows_triggered_total{{{AW}}}[$__rate_interval])) > 0',
+                  "{{namespace}}/{{name}}")],
+               draw="bars", stack=True, decimals=0), 8))
+    d.line(8,
+           (ts("Queues", "Depth of the controller's work queues (workflows, schedules, pod clean-up, TTL deletion, "
+               "archiving) and the 95th percentile time an item waited before a worker took it.",
+               [T(f'max by (queue_name) (argo_workflows_queue_depth_gauge{{{AW}}})', "{{queue_name}} depth"),
+                T(f'histogram_quantile(0.95, sum by (le, queue_name) (rate(argo_workflows_queue_latency_bucket{{{AW}}}[$__rate_interval])))',
+                  "{{queue_name}} wait p95 (s)")],
+               overrides=[{"matcher": {"id": "byRegexp", "options": ".* wait p95 \\(s\\)"},
+                           "properties": [{"id": "unit", "value": "s"}, {"id": "custom.axisPlacement", "value": "right"}]}]), 8),
+           (ts("Workers busy", "Busy workers per queue. The workflow queue runs 8 (--workflow-workers); pinned at 8 "
+               "with a growing queue is a controller that cannot keep up.",
+               [T(f'max by (worker_type) (argo_workflows_workers_busy_count{{{AW}}})', "{{worker_type}}")],
+               decimals=0), 8),
+           (ts("Pods that went Pending, and errors", "Workflow pods that entered Pending per interval by reason, and "
+               "controller errors by cause (CronWorkflowSubmissionError / SpecError: a schedule could not start; "
+               "OperationPanic: a controller bug).",
+               [T(f'sum by (reason) (increase(argo_workflows_pod_pending_count{{{AW}}}[$__rate_interval])) > 0', "pending: {{reason}}"),
+                T(f'sum by (cause) (increase(argo_workflows_error_count{{{AW}}}[$__rate_interval])) > 0', "error: {{cause}}")],
+               draw="bars", decimals=0, overrides=[ov_color("error: .*", RED)]), 8))
+    d.line(8,
+           (ts("Kubernetes API requests", "Requests the controller makes to the API server per second, by verb and "
+               "kind. This is the load the engine adds to the control plane; --qps=15 / --burst=25 cap it.",
+               [T(f'sum by (verb, kind) (rate(argo_workflows_k8s_request_total{{{AW}}}[$__rate_interval]))', "{{verb}} {{kind}}")],
+               unit="reqps"), 8),
+           (ts("Kubernetes API latency p95", "95th percentile latency of the controller's API server requests, by verb. "
+               "Rising together with the workflow queue means the API server is the bottleneck.",
+               [T(f'histogram_quantile(0.95, sum by (le, verb) (rate(argo_workflows_k8s_request_duration_bucket{{{AW}}}[$__rate_interval])))',
+                  "{{verb}}")],
+               unit="s"), 8),
+           (ts("API errors", "API server responses to the controller with status 4xx/5xx per second. 409 Conflict "
+               "is routine (optimistic concurrency); sustained 429/5xx is an overloaded API server.",
+               [T(f'sum by (status_code) (rate(argo_workflows_k8s_request_total{{{AW}, status_code=~"4..|5.."}}[$__rate_interval])) > 0',
+                  "{{status_code}}")],
+               unit="reqps", overrides=[ov_color("5.*", RED), ov_color("429", AMBER)]), 8))
+    d.line(8, *[(p, 8) for p in pods_resources("workflow-controller-.+|argo-server-.+")])
 
     d.row("Argo Events")
     AE = 'job="argo-events-controller-manager"'

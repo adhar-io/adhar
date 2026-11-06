@@ -1,0 +1,76 @@
+# Who may connect to the engine (docs/design/0026 §5.10).
+#
+# Cilium policies rather than Kubernetes NetworkPolicy, because the Cilium
+# Gateway's Envoy carries the reserved `ingress` identity, which no
+# namespaceSelector matches (an environment namespace's apps answered 503 behind
+# a Healthy rollout until a CiliumNetworkPolicy admitted `ingress`, 2026-10-17).
+#
+# Both policies are ingress-only: egress is untouched, because the controller and
+# the server call the Kubernetes API, the archive database and the object store.
+# `host` stays admitted for kubelet probes and `kubectl port-forward`.
+---
+# The controller serves nothing but its metrics (9090, plain HTTP) and health
+# (6060). Only Prometheus may scrape; the node itself may probe and port-forward.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: argo-workflows-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: workflow-controller
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchLabels:
+      app: workflow-controller
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "6060"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+---
+# argo-server (2746): the native UI and webhooks through the Gateway, and the
+# platform's own callers in adhar-system — the console BFF reaches it in-cluster
+# (§4.4). A tenant pod reaches it only the way a person does, through the Gateway,
+# where every call still authenticates as its caller. `remote-node` covers a
+# Gateway served from the nodes' host network (clusters with no cloud load
+# balancer, provider.GatewayHostNetworkRequired).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: argo-workflows-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: server
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchLabels:
+      app: argo-server
+  ingress:
+    - fromEntities: [ingress, host, remote-node]
+      toPorts:
+        - ports:
+            - port: "2746"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: adhar-system
+      toPorts:
+        - ports:
+            - port: "2746"
+              protocol: TCP

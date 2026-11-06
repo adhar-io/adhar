@@ -1,0 +1,49 @@
+# The native Argo Workflows UI, routed through the Cilium Gateway (adhar-gateway).
+# TLS terminates at the Gateway (adhar-cert); argo-server speaks plain HTTP on 2746.
+#
+# Wave 21: after argo-server (20) and its Service (base, wave 0), so the route never
+# names a backend that does not exist yet (TestNoHTTPRouteRoutesToALaterWaveThanItself).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argo-workflows
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: server
+  annotations:
+    argocd.argoproj.io/sync-wave: "21"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - argo-workflows.adhar.localtest.me
+  rules:
+    # Single sign-on without a click. On a 401 the UI sends the browser to
+    # /login?redirect=<page>, which draws a "Login" button and a token box. Its SSO
+    # start, /oauth2/redirect, reads the same `redirect` parameter, so sending the
+    # GET there (the query is kept) completes against the Keycloak session the
+    # person already has and lands them back on the page they asked for.
+    - matches:
+        - path:
+            type: Exact
+            value: /login
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /oauth2/redirect
+            # Stated, or Gateway API defaults the redirect to the scheme's port and a
+            # local platform on 8443 gets a Location nothing listens on.
+            port: {{ .Port }}
+            statusCode: 302
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: argo-server
+          port: 2746

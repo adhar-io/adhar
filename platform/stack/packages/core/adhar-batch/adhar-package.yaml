@@ -1,0 +1,43 @@
+# Adhar marketplace contract for the adhar-batch package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: adhar-batch
+category: core
+version: "0.1.0"
+appVersion: "0.1.0"
+description: Adhar Batch — the PriorityClasses, roles, Kyverno policies and dashboard behind the BatchJob API. Batch never preempts, and operating a job can only ever run its deployed definition. Runs no workloads.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://github.com/adhar-io/adhar
+adharCompatibility:
+  minVersion: "0.1.0"
+  notes: >-
+    The BatchJob XRD and composition ship inside the controller, so a cluster needs a
+    controller release as well as this package (docs/design/0025 §15, Phase 1).
+dependencies:
+  - name: kyverno
+    category: security
+  - name: kube-prometheus     # the Batch dashboard and each job's alerts; runs execute without it
+    category: observability
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: any
+stability: beta
+resources:
+  localSafe: true              # no workloads: policies, roles and two PriorityClasses
+keywords:
+  - batch
+  - spring-batch
+  - scheduling
+  - policy

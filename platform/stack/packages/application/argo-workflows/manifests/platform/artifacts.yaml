@@ -1,0 +1,77 @@
+# Artifacts for PLATFORM workflows only (D-12).
+#
+# A workflow in adhar-system that declares artifacts stores them in the
+# `argo-artifacts` bucket on RustFS, the platform's object store, for 30 days.
+#
+# Team namespaces get no artifact repository until scoped object-store
+# credentials exist (W5): the Bucket composition can only reference RustFS's
+# ROOT credential, `root-creds`, which lives here and nowhere else — handing a
+# team a repository that used it would hand the team the whole store. There is
+# also deliberately no controller-wide `artifactRepository` in
+# workflow-controller-configmap, so a team namespace never inherits this one
+# (TestArgoWorkflowsHasNoControllerWideArtifactRepository). Step logs do not need a
+# bucket either way: `archiveLogs` is off and Loki already holds every pod's logs.
+#
+# Kubeflow Pipelines (disabled in every profile) runs on this same controller in
+# adhar-system and resolves to this namespace default when it is enabled. KFP v2
+# moves its own artifacts through its launcher and pipeline root, not through
+# Argo's repository.
+---
+# The stack's first `Bucket` XR (compositions/bucket/local-rustfs.yaml): the
+# bucket, a 50 GiB quota and a 30-day expiry, created idempotently by a Job the
+# composition re-runs on its own TTL. Argo CD reads its health from the composite
+# Ready condition (resource.customizations.health.platform.adhar.io_Bucket).
+#
+# Wave 30 — AFTER the engine, not before it. Nothing in the controller's start
+# needs the bucket, and an object store that is slow to come up must not keep
+# workflows from running; only a step that writes an artifact waits for it.
+# Delete=false,Prune=false (INV-11): switching the package off keeps the bucket.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Bucket
+metadata:
+  name: argo-artifacts
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: artifacts
+    adhar.io/component: argo-workflows
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Delete=false,Prune=false
+spec:
+  parameters:
+    quotaGB: 50
+    expireAfterDays: 30
+    versioning: false
+    team: platform
+---
+# adhar-system's artifact repository, by the namespace-level mechanism Argo
+# resolves after a Workflow's own artifactRepositoryRef and before the
+# controller-wide default (which does not exist here).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artifact-repositories
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: artifacts
+  annotations:
+    workflows.argoproj.io/default-artifact-repository: argo-artifacts
+data:
+  argo-artifacts: |
+    archiveLogs: false
+    s3:
+      endpoint: rustfs.adhar-system.svc.cluster.local:9000
+      bucket: argo-artifacts
+      insecure: true
+      # Path-style: virtual-host addressing would ask DNS for
+      # argo-artifacts.rustfs.adhar-system.svc..., which does not exist.
+      addressingStyle: path
+      accessKeySecret:
+        name: root-creds
+        key: rootUser
+      secretKeySecret:
+        name: root-creds
+        key: rootPassword
+      keyFormat: "{{workflow.namespace}}/{{workflow.name}}/{{pod.name}}"

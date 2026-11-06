@@ -2624,6 +2624,16 @@ kube-state-metrics:
     create: true
   releaseLabel: true
 
+  ## Labels kube-state-metrics exports as label_* on kube_job_labels, kube_pod_labels
+  ## and kube_cronjob_labels. It exports none by default, so without this every
+  ## batch alert (compositions/batchjob) and Kargo's batch verification
+  ## (compositions/project) join on a series that does not exist and never fire.
+  ## Design 0025 §11.1; TestKubeStateMetricsExportsTheBatchLabels.
+  metricLabelsAllowlist:
+    - jobs=[adhar.io/batch-job,adhar.io/application,adhar.io/environment]
+    - pods=[adhar.io/batch-job,adhar.io/application,adhar.io/environment]
+    - cronjobs=[adhar.io/batch-job]
+
   ## Enable scraping via kubernetes-service-endpoints
   ## Disabled by default as we service monitor is enabled below
   ##

@@ -460,15 +460,7 @@ Heavy integrations stay **optional** dependencies of `adhar-kit-batch`, which is
 
 `adhar-kit-starter` changes `adhar-kit-batch` to `<optional>true</optional>`. Batch templates depend on it explicitly (K9).
 
-**Versions:**
-
-| Kit release | Phase | Content |
-|---|---|---|
-| 0.2.0 | 0 | Defect fixes |
-| 0.3.0 | 1 | Runner |
-| 0.4.0 | 2 | Remote partitioning |
-
-A released kit version is immutable in Nexus, so every change bumps the version and the templates' pins.
+**Version:** the kit stays at **0.1.0** through every phase, and the templates keep their 0.1.0 pin (D9). Each phase adds its code without a version change, and nothing is deprecated: a renamed or replaced API or property changes directly, with every caller, template and doc updated in the same change. A Maven release is immutable to anything that has already resolved it, so republishing 0.1.0 is handled where the kit is published and consumed (the release pipeline's redeploy, CI caches), never by bumping the version.
 
 ### 5.2 Package layout
 
@@ -486,9 +478,9 @@ A released kit version is immutable in Nexus, so every change bumps the version 
 | `partition` | new | `LocalPartitioning` (P1); `RemotePartitioningAutoConfiguration`, `JdbcPartitionTransport`, `StaleRequestGuard`, `WorkerStopHandler` (P2) |
 | `telemetry` | new | `BatchTelemetryAutoConfiguration`, `ItemObservationTracingFilter`, `BatchProgressMetrics`, `BatchMdc` |
 | `event` | extended | `BatchJobFailedEvent` kept; **new** sealed `BatchRunEvent` (`Started`, `Completed`, `Failed`, `Stopped`, `Skipped`, `Recovered`) |
-| `operator` | migrated | `BatchOperator`: `JobExecution`-based `restart/stop/abandon`, **`recover`**, `findExecutions(job, params)`; the long-id methods are deprecated and delegate |
+| `operator` | migrated | `BatchOperator`: `JobExecution`-based `restart/stop/abandon`, **`recover`**, `findExecutions(job, params)`; the long-id methods are removed, not deprecated (D9) |
 | `scheduler` / `lock` | fixed | `BatchScheduler` (embedded mode, §5.16); `SchedulerLock.renew`; `JdbcSchedulerLock` without runtime DDL |
-| `retry` | deprecated | `RetryableStepBuilder*` delegate to `AdharSteps`; removed in 0.4.0 |
+| `retry` | removed | `RetryableStepBuilder*` replaced by `AdharSteps` (KIT-0.5), callers migrated in the same change (D9) |
 | `ops` (P3) | new | `BatchCommandRunner`: start, restart, stop, abandon, recover, status, housekeeping, dlq-replay |
 | `config` | changed | `BatchAutoConfiguration` (ordered, gated); `BatchProperties` (extended); **new** `BatchRuntimeEnvironmentPostProcessor` |
 
@@ -761,7 +753,7 @@ podReplacementPolicy: Failed      # the only value permitted with a failure poli
 
 - **Metrics.**
   - Spring Batch's own meters (`spring.batch.job`, `spring.batch.job.active`, `spring.batch.step`, `spring.batch.item.read`, `spring.batch.item.process`, `spring.batch.chunk.write`) are wired by Boot's `BatchObservationAutoConfiguration`.
-  - The kit **removes** its duplicates (`adhar.batch.job.*`, `adhar.batch.step.*`), behind `adhar.batch.metrics.legacy=false` (K7).
+  - The kit **removes** its duplicates (`adhar.batch.job.*`, `adhar.batch.step.*`) outright, with no legacy toggle (K7, D9).
   - It adds only what is missing:
 
     | Meter | Type | Tags |
@@ -834,10 +826,9 @@ Embedded mode is kept, fixed and documented as **not** the platform path:
 | `adhar.batch.dead-letter.enabled` | `true` | JDBC DLQ |
 | `adhar.batch.partition.transport` / `.grid-size` / `.poll-interval` / `.timeout` | `jdbc` / `4×workers` / `5s` / activeDeadline − 5m | §5.10 |
 | `adhar.batch.telemetry.trace-items` | `false` | Per-item spans |
-| `adhar.batch.metrics.legacy` | `false` | Old `adhar.batch.*` meters (removed in 0.4.0) |
 | `adhar.batch.scheduler.enabled` / `.time-zone` / `.misfire-threshold` / `.lock` | `false` / `UTC` / `10m` / `jdbc` | Embedded mode |
 
-Removed or renamed: `max-concurrent-jobs` (async launcher gone), `retry-on-failure` (it was a *step* default and is now `retry.*`), `default-chunk-size`/`default-page-size` (renamed).
+Removed or renamed: `max-concurrent-jobs` (async launcher gone), `retry-on-failure` (it was a *step* default and is now `retry.*`), `default-chunk-size`/`default-page-size` (renamed). Renames are direct — no deprecated aliases (D9).
 
 ### 5.18 Auto-configuration
 
@@ -1473,7 +1464,7 @@ Built-in `admin`/`edit`/`view` already cover `batch/v1` Jobs and CronJobs. Opera
 
 - **Database credentials** come from the CNPG application Secret (`secretKeyRef`). Third-party credentials come from ExternalSecrets (ADR-0009). None travel as parameters (§5.6).
 - **Object storage (prerequisite).** `root-creds` exists in `dev`, `test` and `prod`, and the `Bucket` XR's connection Secret references it (`compositions/bucket/local-rustfs.yaml:108-128`), so every bucket user holds the store's root key.
-  - PLAT-1.9 is a spike: per-bucket RustFS users and policies, minted by the Bucket composition's `mc` Job.
+  - PLAT-1.9 is a spike: per-bucket RustFS users and policies, minted by the Bucket composition's `rc` Job.
   - If RustFS cannot, the risk is recorded in this document's §18 with an owner. **Until one of the two lands, the template's `input: bucket` option is documented as single-team only.**
 - **Supply chain.** Unchanged and inherited: the Kyverno signature policy (`verify-supply-chain-images`, Enforce) applies to every run pod.
 - **Network.**
@@ -1663,7 +1654,7 @@ Design 0026 makes Argo Workflows the orchestration engine and lists `adhar-batch
 
 Each phase is independently shippable: it leaves the platform working with the previous phases alone. A phase is done when every acceptance criterion passes on the named evidence.
 
-### Phase 0 — Kit foundation (adhar-kit 0.2.0; no platform change)
+### Phase 0 — Kit foundation (adhar-kit stays 0.1.0; no platform change)
 
 **Scope:** K1–K9 and parameter masking.
 - Batch auto-configuration ordered and gated on `Job` beans.
@@ -1677,13 +1668,13 @@ Each phase is independently shippable: it leaves the platform working with the p
 | # | Acceptance criterion | Evidence |
 |---|---|---|
 | A0.1 | With real auto-configuration (`@SpringBootTest`) on Testcontainers Postgres: the JobRepository is JDBC, the `batch` schema exists, and `BatchOperator`, `SchedulerLock` and the kit gauges are beans | KIT-0.10 test |
-| A0.2 | A service from `springboot-web-service` on kit 0.2.0 has no batch beans and no `adhar_scheduler_lock` table | IT in the kit with a web context |
+| A0.2 | A service from `springboot-web-service` on the Phase 0 kit has no batch beans and no `adhar_scheduler_lock` table | IT in the kit with a web context |
 | A0.3 | Two embedded-mode contexts sharing one database, firing the same cron slot, produce **exactly one** JobExecution | KIT-0.7 test |
 | A0.4 | The module compiles with `-Xlint:removal -Werror` against Spring Batch 6.0.x | build |
 | A0.5 | Restart: fail at item N, restart, no duplicates (JDBC repository) | `RestartScenario` test |
 | A0.6 | JaCoCo ≥ 80% (BUNDLE/INSTRUCTION) | build |
 
-**Ship:** kit 0.2.0 to Nexus. Templates move their pins when they next change.
+**Ship:** republish kit 0.1.0 to Nexus (the version does not change — D9); the templates keep their 0.1.0 pin.
 
 ### Phase 1 — First production batch job on native Kubernetes
 
@@ -1691,7 +1682,7 @@ Each phase is independently shippable: it leaves the platform working with the p
 
 | Area | Scope |
 |---|---|
-| Kit 0.3.0 | Runner, identity, recovery and lease, graceful stop, exit codes, termination summary, `@AdharBatchJob`, `AdharSteps` + fault tolerance + JDBC DLQ, keyset/upsert/JSONL, S3 after the spike, local partitioning, OTLP metrics, tracing filter, MDC, `@AdharBatchTest` |
+| Kit (0.1.0) | Runner, identity, recovery and lease, graceful stop, exit codes, termination summary, `@AdharBatchJob`, `AdharSteps` + fault tolerance + JDBC DLQ, keyset/upsert/JSONL, S3 after the spike, local partitioning, OTLP metrics, tracing filter, MDC, `@AdharBatchTest` |
 | Platform | `core/adhar-batch`; `BatchJob` XRD and composition (native); Application `type: batch` with verification and dashboard; Argo CD health; KSM label allowlist; autoscaler drain and scale-up rules; Environment operator binding; Bucket credential spike/decision; soc2 exclusion |
 | CLI | list, describe, runs, run, logs, stop, resume, restart, hold, release |
 | Console | Jobs, Job drawer, Runs, Run detail and actions |
@@ -1723,7 +1714,7 @@ Each phase is independently shippable: it leaves the platform working with the p
 | Area | Scope |
 |---|---|
 | Platform | `core/volcano` (pinned v1.16.x, alpha, disabled); Argo CD health and exclusions for Volcano kinds; Team-composed leaf queues + queue RBAC; Kyverno queue binding + Volcano pod standards; composition scheduler branch (single → `schedulerName`; partitioned → Volcano CronJob / Indexed fallback); autoscaler PodGroup demand; KSM custom-resource state; Volcano alerts; **1.37 canary CI job** |
-| Kit 0.4.0 | Remote partitioning on the JDBC transport, role switch, stale guard, worker-only stop |
+| Kit (0.1.0) | Remote partitioning on the JDBC transport, role switch, stale guard, worker-only stop |
 | CLI | `queues`; Volcano-aware runs/logs/stop |
 | Console | Queues view; gang status |
 | Template | `springboot-batch-partitioned` |
@@ -1790,7 +1781,7 @@ The implementation plan runs several tasks in parallel, in different repositorie
 | D6 | **Smoke runs** (Phase 3) are `adhar batch run <job> -n <ns> --smoke --wait -o json`. The parameters come from `spec.parameters.smoke.parameters` and the trigger is `smoke`. The run is named `<batchjob>-smoke-<sha7>`, where `sha7` is the first 7 hex characters of the image digest in the run template. A re-verified freight therefore reuses its run. | §8.3 named the run without saying what `sha7` hashes. |
 | D7 | **Scheduler descriptor keys.** `ConfigMap adhar-batch-scheduler` carries `scheduler`, `version` and `gang`, plus `rootQueue` (`adhar-batch`), `prodDeservedCPU` and `prodDeservedMemory`. All are rendered at seed time from `globalSettings.batch`. | The Team composition reads the prod `deserved` share from it (§4.3). Nothing else on the control plane carries that config value. |
 | D8 | **Open questions 1, 2 and 4 are resolved as proposed.** `batchOperations` defaults to `team`. The batch ceiling is 30% of the CPU and 20% of the memory of `maxWorkers × worker allocatable`; prod `deserved` defaults to 2 CPU and 4 GiB. `adhar.batch` events carry identifying parameter values, with `sensitive` ones masked. | Operators can run only the deployed template (§10.3). Without the values, history, backfill and `dependsOn` cannot name a business date. |
-| D9 | **Kit versions.** 0.2.0 (Phase 0), 0.3.0 (1), 0.4.0 (2), 0.5.0 (3) and 0.6.0 (4). Templates pin exact versions. | §5.1 numbered only 0.2.0–0.4.0. |
+| D9 | **Kit version and deprecations** (user decision, 2026-11-05). The kit stays at 0.1.0 through every phase and the templates keep their 0.1.0 pin. Nothing is deprecated: renamed or replaced APIs and properties change directly, with every caller, template and doc updated in the same change. | Replaces the earlier per-phase versions 0.2.0–0.6.0 and the deprecate-then-remove steps. |
 | D10 | **`adhar-batch-steps`** ships as `platform/stack/packages/application/argo-workflows/manifests/catalog/adhar-batch-steps.yaml.tmpl`, with the image `{{ .PlatformImage }}`, following design 0026 §5.1 and §5.7. This supersedes the `manifests/steps/` path in §16.2 PLAT-3.10. | The package belongs to design 0026, and its catalogue directory is where the designer's palette discovers steps. |
 | D11 | **Remote chunking** (Phase 4) is `mode: chunked`. It renders the partitioned gang shape and sets `ADHAR_BATCH_MODE=chunked`, and the kit selects its remote-chunking beans from that. The AMQP connection arrives through the app's `Queue` XR Secret via `envFrom`. Lineage is opt-in through `spec.parameters.lineage.enabled`, which sets the standard `OPENLINEAGE_URL` and `OPENLINEAGE_NAMESPACE`. | Remote chunking reuses the manager-plus-workers lifecycle (§4.5). The OpenLineage client's own variables need no kit-specific contract. |
 | D12 | **The Console reads `adhar.batch` history** through the API server's service proxy to the events bridge, exactly as `adhar events` does. The Console's ServiceAccount is granted `get` on `services/proxy` for that bridge Service only. | This adds no second credential and no new network path (§12). |
@@ -1818,10 +1809,10 @@ Conventions for every task:
 | KIT-0.2 | 0 | `config/BatchAutoConfiguration.java` | `@AutoConfiguration(afterName=…)` (§5.18); `@ConditionalOnBean(Job.class)` | `@SpringBootTest` real auto-configuration (A0.1) | — |
 | KIT-0.3 | 0 | `adhar-kit-starter/pom.xml:151-155` | `adhar-kit-batch` optional | web-context IT (A0.2) | KIT-0.2 |
 | KIT-0.4 | 0 | `adhar-kit-batch/pom.xml`; `repository/*`; `src/main/resources/com/adhar/kit/batch/db/postgresql/V6_0_0__…`, `V6_0_1__…` | starter-batch-jdbc, Flyway; `BatchSchemaMigrator`; prefix wiring; resourceless guard | PG 18 schema test; concurrent-launch test; prefix test; Flyway-failure exit 2 | — |
-| KIT-0.5 | 0 | `operator/BatchOperator.java`; `step/*`; `fault/*`; `retry/*` (deprecated delegates) | `JobExecution`-based operator + `recover`; `AdharSteps` over `ChunkOrientedStepBuilder`; Framework-7 retry and skip presets | operator tests on a real repository; A0.4 | KIT-0.4 |
+| KIT-0.5 | 0 | `operator/BatchOperator.java`; `step/*`; `fault/*`; `retry/*` (removed; callers move to `AdharSteps`) | `JobExecution`-based operator + `recover`; `AdharSteps` over `ChunkOrientedStepBuilder`; Framework-7 retry and skip presets | operator tests on a real repository; A0.4 | KIT-0.4 |
 | KIT-0.6 | 0 | `listener/*`; new post-processor | Attach the kit listeners to every `AbstractJob`/`AbstractStep`; wire `BatchJobLogger`; stop logging parameters | listener-attached test; masked-log test | KIT-0.2 |
 | KIT-0.7 | 0 | `scheduler/BatchScheduler.java`, `lock/*` | Synchronous launch, renewed lock, nominal-time identity, time zone, misfire threshold, Flyway lock table | two-context race test (A0.3) | KIT-0.4, 0.5 |
-| KIT-0.8 | 0 | `metrics/*` | Remove duplicates behind `metrics.legacy`; new gauges | meter-registry test | KIT-0.6 |
+| KIT-0.8 | 0 | `metrics/*` | Remove the duplicate meters outright (no legacy toggle, D9); new gauges | meter-registry test | KIT-0.6 |
 | KIT-0.9 | 0 | `config/BatchProperties.java`, README, `CHANGELOG.md` | Property reference (§5.17); README rewrite | — | all |
 | KIT-0.10 | 0 | `adhar-kit-batch/src/test/**` | Guard suite for A0.1–A0.6 | — | all |
 | KIT-1.1 | 1 | `annotation/*`, `params/*` | `@AdharBatchJob`, `@JobParam`, registry, resolver, validator, `SecretParameterGuard`, `RunIdentity` (naming v1 vectors) | resolver/validator tests; vector test | KIT-0.x |
@@ -1834,10 +1825,10 @@ Conventions for every task:
 | KIT-1.7 | 1 | `adhar-kit-metrics` (OTLP), `telemetry/*`, `adhar-kit-logging` MDC | OTLP push mode; tracing filter; MDC | span-count test (<50 for 10k items); env-mapping test | KIT-0.8 |
 | KIT-1.8 | 1 | `event/BatchRunEvent` | In-JVM run events | listener test | KIT-1.2 |
 | KIT-1.9 | 1 | `adhar-kit-test-commons` | `@AdharBatchTest`, `RestartScenario`, `BatchContractAssertions` | self-tests | KIT-1.1 |
-| KIT-1.10 | 1 | root `pom.xml`, BOM | Release 0.3.0 | full build | all P1 |
+| KIT-1.10 | 1 | root `pom.xml`, BOM | Republish 0.1.0 | full build | all P1 |
 | KIT-2.1 | 2 | `partition/*` | Remote partitioning (§5.10), JDBC transport, `V6_0_2__partition_channel.sql`, stale guard, worker stop | multi-context ITs | KIT-1.x |
 | KIT-2.2 | 2 | tests | Kill worker mid-partition → restart re-runs only unfinished; zombie fenced (F19) | — | KIT-2.1 |
-| KIT-2.3 | 2 | poms | Release 0.4.0; remove `retry/*` and legacy meters | — | — |
+| KIT-2.3 | 2 | poms | Republish 0.1.0 | — | — |
 | KIT-3.x | 3 | `ops/*`, `fault/*`, `writer/*`, `adhar-kit-kubernetes` | Housekeeping, ops verbs, calendar evaluation, control totals, version-safe restart, DLQ replay, staged S3, Kafka/fixed-width/XML presets, `BatchRunLauncher`, notification bridge | per item | — |
 | KIT-4.x | 4 | `partition/*`, `reader/*`, `writer/*` | Remote chunking (RabbitMQ), Iceberg/Parquet, OpenLineage | per item | — |
 
@@ -1878,7 +1869,7 @@ Conventions for every task:
 
 | ID | Phase | Files | Change | Tests | Depends |
 |---|---|---|---|---|---|
-| TPL-1.1 | 1 | `templates/springboot-batch-job/**`; `catalog-info.yaml` targets | §9.1 | Skeleton ITs green against kit 0.3.0; `BatchJobContractTest` | KIT-1.10, PLAT-1.2 |
+| TPL-1.1 | 1 | `templates/springboot-batch-job/**`; `catalog-info.yaml` targets | §9.1 | Skeleton ITs green against the Phase 1 kit (0.1.0); `BatchJobContractTest` | KIT-1.10, PLAT-1.2 |
 | TPL-1.2 | 1 | scratch only | Render every option combination with both renderers; `mvn verify` each | render report in the PR | TPL-1.1 |
 | TPL-2.1 | 2 | `templates/springboot-batch-partitioned/**` | §9.2 | `PartitionedJobIT` | KIT-2.3 |
 | TPL-3.1 | 3 | both templates' `docs/operations.md` | Backfill, DLQ replay, calendars, dependsOn | render check | P3 |

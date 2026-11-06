@@ -1,0 +1,44 @@
+# Prometheus scrape of the workflow controller (docs/design/0026 §5.10).
+#
+# The controller serves argo_workflows_* on container port `metrics` (9090) at
+# /metrics, in plain HTTP because workflow-controller-configmap sets
+# metricsConfig.secure: false. Upstream defaults `secure` to TRUE, and the
+# PodMonitor this replaces scraped http against that TLS port — `up` read 0 for as
+# long as anyone looked (TestArgoMetricsScrapeMatchesTheControllerScheme pins the
+# two together). networkpolicy.yaml admits only Prometheus to the port.
+#
+# kube-prometheus selects every PodMonitor in the cluster (podMonitorSelector: {}).
+# `jobLabel: app` makes the job `workflow-controller`, which the Delivery / CI &
+# Artifacts dashboard and rules.yaml select on. A standby controller (there is none
+# at one replica) would serve empty metrics.
+#
+# argo-server is NOT scraped in W0: its /metrics shares the port of the UI route,
+# and turning its auth off would publish it through the Gateway. Its health comes
+# from its readiness probe and kube-state-metrics.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argo-workflows-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: workflow-controller
+    app.kubernetes.io/managed-by: adhar
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: workflow-controller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      scheme: http
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

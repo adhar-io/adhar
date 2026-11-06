@@ -1,0 +1,215 @@
+# The PR-Agent Gitea webhook server.
+#
+# Upstream's `gitea_app` image, unmodified (MIT, github.com/The-PR-Agent/pr-agent,
+# formerly qodo-ai/pr-agent), pinned by tag AND digest. It answers Gitea's
+# webhook at POST /api/v1/gitea_webhooks — after checking X-Gitea-Signature
+# against the shared secret — and does the work in the background: on a PR
+# opened/reopened it runs /describe, /review and /improve, on new commits
+# /describe and /review, and on a comment starting with `/` (/review,
+# /describe, /improve, /ask "...", /help) that command. Everything it publishes
+# is a comment by pr-agent-bot. config.yaml holds the settings.
+#
+# TWO containers. `pr-agent` holds the Gitea token and the webhook secret and
+# never sees an LLM credential; `gateway-proxy` holds the pod's projected
+# gateway token and nothing else (gateway-proxy.yaml). All containers run as
+# uid 10001, so kubelet writes the projected token 0600 and owned by that uid:
+# readable by the proxy, and by no other user.
+#
+# Known limits, upstream's: reviews run inside the web workers with no queue, so
+# a pod replaced mid-review loses that review (graceful shutdown below gives
+# in-flight work up to 110 s). One replica: the push de-duplication window lives
+# in process memory.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pr-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    app.kubernetes.io/version: "0.49.0"
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    # The new pod is serving before the old one stops taking webhooks.
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pr-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pr-agent
+        app.kubernetes.io/part-of: pr-agent
+        adhar.io/component: ai
+        adhar.io/plane: control
+      annotations:
+        # sha256 over both ConfigMaps this pod mounts, first 16 hex digits:
+        # settings are read once at start, so an edit must roll the pod.
+        # TestPRAgentRollsWhenItsConfigChanges recomputes it.
+        adhar.io/config-hash: "ad53c4caf03ef713"
+    spec:
+      serviceAccountName: pr-agent
+      automountServiceAccountToken: false
+      # One namespace for every package: Kubernetes would inject a <NAME>_PORT
+      # variable per Service, and PR-Agent loads EVERY environment variable as
+      # a setting (Dynaconf, no prefix).
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # PR-Agent counts tokens with tiktoken, which downloads its encodings
+        # from openaipublic.blob.core.windows.net on first use — egress this
+        # pod does not have (networkpolicy.yaml). The image already carries the
+        # files (bundled with LiteLLM); TIKTOKEN_CACHE_DIR points tiktoken at
+        # them. This check makes a version bump that moves that directory fail
+        # HERE, visibly, instead of at the first review. HTTPS_PROXY points at a
+        # closed port so a cache miss fails at once rather than hanging on a
+        # dropped connection.
+        - name: offline-tokenizers
+          image: docker.io/pragent/pr-agent:0.49.0-gitea_app@sha256:93ddfbc2be36b83206707e4ea87d6134ea2aa9866dd89281005a80328a387a7f
+          command:
+            - python
+            - -c
+            - |
+              import tiktoken
+              for name in ("o200k_base", "cl100k_base"):
+                  tiktoken.get_encoding(name)
+              print("tokenizers o200k_base and cl100k_base load offline")
+          env:
+            - name: TIKTOKEN_CACHE_DIR
+              value: /app/.venv/lib/python3.14/site-packages/litellm/litellm_core_utils/tokenizers
+            - {name: HTTPS_PROXY, value: "http://127.0.0.1:9"}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      containers:
+        - name: pr-agent
+          image: docker.io/pragent/pr-agent:0.49.0-gitea_app@sha256:93ddfbc2be36b83206707e4ea87d6134ea2aa9866dd89281005a80328a387a7f
+          ports:
+            - {name: http, containerPort: 3000}
+          env:
+            - name: GITEA__PERSONAL_ACCESS_TOKEN
+              valueFrom: {secretKeyRef: {name: pr-agent-gitea, key: token}}
+            - name: GITEA__WEBHOOK_SECRET
+              valueFrom: {secretKeyRef: {name: pr-agent-webhook, key: WEBHOOK_SECRET}}
+            - name: TIKTOKEN_CACHE_DIR
+              value: /app/.venv/lib/python3.14/site-packages/litellm/litellm_core_utils/tokenizers
+            # Two workers, whatever the node size: the image derives the count
+            # from visible CPUs, and each worker is a full copy of LiteLLM.
+            - {name: GUNICORN_WORKERS, value: "2"}
+            # Let an in-flight review finish when the pod is replaced.
+            - {name: GUNICORN_CMD_ARGS, value: "--graceful-timeout 110"}
+          # FastAPI's schema route: answered by a worker, so it proves the
+          # event loop is serving, and it costs nothing after the first call.
+          startupProbe:
+            httpGet: {path: /openapi.json, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /openapi.json, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /openapi.json, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 50m, memory: 512Mi}
+            limits: {memory: 1536Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /app/pr_agent/settings_prod, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: home, mountPath: /home/pragent}
+        - name: gateway-proxy
+          # -alpine, not -alpine-slim: the slim image has no njs module.
+          image: docker.io/nginxinc/nginx-unprivileged:1.29-alpine
+          ports:
+            - {name: proxy-health, containerPort: 8082}
+          readinessProbe:
+            httpGet: {path: /healthz, port: proxy-health}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: proxy-health}
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: proxy, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: proxy, mountPath: /etc/nginx/njs/gateway.js, subPath: gateway.js, readOnly: true}
+            - {name: gateway-token, mountPath: /var/run/secrets/agentgateway, readOnly: true}
+            - {name: proxy-tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap:
+            name: pr-agent-config
+            items:
+              - {key: configuration.toml, path: .secrets.toml}
+        - name: proxy
+          configMap:
+            name: pr-agent-gateway-proxy
+        # The pod's identity on the AI gateway: system:serviceaccount:
+        # adhar-system:pr-agent, audience `agentgateway` (the only audience the
+        # gateway's ServiceAccount provider accepts), one hour, rotated by
+        # kubelet. Mounted into the proxy alone.
+        - name: gateway-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: agentgateway
+                  expirationSeconds: 3600
+                  path: token
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: home
+          emptyDir: {sizeLimit: 64Mi}
+        - name: proxy-tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pr-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pr-agent
+    app.kubernetes.io/part-of: pr-agent
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: pr-agent
+  ports:
+    - {name: http, port: 3000, targetPort: http}

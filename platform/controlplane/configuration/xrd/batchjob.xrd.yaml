@@ -1,0 +1,366 @@
+---
+# BatchJob — one Spring Batch job, declared in Git and run by the platform as one
+# Kubernetes run object per job-instance attempt (design 0025, ADR-0028).
+#
+# Teams declare a BatchJob in their repository's deploy/ overlays; Argo CD syncs
+# it, Kargo promotes its image dev → test → prod, and the default composition
+# (compositions/batchjob/kubernetes.yaml, whose README maps every parameter to
+# what it becomes) turns it into a CronJob, the run template clients start runs
+# from, the runner's ServiceAccount and its alert rules. The composition is the
+# ONLY component that names a scheduler (design 0025 INV-3).
+#
+# Fields arrive with the phase whose composition renders them (decision D3). The
+# schema is structural and strict on purpose: an earlier control plane rejects a
+# field it cannot honour instead of accepting a definition and silently ignoring
+# part of it. So `mode`, `workers`, `gridSize`, `resources.workerCpu`,
+# `resources.workerMemory` and `retry.maxRetry` are absent until Phase 2, and
+# `schedule.calendar`, `sla.finishBy`, `sla.timeZone`, `dependsOn`, `retention`
+# and `smoke` until Phase 3.
+#
+# Where a BatchJob runs is decided by its NAMESPACE, never by its parameters: an
+# environment namespace supplies organisation, team, project and environment, and
+# a BatchJob anywhere else is refused, because outside one nothing applies the
+# quota, the limits and the network boundary a run is promised.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: batchjobs.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: BatchJob
+    plural: batchjobs
+  defaultCompositionRef:
+    name: batchjob-kubernetes
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: Schedule
+          type: string
+          jsonPath: .spec.parameters.schedule.cron
+        - name: Scheduler
+          type: string
+          jsonPath: .status.scheduler
+        - name: Last-Success
+          type: date
+          jsonPath: .status.lastSuccessfulTime
+        - name: Held
+          type: string
+          jsonPath: .status.held.reason
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [job, image, database]
+                  x-kubernetes-validations:
+                    - rule: "self.timeouts.terminationGracePeriodSeconds < self.timeouts.activeDeadlineSeconds"
+                      message: "timeouts.terminationGracePeriodSeconds must be shorter than timeouts.activeDeadlineSeconds"
+                  properties:
+                    displayName:
+                      type: string
+                      description: The name people read in the Console and the CLI. Defaults to the object's name.
+                    application:
+                      type: string
+                      description: >-
+                        The application this job belongs to, stamped as adhar.io/application on
+                        every run so verification, dashboards and cost attribution find it.
+                        Defaults to the object's name; set it when one application owns several
+                        BatchJobs (`settlement`, `settlement-housekeeping`).
+                      pattern: "^[a-z]([-a-z0-9]*[a-z0-9])?$"
+                      maxLength: 63
+                    job:
+                      type: string
+                      description: The Spring Batch job's bean name, passed to the runner as ADHAR_BATCH_JOB.
+                      pattern: "^[A-Za-z][A-Za-z0-9_.-]*$"
+                      maxLength: 128
+                    image:
+                      type: string
+                      description: >-
+                        The application image. Kargo pins it to a digest in deploy/envs/<env>
+                        through kustomizeconfig (group platform.adhar.io, kind BatchJob, path
+                        spec/parameters/image).
+                      minLength: 1
+                    imagePullSecrets:
+                      type: array
+                      description: Pull secrets of a run pod. Defaults to [harbor-dockercfg]; an empty list names none.
+                      items: { type: string }
+                    scheduler:
+                      type: string
+                      description: >-
+                        `kubernetes` is the native path. `auto` resolves to it while no Volcano
+                        path exists (Phase 1), and `volcano` reports PrerequisitesReady=False
+                        rather than quietly running somewhere it did not ask for.
+                      enum: [auto, volcano, kubernetes]
+                      default: auto
+                    schedule:
+                      type: object
+                      description: >-
+                        When the job runs by itself. Leave it out for an on-demand job, which only
+                        runs when somebody starts it from the Console or the CLI.
+                      required: [cron]
+                      properties:
+                        cron:
+                          type: string
+                          description: A 5-field cron expression, evaluated in timeZone.
+                          pattern: "^\\S+(\\s+\\S+){4}$"
+                        timeZone:
+                          type: string
+                          description: The IANA time zone of the cron expression and of the business date.
+                          default: UTC
+                        startingDeadlineSeconds:
+                          type: integer
+                          description: The misfire window. A fire missed by longer than this is skipped, and the BatchScheduleMissed alert says so.
+                          minimum: 60
+                          default: 3600
+                        concurrencyPolicy:
+                          type: string
+                          description: Replace is refused, because it would SIGTERM a run that is healthy.
+                          enum: [Forbid, Allow]
+                          default: Forbid
+                        suspend:
+                          type: boolean
+                          description: >-
+                            Declared in Git (the dev overlay suspends its schedule). Operators hold
+                            a job with the adhar.io/batch-hold annotation instead, which is audited
+                            and needs no commit.
+                          default: false
+                    parameters:
+                      type: array
+                      description: The job's declared parameters, mirroring @AdharBatchJob. They drive the Console's run form, the CLI's checks and the run's identity.
+                      maxItems: 32
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [name]
+                      items:
+                        type: object
+                        required: [name]
+                        properties:
+                          name:
+                            type: string
+                            pattern: "^[A-Za-z][A-Za-z0-9_.]*$"
+                            maxLength: 64
+                          type:
+                            type: string
+                            enum: [string, long, double, boolean, date, datetime]
+                            default: string
+                          identifying:
+                            type: boolean
+                            description: Whether it is part of the JobInstance's identity and of the run's name (design 0025 §8.3).
+                            default: true
+                          required:
+                            type: boolean
+                            default: false
+                          default:
+                            type: string
+                            description: The value used when none is given. Always a string; `type` says how it is read.
+                          pattern:
+                            type: string
+                            description: A regular expression the value must match.
+                          allowed:
+                            type: array
+                            description: The only values accepted.
+                            items: { type: string }
+                          source:
+                            type: string
+                            description: "`schedule` derives the value from the scheduled time in the job's time zone; `input` takes it from whoever starts the run."
+                            enum: [input, schedule]
+                            default: input
+                          sensitive:
+                            type: boolean
+                            description: Masks the value in logs, the termination summary and events. Credentials never travel as parameters.
+                            default: false
+                          description:
+                            type: string
+                    resources:
+                      type: object
+                      description: A run pod's resources. The memory request equals the limit, because a run overcommitted on memory is the one the kernel kills.
+                      properties:
+                        cpu:
+                          type: string
+                          default: "1"
+                        memory:
+                          type: string
+                          description: The request and the limit. Below 1Gi a Spring Batch JVM does not start reliably.
+                          default: 1536Mi
+                        cpuLimit:
+                          type: string
+                          description: Unset means no CPU limit.
+                        tmpSize:
+                          type: string
+                          description: The size limit of the /tmp emptyDir.
+                          default: 1Gi
+                    jvm:
+                      type: object
+                      description: >-
+                        What the Paketo memory calculator reserves before any heap. At its own
+                        defaults (250 threads, a 240M code cache) the fixed regions alone are ~567M.
+                      properties:
+                        threads:
+                          type: integer
+                          description: BPL_JVM_THREAD_COUNT.
+                          minimum: 1
+                          default: 50
+                        codeCache:
+                          type: string
+                          description: "-XX:ReservedCodeCacheSize."
+                          default: 64M
+                        options:
+                          type: string
+                          description: Extra JVM options, appended to JAVA_TOOL_OPTIONS.
+                    retry:
+                      type: object
+                      properties:
+                        backoffLimit:
+                          type: integer
+                          description: How many times Kubernetes replaces a failed pod (exit codes the failure policy counts). Spring Batch restarts from the last commit each time.
+                          minimum: 0
+                          maximum: 10
+                          default: 2
+                    timeouts:
+                      type: object
+                      default: {}
+                      properties:
+                        activeDeadlineSeconds:
+                          type: integer
+                          description: The hard stop of one run.
+                          minimum: 300
+                          default: 21600
+                        terminationGracePeriodSeconds:
+                          type: integer
+                          description: How long a run has to finish its chunk and record STOPPED after SIGTERM.
+                          minimum: 30
+                          maximum: 900
+                          default: 120
+                    history:
+                      type: object
+                      properties:
+                        successfulJobsHistoryLimit:
+                          type: integer
+                          minimum: 0
+                          default: 3
+                        failedJobsHistoryLimit:
+                          type: integer
+                          minimum: 0
+                          default: 3
+                        ttlSecondsAfterFinished:
+                          type: integer
+                          description: How long a finished run object stays, on every run however it started.
+                          minimum: 0
+                          default: 604800
+                    priority:
+                      type: string
+                      description: Maps to the PriorityClass adhar-batch or, in prod only, adhar-batch-critical. Neither ever preempts anything.
+                      enum: [standard, critical]
+                      default: standard
+                    disruption:
+                      type: string
+                      description: "`avoid` keeps the node autoscaler from draining a node a run is on (safe-to-evict: \"false\"); `allow` lets it, which stops the run gracefully and restarts it from its last commit."
+                      enum: [avoid, allow]
+                      default: avoid
+                    scaleUp:
+                      type: boolean
+                      description: Whether a run stuck for capacity may make the node autoscaler buy a node. Prod only; a dev or test backlog never buys one.
+                      default: false
+                    database:
+                      type: object
+                      description: Where Spring Batch keeps its JobRepository. A CNPG application Secret, usually from the application's own Database XR.
+                      required: [secretRef]
+                      properties:
+                        secretRef:
+                          type: string
+                          description: The Secret holding jdbc-uri, username and password.
+                          minLength: 1
+                        schema:
+                          type: string
+                          description: The schema of the JobRepository's tables.
+                          default: batch
+                          pattern: "^[a-z_][a-z0-9_]*$"
+                    env:
+                      type: object
+                      description: Extra environment variables. Names the runner owns (ADHAR_BATCH_*, POD_NAME, the datasource) are refused.
+                      additionalProperties: { type: string }
+                    envFrom:
+                      type: array
+                      description: Secrets and ConfigMaps exposed as environment variables, as on any container.
+                      items:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                    serviceAccountName:
+                      type: string
+                      description: Run under an existing ServiceAccount instead of the composed <name>-batch. It still gets the runner's Role.
+                    sla:
+                      type: object
+                      properties:
+                        maxDuration:
+                          type: string
+                          description: A run longer than this raises BatchRunTooLong; activeDeadlineSeconds stays the hard stop. For example 3h or 90m. Defaults to the deadline.
+                          pattern: "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$"
+                    alerts:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        staleAfter:
+                          type: string
+                          description: BatchNoRecentSuccess fires when the last success is older than this. Set it above the job's cadence.
+                          pattern: "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$"
+                          default: 26h
+                        severity:
+                          type: string
+                          description: "`auto` is critical in prod and warning elsewhere."
+                          enum: [auto, warning, critical]
+                          default: auto
+                    organisation:
+                      type: string
+                      description: Never needed. The namespace's label decides, and a value that disagrees is reported on the Placement condition.
+                    team:
+                      type: string
+                      description: Never needed. The namespace's label decides, and a value that disagrees is reported on the Placement condition.
+                    project:
+                      type: string
+                      description: Never needed. The namespace's label decides, and a value that disagrees is reported on the Placement condition.
+                    environment:
+                      type: string
+                      description: Never needed. The namespace's label decides, and a value that disagrees is reported on the Placement condition.
+                      enum: [dev, test, prod]
+            status:
+              type: object
+              properties:
+                scheduler:
+                  type: string
+                  description: The scheduler this job's runs resolved to.
+                queue:
+                  type: string
+                  description: The Volcano queue, when there is one.
+                runTemplate:
+                  type: string
+                  description: The ConfigMap clients start runs from.
+                cronJob:
+                  type: string
+                  description: The CronJob, when the job has a schedule.
+                lastScheduleTime:
+                  type: string
+                  format: date-time
+                lastSuccessfulTime:
+                  type: string
+                  format: date-time
+                activeRuns:
+                  type: array
+                  items: { type: string }
+                held:
+                  type: object
+                  description: Present while the job carries the adhar.io/batch-hold annotation.
+                  properties:
+                    reason: { type: string }
+                    since: { type: string }
+                message:
+                  type: string

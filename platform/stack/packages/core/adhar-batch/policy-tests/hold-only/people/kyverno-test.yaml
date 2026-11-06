@@ -1,0 +1,14 @@
+# An operator holds and releases. Anything else, or a hold carrying anything else, is refused.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: hold-only-people
+policies:
+  - ../../../manifests/kyverno-hold-only.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - { policy: adhar-batch-hold-only, rule: only-the-hold-annotation-changes, kind: BatchJob, resources: [set-the-hold, release-the-hold], operation: UPDATE, result: pass }
+  - { policy: adhar-batch-hold-only, rule: only-the-hold-annotation-changes, kind: BatchJob, resources: [change-the-image, hold-and-change-the-image, change-a-label, change-another-annotation], operation: UPDATE, result: fail }

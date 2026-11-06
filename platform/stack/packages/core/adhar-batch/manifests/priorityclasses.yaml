@@ -1,0 +1,27 @@
+# Batch never preempts (design 0025 INV-5, §4.4). Both classes are
+# preemptionPolicy: Never with a value at or below zero, so a batch pod never
+# evicts a service or a node-pinned stateful pod, and a pending batch pod is a
+# capacity question for queues and the autoscaler, never a priority question.
+# `adhar-batch-critical` is permitted in prod namespaces only
+# (adhar-batch-critical-prod-only). TestBatchPriorityClassesNeverPreempt pins this.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+value: -100
+preemptionPolicy: Never
+globalDefault: false
+description: Every batch run by default. Yields to any default-priority service and every platform class, and preempts nothing.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-critical
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+value: 0
+preemptionPolicy: Never
+globalDefault: false
+description: Prod runs with priority critical. Preempted only by platform classes, and preempts nothing.

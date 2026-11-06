@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: importer-09932cb3
+  namespace: prod
+  labels: { adhar.io/batch-job: importer }
+  annotations: { adhar.io/batch-actor: "" }
+spec:
+  template:
+    metadata:
+      annotations: { adhar.io/batch-actor: forged }
+    spec:
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: not-batch, namespace: prod }
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers: [ { name: x, image: "docker.io/library/busybox:1.36" } ]

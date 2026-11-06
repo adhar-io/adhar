@@ -29,13 +29,15 @@
 # timed out" — and a failed pod list read as "no pod" — so either failure
 # restarted Coder. It is answered from timestamps now, the way the console's
 # reload hooks answer it: coder-oidc is written by External Secrets only once
-# its key resolves, and coder-gitea-oauth is written whole by its hook, so each
-# Secret's creationTimestamp is the moment its credentials became available and
-# a pod that started after both has both. A Secret that is re-CREATED (the
-# Gitea app registered again) is newer than the pod, so Coder is restarted onto
-# the new credentials, which the env test could not see: the variable was set
-# either way, only to the old value. And the Role no longer needs pods/exec,
-# which reached every pod in adhar-system.
+# its key resolves, and coder-gitea-oauth is written whole by its hook, so a
+# pod that started after both has both. For coder-gitea-oauth the
+# creationTimestamp alone is not enough: when the Gitea app has to be
+# registered AGAIN while the Secret exists, its hook REPLACES the Secret (a
+# PUT), which keeps the creationTimestamp — so its LAST WRITE counts, the time
+# the API server records for every write in managedFields. Coder is then
+# restarted onto the new credentials, which the env test could not see: the
+# variable was set either way, only to the old value. And the Role no longer
+# needs pods/exec, which reached every pod in adhar-system.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -148,10 +150,20 @@ spec:
               #    is not waited for; unreadable, the hook ends rather than guess.
               SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
               if ! GITEA_TS=$(kubectl -n "$NS" get secret "$GITEA_SECRET" --ignore-not-found \
-                                -o jsonpath='{.metadata.creationTimestamp}'); then
+                                -o jsonpath='{.metadata.creationTimestamp}{"\n"}{range .metadata.managedFields[*]}{.time}{"\n"}{end}'); then
                 echo "cannot read $GITEA_SECRET; leaving Coder as-is (retries next sync)"
                 exit 0
               fi
+              # Its LAST WRITE, not its creation: registering the Gitea app
+              # again REPLACES this Secret (gitea-external-auth.yaml PUTs it,
+              # which keeps the creationTimestamp), and the API server stamps
+              # every write's time into managedFields (`-o jsonpath` keeps
+              # them; only json/yaml output hides them). Read by its creation,
+              # a replaced Secret looked older than the pod still holding the
+              # deleted app's credentials. The latest RFC 3339 stamp wins;
+              # nothing else is compared. Guard:
+              # TestCoderRestartsOntoAReRegisteredGiteaApp.
+              GITEA_TS=$(printf '%s\n' "$GITEA_TS" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' | sort | tail -n 1 || true)
               if [ -n "$GITEA_TS" ] && [ "${GITEA_TS//[!0-9]/}" -gt "${SECRET_TS//[!0-9]/}" ]; then
                 SECRET_TS=$GITEA_TS
               fi

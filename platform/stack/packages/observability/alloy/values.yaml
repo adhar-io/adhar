@@ -18,9 +18,15 @@ alloy:
   # the control-plane node (where no agent runs) stay covered.
   clustering:
     enabled: true
-  # The OTLP receiver's ports, on the container AND the Service — the chart
-  # publishes only its own :12345 unless told otherwise, so workloads sending
-  # to alloy.adhar-system.svc:4318 were refused.
+  # The OTLP ports on the Service — the chart publishes only its own :12345
+  # unless told otherwise, so workloads sending to alloy.adhar-system.svc:4318
+  # were refused. Every workload's OTEL_EXPORTER_OTLP_ENDPOINT, Dapr, Knative
+  # functions, PostHog, Argo Workflows and Beyla send here, so these two names
+  # and numbers are a contract. Since Alloy v1.21 they are served by the
+  # OpenTelemetry Engine (the otel-engine container under controller below),
+  # not by config.alloy; the chart can only declare extraPorts on the alloy
+  # container, so generate-manifests.sh moves the containerPorts to the
+  # container that listens. The Service routes by number either way.
   extraPorts:
     - name: otlp-grpc
       port: 4317
@@ -30,12 +36,35 @@ alloy:
       port: 4318
       targetPort: 4318
       protocol: TCP
-  # Full Alloy config owned by this generator. The leading logging + discovery
-  # blocks mirror the chart's default template; the "Hub shipping" section
-  # (roadmap P2.3) forwards metrics/logs/traces to the observability hub via
-  # the HUB_* env vars sourced from the observability-hub ConfigMap (envFrom
-  # below). Endpoints resolve to adhar-controlplane hub services on the management
-  # cluster, or the hub's external Gateway URLs on workload-cluster spokes.
+  # Measured, not guessed. alloy requested 50Mi and used 980-1120Mi on every
+  # node of a live cluster (2026-10-13) — a DaemonSet, so ~6.6 GiB cluster-wide
+  # against 300Mi declared. An agent's footprint scales with the targets it
+  # scrapes and the logs it tails, and this platform gives it several hundred
+  # pods. Understated requests are not a cosmetic problem: the scheduler places
+  # by REQUESTS, so it packed nodes it believed were nearly empty, those nodes
+  # then ran out of real memory, and the kubelet and containerd were starved by
+  # pods the scheduler never accounted for (cluster-wide gap: 34.6 GiB).
+  # Clustering (2026-11-03) brought it to 159-217Mi per agent, and the OTLP
+  # receiving moved to the otel-engine container (2026-11-05), so 128Mi of this
+  # reservation moved with it: the pod still requests what it did (800Mi), and
+  # the limit keeps the headroom for an agent that tails everything when the
+  # cluster fails to form. These lived as hand-edits in manifests/install.yaml
+  # until 2026-11-05, where every regeneration silently dropped them.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 640Mi
+    limits:
+      memory: 1536Mi
+  # The DEFAULT engine's config (`alloy run`), owned by this generator. The
+  # leading logging + discovery blocks mirror the chart's default template;
+  # the "Hub shipping" section (roadmap P2.3) forwards scraped metrics and pod
+  # logs (and the OTel Engine's OTLP logs) to the observability hub via the
+  # HUB_* env vars sourced from the observability-hub ConfigMap (envFrom
+  # below). Endpoints resolve to adhar-controlplane hub services on the
+  # management cluster, or the hub's external Gateway URLs on workload-cluster
+  # spokes. Application OTLP is the OpenTelemetry Engine's: see controller
+  # and extraObjects below.
   configMap:
     content: |-
       logging {
@@ -223,62 +252,270 @@ alloy:
       	}
       }
       
-      // The OTLP door for application telemetry. The golden-path templates set
-      // OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.adhar-system.svc.cluster.local:4318
-      // on every workload; the SDK pushes traces AND metrics (and logs, when an
-      // app chooses to). Every signal must land somewhere — this receiver used
-      // to forward only traces, so an app's OTLP metrics were silently dropped
-      // on the floor while its dashboard stayed empty, and the Service did not
-      // even publish the port (see extraPorts below).
-      otelcol.receiver.otlp "workloads" {
+      // Application OTLP (:4317 gRPC, :4318 HTTP — every workload's
+      // OTEL_EXPORTER_OTLP_ENDPOINT) is NOT received here: the OpenTelemetry
+      // Engine (`alloy otel`, the otel-engine container in this pod, configured
+      // by the alloy-otel-engine ConfigMap) owns those ports and ships traces to
+      // Tempo and metrics to Mimir itself. This engine keeps what it is built
+      // for: pull-based scraping, pod logs and clustering.
+      //
+      // The Engine's component bundle has no Loki exporter, so OTLP LOGS cross
+      // back to this engine over the pod's loopback and leave through the same
+      // loki.write as the pod-log tailer: the same stream labels and the same
+      // cluster label as before the split. 127.0.0.1 only — nothing outside
+      // the pod can reach this receiver, and it never contends for :4317.
+      otelcol.receiver.otlp "otel_engine_logs" {
       	grpc {
-      		endpoint = "0.0.0.0:4317"
-      	}
-      	http {
-      		endpoint = "0.0.0.0:4318"
+      		endpoint = "127.0.0.1:14317"
       	}
       	output {
-      		traces  = [otelcol.processor.batch.workloads.input]
-      		metrics = [otelcol.processor.batch.workloads.input]
-      		logs    = [otelcol.processor.batch.workloads.input]
+      		logs = [otelcol.exporter.loki.otel_engine_logs.input]
       	}
       }
-      
-      otelcol.processor.batch "workloads" {
-      	output {
-      		traces  = [otelcol.exporter.otlphttp.hub.input]
-      		metrics = [otelcol.exporter.prometheus.workloads.input]
-      		logs    = [otelcol.exporter.loki.workloads.input]
-      	}
-      }
-      
-      // OTLP metrics → the same remote_write every scrape uses, so an app's
-      // metrics sit beside the platform's in Mimir under the same cluster label.
-      // Resource attributes become the `target_info` series and service.name is
-      // promoted to a label, which is what the dashboards' variables key on.
-      otelcol.exporter.prometheus "workloads" {
-      	include_target_info      = true
-      	resource_to_telemetry_conversion = true
-      	forward_to = [prometheus.remote_write.hub.receiver]
-      }
-      
+
       // OTLP logs → Loki, same stream labels as the pod-log tailer.
-      otelcol.exporter.loki "workloads" {
+      otelcol.exporter.loki "otel_engine_logs" {
       	forward_to = [loki.write.hub.receiver]
-      }
-      
-      otelcol.exporter.otlphttp "hub" {
-      	client {
-      		endpoint = sys.env("HUB_TEMPO_URL")
-      		tls {
-      			insecure_skip_verify = true
-      		}
-      	}
       }
   # Hub endpoints for the shipping pipelines in config.alloy (roadmap P2.3).
   envFrom:
     - configMapRef:
         name: observability-hub
+
+configReloader:
+  # The reloader watches /etc/alloy and POSTs /-/reload to the DEFAULT engine;
+  # it measures ~7-10 MiB. On 2026-10-14 the agent's measured request sat on
+  # this container while the agent ran unaccounted. (It cannot reload the
+  # OpenTelemetry Engine, which has no reload endpoint — see the checksum
+  # annotation generate-manifests.sh stamps on the pod template.)
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+controller:
+  # ---------------------------------------------------------------------------
+  # The OpenTelemetry Engine (Alloy >= v1.13; public preview since v1.21.0):
+  # the upstream OpenTelemetry Collector runtime built into the same alloy
+  # binary, started with `alloy otel --config=<collector YAML>`. Grafana's
+  # guidance is to run it and the default engine as SEPARATE processes for
+  # real workloads — a push-based OTLP gateway and a pull-based scraper load
+  # and scale differently — and the grafana/alloy chart has no mode for it
+  # (alloy.command keeps the chart's `run` arguments), so it runs here as a
+  # second container of the same DaemonSet pod:
+  #   alloy       (default engine)  :12345 UI/metrics, pod logs -> Loki,
+  #                                 annotated-pod scrape -> Mimir, clustering,
+  #                                 127.0.0.1:14317 OTLP-logs bridge
+  #   otel-engine (OTel Engine)     :4317/:4318 OTLP for every workload,
+  #                                 traces -> Tempo, metrics -> Mimir,
+  #                                 logs -> the bridge; :8888 own metrics,
+  #                                 :13133 health
+  # Same pods, same Service, same ports as before the split, so no sender
+  # changes. The image must stay the alloy container's (TestAlloyOTelEngine*).
+  # ---------------------------------------------------------------------------
+  extraContainers:
+    - name: otel-engine
+      image: docker.io/grafana/alloy:v1.21.3
+      imagePullPolicy: IfNotPresent
+      args:
+        - otel
+        - --config=/etc/alloy-otel/config.yaml
+        # Retry HTTP 429 from Mimir like the default engine's remote_write
+        # does by default; without it the exporter drops a throttled batch as
+        # a permanent error. An unknown gate stops the engine from starting,
+        # so generate-manifests.sh validates these args against the image.
+        - --feature-gates=exporter.prometheusremotewritexporter.RetryOn429
+      env:
+        # `alloy run` sets GOMEMLIMIT from the cgroup limit itself; `alloy otel`
+        # does not (collector/main_alloy.go, v1.21.3), so without this the Go
+        # heap grows until the kernel OOM-kills it. ~80% of the 512Mi limit,
+        # the ratio the upstream collector chart's useGOMEMLIMIT uses. Change
+        # it with the limit.
+        - name: GOMEMLIMIT
+          value: 410MiB
+      envFrom:
+        - configMapRef:
+            name: observability-hub
+      ports:
+        - containerPort: 4317
+          name: otlp-grpc
+          protocol: TCP
+        - containerPort: 4318
+          name: otlp-http
+          protocol: TCP
+        - containerPort: 8888
+          name: otel-metrics
+          protocol: TCP
+        - containerPort: 13133
+          name: otel-health
+          protocol: TCP
+      # health_check answers 200 once every pipeline started. A not-ready
+      # engine takes this pod out of Service alloy (OTLP goes to the other
+      # nodes' agents) and holds the DaemonSet rollout; the default engine's
+      # pod logs and scrapes carry on, and the clustering Service publishes
+      # not-ready addresses.
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 13133
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 13133
+        initialDelaySeconds: 30
+        periodSeconds: 20
+        timeoutSeconds: 5
+        failureThreshold: 5
+      # Idle 43-51 MiB (14 h, Docker, 2026-11-05); memory_limiter refuses data
+      # above 80% of the limit before the kernel has to step in.
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      # A network-facing receiver with nothing to write: the image's own
+      # non-root user, no capabilities, read-only root (the usage reporter's
+      # seed file goes to the /tmp emptyDir).
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 473
+        runAsGroup: 473
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        - name: otel-engine-config
+          mountPath: /etc/alloy-otel
+          readOnly: true
+        - name: otel-engine-tmp
+          mountPath: /tmp
+  volumes:
+    extra:
+      - name: otel-engine-config
+        configMap:
+          name: alloy-otel-engine
+      - name: otel-engine-tmp
+        emptyDir:
+          sizeLimit: 16Mi
+
+# The OpenTelemetry Engine's configuration: standard OpenTelemetry Collector
+# YAML (component names as `alloy otel components` prints them for v1.21.3).
+# Nothing reloads it — generate-manifests.sh stamps its sha256 on the pod
+# template, so a change here rolls the DaemonSet. Every value it needs comes
+# from the observability-hub ConfigMap, exactly as config.alloy's does, so a
+# data plane whose HUB_* point at the hub's Gateway routes ships there too.
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: alloy-otel-engine
+      namespace: adhar-system
+      labels:
+        app.kubernetes.io/name: alloy
+        app.kubernetes.io/instance: alloy
+        app.kubernetes.io/part-of: alloy
+        app.kubernetes.io/component: otel-engine-config
+    data:
+      config.yaml: |
+        extensions:
+          health_check:
+            endpoint: 0.0.0.0:13133
+
+        receivers:
+          # The OTLP door for application telemetry: every signal must land
+          # somewhere. (It once forwarded only traces, so apps' OTLP metrics
+          # were dropped while their dashboards stayed empty.)
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+              http:
+                endpoint: 0.0.0.0:4318
+                # Longer than any SDK's idle keep-alive (Go's transport: 90 s).
+                # At the 60 s default the server closed an idle connection just
+                # as a 60 s metric export reused it: 3-12% of go-service's
+                # exports died with EOF/broken pipe and were never retried
+                # (2026-11-03).
+                keepalive:
+                  idle_timeout: 2m
+
+        processors:
+          memory_limiter:
+            check_interval: 1s
+            limit_percentage: 80
+            spike_limit_percentage: 25
+          # Traces carry no cluster label of their own; on the hub they come
+          # from every data plane.
+          resource/cluster:
+            attributes:
+              - key: k8s.cluster.name
+                value: ${env:HUB_CLUSTER_NAME}
+                action: upsert
+          batch: {}
+
+        exporters:
+          otlp_http/tempo:
+            endpoint: ${env:HUB_TEMPO_URL}
+            tls:
+              insecure_skip_verify: true
+          # Through mimir-gateway (HUB_MIMIR_URL), which sets X-Scope-OrgID:
+          # the distributor answers 401 "no org id" to a bare push. Every
+          # resource attribute becomes a label (k8s_namespace_name,
+          # service_name: what the app dashboards key on) plus target_info;
+          # the cluster label matches the default engine's scrapes.
+          prometheus_remote_write/mimir:
+            timeout: 30s
+            http:
+              endpoint: ${env:HUB_MIMIR_URL}
+              timeout: 30s
+            external_labels:
+              cluster: ${env:HUB_CLUSTER_NAME}
+            resource_constant_labels:
+              included: ["*"]
+            send_metadata: true
+          # OTLP logs go back to the default engine in this pod (its
+          # otelcol.receiver.otlp "otel_engine_logs"), which writes them to Loki.
+          otlp_grpc/default_engine:
+            endpoint: 127.0.0.1:14317
+            tls:
+              insecure: true
+
+        service:
+          extensions: [health_check]
+          telemetry:
+            logs:
+              level: info
+              encoding: json
+            metrics:
+              readers:
+                - pull:
+                    exporter:
+                      prometheus:
+                        host: 0.0.0.0
+                        port: 8888
+          pipelines:
+            traces:
+              receivers: [otlp]
+              processors: [memory_limiter, resource/cluster, batch]
+              exporters: [otlp_http/tempo]
+            metrics:
+              receivers: [otlp]
+              processors: [memory_limiter, batch]
+              exporters: [prometheus_remote_write/mimir]
+            logs:
+              receivers: [otlp]
+              processors: [memory_limiter, batch]
+              exporters: [otlp_grpc/default_engine]
 
 ingress:
   # -- Enables ingress for Alloy (Faro port)

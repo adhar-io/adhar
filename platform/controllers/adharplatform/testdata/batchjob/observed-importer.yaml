@@ -1,0 +1,68 @@
+# What exists after the first reconcile of xr-scheduled.yaml, for the second one.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: importer-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000001
+  annotations:
+    crossplane.io/composition-resource-name: runner-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: importer-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000002
+  annotations:
+    crossplane.io/composition-resource-name: runner-role
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: importer-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000003
+  annotations:
+    crossplane.io/composition-resource-name: runner-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: importer-batch
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: importer-run
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000004
+  annotations:
+    crossplane.io/composition-resource-name: run-template
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: importer
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000005
+  annotations:
+    crossplane.io/composition-resource-name: schedule-native
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate: { spec: { template: { spec: { containers: [] } } } }
+status:
+  lastScheduleTime: "2026-11-05T17:30:00Z"
+  lastSuccessfulTime: "2026-11-05T17:43:36Z"
+  active:
+    - { kind: Job, namespace: prod, name: importer-29374530 }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: importer-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000006
+  annotations:
+    crossplane.io/composition-resource-name: rules
+spec:
+  groups: []

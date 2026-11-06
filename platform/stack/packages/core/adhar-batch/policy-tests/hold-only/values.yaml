@@ -1,0 +1,15 @@
+# The object before the update: the CLI has no old resource, so it is mocked.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: hold-only
+policies:
+  - name: adhar-batch-hold-only
+    rules:
+      - name: only-the-hold-annotation-changes
+        values:
+          request.oldObject:
+            metadata:
+              labels: { team: payments }
+              annotations: { example.io/note: "kept" }
+            spec: { parameters: { job: importJob, image: "harbor/importer@sha256:aaaa", database: { secretRef: importer-db-app } } }

@@ -1,0 +1,13 @@
+# An on-demand job in dev: no schedule, so no CronJob.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: reconciler
+  namespace: dev
+spec:
+  parameters:
+    job: reconcileJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/reconciler:1.0.0
+    parameters:
+      - { name: businessDate, type: date, required: true }
+    database: { secretRef: reconciler-db-app }

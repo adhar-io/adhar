@@ -1,0 +1,28 @@
+# The step catalogue as a person: create, change and delete are all refused.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cwt-platform-only-people
+policies:
+  - ../../../manifests/platform/policies.yaml
+resources:
+  - ../resources.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-cwt-platform-only
+    rule: clusterworkflowtemplates-from-argocd-only
+    kind: ClusterWorkflowTemplate
+    resources: [adhar-steps]
+    result: fail
+  - policy: adhar-cwt-platform-only
+    rule: clusterworkflowtemplates-from-argocd-only
+    kind: ClusterWorkflowTemplate
+    resources: [adhar-steps]
+    operation: UPDATE
+    result: fail
+  - policy: adhar-cwt-platform-only
+    rule: clusterworkflowtemplates-from-argocd-only
+    kind: ClusterWorkflowTemplate
+    resources: [adhar-steps]
+    operation: DELETE
+    result: fail

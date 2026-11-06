@@ -95,9 +95,10 @@ packages:
     namespace: adhar-system
     category: data
     manifestPath: data/jupyterhub
-  # argo-workflows disabled by default: a workflow engine, opt-in per cluster.
+  # argo-workflows: the platform's orchestration engine (docs/design/0026), on
+  # wherever the production profile runs.
   - name: argo-workflows
-    enabled: "false"
+    enabled: true
     namespace: adhar-system
     category: application
     manifestPath: application/argo-workflows

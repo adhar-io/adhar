@@ -1,0 +1,15 @@
+# Admission requests for policy adhar-cwt-platform-only (manifests/platform/policies.yaml).
+#
+# A step in the platform catalogue: every team's workflows reach it through
+# `templateRef: {name: adhar-steps, clusterScope: true}`, so rewriting it
+# rewrites what every team runs (F-12).
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterWorkflowTemplate
+metadata:
+  name: adhar-steps
+  labels:
+    adhar.io/catalog: "true"
+spec:
+  templates:
+    - name: approval
+      suspend: {}

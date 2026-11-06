@@ -24,11 +24,13 @@ import (
 	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -102,6 +104,14 @@ func deleteApplication(ctx context.Context, dynamicClient dynamic.Interface, nam
 	}
 	deleteNamespace := app.GetNamespace()
 
+	// An Application Argo CD keeps from Git comes straight back: the SPA
+	// templates commit it as .adhar/app.yaml, which the adhar-services
+	// ApplicationSet applies with self-heal. Deleting it here took down every
+	// environment's deployment, reported success, and was undone a sync later.
+	if keeper := argoCDKeeper(ctx, dynamicClient, app); keeper != nil {
+		return keeperRefusal(app, keeper)
+	}
+
 	if !confirm(deleteNamespace) {
 		logger.Info("Aborted.")
 		return nil
@@ -119,4 +129,51 @@ func deleteApplication(ctx context.Context, dynamicClient dynamic.Interface, nam
 
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Application %s deleted from namespace %s", appName, deleteNamespace)))
 	return nil
+}
+
+// argoCDTrackingAnnotation is where Argo CD (annotation tracking, its default
+// since v3) records which of its Applications manages an object:
+// `<app>:<group>/<kind>:<namespace>/<name>`, the app written
+// `<namespace>_<name>` when it lives outside Argo CD's own namespace.
+const argoCDTrackingAnnotation = "argocd.argoproj.io/tracking-id"
+
+// argoCDKeeper returns the Argo CD Application that keeps app in the cluster
+// from Git, or nil when none does or that cannot be told (a reader who may not
+// see Argo CD's Applications is not stopped by this check). A tracking id
+// counts only for the object it was written for — Argo CD ignores one copied
+// onto another — and only while the Application it names still exists.
+func argoCDKeeper(ctx context.Context, dc dynamic.Interface, app *unstructured.Unstructured) *unstructured.Unstructured {
+	keeper, target, ok := strings.Cut(app.GetAnnotations()[argoCDTrackingAnnotation], ":")
+	if !ok || keeper == "" {
+		return nil
+	}
+	gvk := app.GroupVersionKind()
+	if target != gvk.Group+"/"+gvk.Kind+":"+app.GetNamespace()+"/"+app.GetName() {
+		return nil
+	}
+	ns, name := globals.AdharSystemNamespace, keeper
+	if n, a, found := strings.Cut(keeper, "_"); found {
+		ns, name = n, a
+	}
+	obj, err := dc.Resource(argoApplicationGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil
+	}
+	return obj
+}
+
+// keeperRefusal says why app is not deleted, and what retires it instead.
+func keeperRefusal(app, keeper *unstructured.Unstructured) error {
+	who := keeper.GetName()
+	if keeper.GetNamespace() != globals.AdharSystemNamespace {
+		who = keeper.GetNamespace() + "/" + who
+	}
+	how := "remove it from the Git source " + who + " syncs, then delete here whatever is left"
+	if labels := keeper.GetLabels(); labels["adhar.io/type"] == "service-bootstrap" && labels["adhar.io/service"] != "" {
+		how = fmt.Sprintf("delete %s from the repository %s/%s (the adhar-services ApplicationSet then drops %s), then delete here whatever is left",
+			controlPlaneDescriptor, globals.GiteaPlatformOrg, labels["adhar.io/service"], who)
+	}
+	return fmt.Errorf("application %s/%s is kept from Git by Argo CD application %s: deleting it here would take down every environment's "+
+		"deployment until that application's next sync put it back; to retire it, %s",
+		app.GetNamespace(), app.GetName(), who, how)
 }

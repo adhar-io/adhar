@@ -200,14 +200,18 @@ configs:
     admin.enabled: true
 
     # -- Timeout to discover if a new manifests version got published to the
-    # repository. 30s (down from the 180s default): the repos live adhar-controlplane
-    # (Gitea, zero-cost polling) and fast change pickup directly shortens both
-    # bootstrap convergence and day-2 GitOps feedback loops.
-    # 30s re-diffed all ~69 ApplicationSet apps continuously, keeping
-    # kube-apiserver pegged on single-node local clusters (leader-election
-    # lease renewals then time out and every operator crashloops). Gitea
-    # webhooks still deliver instant sync on push; the periodic re-diff is
-    # only a drift backstop.
+    # repository.
+    # 120s, NOT 30s. At 30s the controller re-diffed all ~78 ApplicationSet apps
+    # continuously and kept kube-apiserver pegged; on 2026-10-11 that ended with
+    # kube-controller-manager, kube-scheduler AND cloud-controller-manager in
+    # CrashLoopBackOff on `Failed to renew lease … context deadline exceeded`
+    # (~50 restarts each). This file had already said 120s while the generated
+    # manifest still shipped 30s, so the fix never reached a cluster;
+    # TestArgoCDReconciliationMatchesItsGeneratorValues now pins the two together.
+    # A Gitea push does NOT shortcut the wait (verified 2026-10-24): the webhook
+    # names the repo by Gitea's public ROOT_URL while every Application points at
+    # gitea-http.adhar-system.svc, so Argo CD matches nothing. A writer that needs
+    # a prompt sync annotates the Application `argocd.argoproj.io/refresh: normal`.
     timeout.reconciliation: 120s
     timeout.reconciliation.jitter: 15s
     # -- Timeout to refresh application data as well as target manifests cache
@@ -231,7 +235,14 @@ configs:
     #         - name: your-github-org
 
     # Browser-facing base URL. Argo CD builds the OIDC redirect/callback from this.
-    url: https://argocd.adhar.localtest.me:8443
+    # The host is per cluster: the controller renders the generated manifest as a
+    # Go template (argocd.go renderEmbedded) and fills in {{ .Host }}/{{ .PortSuffix }}.
+    # The chart passes `url` (and only `url`) through Helm's `tpl`, so each
+    # placeholder is wrapped in a raw-string action that Helm prints verbatim.
+    # Until v3.6.1 the templated form existed only as a hand-edit of the generated
+    # manifests; values.yaml held a literal localtest.me host and values-ha.yaml
+    # none at all (the chart default is argocd.example.com).
+    url: "https://argocd.{{`{{ .Host }}`}}{{`{{ .PortSuffix }}`}}"
 
     # The Keycloak issuer is served by the Cilium Gateway over a SELF-SIGNED platform
     # certificate (adhar-cert), which is generated fresh per cluster at runtime. Argo CD
@@ -250,9 +261,13 @@ configs:
     # the ExternalSecret has populated `oidc.keycloak.clientSecret` into argocd-secret.
     # Until then, log in with the break-glass local `admin` user (admin.enabled: true).
     # `$oidc.keycloak.clientSecret` resolves to that key in argocd-secret.
+    # The issuer host is per cluster: the controller renders the generated
+    # manifest as a Go template and fills in {{ .Host }}/{{ .PortSuffix }}.
+    # oidc.config is NOT passed through Helm's `tpl`, so the placeholders are
+    # written plainly here (contrast `url`).
     oidc.config: |
       name: Keycloak
-      issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+      issuer: https://keycloak.{{ .Host }}{{ .PortSuffix }}/realms/adhar
       clientID: argocd
       clientSecret: $oidc.keycloak.clientSecret
       requestedScopes:
@@ -303,6 +318,143 @@ configs:
     ## Default configuration for ignoreResourceUpdates.
     ## The ignoreResourceUpdates list contains K8s resource's properties that are known to be frequently updated
     ## by controllers and operators. These resources, when watched by argo, will cause many unnecessary updates.
+
+    # (Ported into values for v3.6.1: until then the checks below existed only as
+    # hand-edits of the generated install manifests, and every regeneration
+    # would have dropped them.)
+    # Health for resource kinds ArgoCD cannot assess on its own.
+    #
+    # A sync wave does not complete until every resource in it reports Healthy, and
+    # for a custom resource with no built-in check ArgoCD reports Unknown — which
+    # never becomes Healthy. The wave then blocks FOREVER, and every later wave with
+    # it, on a resource that is perfectly fine.
+    #
+    # Measured on Azure, 2026-10-04: the keycloak Application sat at
+    #   waiting for healthy state of gateway.networking.k8s.io/HTTPRoute/keycloak
+    # while that route was Accepted=True, ResolvedRefs=True, resolving to the live
+    # gateway and answering HTTP 302 over a valid certificate. Because the wave never
+    # completed, Keycloak's wave-20 config Job was never created, so the
+    # `keycloak-clients` Secret was never written — and that Secret gates ~12
+    # consumer ExternalSecrets and 9 oauth2-proxy rollouts. One unassessable route
+    # held the platform's entire SSO estate Degraded.
+    #
+    # Each check below asserts what the resource itself considers correct, never a
+    # blanket "Healthy": a real failure must still surface.
+
+    # HTTPRoute is healthy once the gateway has Accepted it and its backendRefs
+    # resolve. Both are reported per parent gateway, so every parent must agree.
+    resource.customizations.health.gateway.networking.k8s.io_HTTPRoute: |
+      local hs = {}
+      if obj.status == nil or obj.status.parents == nil or #obj.status.parents == 0 then
+        hs.status = "Progressing"
+        hs.message = "Waiting for a gateway to report on this route"
+        return hs
+      end
+      for _, parent in ipairs(obj.status.parents) do
+        if parent.conditions == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for parent conditions"
+          return hs
+        end
+        local accepted, resolved = false, false
+        for _, c in ipairs(parent.conditions) do
+          if c.type == "Accepted" then
+            if c.status == "False" then
+              hs.status = "Degraded"
+              hs.message = "Not accepted: " .. (c.message or c.reason or "")
+              return hs
+            end
+            accepted = c.status == "True"
+          end
+          if c.type == "ResolvedRefs" then
+            if c.status == "False" then
+              hs.status = "Degraded"
+              hs.message = "Unresolved backendRefs: " .. (c.message or c.reason or "")
+              return hs
+            end
+            resolved = c.status == "True"
+          end
+        end
+        if not (accepted and resolved) then
+          hs.status = "Progressing"
+          hs.message = "Waiting to be accepted and resolved"
+          return hs
+        end
+      end
+      hs.status = "Healthy"
+      hs.message = "Accepted and backendRefs resolved"
+      return hs
+
+    # Grant/GRPCRoute/TLSRoute/TCPRoute share HTTPRoute's status shape; Gateway
+    # itself reports Programmed rather than Accepted (see the separate check).
+    resource.customizations.health.gateway.networking.k8s.io_Gateway: |
+      local hs = {}
+      if obj.status == nil or obj.status.conditions == nil then
+        hs.status = "Progressing"
+        hs.message = "Waiting for the gateway controller"
+        return hs
+      end
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Programmed" then
+          if c.status == "True" then
+            hs.status = "Healthy"
+            hs.message = "Programmed"
+            return hs
+          end
+          hs.status = "Progressing"
+          hs.message = c.message or c.reason or "Not programmed"
+          return hs
+        end
+      end
+      hs.status = "Progressing"
+      hs.message = "No Programmed condition yet"
+      return hs
+
+    # External Secrets generators are declarative inputs, not workloads: they have
+    # no status subresource at all and nothing about them ever becomes ready. A
+    # generator that is malformed fails at the ExternalSecret that references it,
+    # which IS assessed, so reporting Healthy here loses no signal.
+    resource.customizations.health.generators.external-secrets.io_Password: |
+      local hs = {}
+      hs.status = "Healthy"
+      hs.message = "Generator configuration (no runtime state)"
+      return hs
+    resource.customizations.health.generators.external-secrets.io_UUID: |
+      local hs = {}
+      hs.status = "Healthy"
+      hs.message = "Generator configuration (no runtime state)"
+      return hs
+    resource.customizations.health.generators.external-secrets.io_Webhook: |
+      local hs = {}
+      hs.status = "Healthy"
+      hs.message = "Generator configuration (no runtime state)"
+      return hs
+    resource.customizations.health.generators.external-secrets.io_Grafana: |
+      local hs = {}
+      hs.status = "Healthy"
+      hs.message = "Generator configuration (no runtime state)"
+      return hs
+
+    # Tekton PipelineRun health: without it ArgoCD treats a PipelineRun as Healthy
+    # the moment it is created, so hook waves cannot sequence releases and the
+    # UI cannot show a running/failed pipeline.
+    resource.customizations.health.tekton.dev_PipelineRun: |
+      local hs = {}
+      hs.status = "Progressing"
+      hs.message = "PipelineRun pending"
+      if obj.status ~= nil and obj.status.conditions ~= nil then
+        for _, c in ipairs(obj.status.conditions) do
+          if c.type == "Succeeded" then
+            if c.status == "True" then
+              hs.status = "Healthy"
+            elseif c.status == "False" then
+              hs.status = "Degraded"
+            end
+            hs.message = (c.reason or "") .. ": " .. (c.message or "")
+          end
+        end
+      end
+      return hs
 
     # An ExternalSecret whose remote key is legitimately absent. Some platform
     # secrets are seeded by an operator later (the Adhar AI LLM key: "enabling
@@ -552,6 +704,115 @@ configs:
         health_status.message = "Waiting for a Ready condition"
       end
       return health_status
+    # Argo Workflows definitions (docs/design/0026 §5.9). A WorkflowTemplate,
+    # ClusterWorkflowTemplate or WorkflowEventBinding has no status of its own: it is
+    # a definition the controller reads when something RUNS it, so there is nothing
+    # to wait for once it exists. Argo CD has no built-in check for these kinds, and
+    # without one a sync wave holding them could never complete. CronWorkflow keeps
+    # Argo CD's built-in check, which goes Degraded on SpecError/SubmissionError —
+    # exactly the signal a broken platform schedule should give its Application.
+    resource.customizations.health.argoproj.io_WorkflowTemplate: |
+      hs = {}
+      hs.status = "Healthy"
+      hs.message = "definition"
+      return hs
+    resource.customizations.health.argoproj.io_ClusterWorkflowTemplate: |
+      hs = {}
+      hs.status = "Healthy"
+      hs.message = "definition"
+      return hs
+    resource.customizations.health.argoproj.io_WorkflowEventBinding: |
+      hs = {}
+      hs.status = "Healthy"
+      hs.message = "definition"
+      return hs
+    # A Bucket is a composite like a Database (compositions/bucket/local-rustfs.yaml):
+    # Ready only once its creation Job has completed. The argo-workflows package
+    # declares the stack's first one (argo-artifacts).
+    resource.customizations.health.platform.adhar.io_BatchJob: |
+      health_status = {}
+      -- Crossplane composite for a BatchJob (design 0025 6.7). Ready says its objects
+      -- exist; a run's failure is never health. It is an alert (BatchRunFailed), so a
+      -- failed night cannot hold a promotion back. A job on hold is still Healthy:
+      -- somebody decided that, and nothing is wrong with the definition.
+      if obj.status == nil or obj.status.conditions == nil then
+        health_status.status = "Progressing"
+        health_status.message = "Waiting for Crossplane to reconcile the composite"
+        return health_status
+      end
+      local ready = nil
+      local synced = nil
+      local prerequisites = nil
+      local held = nil
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Ready" then ready = c end
+        if c.type == "Synced" then synced = c end
+        if c.type == "PrerequisitesReady" then prerequisites = c end
+        if c.type == "Held" then held = c end
+      end
+      -- A composition that refuses the definition is Degraded, not pending: it will
+      -- not resolve on its own, and a wave that waits for it waits forever.
+      if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+        health_status.status = "Degraded"
+        health_status.message = synced.message or "composition failed to reconcile"
+        return health_status
+      end
+      if prerequisites ~= nil and prerequisites.status == "False" then
+        health_status.status = "Degraded"
+        health_status.message = prerequisites.message or prerequisites.reason or "a prerequisite is missing"
+        return health_status
+      end
+      if ready ~= nil and ready.status == "True" then
+        health_status.status = "Healthy"
+        if held ~= nil and held.status == "True" then
+          health_status.message = held.message or "held"
+        else
+          health_status.message = "ready"
+        end
+        return health_status
+      end
+      health_status.status = "Progressing"
+      if ready ~= nil and ready.message ~= nil then
+        health_status.message = ready.message
+      else
+        health_status.message = "waiting for the composite to be Ready"
+      end
+      return health_status
+    resource.customizations.health.platform.adhar.io_Bucket: |
+      health_status = {}
+      -- Crossplane composite: Synced says the composition ran, Ready says the
+      -- resources it composed are up. Without this customisation Argo CD would not
+      -- wait for the bucket to exist before calling the Application healthy.
+      if obj.status == nil or obj.status.conditions == nil then
+        health_status.status = "Progressing"
+        health_status.message = "Waiting for Crossplane to reconcile the composite"
+        return health_status
+      end
+      local ready = nil
+      local synced = nil
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Ready" then ready = c end
+        if c.type == "Synced" then synced = c end
+      end
+      -- A composition that cannot be rendered or applied is Degraded, not pending:
+      -- it will not resolve on its own, and a wave that waits for it waits forever.
+      if synced ~= nil and synced.status == "False" and synced.reason == "ReconcileError" then
+        health_status.status = "Degraded"
+        health_status.message = synced.message or "composition failed to reconcile"
+        return health_status
+      end
+      if ready ~= nil and ready.status == "True" then
+        health_status.status = "Healthy"
+        health_status.message = obj.status.message or "composed resources are ready"
+        return health_status
+      end
+      health_status.status = "Progressing"
+      if ready ~= nil then
+        health_status.message = obj.status.message or ready.message or ready.reason or "composing"
+      else
+        health_status.message = "Waiting for a Ready condition"
+      end
+      return health_status
     resource.customizations.health.postgresql.cnpg.io_Cluster: |
       health_status = {}
       if obj.status ~= nil and obj.status.phase ~= nil then
@@ -579,6 +840,62 @@ configs:
       hs.message = "ScheduledBackup is declarative cron configuration; first-run state must not gate sync waves"
       return hs
 
+    # Volcano kinds (ADR-0028, docs/design/0025 §6.7). Argo CD ships no check for them.
+    # PodGroup is also excluded below; its check is for anyone who stops excluding it.
+    resource.customizations.health.batch.volcano.sh_CronJob: |
+      hs = {}
+      hs.status = "Healthy"
+      hs.message = "definition; a failed run is an alert, not this object's health"
+      return hs
+    resource.customizations.health.batch.volcano.sh_Job: |
+      hs = {}
+      local phase = nil
+      if obj.status ~= nil and obj.status.state ~= nil then
+        phase = obj.status.state.phase
+      end
+      if phase == "Completed" then
+        hs.status = "Healthy"
+        hs.message = "Volcano Job completed"
+      elseif phase == "Failed" or phase == "Terminated" or phase == "Aborted" then
+        hs.status = "Degraded"
+        hs.message = "Volcano Job is " .. phase
+      else
+        hs.status = "Progressing"
+        hs.message = "Volcano Job is " .. (phase or "waiting for the controller")
+      end
+      return hs
+    resource.customizations.health.scheduling.volcano.sh_PodGroup: |
+      hs = {}
+      local phase = nil
+      if obj.status ~= nil then
+        phase = obj.status.phase
+      end
+      if phase == "Running" or phase == "Completed" then
+        hs.status = "Healthy"
+        hs.message = "PodGroup is " .. phase
+      else
+        hs.status = "Progressing"
+        hs.message = "PodGroup is " .. (phase or "waiting for the scheduler")
+      end
+      return hs
+    resource.customizations.health.scheduling.volcano.sh_Queue: |
+      hs = {}
+      local state = nil
+      if obj.status ~= nil then
+        state = obj.status.state
+      end
+      if state == "Open" then
+        hs.status = "Healthy"
+        hs.message = "Queue is Open"
+      elseif state == "Closed" or state == "Closing" then
+        hs.status = "Degraded"
+        hs.message = "Queue is " .. state .. ", so it accepts no new work"
+      else
+        hs.status = "Progressing"
+        hs.message = "Queue is " .. (state or "waiting for the controller")
+      end
+      return hs
+
     # -- Ignoring status for all resources. An update will still be sent if the status update causes the health to change.
     # @default -- See [values.yaml]
     resource.customizations.ignoreResourceUpdates.all: |
@@ -591,7 +908,12 @@ configs:
       jqPathExpressions:
         - '.metadata.annotations."notified.notifications.argoproj.io"'
         - '.metadata.annotations."argocd.argoproj.io/refresh"'
+        # Argo CD 3.6 stamps a refresh/hydrate request with a companion
+        # timestamp annotation and removes both once processed; upstream's
+        # v3.6.1 install.yaml ignores them here too (the chart has not caught up).
+        - '.metadata.annotations."argocd.argoproj.io/refresh-timestamp"'
         - '.metadata.annotations."argocd.argoproj.io/hydrate"'
+        - '.metadata.annotations."argocd.argoproj.io/hydrate-timestamp"'
         - '.operation'
     # -- Ignore Argo Rollouts generated fields
     # @default -- See [values.yaml]
@@ -659,6 +981,18 @@ configs:
         - PipelineRun
         - TaskRun
         - CustomRun
+      ### Argo Workflows run objects are runtime state, not desired state (docs/design/0026
+      ### D-10). A Workflow's status is rewritten on every node transition and every step
+      ### pod writes a WorkflowTaskResult: tracking them would cost Argo CD cache memory
+      ### and API server watch load for objects no Application declares. Consequence: no
+      ### package may ship a Workflow through Git — ship a WorkflowTemplate and run it.
+      - apiGroups:
+        - argoproj.io
+        kinds:
+        - Workflow
+        - WorkflowTaskResult
+        - WorkflowTaskSet
+        - WorkflowArtifactGCTask
       ### Network resources created by the Kubernetes control plane and excluded to reduce the number of watched events and UI clutter
       - apiGroups:
         - ''
@@ -713,6 +1047,17 @@ configs:
         - BackgroundScanReport
         - ClusterBackgroundScanReport
         - UpdateRequest
+      ### Volcano creates a PodGroup per run and a Command per operator action. Neither is
+      ### ever in Git, and a busy batch cluster churns them, so Argo CD's cluster cache does
+      ### not watch them (docs/design/0025 §6.7).
+      - apiGroups:
+        - scheduling.volcano.sh
+        kinds:
+        - PodGroup
+      - apiGroups:
+        - bus.volcano.sh
+        kinds:
+        - Command
 
   # Argo CD configuration parameters
   ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cmd-params-cm.yaml
@@ -733,11 +1078,24 @@ configs:
     # single-node local clusters where the controller at full concurrency can
     # saturate kube-apiserver during initial convergence of the ~69-app
     # ApplicationSet, starving every other controller's leader-election lease.
+    # 16/8/4 is what the installed manifest has carried since 2026-09-30 (this
+    # file said 20 for status.processors and lost to a hand-edit); values-ha.yaml
+    # uses the same numbers (TestHAAndNonHAAgreeOnApplyConcurrency).
     # -- Number of application status processors
-    controller.status.processors: 20
+    controller.status.processors: 16
     # -- Number of application operation processors
     controller.operation.processors: 8
     # -- Number of allowed concurrent kubectl fork/execs
+    # 4, and do NOT raise it without measuring on the smallest target. Upstream
+    # defaults to 20. This same file installs Argo CD on a single-node Kind cluster,
+    # where the application controller, every platform pod and the API server share
+    # one machine: raising it to 16 (2026-09-30) made the local bring-up FAIL rather
+    # than speed up — the sync reached 6 of 17 apps, then the API server stopped
+    # answering (`context deadline exceeded` on a plain GET) and provisioning
+    # aborted after 13 minutes. The GitOps phase is dominated by waiting on
+    # dependencies, not by apply concurrency; if this is ever raised it has to
+    # become provider-aware (a field on BuildCustomizationSpec), not a bigger
+    # constant here (TestApplyParallelismStaysConservative).
     controller.kubectl.parallelism.limit: 4
     # -- Specifies timeout between application self heal attempts
     controller.self.heal.timeout.seconds: 5
@@ -745,6 +1103,12 @@ configs:
     controller.repo.server.timeout.seconds: 60
     # -- Specifies the timeout after which a sync would be terminated. 0 means no timeout
     controller.sync.timeout.seconds: 0
+    # Diff against a server-side dry-run apply, so fields the API server or an
+    # admission webhook DEFAULTS are not reported as drift. Without it kyverno's
+    # CRDs/ClusterPolicies and tekton's Tasks/Pipelines synced successfully and
+    # went straight back to OutOfSync forever (2026-09-19). Since Argo CD 3.6 an
+    # Application syncing with ServerSideApply=true (every ApplicationSet app here)
+    # uses server-side diff regardless; this key extends it to every other app.
     controller.diff.server.side: "true"
 
     ## Server properties
@@ -783,6 +1147,10 @@ configs:
     # -- Modify how application is synced between the generator and the cluster. One of: `sync`, `create-only`, `create-update`, `create-delete`
     applicationsetcontroller.policy: sync
     # -- Enables use of the Progressive Syncs capability
+    # Left OFF: apps sync in parallel. A RollingSync (progressive) strategy was
+    # tried to force console-first ordering but it serializes the whole platform
+    # behind each step — one slow foundation app stalls everything — so we rely on
+    # image preloading for console speed instead (see kind/preload.go).
     applicationsetcontroller.enable.progressive.syncs: false
     # -- A list of glob patterns specifying where to look for ApplicationSet resources. (e.g. `"argocd,argocd-appsets-*"`)
     # @default -- `""` (default is only the ns where the controller is installed)
@@ -892,6 +1260,9 @@ configs:
       gitlab.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFSMqzJeV9rUzU4kWitGjeR4PWSa29SPqJ1fVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=
       gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf
       gitlab.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsj2bNKTBSpIYDEGk9KxsGh3mySTRgMtXL583qmBpzeQ+jqCMRgBqB98u3z++J1sKlXHWfM9dyhSevkMwSbhoR8XIq/U0tCNyokEi/ueaBMCvbcTHhO7FcwzY92WK4Yt0aGROY5qX2UKSeOvuP4D6TPqKF1onrSzH9bx9XUf2lEdWT/ia1NEKjunUqu1xOB/StKDHMoX4/OKyIzuS0q/T1zOATthvasJFoPrAjkohTyaDUz2LN5JoH839hViyEG82yB+MjcFV5MU3N1l1QL3cVUCh93xSaua1N85qivl+siMkPGbO5xR/En4iEY6K2XPASUEMaieWVNTRCtJ4S8H+9
+      ssh.bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=
+      ssh.bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0MuJ2e2gKTKqu+UUO
+      ssh.bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e86EG2qOCsIsD1Xw0xSeiPDlCr7kq97NLmMbpKTX6Esc30NuoqEEHCuc7yWtwp8dI76EEEB1VqY9QJq6vk+aySyboD5QF61I/1WeTwu+deCbgKMGbUijeXhtfbxSxm6JwGrXrhBdofTsbKRUsrN1WoNgUa8uqN1Vx6WAJw1JHPhglEGGHea6QICwJOAr/6mrui/oB7pkaWKHj3z7d1IC4KWLtY47elvjbaTlkN04Kc/5LFEirorGYVbt15kAUlqGM65pk6ZBxtaO3+30LVlORZkxOh+LKL/BvbZ/iRNhItLqNyieoQj/uh/7Iv4uyH/cV/0b4WDSd3DptigWq84lJubb9t/DnZlrJazxyDCulTmKdOR7vs9gMTo+uoIrPSb8ScTtvw65+odKAlBj59dhnVp9zd7QUojOpXlL62Aw56U4oO+FALuevvMjiWeavKhJqlR7i5n9srYcrNV7ttmDw7kf/97P5zauIhxcjX+xHv4M=
       ssh.dev.azure.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7Hr1oTWqNqOlzGJOfGJ4NakVyIzf1rXYd4d7wo6jBlkLvCA4odBlL0mDUyZ0/QUfTTqeu+tm22gOsv+VrVTMk6vwRU75gY/y9ut5Mb3bR5BV58dKXyq9A9UeB5Cakehn5Zgm6x1mKoVyf+FFn26iYqXJRgzIZZcZ5V6hrE0Qg39kZm4az48o0AUbf6Sp4SLdvnuMa2sVNwHBboS7EJkm57XQPVU3/QpyNLHbWDdzwtrlS+ez30S3AdYhLKEOxAG8weOnyrtLJAUen9mTkol8oII1edf7mWWbWVf0nBmly21+nZcmCTISQBtdcyPaEno7fFQMDD26/s0lfKob4Kw8H
       vs-ssh.visualstudio.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7Hr1oTWqNqOlzGJOfGJ4NakVyIzf1rXYd4d7wo6jBlkLvCA4odBlL0mDUyZ0/QUfTTqeu+tm22gOsv+VrVTMk6vwRU75gY/y9ut5Mb3bR5BV58dKXyq9A9UeB5Cakehn5Zgm6x1mKoVyf+FFn26iYqXJRgzIZZcZ5V6hrE0Qg39kZm4az48o0AUbf6Sp4SLdvnuMa2sVNwHBboS7EJkm57XQPVU3/QpyNLHbWDdzwtrlS+ez30S3AdYhLKEOxAG8weOnyrtLJAUen9mTkol8oII1edf7mWWbWVf0nBmly21+nZcmCTISQBtdcyPaEno7fFQMDD26/s0lfKob4Kw8H
 
@@ -1282,6 +1653,10 @@ controller:
   # CRDs (2026-10-13) while requesting nothing at all, because this block
   # never reached the generated manifests. The controller's footprint tracks
   # the number of applications and the size of the cluster's API surface.
+  # A hand-copy into the generated StatefulSets (2026-10-15) did not fix that:
+  # it added a SECOND `resources:` key to the container, the controller's YAML
+  # decoder keeps the last one, and clusters kept 1Gi (install.yaml) and no
+  # request at all (install-ha.yaml) until the v3.6.1 regeneration.
   resources:
     requests:
       cpu: 500m
@@ -1554,7 +1929,7 @@ dex:
     # -- Dex image repository
     repository: ghcr.io/dexidp/dex
     # -- Dex image tag
-    tag: v2.43.1
+    tag: v2.46.1
     # -- Dex imagePullPolicy
     # @default -- `""` (defaults to global.image.imagePullPolicy)
     imagePullPolicy: ""
@@ -1830,8 +2205,13 @@ redis:
     # -- Redis repository
     repository: ecr-public.aws.com/docker/library/redis
     # -- Redis tag
-    ## Do not upgrade to >= 7.4.0, otherwise you are no longer using an open source version of Redis
-    tag: 7.2.8-alpine
+    ## Do not use 7.4.0 <= v < 8.0.0, otherwise you are no longer using an open source version of Redis
+    ## Runs ahead of the upstream HA manifests' pin: the redis 8.2.x line is only built on Alpine 3.22,
+    ## whose OpenSSL carries known vulnerabilities (GHSA-5p3w-hgjv-f6q3 report); 8.6.x is the patched base.
+    # Adhar: chart 10.12.1's default. This used to pin 7.2.8, a stale copy of an
+    # old chart default from before Redis returned to an OSI licence (AGPLv3, 8.0);
+    # Argo CD keeps only a cache in it, so a new major starts from an empty cache.
+    tag: 8.6.4-alpine
     # -- Redis image pull policy
     # @default -- `""` (defaults to global.image.imagePullPolicy)
     imagePullPolicy: ""
@@ -1847,7 +2227,7 @@ redis:
       # -- Repository to use for the redis-exporter
       repository: ghcr.io/oliver006/redis_exporter
       # -- Tag to use for the redis-exporter
-      tag: v1.75.0
+      tag: v1.97.0
       # -- Image pull policy for the redis-exporter
       # @default -- `""` (defaults to global.image.imagePullPolicy)
       imagePullPolicy: ""
@@ -2131,8 +2511,13 @@ redis-ha:
     # -- Redis repository
     repository: ecr-public.aws.com/docker/library/redis
     # -- Redis tag
-    ## Do not upgrade to >= 7.4.0, otherwise you are no longer using an open source version of Redis
-    tag: 7.2.8-alpine
+    ## Do not use 7.4.0 <= v < 8.0.0, otherwise you are no longer using an open source version of Redis
+    ## Runs ahead of the upstream HA manifests' pin: the redis 8.2.x line is only built on Alpine 3.22,
+    ## whose OpenSSL carries known vulnerabilities (GHSA-5p3w-hgjv-f6q3 report); 8.6.x is the patched base.
+    # Adhar: chart 10.12.1's default. This used to pin 7.2.8, a stale copy of an
+    # old chart default from before Redis returned to an OSI licence (AGPLv3, 8.0);
+    # Argo CD keeps only a cache in it, so a new major starts from an empty cache.
+    tag: 8.6.4-alpine
   ## Prometheus redis-exporter sidecar
   exporter:
     # -- Enable Prometheus redis-exporter sidecar
@@ -2140,7 +2525,7 @@ redis-ha:
     # -- Repository to use for the redis-exporter
     image: ghcr.io/oliver006/redis_exporter
     # -- Tag to use for the redis-exporter
-    tag: v1.75.0
+    tag: v1.97.0
   persistentVolume:
     # -- Configures persistence on Redis nodes
     enabled: false
@@ -2420,7 +2805,7 @@ server:
       # -- Repository to use for extension installer image
       repository: "quay.io/argoprojlabs/argocd-extension-installer"
       # -- Tag to use for extension installer image
-      tag: "v0.0.8"
+      tag: "v1.1.0"
       # -- Image pull policy for extensions
       # @default -- `""` (defaults to global.image.imagePullPolicy)
       imagePullPolicy: ""

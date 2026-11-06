@@ -17,6 +17,7 @@ limitations under the License.
 package apps
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -252,6 +253,9 @@ func scaffoldTemplateApplication(ctx context.Context, dc dynamic.Interface, gc *
 	if err != nil {
 		return "", "", "", err
 	}
+	if err := checkDescriptorProject(rendered, appName, project); err != nil {
+		return "", "", "", err
+	}
 	scaffolded, err := commitScaffold(gc, giteaURL, appName, rendered)
 	if err != nil {
 		return "", "", "", err
@@ -468,6 +472,62 @@ func scaffoldProject(t *backstageTemplate, flag string, flagExplicit bool, overr
 		return pavedRoadProject(param), nil
 	default:
 		return pavedRoadProject(def), nil
+	}
+}
+
+// controlPlaneDescriptor is the file through which a repository declares its
+// own Application: the adhar-services ApplicationSet adopts every repository
+// that carries one and applies its directory with self-heal
+// (platform/stack/adhar-services-appset.yaml).
+const controlPlaneDescriptor = ".adhar/app.yaml"
+
+// checkDescriptorProject refuses a registration that the repository itself
+// would overturn. react-spa-app, angular-spa-app and
+// tanstack-start-fullstack-app commit .adhar/app.yaml whenever localisation is
+// on (their default): this same Application — the app's name, in adhar-system
+// — with project `adhar` written into it. Argo CD applies it with self-heal,
+// so an app registered here with --project payments went back into `adhar` at
+// the bootstrap's first sync, after the composition had begun deploying it
+// into payments' environments. The Console never meets this: its wizard offers
+// no project for those templates and registers `adhar`. Checked on the
+// rendered skeleton, before anything is created.
+func checkDescriptorProject(r *renderedScaffold, appName, project string) error {
+	raw, ok := r.file(controlPlaneDescriptor)
+	if !ok {
+		return nil
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	for {
+		var doc struct {
+			APIVersion string `yaml:"apiVersion"`
+			Kind       string `yaml:"kind"`
+			Metadata   struct {
+				Name      string `yaml:"name"`
+				Namespace string `yaml:"namespace"`
+			} `yaml:"metadata"`
+			Spec struct {
+				Parameters struct {
+					Project string `yaml:"project"`
+				} `yaml:"parameters"`
+			} `yaml:"spec"`
+		}
+		// The end of the file, or a file this cannot read — whether the
+		// descriptor is valid is for Argo CD to report, as it is for the
+		// Console's scaffolds.
+		if err := dec.Decode(&doc); err != nil {
+			return nil
+		}
+		if doc.Kind != "Application" || !strings.HasPrefix(doc.APIVersion, helpers.XRGroup+"/") || doc.Metadata.Name != appName ||
+			(doc.Metadata.Namespace != "" && doc.Metadata.Namespace != globals.AdharSystemNamespace) {
+			continue
+		}
+		if declared := pavedRoadProject(doc.Spec.Parameters.Project); declared != project {
+			return fmt.Errorf("template %q commits %s, this same Application in project %q, and Argo CD applies it with self-heal "+
+				"(the adhar-services ApplicationSet adopts every repository that carries one), so registering it in project %q "+
+				"would last only until that first sync; register it in project %q, or scaffold without the descriptor "+
+				"(the SPA templates write it only with withLocalisation=true)",
+				r.templateID, controlPlaneDescriptor, declared, project, declared)
+		}
 	}
 }
 

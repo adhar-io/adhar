@@ -1,0 +1,27 @@
+# The CronJob controller executes the deployed schedule and is not compared with anything, whatever it creates: a Kyverno outage must never stop a scheduled run. Its identity comes from the request, never from a label.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: run-integrity-cronjob-controller
+policies:
+  - ../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-run-integrity
+    rule: a-run-matches-its-template
+    kind: Job
+    resources: [run-ok]
+    result: skip
+  - policy: adhar-batch-run-integrity
+    rule: a-run-matches-its-template
+    kind: Job
+    resources: [deny-image]
+    result: skip
+  - policy: adhar-batch-run-integrity
+    rule: a-run-matches-its-template
+    kind: Job
+    resources: [deny-forged-schedule-label]
+    result: skip

@@ -1,0 +1,478 @@
+# The fleet's batch at a glance (design 0025 §11). One job's own panels are on its
+# application's dashboard, which the Application composition stamps from the
+# batch-jvm template. Every series here comes from kube-state-metrics, and the
+# label_adhar_io_* joins are what the allowlist in observability/kube-prometheus adds.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-batch
+  namespace: adhar-system
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Delivery"
+data:
+  batch.json: |
+    {
+     "title": "Batch",
+     "uid": "adhar-batch",
+     "description": "Every BatchJob on the cluster at a glance: what is running, what failed, what is stuck, and what is on hold. One job's own runs, throughput and JVM are on its application's dashboard (type batch-jvm). Fed by kube-state-metrics, so it works in every profile.",
+     "schemaVersion": 39,
+     "editable": false,
+     "refresh": "1m",
+     "tags": [
+      "batch",
+      "delivery"
+     ],
+     "time": {
+      "from": "now-24h",
+      "to": "now"
+     },
+     "timezone": "",
+     "panels": [
+      {
+       "id": 1,
+       "type": "stat",
+       "title": "Runs active",
+       "description": "Batch runs executing right now, across every environment.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum(kube_job_status_active * on(namespace,job_name) group_left() kube_job_labels{label_adhar_io_batch_job!=\"\"}) or vector(0)",
+         "refId": "A",
+         "instant": true
+        }
+       ],
+       "options": {
+        "reduceOptions": {
+         "calcs": [
+          "lastNotNull"
+         ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+       },
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "0",
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "blue",
+            "value": null
+           }
+          ]
+         },
+         "unit": "short"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 2,
+       "type": "stat",
+       "title": "Runs failed (24h)",
+       "description": "Runs that ended Failed and started in the last day. Each one also raised BatchRunFailed if it was its job's latest run.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "count((kube_job_failed{condition=\"true\"} == 1) and on(namespace,job_name) kube_job_labels{label_adhar_io_batch_job!=\"\"} and on(namespace,job_name) (time() - kube_job_created) < 86400) or vector(0)",
+         "refId": "A",
+         "instant": true
+        }
+       ],
+       "options": {
+        "reduceOptions": {
+         "calcs": [
+          "lastNotNull"
+         ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+       },
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "0",
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "red",
+            "value": 1
+           }
+          ]
+         },
+         "unit": "short"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 3,
+       "type": "stat",
+       "title": "Run pods Pending",
+       "description": "Batch pods waiting to be placed. Batch never preempts, so this is capacity: read the scheduler's message on the pod.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "count((kube_pod_status_phase{phase=\"Pending\"} == 1) and on(namespace,pod) kube_pod_labels{label_adhar_io_batch_job!=\"\"}) or vector(0)",
+         "refId": "A",
+         "instant": true
+        }
+       ],
+       "options": {
+        "reduceOptions": {
+         "calcs": [
+          "lastNotNull"
+         ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+       },
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "0",
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "orange",
+            "value": 1
+           }
+          ]
+         },
+         "unit": "short"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 4,
+       "type": "stat",
+       "title": "Schedules suspended",
+       "description": "BatchJob schedules that are held, suspended in Git, or waiting on a prerequisite.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "count((kube_cronjob_spec_suspend == 1) and on(namespace,cronjob) kube_cronjob_labels{label_adhar_io_batch_job!=\"\"}) or vector(0)",
+         "refId": "A",
+         "instant": true
+        }
+       ],
+       "options": {
+        "reduceOptions": {
+         "calcs": [
+          "lastNotNull"
+         ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+       },
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "0",
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "orange",
+            "value": 1
+           }
+          ]
+         },
+         "unit": "short"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 5,
+       "type": "timeseries",
+       "title": "Runs started",
+       "description": "Runs created per hour, by BatchJob.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (namespace, label_adhar_io_batch_job) (changes(kube_job_created{job=\"kube-state-metrics\"}[1h]) * on(namespace,job_name) group_left(label_adhar_io_batch_job) kube_job_labels{label_adhar_io_batch_job!=\"\"})",
+         "refId": "A",
+         "legendFormat": "{{namespace}}/{{label_adhar_io_batch_job}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "No batch runs in this window",
+         "unit": "short"
+        },
+        "overrides": []
+       },
+       "options": {
+        "legend": {
+         "displayMode": "list",
+         "placement": "bottom"
+        }
+       }
+      },
+      {
+       "id": 6,
+       "type": "timeseries",
+       "title": "Runs executing",
+       "description": "Active runs over time, by BatchJob. The memory a queue of runs holds is what comes out of a cluster's headroom.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (namespace, label_adhar_io_batch_job) (kube_job_status_active * on(namespace,job_name) group_left(label_adhar_io_batch_job) kube_job_labels{label_adhar_io_batch_job!=\"\"})",
+         "refId": "A",
+         "legendFormat": "{{namespace}}/{{label_adhar_io_batch_job}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "No batch runs in this window",
+         "unit": "short"
+        },
+        "overrides": []
+       },
+       "options": {
+        "legend": {
+         "displayMode": "list",
+         "placement": "bottom"
+        }
+       }
+      },
+      {
+       "id": 7,
+       "type": "table",
+       "title": "Failed runs (24h)",
+       "description": "Which runs failed. `adhar batch runs` and the Console's run detail hold the exit code and the failing step.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "(kube_job_failed{condition=\"true\"} == 1) * on(namespace,job_name) group_left(label_adhar_io_batch_job, label_adhar_io_application, label_adhar_io_environment) (kube_job_labels{label_adhar_io_batch_job!=\"\"}) and on(namespace,job_name) (time() - kube_job_created) < 86400",
+         "refId": "A",
+         "instant": true
+        }
+       ],
+       "transformations": [
+        {
+         "id": "labelsToFields",
+         "options": {
+          "mode": "columns"
+         }
+        },
+        {
+         "id": "organize",
+         "options": {
+          "excludeByName": {
+           "Time": true,
+           "Value": true,
+           "__name__": true,
+           "condition": true,
+           "container": true,
+           "endpoint": true,
+           "instance": true,
+           "job": true,
+           "pod": true,
+           "service": true,
+           "prometheus": true,
+           "reason": true
+          },
+          "renameByName": {
+           "label_adhar_io_batch_job": "BatchJob",
+           "label_adhar_io_application": "Application",
+           "label_adhar_io_environment": "Environment",
+           "job_name": "Run",
+           "namespace": "Namespace"
+          }
+         }
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "No failed runs in the last day"
+        },
+        "overrides": []
+       },
+       "options": {
+        "showHeader": true
+       }
+      },
+      {
+       "id": 8,
+       "type": "table",
+       "title": "Schedules",
+       "description": "Every BatchJob with a schedule: when it last succeeded, and how long ago in seconds.",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+       },
+       "targets": [
+        {
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "time() - kube_cronjob_status_last_successful_time * on(namespace,cronjob) group_left(label_adhar_io_batch_job) kube_cronjob_labels{label_adhar_io_batch_job!=\"\"}",
+         "refId": "A",
+         "instant": true
+        }
+       ],
+       "transformations": [
+        {
+         "id": "labelsToFields",
+         "options": {
+          "mode": "columns"
+         }
+        },
+        {
+         "id": "organize",
+         "options": {
+          "excludeByName": {
+           "Time": true,
+           "__name__": true,
+           "container": true,
+           "endpoint": true,
+           "instance": true,
+           "job": true,
+           "pod": true,
+           "service": true,
+           "prometheus": true,
+           "cronjob": true
+          },
+          "renameByName": {
+           "label_adhar_io_batch_job": "BatchJob",
+           "namespace": "Namespace",
+           "Value": "Since last success"
+          }
+         }
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "noValue": "No scheduled BatchJob has succeeded yet",
+         "unit": "s"
+        },
+        "overrides": []
+       },
+       "options": {
+        "showHeader": true
+       }
+      }
+     ],
+     "templating": {
+      "list": []
+     },
+     "annotations": {
+      "list": []
+     },
+     "links": []
+    }

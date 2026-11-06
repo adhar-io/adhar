@@ -1,0 +1,19 @@
+# Audit in Phase 1; each rule both ways, and nothing that is not a batch run.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: pod-standards
+policies:
+  - ../../manifests/kyverno-pod-standards.yaml
+resources:
+  - resources.yaml
+results:
+  - { policy: adhar-batch-pod-standards, rule: a-run-has-a-deadline-and-a-ttl, kind: Job, resources: [good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-has-a-deadline-and-a-ttl, kind: Job, resources: [bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-run-has-a-deadline-and-a-ttl, kind: Job, resources: [not-batch], result: skip }
+  - { policy: adhar-batch-pod-standards, rule: a-run-pod-never-restarts-in-place-and-uses-a-batch-class, kind: Job, resources: [good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-pod-never-restarts-in-place-and-uses-a-batch-class, kind: Job, resources: [bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-run-mounts-no-persistent-volume, kind: Job, resources: [good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-mounts-no-persistent-volume, kind: Job, resources: [bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-run-containers-memory-request-equals-its-limit, kind: Job, resources: [good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-containers-memory-request-equals-its-limit, kind: Job, resources: [bad], result: fail }

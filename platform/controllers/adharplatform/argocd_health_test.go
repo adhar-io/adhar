@@ -39,6 +39,16 @@ func TestArgoCDCanAssessEveryCustomKindTheStackSyncs(t *testing.T) {
 		"gateway.networking.k8s.io_Gateway",
 		"generators.external-secrets.io_Password",
 		"postgresql.cnpg.io_ScheduledBackup",
+		// Argo Workflows definitions (no status) and the archive's artifact Bucket.
+		"argoproj.io_WorkflowTemplate",
+		"argoproj.io_ClusterWorkflowTemplate",
+		"argoproj.io_WorkflowEventBinding",
+		"platform.adhar.io_Bucket",
+		// Volcano (ADR-0028). Argo CD ships no check for any of them.
+		"batch.volcano.sh_Job",
+		"batch.volcano.sh_CronJob",
+		"scheduling.volcano.sh_Queue",
+		"scheduling.volcano.sh_PodGroup",
 	} {
 		key := "resource.customizations.health." + kind
 		if !strings.Contains(cm, key) {
