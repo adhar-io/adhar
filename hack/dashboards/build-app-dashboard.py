@@ -1325,7 +1325,6 @@ NO_BATCH_OTLP = ("No metrics yet: they arrive from the run by OTLP (production p
                  "Nothing means no run in this range, or no Alloy in this profile")
 BATCH_JOBS = 'kube_job_labels{namespace="$env",label_adhar_io_application="__APP__"}'
 BATCH_PODS = 'kube_pod_labels{namespace="$env",label_adhar_io_application="__APP__"}'
-BATCH_RUN_LABELS = "label_adhar_io_batch_job"
 NO_RUNS = "No runs in this range"
 
 
@@ -1390,7 +1389,7 @@ def batch_runs_section(b):
         decimals=0, no_value=NO_RUNS, overrides=[co("completed", GREEN), co("failed", RED)])
     b.ts("Run Duration", [
         (f'max by (job_name) (kube_job_status_completion_time{{namespace="$env"}} - kube_job_status_start_time{{namespace="$env"}}) * on(job_name) group_left() max by (job_name) ({BATCH_JOBS})', "{{job_name}}"),
-        (f'max by (job_name) (time() - kube_job_status_start_time{{namespace="$env"}}) * on(job_name) group_left() max by (job_name) (kube_job_status_active{{namespace="$env"}} > 0) * on(job_name) group_left() max by (job_name) ({BATCH_JOBS})', "{{job_name}} (running)")],
+        (f'max by (job_name) (time() - kube_job_status_start_time{{namespace="$env"}}) and on(job_name) (max by (job_name) (kube_job_status_active{{namespace="$env"}} > 0) * on(job_name) group_left() max by (job_name) ({BATCH_JOBS}))', "{{job_name}} (running)")],
         "How long each run took, or has taken so far. BatchRunTooLong fires past the job's sla.maxDuration.", unit="s", decimals=0, no_value=NO_RUNS, draw="points")
     b.ts("Items Read / Written / Skipped", [
         (f'sum(rate({batch_family("spring_batch_item_read", "count")}[{W}]))', "read"),
@@ -1440,9 +1439,11 @@ def batch_saturation(b):
 
 def batch_traces(b):
     b.row("Traces (Tempo)")
-    b.traces("Recent Runs", '{resource.service.name="__APP__"}', "Latest job and step spans. Per-item work stays metrics-only, so a million-item run is not a million spans.", w=12,
+    # Keyed on the application, not service.name: that is the BatchJob's name, and an
+    # application may own several BatchJobs named otherwise.
+    b.traces("Recent Runs", '{resource.adhar.application="__APP__"}', "Latest job and step spans. Per-item work stays metrics-only, so a million-item run is not a million spans.", w=12,
              no_value="No traces yet: a run exports them by OTLP (production profile)")
-    b.traces("Runs with Errors", '{resource.service.name="__APP__" && status=error}', "Latest spans with an error status.", w=12, no_value="No run with an error span")
+    b.traces("Runs with Errors", '{resource.adhar.application="__APP__" && status=error}', "Latest spans with an error status.", w=12, no_value="No run with an error span")
 
 
 # ---------------------------------------------------------------- per type

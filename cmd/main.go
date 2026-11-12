@@ -27,6 +27,7 @@ import (
 	"adhar-io/adhar/cmd/apps"
 	"adhar-io/adhar/cmd/auth"
 	"adhar-io/adhar/cmd/backup"
+	"adhar-io/adhar/cmd/batch"
 	"adhar-io/adhar/cmd/bucket"
 	"adhar-io/adhar/cmd/cache"
 	"adhar-io/adhar/cmd/cluster"
@@ -122,6 +123,7 @@ func init() {
 	project.ProjectCmd.GroupID = GroupDevelop
 	apps.ApplicationCmd.GroupID = GroupDevelop
 	functioncmd.FunctionCmd.GroupID = GroupDevelop
+	batch.BatchCmd.GroupID = GroupDevelop
 	pipeline.PipelineCmd.GroupID = GroupDevelop
 	gitops.GitOpsCmd.GroupID = GroupDevelop
 	service.RoutesCmd.GroupID = GroupDevelop
@@ -187,6 +189,7 @@ func init() {
 		events.EventsCmd,            // Events command: read the platform CloudEvents stream on Kafka
 		apps.ApplicationCmd,         // Apps command for application management
 		functioncmd.FunctionCmd,     // Function command for scale-to-zero workloads on Knative
+		batch.BatchCmd,              // Batch command: run, watch, stop, restart and hold the platform's batch jobs
 		push.PushCmd,                // Push command: runs new-service (Deployment + Service; app-ci builds)
 		dev.DevCmd,                  // Dev command: the inner loop — sync the working tree to a dev namespace
 		bucket.BucketCmd,            // Bucket command: self-service S3 object storage

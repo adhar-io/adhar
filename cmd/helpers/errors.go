@@ -18,6 +18,7 @@ package helpers
 
 import (
 	"adhar-io/adhar/platform/utils"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -39,6 +40,41 @@ type friendlyError struct{ err error }
 
 func (e *friendlyError) Error() string { return e.err.Error() }
 func (e *friendlyError) Unwrap() error { return e.err }
+
+// exitCodeError carries the process exit code a command wants, when it is not
+// the usual 1. The outcome it reports has already been printed, so the root
+// renders nothing for it unless it wraps an error of its own.
+type exitCodeError struct {
+	code int
+	err  error
+}
+
+func (e *exitCodeError) Error() string {
+	if e.err == nil {
+		return fmt.Sprintf("exit %d", e.code)
+	}
+	return e.err.Error()
+}
+
+func (e *exitCodeError) Unwrap() error { return e.err }
+
+// ExitCode returns an error that makes the CLI exit with code. `adhar batch
+// run --wait` ends with the RUN's exit code (design 0025 D2), so a workflow
+// step or a shell `&&` can read the outcome without parsing output; cobra
+// alone turns every error into 1. err may be nil when the outcome was printed
+// already; a non-nil err is rendered as any other.
+func ExitCode(code int, err error) error {
+	return &exitCodeError{code: code, err: err}
+}
+
+// ExitCodeOf reports the exit code an error asks for, and whether it asked.
+func ExitCodeOf(err error) (int, bool) {
+	var e *exitCodeError
+	if errors.As(err, &e) {
+		return e.code, true
+	}
+	return 0, false
+}
 
 // IsFriendlyError reports whether err (or anything it wraps) was already
 // rendered by FriendlyError, so the top-level handler can skip re-printing it.

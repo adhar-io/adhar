@@ -275,6 +275,7 @@ rules:
   - applications
   - authstacks
   - backuppolicies
+  - batchjobs
   - buckets
   - caches
   - clusters
@@ -446,12 +447,7 @@ spec:
           readOnly: true
       containers:
       - name: adhar-console
-        # Pinned to a released version (2026-10-24, was :latest + Always). A
-        # floating tag made the running console unknowable from the manifest,
-        # upgraded it on any pod restart, and the console's own status card
-        # reported "latest" against its build version. Bump this line to ship
-        # a new console; the tag carries no `v` prefix.
-        image: ghcr.io/adhar-io/adhar-console:0.1.175
+        image: ghcr.io/adhar-io/adhar-console:0.1.176
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

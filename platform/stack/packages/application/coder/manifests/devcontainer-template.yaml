@@ -1,0 +1,1025 @@
+# The `devcontainer` workspace template: a Cloud Development Environment BUILT
+# FROM THE REPOSITORY'S OWN `.devcontainer/devcontainer.json`.
+#
+# The `kubernetes` template (templates-seed.yaml) runs every repository in the
+# same stock Ubuntu image, so a workspace opened on a Java service had no JDK,
+# no Maven and none of the editor extensions the repository asks for — the
+# tools a person had to install by hand were exactly the ones the repository
+# already declared. Every application created from an Adhar template (and
+# adhar-kit, adhar-ui) ships `.devcontainer/` (Dockerfile + devcontainer.json +
+# post-create.sh), `.vscode/extensions.json` and `.idea/externalDependencies.xml`;
+# the templates' test suite pins that standard, and this template is the
+# platform's half of it. What a workspace does, in order:
+#
+#   1. an init container clones the repository from Gitea into
+#      /home/coder/<repo> on the workspace's home volume (as the person, through
+#      Coder's Gitea external auth; a public repository clones without a link)
+#      and writes a build copy of its devcontainer.json;
+#   2. envbuilder (ghcr.io/coder/envbuilder, Coder's daemonless devcontainer
+#      builder) builds the Dockerfile and the Features from that copy, with a
+#      layer cache on the home volume so a restart replays the build; a
+#      repository with no devcontainer, or a build that fails, runs on a plain
+#      image instead (`fallback_image`), and the workspace says so in the
+#      dashboard's "Dev container" row, in DEVCONTAINER-FAILED.md and in every
+#      new terminal;
+#   3. the Coder agent starts INSIDE the built container, as the devcontainer's
+#      remoteUser, with HOME=/home/coder, so ~/.m2, node_modules, the git
+#      identity and the editors all live on the volume whichever user the
+#      image runs as;
+#   4. code-server is installed on the volume and the extensions from
+#      `.vscode/extensions.json` (+ customizations.vscode.extensions) are
+#      installed from Open VSX, and customizations.vscode.settings applied;
+#   5. the devcontainer's postCreateCommand runs once per version of
+#      `.devcontainer/`, after the editors are reachable, with the agent's git
+#      credentials in its environment;
+#   6. the IntelliJ plugins from `.idea/externalDependencies.xml`
+#      (+ customizations.jetbrains.plugins) are installed into every JetBrains
+#      backend Gateway downloads to the volume, the first time it appears; they
+#      take effect when the backend next restarts.
+#
+# Why a build COPY of devcontainer.json, and an init container to make it:
+# envbuilder runs the lifecycle scripts itself, on every start, as the
+# devcontainer's user with THAT user's home (/home/vscode) — so
+# `mvn dependency:go-offline` would fill an ephemeral directory on every start
+# and the volume never. The copy drops the lifecycle commands (the agent script
+# runs them, once per version, with HOME on the volume) and replaces the
+# remoteUser with root, recording the real one beside it: envbuilder resolves
+# the user BEFORE anything the template controls runs and exits when the name
+# is missing — which it is on the fallback image whenever a build fails for a
+# `node` devcontainer. The setup script (root, after the build) switches to the
+# recorded user, creating it when the image lacks it, and fixes the volume's
+# ownership. ENVBUILDER_DEVCONTAINER_JSON_PATH must exist before envbuilder
+# starts, which is why the clone happens in an init container and not in
+# envbuilder's own clone step.
+#
+# Same seed mechanism as templates-seed.yaml: a PostSync Job signs in as the
+# bootstrap owner and pushes the template, idempotently (the description
+# carries the revision). It runs at wave 14, AFTER oidc-reload (13) restarts
+# Coder with its Gitea external auth provider, because this template DOES name
+# `data "coder_external_auth" "gitea"` (optional): the clone needs a token
+# before any agent exists. Coder refuses to push a template naming a provider
+# it has not loaded, so the seed also carries a fallback — when the push is
+# refused for exactly that reason it pushes a copy without the provider (public
+# repositories only) and stamps the revision `-no-gitea-auth`, so the next sync
+# tries the real one again. Guards: coder_devcontainer_template_test.go.
+#
+# The Console (modules/develop/src/data/coder.ts) creates a repository's
+# workspace from the template named `devcontainer` when it exists, `kubernetes`
+# otherwise, passing `git_repo`; both open /home/coder/<repo>.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-devcontainer-template
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+data:
+  README.md: |
+    # Dev container (Kubernetes)
+
+    One pod per workspace in the platform namespace, built from the
+    repository's `.devcontainer/devcontainer.json` by
+    [envbuilder](https://github.com/coder/envbuilder) — no Docker daemon. The
+    home volume (`/home/coder`) holds the checkout, the build's layer cache,
+    code-server and its extensions, the JetBrains backends and everything under
+    `~` (`.m2`, `node_modules`, the git identity), so a restart replays the
+    build from cache and keeps the person's state.
+
+    - `git_repo`: the HTTPS clone URL, checked out into `/home/coder/<name>`.
+      Empty gives a plain workspace on `fallback_image`.
+    - A repository with no devcontainer, or whose build fails, runs on
+      `fallback_image` and says so: the "Dev container" row in the dashboard,
+      `DEVCONTAINER-FAILED.md` at the top of the folder, and each new terminal.
+      Every start tries the build again.
+    - code-server installs `.vscode/extensions.json` (and
+      `customizations.vscode.extensions`) from Open VSX; IntelliJ's plugins from
+      `.idea/externalDependencies.xml` (and `customizations.jetbrains.plugins`)
+      are installed into each JetBrains backend the first time Gateway
+      downloads it, and take effect when it next restarts.
+    - `postCreateCommand` runs once per version of `.devcontainer/`, after the
+      editors are reachable, with the agent's git credentials.
+  main.tf: |
+    # ─── Adhar platform: devcontainer workspaces on Kubernetes ───
+    # Seeded from application/coder/manifests/devcontainer-template.yaml; the
+    # header of that file explains the design.
+
+    terraform {
+      required_providers {
+        coder = {
+          source  = "coder/coder"
+          version = "~> 2.0"
+        }
+        kubernetes = {
+          source  = "hashicorp/kubernetes"
+          version = ">= 2.30"
+        }
+      }
+    }
+
+    provider "coder" {}
+
+    provider "kubernetes" {
+      # Authenticate via ~/.kube/config or the in-cluster ServiceAccount.
+      config_path = var.use_kubeconfig == true ? "~/.kube/config" : null
+    }
+
+    variable "use_kubeconfig" {
+      type        = bool
+      description = "Use the host kubeconfig (true) or the in-cluster ServiceAccount (false, Coder runs in the same cluster)."
+      default     = false
+    }
+
+    variable "namespace" {
+      type        = string
+      description = "The namespace workspaces are created in. Must be the namespace the coder ServiceAccount's workspace RBAC covers."
+      default     = "adhar-system"
+    }
+
+    data "coder_provisioner" "me" {}
+    data "coder_workspace" "me" {}
+    data "coder_workspace_owner" "me" {}
+
+    # adhar:gitea-auth:begin
+    # The person's Gitea token, for the clone the init container makes before
+    # any agent (and so any GIT_ASKPASS) exists. Optional: an account that has
+    # not linked Gitea still builds, and clones public repositories. The seed
+    # removes this block when Coder has not loaded the provider yet.
+    data "coder_external_auth" "gitea" {
+      id       = "gitea"
+      optional = true
+    }
+    # adhar:gitea-auth:end
+
+    data "coder_parameter" "git_repo" {
+      name         = "git_repo"
+      display_name = "Repository"
+      description  = "HTTPS clone URL. Checked out into /home/coder/<name> and built from its .devcontainer; leave empty for a plain workspace."
+      type         = "string"
+      default      = ""
+      mutable      = true
+      order        = 1
+    }
+
+    data "coder_parameter" "cpu" {
+      name         = "cpu"
+      display_name = "CPU"
+      description  = "CPU limit (cores). The build and the IDE share it."
+      type         = "number"
+      default      = "2"
+      icon         = "/emojis/1f5a5.png"
+      mutable      = true
+      order        = 2
+      validation {
+        min = 1
+        max = 16
+      }
+    }
+
+    data "coder_parameter" "memory" {
+      name         = "memory"
+      display_name = "Memory"
+      description  = "Memory limit (GiB). A devcontainer build with Features needs about 4."
+      type         = "number"
+      default      = "4"
+      icon         = "/icon/memory.svg"
+      mutable      = true
+      order        = 3
+      validation {
+        min = 2
+        max = 64
+      }
+    }
+
+    data "coder_parameter" "home_disk_size" {
+      name         = "home_disk_size"
+      display_name = "Home disk size"
+      description  = "Size of /home/coder (GiB): the checkout, the build's layer cache, the editors and ~."
+      type         = "number"
+      default      = "20"
+      icon         = "/emojis/1f4be.png"
+      mutable      = false
+      order        = 4
+      validation {
+        min = 5
+        max = 500
+      }
+    }
+
+    data "coder_parameter" "fallback_image" {
+      name         = "fallback_image"
+      display_name = "Fallback image"
+      description  = "Runs when the repository has no devcontainer or its build fails. Must carry a `vscode` user (every mcr.microsoft.com/devcontainers image does)."
+      type         = "string"
+      default      = "mcr.microsoft.com/devcontainers/base:trixie"
+      mutable      = true
+      order        = 5
+    }
+
+    locals {
+      repo_name        = data.coder_parameter.git_repo.value == "" ? "" : basename(trimsuffix(data.coder_parameter.git_repo.value, ".git"))
+      workspace_folder = local.repo_name == "" ? "/home/coder" : "/home/coder/${local.repo_name}"
+      home             = "/home/coder"
+      # Where the init container keeps the build copy of devcontainer.json and
+      # the status the agent and the dashboard read. On the home volume.
+      state_dir = "/home/coder/.adhar/devcontainer"
+      state     = local.repo_name == "" ? "workspace" : local.repo_name
+
+      # Pinned to a release; `latest` changes under a running platform.
+      envbuilder_image    = "ghcr.io/coder/envbuilder:v1.3.0"
+      prepare_image       = "docker.io/alpine/k8s:1.37.1"
+      code_server_version = "4.145.2"
+      deployment_name     = "coder-${lower(data.coder_workspace.me.id)}"
+
+      # Runs as root in the init container, PVC mounted at /home/coder. Values
+      # arrive as environment variables so this heredoc has no interpolation.
+      prepare_script = <<-EOT
+        #!/bin/sh
+        set -u
+        STATE="$STATE_DIR"
+        mkdir -p "$STATE" "$STATE/empty"
+        JSON="$STATE/$STATE_NAME.json"
+        DIR="$STATE/$STATE_NAME.dir"
+        USERF="$STATE/$STATE_NAME.user"
+        PREP="$STATE/$STATE_NAME.prepare"
+        say() { echo "prepare: $*"; }
+
+        plain() { # <why>: run on the fallback image
+          printf '{"image": "%s", "remoteUser": "root"}\n' "$FALLBACK_IMAGE" > "$JSON.tmp" && mv "$JSON.tmp" "$JSON"
+          rm -f "$DIR"; ln -s "$STATE/empty" "$DIR"
+          echo vscode > "$USERF"
+          echo "$1" > "$PREP"
+          say "$1: the workspace runs on $FALLBACK_IMAGE"
+        }
+
+        if [ -z "$GIT_REPO" ]; then plain plain; exit 0; fi
+
+        # 1. The checkout. A placeholder left by a start that could not clone is
+        #    removed first, or git refuses the non-empty destination.
+        git config --global --add safe.directory '*'
+        if [ ! -d "$WORKSPACE_FOLDER/.git" ]; then
+          if [ -f "$WORKSPACE_FOLDER/README-ADHAR.md" ]; then rm -f "$WORKSPACE_FOLDER/README-ADHAR.md"; rmdir "$WORKSPACE_FOLDER" 2>/dev/null || true; fi
+          # The platform's Gateway certificate (self-signed on a local
+          # platform) beside the system roots, when the Secret is mounted.
+          CA=/etc/ssl/certs/ca-certificates.crt
+          if [ -s /etc/adhar-ca/adhar-gateway.crt ]; then
+            cat /etc/ssl/certs/ca-certificates.crt /etc/adhar-ca/adhar-gateway.crt > /tmp/ca.pem 2>/dev/null && CA=/tmp/ca.pem
+          fi
+          # The token (if the person linked Gitea) answers git's credential
+          # prompt; nothing is written to the volume.
+          say "cloning $GIT_REPO into $WORKSPACE_FOLDER"
+          if GIT_TOKEN="$GIT_TOKEN" timeout 600 git -c "http.sslCAInfo=$CA" \
+               -c 'credential.helper=!f() { echo "username=oauth2"; echo "password=$GIT_TOKEN"; }; f' \
+               clone "$GIT_REPO" "$WORKSPACE_FOLDER"; then
+            chown -R 1000:1000 "$WORKSPACE_FOLDER"
+          else
+            say "clone failed — if $GIT_REPO is private, link Gitea once under Coder -> Account -> External Authentication, then restart the workspace"
+            mkdir -p "$WORKSPACE_FOLDER"
+            printf '%s\n' "# Not checked out yet" "" \
+              "Coder could not clone $GIT_REPO into this folder." "" \
+              "If the repository is private, link your Gitea account once:" \
+              "Coder -> your avatar -> Account -> External Authentication -> Gitea." \
+              "Then restart the workspace: the clone and the devcontainer build run on every start." > "$WORKSPACE_FOLDER/README-ADHAR.md"
+            chown -R 1000:1000 "$WORKSPACE_FOLDER"
+            plain clone-failed
+            exit 0
+          fi
+        else
+          say "repository already checked out at $WORKSPACE_FOLDER"
+        fi
+
+        # 2. The devcontainer, where the spec looks for it.
+        SRC=""; SRCDIR=""
+        for c in .devcontainer/devcontainer.json devcontainer.json; do
+          [ -f "$WORKSPACE_FOLDER/$c" ] && { SRC="$WORKSPACE_FOLDER/$c"; break; }
+        done
+        if [ -z "$SRC" ]; then plain none; exit 0; fi
+        SRCDIR=$(dirname "$SRC")
+
+        # 3. The build copy: lifecycle commands out (the agent runs them, once
+        #    per version, with HOME on the volume), remoteUser -> root with
+        #    the real one recorded (the setup script switches to it after the
+        #    build; see the manifest header). JSONC: comments stripped first.
+        #    If the file is not something jq accepts, envbuilder gets it
+        #    unchanged and runs the lifecycle itself.
+        if sed -e 's|^[[:space:]]*//.*$||' -e 's|[[:space:]]//[^"]*$||' "$SRC" \
+             | jq 'del(.initializeCommand, .onCreateCommand, .updateContentCommand, .postCreateCommand, .postStartCommand, .postAttachCommand)
+                   | if (.remoteUser // .containerUser) != null then .remoteUser = "root" | del(.containerUser) else . end' > "$JSON.tmp" 2>/tmp/jq.err; then
+          sed -e 's|^[[:space:]]*//.*$||' -e 's|[[:space:]]//[^"]*$||' "$SRC" | jq -r '.remoteUser // .containerUser // empty' > "$USERF"
+          mv "$JSON.tmp" "$JSON"
+          say "build copy of $SRC written (user: $(cat "$USERF"))"
+        else
+          say "could not rewrite $SRC ($(head -c 200 /tmp/jq.err)); envbuilder will read it as is"
+          cp "$SRC" "$JSON"; : > "$USERF"
+        fi
+        rm -f "$DIR"; ln -s "$SRCDIR" "$DIR"
+        echo devcontainer > "$PREP"
+      EOT
+
+      # Runs as root inside the BUILT container, after envbuilder's build and
+      # before the agent; its environment carries ENVBUILDER_ENV (a file whose
+      # TARGET_USER= line selects the user the init script runs as).
+      setup_script = <<-EOT
+        set -u
+        STATE="$ADHAR_STATE_DIR"; NAME="$ADHAR_STATE_NAME"
+        want=$(cat "$STATE/$NAME.user" 2>/dev/null || true)
+        user=root
+        if [ -n "$want" ]; then
+          if id -u "$want" >/dev/null 2>&1; then
+            user=$want
+          elif useradd -m -s /bin/bash "$want" 2>/dev/null || adduser -D -s /bin/sh "$want" 2>/dev/null; then
+            user=$want; echo "setup: created user $want (the image had none)"
+          else
+            echo "setup: cannot create user $want; running as root"
+          fi
+        fi
+        [ "$user" = root ] || echo "TARGET_USER=$user" >> "$ENVBUILDER_ENV"
+        uid=$(id -u "$user"); gid=$(id -g "$user")
+        # The volume belongs to the user the agent runs as; only touched when it
+        # does not already (a recursive chown of a full home is slow).
+        if [ "$(stat -c %u /home/coder)" != "$uid" ]; then chown -R "$uid:$gid" /home/coder; fi
+        # First start: the image's dotfiles for that user (prompt, PATH) into the
+        # home the agent will actually use.
+        h=$(getent passwd "$user" | cut -d: -f6)
+        for f in .bashrc .profile .zshrc .bash_logout; do
+          [ -e "/home/coder/$f" ] || { [ -f "$h/$f" ] && cp "$h/$f" "/home/coder/$f" && chown "$uid:$gid" "/home/coder/$f"; }
+        done
+        # Did the build produce the repository's container? envbuilder writes
+        # /.envbuilder/Dockerfile only when it falls back to the default image.
+        prep=$(cat "$STATE/$NAME.prepare" 2>/dev/null || echo none)
+        if [ "$prep" = devcontainer ] && [ -f /.envbuilder/Dockerfile ]; then
+          echo failed > "$STATE/$NAME.status"
+        else
+          echo "$prep" > "$STATE/$NAME.status"
+        fi
+        chown "$uid:$gid" "$STATE/$NAME.status"
+        echo "setup: user $user, dev container: $(cat "$STATE/$NAME.status")"
+      EOT
+    }
+
+    resource "coder_agent" "main" {
+      arch = data.coder_provisioner.me.arch
+      os   = "linux"
+      dir  = local.workspace_folder
+      env = {
+        ADHAR_STATE_DIR           = local.state_dir
+        ADHAR_STATE_NAME          = local.state
+        ADHAR_REPO_NAME           = local.repo_name
+        ADHAR_WORKSPACE_FOLDER    = local.workspace_folder
+        ADHAR_CODE_SERVER_VERSION = local.code_server_version
+        ADHAR_OWNER_EMAIL         = data.coder_workspace_owner.me.email
+      }
+
+      metadata {
+        display_name = "Dev container"
+        key          = "0_devcontainer"
+        script       = "case \"$(cat $ADHAR_STATE_DIR/$ADHAR_STATE_NAME.status 2>/dev/null)\" in devcontainer) echo 'built from .devcontainer';; failed) echo 'BUILD FAILED: plain image (see DEVCONTAINER-FAILED.md)';; none) echo 'no devcontainer: plain image';; clone-failed) echo 'clone failed: plain image (see README-ADHAR.md)';; plain) echo 'plain image';; *) echo 'preparing';; esac"
+        interval     = 30
+        timeout      = 5
+      }
+      metadata {
+        display_name = "CPU Usage"
+        key          = "1_cpu_usage"
+        script       = "coder stat cpu"
+        interval     = 10
+        timeout      = 5
+      }
+      metadata {
+        display_name = "RAM Usage"
+        key          = "2_ram_usage"
+        script       = "coder stat mem"
+        interval     = 10
+        timeout      = 5
+      }
+      metadata {
+        display_name = "Home Disk"
+        key          = "3_home_disk"
+        script       = "coder stat disk --path /home/coder"
+        interval     = 60
+        timeout      = 5
+      }
+    }
+
+    # Everything the agent does on start, in one script so the order holds:
+    # git identity, code-server + extensions, the devcontainer's
+    # postCreateCommand (once per version), the JetBrains plugin watcher, and
+    # the notice when the workspace runs on the plain image. Values come from
+    # the agent's environment (coder_agent.main.env), so the only HCL
+    # interpolation below is the escaped `$${...}`.
+    resource "coder_script" "adhar_setup" {
+      agent_id           = coder_agent.main.id
+      display_name       = "Dev container setup"
+      icon               = "/icon/code.svg"
+      run_on_start       = true
+      start_blocks_login = false
+      timeout            = 3600
+      script             = <<-EOT
+        #!/bin/bash
+        set -u
+        STATE="$ADHAR_STATE_DIR"; NAME="$ADHAR_STATE_NAME"; WS="$ADHAR_WORKSPACE_FOLDER"
+        CACHE="$HOME/.cache/adhar"
+        mkdir -p "$STATE" "$CACHE"
+        log() { echo "adhar: $*"; }
+        have() { command -v "$1" >/dev/null 2>&1; }
+        # JSONC -> JSON (comments out); the files the templates ship carry them.
+        strip() { sed -e 's|^[[:space:]]*//.*$||' -e 's|[[:space:]]//[^"]*$||' "$1"; }
+        DC=""
+        for c in .devcontainer/devcontainer.json devcontainer.json; do [ -f "$WS/$c" ] && { DC="$WS/$c"; break; }; done
+
+        # ── 1. Git identity, set (not forced) from the workspace owner ──
+        OWNER="$CODER_WORKSPACE_OWNER_NAME"; [ -n "$OWNER" ] || OWNER=coder
+        git config --global --get user.name  >/dev/null 2>&1 || git config --global user.name "$OWNER"
+        git config --global --get user.email >/dev/null 2>&1 || git config --global user.email "$ADHAR_OWNER_EMAIL"
+        # The checkout was cloned by root and chowned; a restored volume may
+        # not match either. No credential helper: GIT_ASKPASS (the agent's)
+        # answers with the person's live Gitea token.
+        git config --global --add safe.directory '*'
+
+        # ── 2. code-server, on the volume, pinned ──
+        V="$ADHAR_CODE_SERVER_VERSION"; CS="$HOME/.local/lib/code-server-$V/bin/code-server"
+        if [ ! -x "$CS" ]; then
+          log "installing code-server $V"
+          curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix="$HOME/.local" --version "$V" >"$CACHE/code-server-install.log" 2>&1 \
+            || log "code-server install failed (see $CACHE/code-server-install.log)"
+        fi
+        CS_USER="$HOME/.local/share/code-server/User"; mkdir -p "$CS_USER"
+        # Open the workspace, not the Welcome tab — only when the person has no
+        # settings yet (this is their file on a persistent volume).
+        [ -f "$CS_USER/settings.json" ] || printf '%s\n' '{' '  "workbench.startupEditor": "none"' '}' > "$CS_USER/settings.json"
+        if [ -x "$CS" ]; then
+          "$CS" --auth none --port 13337 --disable-telemetry --disable-update-check >"$CACHE/code-server.log" 2>&1 &
+        fi
+
+        # ── 3. Extensions: .vscode/extensions.json + customizations.vscode ──
+        # From Open VSX (code-server's marketplace); ids with a leading "-" are
+        # the unwanted ones. In the background: the IDE is reachable meanwhile.
+        ext_ids() {
+          if [ -f "$WS/.vscode/extensions.json" ]; then
+            if have jq; then strip "$WS/.vscode/extensions.json" | jq -r '.recommendations[]?' 2>/dev/null
+            else strip "$WS/.vscode/extensions.json" | tr -d '\n' | sed -n 's/.*"recommendations"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' | grep -o '"[^"]*"' | tr -d '"'; fi
+          fi
+          if [ -n "$DC" ] && have jq; then strip "$DC" | jq -r '.customizations.vscode.extensions[]?' 2>/dev/null; fi
+        }
+        if [ -x "$CS" ]; then
+          (
+            installed=$("$CS" --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]')
+            ext_ids | grep -v '^-' | awk 'NF && !seen[tolower($0)]++' | while read -r id; do
+              echo "$installed" | grep -qx "$(echo "$id" | tr '[:upper:]' '[:lower:]')" && continue
+              "$CS" --install-extension "$id" >/dev/null 2>&1 && log "code-server: installed $id" || log "code-server: could not install $id (not on Open VSX?)"
+            done
+            # customizations.vscode.settings, for keys the person has not set.
+            if [ -n "$DC" ] && have jq; then
+              s=$(strip "$DC" | jq -c '.customizations.vscode.settings // {}' 2>/dev/null)
+              if [ -n "$s" ] && [ "$s" != "{}" ]; then
+                jq --argjson s "$s" '$s + .' "$CS_USER/settings.json" > "$CS_USER/settings.json.tmp" 2>/dev/null && mv "$CS_USER/settings.json.tmp" "$CS_USER/settings.json" && log "code-server: devcontainer settings applied"
+              fi
+            fi
+          ) >"$CACHE/code-server-extensions.log" 2>&1 &
+        fi
+
+        # ── 4. The devcontainer's postCreateCommand, once per version ──
+        # After the editors are up, as this user, with HOME on the volume and
+        # the agent's GIT_ASKPASS in the environment. The version is the
+        # content of .devcontainer/ (and a root devcontainer.json); the marker
+        # is written only when the command succeeds, so a failed run is tried
+        # again on the next start.
+        if [ -n "$DC" ] && have jq; then
+          ver=$( (cd "$WS" && { find .devcontainer -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null; cat devcontainer.json 2>/dev/null; }) | sha256sum | cut -c1-16)
+          if [ "$(cat "$STATE/$NAME.post-create" 2>/dev/null)" != "$ver" ]; then
+            cmd=$(strip "$DC" | jq -r '.postCreateCommand
+              | if type == "string" then .
+                elif type == "array" then map(@sh) | join(" ")
+                elif type == "object" then (to_entries | map(.value | if type == "string" then . else map(@sh) | join(" ") end) | join(" && "))
+                else empty end' 2>/dev/null)
+            if [ -n "$cmd" ]; then
+              log "postCreateCommand (.devcontainer version $ver): $cmd"
+              if (cd "$WS" && timeout 1800 bash -c "$cmd"); then
+                echo "$ver" > "$STATE/$NAME.post-create"; log "postCreateCommand done"
+              else
+                log "postCreateCommand failed; it runs again on the next start (or now: cd $WS && $cmd)"
+              fi
+            else
+              echo "$ver" > "$STATE/$NAME.post-create"
+            fi
+          fi
+        fi
+
+        # ── 5. IntelliJ plugins: .idea/externalDependencies.xml + customizations.jetbrains ──
+        # Gateway downloads a backend into ~/.cache/JetBrains/RemoteDev/dist on
+        # first connect (HOME is the volume, so it stays). Installed into each
+        # backend once, the first time it appears while this workspace runs;
+        # IntelliJ picks them up when the backend next restarts.
+        jb_ids() {
+          [ -f "$WS/.idea/externalDependencies.xml" ] && sed -n 's/.*<plugin id="\([^"]*\)".*/\1/p' "$WS/.idea/externalDependencies.xml"
+          if [ -n "$DC" ] && have jq; then strip "$DC" | jq -r '.customizations.jetbrains.plugins[]?' 2>/dev/null; fi
+        }
+        mapfile -t JB < <(jb_ids | awk 'NF && !seen[$0]++')
+        if [ "$${#JB[@]}" -gt 0 ]; then
+          key=$(printf '%s\n' "$${JB[@]}" | sha256sum | cut -c1-12)
+          (
+            for i in $(seq 1 1440); do
+              for d in "$HOME"/.cache/JetBrains/RemoteDev/dist/*/; do
+                s="$d/bin/remote-dev-server.sh"; m="$d/.adhar-plugins-$key"
+                [ -x "$s" ] && [ ! -e "$m" ] || continue
+                log "jetbrains: installing $${#JB[@]} plugins into $(basename "$d")"
+                "$s" installPlugins "$WS" "$${JB[@]}" && touch "$m" && log "jetbrains: done; they take effect when the backend restarts"
+              done
+              sleep 30
+            done
+          ) >"$CACHE/jetbrains-plugins.log" 2>&1 &
+        fi
+
+        # ── 6. Say so when the workspace runs on the plain image ──
+        status=$(cat "$STATE/$NAME.status" 2>/dev/null || echo unknown)
+        NOTE="$STATE/notice"
+        if [ "$status" = failed ] && [ -n "$ADHAR_REPO_NAME" ]; then
+          printf '%s\n' "# The dev container did not build" "" \
+            "This workspace runs on the plain fallback image, not on this repository's .devcontainer." \
+            "The build log is in the Coder dashboard (workspace -> build -> envbuilder)." \
+            "Fix the Dockerfile or devcontainer.json, push or edit, and restart the workspace: every start builds again." > "$WS/DEVCONTAINER-FAILED.md"
+          grep -qx 'DEVCONTAINER-FAILED.md' "$WS/.git/info/exclude" 2>/dev/null || echo 'DEVCONTAINER-FAILED.md' >> "$WS/.git/info/exclude" 2>/dev/null || true
+          printf '%s\n' "adhar: the dev container did not build; this is the plain image. See $WS/DEVCONTAINER-FAILED.md" > "$NOTE"
+        else
+          rm -f "$WS/DEVCONTAINER-FAILED.md" "$NOTE" 2>/dev/null || true
+          [ "$status" = none ] && [ -n "$ADHAR_REPO_NAME" ] && echo "adhar: $ADHAR_REPO_NAME has no .devcontainer; this is the plain image." > "$NOTE"
+        fi
+        if ! grep -q 'adhar/devcontainer/notice' "$HOME/.bashrc" 2>/dev/null; then
+          printf '%s\n' '' '# adhar: say when this workspace runs on the plain image' '[ -f "$HOME/.adhar/devcontainer/notice" ] && cat "$HOME/.adhar/devcontainer/notice"' >> "$HOME/.bashrc"
+        fi
+        log "dev container: $status"
+      EOT
+    }
+
+    resource "coder_app" "code-server" {
+      agent_id     = coder_agent.main.id
+      slug         = "code-server"
+      display_name = "code-server"
+      icon         = "/icon/code.svg"
+      url          = "http://localhost:13337?folder=${local.workspace_folder}"
+      subdomain    = false
+      share        = "owner"
+      order        = 0
+
+      healthcheck {
+        url       = "http://localhost:13337/healthz"
+        interval  = 5
+        threshold = 10
+      }
+    }
+
+    # Desktop IDEs: deep links handed to the local machine (no `share`: the
+    # provider rejects it on external apps). JetBrains Gateway (IU) and the
+    # Coder extension for VS Code.
+    resource "coder_app" "jetbrains_gateway" {
+      agent_id     = coder_agent.main.id
+      slug         = "jetbrains-gateway"
+      display_name = "IntelliJ IDEA"
+      icon         = "/icon/intellij.svg"
+      external     = true
+      order        = 1
+      url = join("", [
+        "jetbrains-gateway://connect#type=coder",
+        "&workspace=", data.coder_workspace.me.name,
+        "&agent=main",
+        "&owner=", data.coder_workspace_owner.me.name,
+        "&url=", data.coder_workspace.me.access_url,
+        "&token=$SESSION_TOKEN",
+        "&ide_product_code=IU",
+        "&folder=", local.workspace_folder,
+      ])
+    }
+
+    resource "coder_app" "vscode_desktop" {
+      agent_id     = coder_agent.main.id
+      slug         = "vscode-desktop"
+      display_name = "VS Code Desktop"
+      icon         = "/icon/code.svg"
+      external     = true
+      order        = 2
+      url = join("", [
+        "vscode://coder.coder-remote/open?owner=", data.coder_workspace_owner.me.name,
+        "&workspace=", data.coder_workspace.me.name,
+        "&agent=main",
+        "&url=", data.coder_workspace.me.access_url,
+        "&token=$SESSION_TOKEN",
+        "&folder=", local.workspace_folder,
+      ])
+    }
+
+    resource "kubernetes_persistent_volume_claim_v1" "home" {
+      metadata {
+        name      = "${local.deployment_name}-home"
+        namespace = var.namespace
+        labels = {
+          "app.kubernetes.io/name"     = "coder-workspace-home"
+          "app.kubernetes.io/instance" = "${local.deployment_name}-home"
+          "app.kubernetes.io/part-of"  = "coder"
+          "com.coder.resource"         = "true"
+          "com.coder.workspace.id"     = data.coder_workspace.me.id
+          "com.coder.workspace.name"   = data.coder_workspace.me.name
+          "com.coder.user.id"          = data.coder_workspace_owner.me.id
+          "com.coder.user.username"    = data.coder_workspace_owner.me.name
+        }
+        annotations = {
+          "com.coder.user.email" = data.coder_workspace_owner.me.email
+        }
+      }
+      wait_until_bound = false
+      spec {
+        access_modes = ["ReadWriteOnce"]
+        resources {
+          requests = {
+            storage = "${data.coder_parameter.home_disk_size.value}Gi"
+          }
+        }
+        # The platform's default StorageClass (node-local on self-managed
+        # clouds): a workspace is one pod on one node.
+      }
+    }
+
+    resource "kubernetes_deployment_v1" "main" {
+      count            = data.coder_workspace.me.start_count
+      depends_on       = [kubernetes_persistent_volume_claim_v1.home]
+      wait_for_rollout = false
+      metadata {
+        name      = local.deployment_name
+        namespace = var.namespace
+        labels = {
+          "app.kubernetes.io/name"     = "coder-workspace"
+          "app.kubernetes.io/instance" = local.deployment_name
+          "app.kubernetes.io/part-of"  = "coder"
+          "com.coder.resource"         = "true"
+          "com.coder.workspace.id"     = data.coder_workspace.me.id
+          "com.coder.workspace.name"   = data.coder_workspace.me.name
+          "com.coder.user.id"          = data.coder_workspace_owner.me.id
+          "com.coder.user.username"    = data.coder_workspace_owner.me.name
+        }
+        annotations = {
+          "com.coder.user.email" = data.coder_workspace_owner.me.email
+        }
+      }
+      spec {
+        replicas = 1
+        selector {
+          match_labels = {
+            "app.kubernetes.io/name"     = "coder-workspace"
+            "app.kubernetes.io/instance" = local.deployment_name
+          }
+        }
+        strategy {
+          type = "Recreate"
+        }
+        template {
+          metadata {
+            labels = {
+              "app.kubernetes.io/name"     = "coder-workspace"
+              "app.kubernetes.io/instance" = local.deployment_name
+              "app.kubernetes.io/part-of"  = "coder"
+              "com.coder.workspace.id"     = data.coder_workspace.me.id
+            }
+          }
+          spec {
+            # One namespace for every platform package (ADR-0011) means a
+            # <SERVICE>_PORT variable per Service, and a developer's shell runs
+            # arbitrary tools: cosign's Service/webhook alone makes
+            # WEBHOOK_PORT=tcp://… (packages/CONFLICTS.md), which crashes
+            # anything decoding env strictly. Nothing here needs them.
+            enable_service_links = false
+            security_context {}
+
+            init_container {
+              name              = "prepare"
+              image             = local.prepare_image
+              image_pull_policy = "IfNotPresent"
+              command           = ["/bin/sh", "-c", local.prepare_script]
+              env {
+                name  = "GIT_REPO"
+                value = data.coder_parameter.git_repo.value
+              }
+              env {
+                name  = "GIT_TOKEN"
+                value = data.coder_external_auth.gitea.access_token
+              }
+              env {
+                name  = "WORKSPACE_FOLDER"
+                value = local.workspace_folder
+              }
+              env {
+                name  = "STATE_DIR"
+                value = local.state_dir
+              }
+              env {
+                name  = "STATE_NAME"
+                value = local.state
+              }
+              env {
+                name  = "FALLBACK_IMAGE"
+                value = data.coder_parameter.fallback_image.value
+              }
+              resources {
+                requests = {
+                  "cpu"    = "50m"
+                  "memory" = "64Mi"
+                }
+                limits = {
+                  "memory" = "512Mi"
+                }
+              }
+              volume_mount {
+                mount_path = "/home/coder"
+                name       = "home"
+              }
+              volume_mount {
+                mount_path = "/etc/adhar-ca"
+                name       = "adhar-ca"
+                read_only  = true
+              }
+            }
+
+            container {
+              name              = "dev"
+              image             = local.envbuilder_image
+              image_pull_policy = "IfNotPresent"
+              # envbuilder runs as root to build (unprivileged); the agent runs
+              # as the devcontainer's user, which the setup script selects.
+              security_context {}
+              env {
+                name  = "CODER_AGENT_TOKEN"
+                value = coder_agent.main.token
+              }
+              env {
+                name  = "CODER_AGENT_URL"
+                value = data.coder_workspace.me.access_url
+              }
+              env {
+                name  = "ENVBUILDER_WORKSPACE_FOLDER"
+                value = local.workspace_folder
+              }
+              env {
+                name  = "ENVBUILDER_DEVCONTAINER_DIR"
+                value = "${local.state_dir}/${local.state}.dir"
+              }
+              env {
+                name  = "ENVBUILDER_DEVCONTAINER_JSON_PATH"
+                value = "${local.state_dir}/${local.state}.json"
+              }
+              env {
+                name  = "ENVBUILDER_FALLBACK_IMAGE"
+                value = data.coder_parameter.fallback_image.value
+              }
+              # A restart replays the build from here instead of pulling and
+              # installing everything again.
+              env {
+                name  = "ENVBUILDER_LAYER_CACHE_DIR"
+                value = "${local.home}/.cache/envbuilder"
+              }
+              env {
+                name  = "ENVBUILDER_IGNORE_PATHS"
+                value = "/product_name,/product_uuid,/var/run"
+              }
+              env {
+                name  = "ENVBUILDER_SETUP_SCRIPT"
+                value = local.setup_script
+              }
+              env {
+                name  = "ADHAR_STATE_DIR"
+                value = local.state_dir
+              }
+              env {
+                name  = "ADHAR_STATE_NAME"
+                value = local.state
+              }
+              # The agent, with HOME on the volume whichever user it runs as.
+              env {
+                name  = "ENVBUILDER_INIT_SCRIPT"
+                value = "export HOME=/home/coder\ncd /home/coder 2>/dev/null || true\n${coder_agent.main.init_script}"
+              }
+              resources {
+                requests = {
+                  "cpu"    = "250m"
+                  "memory" = "512Mi"
+                }
+                limits = {
+                  "cpu"    = "${data.coder_parameter.cpu.value}"
+                  "memory" = "${data.coder_parameter.memory.value}Gi"
+                }
+              }
+              volume_mount {
+                mount_path = "/home/coder"
+                name       = "home"
+                read_only  = false
+              }
+            }
+
+            volume {
+              name = "home"
+              persistent_volume_claim {
+                claim_name = kubernetes_persistent_volume_claim_v1.home.metadata.0.name
+                read_only  = false
+              }
+            }
+            # The platform Gateway certificate, so the clone trusts a
+            # self-signed local platform; absent on a cluster without it.
+            volume {
+              name = "adhar-ca"
+              secret {
+                secret_name = "adhar-cert"
+                optional    = true
+                items {
+                  key  = "tls.crt"
+                  path = "adhar-gateway.crt"
+                }
+              }
+            }
+
+            affinity {
+              pod_anti_affinity {
+                preferred_during_scheduling_ignored_during_execution {
+                  weight = 1
+                  pod_affinity_term {
+                    topology_key = "kubernetes.io/hostname"
+                    label_selector {
+                      match_expressions {
+                        key      = "app.kubernetes.io/name"
+                        operator = "In"
+                        values   = ["coder-workspace"]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    resource "coder_metadata" "workspace" {
+      count       = data.coder_workspace.me.start_count
+      resource_id = kubernetes_deployment_v1.main[0].id
+      item {
+        key   = "repository"
+        value = local.repo_name == "" ? "none (plain workspace)" : data.coder_parameter.git_repo.value
+      }
+      item {
+        key   = "builder"
+        value = local.envbuilder_image
+      }
+      item {
+        key   = "fallback image"
+        value = data.coder_parameter.fallback_image.value
+      }
+    }
+---
+# The seed script the coder-devcontainer-template-seed Job runs (see the Job).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-devcontainer-template-seed
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+data:
+  run.sh: |
+    set -eu
+
+    # 1. Wait for the API (migrations first) and for the first user.
+    for i in $(seq 1 120); do
+      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CODER_URL}/api/v2/users/first" 2>/dev/null || echo 000)
+      [ "${code}" = "200" ] && break
+      echo "waiting for the Coder API + first user (${i}, http ${code})"
+      sleep 5
+    done
+
+    # 2. Password login for the bootstrap owner -> session token for the CLI.
+    CODER_SESSION_TOKEN=$(curl -sf --max-time 15 -X POST "${CODER_URL}/api/v2/users/login" \
+      -H 'content-type: application/json' \
+      -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+      | sed -n 's/.*"session_token":"\([^"]*\)".*/\1/p')
+    if [ -z "${CODER_SESSION_TOKEN}" ]; then
+      echo "could not sign in as ${ADMIN_EMAIL}; failing so the Job retries"
+      exit 1
+    fi
+    export CODER_SESSION_TOKEN
+
+    # 3. Idempotency, revision-aware (as templates-seed.yaml): the description
+    #    carries ${TEMPLATE_REVISION}. Stamped `-no-gitea-auth`, the template
+    #    was pushed without its Gitea provider (step 5) and is tried again
+    #    with it; stamped exactly, there is nothing to do.
+    TPL_JSON=$(/opt/coder templates list -o json 2>/dev/null || echo '[]')
+    HAVE=""
+    if echo "${TPL_JSON}" | grep -q "\"name\": *\"${TEMPLATE_NAME}\""; then
+      if echo "${TPL_JSON}" | grep -q "(${TEMPLATE_REVISION})"; then
+        echo "template ${TEMPLATE_NAME} is already at ${TEMPLATE_REVISION}; nothing to do"
+        exit 0
+      fi
+      echo "${TPL_JSON}" | grep -q "(${TEMPLATE_REVISION}-no-gitea-auth)" && HAVE=no-gitea-auth
+      echo "template ${TEMPLATE_NAME} is not at ${TEMPLATE_REVISION}; pushing a new version"
+    fi
+
+    # 4. The template files, from the tracked ConfigMap.
+    rm -rf /tmp/tpl && mkdir -p "/tmp/tpl/${TEMPLATE_NAME}"
+    cp /opt/coder-devcontainer-template/main.tf /opt/coder-devcontainer-template/README.md "/tmp/tpl/${TEMPLATE_NAME}/"
+
+    push() { # <message>
+      /opt/coder templates push "${TEMPLATE_NAME}" \
+        --directory "/tmp/tpl/${TEMPLATE_NAME}" \
+        --variable "namespace=${WORKSPACE_NAMESPACE}" \
+        --variable "use_kubeconfig=false" \
+        --message "$1" \
+        --yes 2>&1 | tee /tmp/push.log
+      # tee hides the push's status; the log says whether a version was created.
+      ! grep -qiE 'error|failed' /tmp/push.log
+    }
+
+    STAMP="${TEMPLATE_REVISION}"
+    if ! push "Adhar platform ${TEMPLATE_REVISION}: devcontainer workspaces (envbuilder), extensions from .vscode/extensions.json, IntelliJ plugins from .idea/externalDependencies.xml, postCreateCommand once per version, 1h idle autostop"; then
+      # 5. Coder refuses a template naming a provider it has not loaded
+      #    (`external auth provider "gitea" is not configured`). On a platform
+      #    where the Gitea app is not registered yet, push without it rather
+      #    than leave no devcontainer template at all: public repositories
+      #    still clone, and the next sync tries the real one.
+      if grep -qi 'not configured' /tmp/push.log; then
+        if [ "${HAVE}" = no-gitea-auth ]; then
+          echo "Coder still has no gitea external auth provider; the ${TEMPLATE_REVISION}-no-gitea-auth version stays"
+          exit 0
+        fi
+        echo "Coder has no gitea external auth provider yet; pushing without it"
+        sed -i '/# adhar:gitea-auth:begin/,/# adhar:gitea-auth:end/d; s/data\.coder_external_auth\.gitea\.access_token/""/g' "/tmp/tpl/${TEMPLATE_NAME}/main.tf"
+        STAMP="${TEMPLATE_REVISION}-no-gitea-auth"
+        push "Adhar platform ${STAMP}: devcontainer workspaces without Gitea credentials (provider not loaded yet)" \
+          || { echo "push without the provider failed too; failing so the Job retries"; exit 1; }
+      else
+        echo "push failed; failing so the Job retries"
+        exit 1
+      fi
+    fi
+
+    # 6. Stamp the revision and the idle autostop (as the kubernetes template:
+    #    --default-ttl + --activity-bump = one hour after the person stops).
+    /opt/coder templates edit "${TEMPLATE_NAME}" \
+      --display-name "Dev container" \
+      --description "Built from the repository's .devcontainer (${STAMP})" \
+      --icon "/icon/k8s.png" \
+      --default-ttl 1h \
+      --activity-bump 1h \
+      --yes || echo "could not stamp the description/TTL; the next sync will re-push"
+    echo "template ${TEMPLATE_NAME} pushed at ${STAMP}"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coder-devcontainer-template-seed
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # After oidc-reload (13): the template names the Gitea external auth
+    # provider, which Coder loads only when that hook restarts it.
+    argocd.argoproj.io/sync-wave: "14"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: seed
+          # The Coder server image: the server binary IS the CLI (/opt/coder).
+          image: ghcr.io/coder/coder:v2.37.0
+          env:
+            - name: CODER_URL
+              value: http://coder.adhar-system.svc.cluster.local:80
+            - name: HOME
+              value: /tmp
+            - name: CODER_CONFIG_DIR
+              value: /tmp/coder-config
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: coder-admin-credentials, key: username}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: coder-admin-credentials, key: password}}
+            - name: WORKSPACE_NAMESPACE
+              value: adhar-system
+            - name: TEMPLATE_NAME
+              value: devcontainer
+            # Bumped whenever main.tf changes. The template's description
+            # carries this marker (step 3 of run.sh).
+            - name: TEMPLATE_REVISION
+              value: adhar-devcontainer-v1
+          # Both scripts live in tracked ConfigMaps: Argo CD leaves PostSync
+          # hooks out of sync status, so a change made only inside this Job
+          # never re-runs it (templates-seed.yaml, 2026-10-27).
+          command: [/bin/sh, /opt/coder-devcontainer-template-seed/run.sh]
+          volumeMounts:
+            - {name: script, mountPath: /opt/coder-devcontainer-template-seed, readOnly: true}
+            - {name: template, mountPath: /opt/coder-devcontainer-template, readOnly: true}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: script
+          configMap: {name: coder-devcontainer-template-seed}
+        - name: template
+          configMap: {name: coder-devcontainer-template}

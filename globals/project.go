@@ -196,4 +196,7 @@ const BlockStorageClass = "adhar-block"
 // publish tasks sat unschedulable until the 1h pipeline timeout while other
 // workers were 70% idle, and no autoscaling can help a node-pinned pod
 // (Azure, release-adhar-kit/ui, 2026-10-18). A network volume follows the pod.
+// The copy is always on an SSD tier: on a GCP pd-standard workspace (three
+// IOPS at 4 GiB) the kit's tests ran 100-1000× slower and timed out
+// (2026-11-11); see the controller's ciStorageParameters.
 const CIStorageClass = "adhar-ci"

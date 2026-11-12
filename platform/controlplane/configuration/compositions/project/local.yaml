@@ -769,6 +769,19 @@ spec:
                           prometheus:
                             address: {{ $prom }}
                             query: {{ quote (printf "count((max by (namespace, pod) (kube_pod_container_status_terminated_reason{namespace=\"%s\",reason=\"OOMKilled\"} == 1 or kube_pod_container_status_last_terminated_reason{namespace=\"%s\",reason=\"OOMKilled\"} == 1)) and on(namespace, pod) %s and on(namespace, pod) ((time() - kube_pod_created{namespace=\"%s\"}) < %d)) or vector(0)" $ens $ens $batchPods $ens $vs) }}
+                      {{- /* The application's own error query, when it names one, as for a service. */ -}}
+                      {{- with (get $v "errorRateQuery") }}
+                      - name: {{ quote (printf "%s-error-rate" $app) }}
+                        initialDelay: {{ $vd }}
+                        interval: {{ $vi }}
+                        count: {{ $vc }}
+                        failureLimit: {{ $vf }}
+                        successCondition: {{ quote (printf "result[0] < %v" (default 0.01 (get $v "errorRateThreshold"))) }}
+                        provider:
+                          prometheus:
+                            address: {{ $prom }}
+                            query: {{ quote (replace "$NAMESPACE" $ens .) }}
+                      {{- end }}
                       {{- else if get $functions $app }}
                       {{- /* A FUNCTION (Knative). It has no Rollout, so rollout_info says
                              nothing, and its pods are revisions named

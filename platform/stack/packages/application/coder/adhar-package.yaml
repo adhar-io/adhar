@@ -39,6 +39,7 @@ keywords:
   - cde
   - remote-development
   - workspaces
+  - devcontainer
 verification:
   status: verified
   profile: production

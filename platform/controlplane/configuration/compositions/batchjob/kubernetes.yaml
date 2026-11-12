@@ -192,6 +192,12 @@ spec:
                    already keep it off the runner's contract. */ -}}
             {{- $declaredEnv := dig "env" (dict) $p -}}
             {{- range $k, $v := $declaredEnv }}{{ $_ := set $platformEnv $k $v }}{{ end -}}
+            {{- /* Except the resource attributes, which are MERGED: the run's application, namespace
+                   and pod are what every OTLP panel of its batch-jvm dashboard keys on, so a caller
+                   adding service.version must not take them away. Ours come last, so they win. */ -}}
+            {{- with get $declaredEnv "OTEL_RESOURCE_ATTRIBUTES" -}}
+            {{-   $_ := set $platformEnv "OTEL_RESOURCE_ATTRIBUTES" (printf "%s,deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s,k8s.namespace.name=%s,k8s.pod.name=$(POD_NAME),adhar.application=%s,adhar.batch.job=%s" (toString .) $env $env $ns $ns $app $name) -}}
+            {{- end -}}
             {{- $requests := dict "cpu" (dig "resources" "cpu" "1" $p) "memory" (dig "resources" "memory" "1536Mi" $p) -}}
             {{- $limits := dict "memory" (dig "resources" "memory" "1536Mi" $p) -}}
             {{- with dig "resources" "cpuLimit" "" $p }}{{ $_ := set $limits "cpu" . }}{{ end -}}
@@ -207,6 +213,10 @@ spec:
             {{-   $runLabels := dict -}}
             {{-   range $k, $v := $labels }}{{ $_ := set $runLabels $k $v }}{{ end -}}
             {{-   $_ := set $runLabels "adhar.io/batch-role" "single" -}}
+            {{- /* Alloy derives adhar_component from app.kubernetes.io/instance or `app`, which a
+                   run pod has neither of; without this its log streams carry no component and
+                   every Logs panel of the batch-jvm dashboard (adhar_component=~"app") is empty. */ -}}
+            {{-   $_ := set $runLabels "adhar.io/component" "app" -}}
             {{-   $_ := set $runLabels "adhar.io/batch-trigger" $trigger -}}
             {{-   if $scaleUp }}{{ $_ := set $runLabels "adhar.io/scale-up" "true" }}{{ end -}}
             {{-   $podAnnotations := dict "adhar.io/batch-actor" "" -}}

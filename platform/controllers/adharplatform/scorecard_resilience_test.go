@@ -85,6 +85,44 @@ func TestTheResilienceRunnerNeverTargetsProductionByDefault(t *testing.T) {
 
 // The runner creates the k6 Job and the ChaosEngine and writes the results; a
 // missing verb fails each run silently into an "error" record.
+// The faults run on a rested autoscaler, before the load test. The load test
+// pushed CPU over the HPA target, the HPA added a replica and removed one
+// again inside its scale-down window — the replacement pod-delete had just
+// caused, still booting, so it vanished at once and Litmus's recreation check
+// failed on it with `pods "…" not found`: three Error runs, 0% probes, no
+// verdict about the app, and the gate held a healthy build (transaction-service
+// in test, 2026-11-12). The runner waits until every replica is ready and no
+// HPA scale-down can still be pending before each fault and before the load.
+func TestTheResilienceRunnerLetsTheAutoscalerSettleBeforeChaos(t *testing.T) {
+	run := configMapData(t, scorecardsDir+"resilience-runner.yaml", "adhar-resilience-script")["run.sh"]
+	settle := strings.Index(run, `wait_settled "$ns" "$app"`)
+	chaos := strings.Index(run, `run_chaos "$app"`)
+	perf := strings.Index(run, `run_perf "$app"`)
+	if settle < 0 || chaos < 0 || perf < 0 {
+		t.Fatalf("run.sh no longer calls wait_settled (%d), run_chaos (%d) and run_perf (%d)", settle, chaos, perf)
+	}
+	if !(settle < chaos && chaos < perf) {
+		t.Errorf("the faults must run after the workload settled and BEFORE the load test (settle %d, chaos %d, perf %d)", settle, chaos, perf)
+	}
+	for _, want := range []string{"scaleTargetRef.name", "lastScaleTime", "stabilizationWindowSeconds", "SETTLE_MAX"} {
+		if !strings.Contains(run, want) {
+			t.Errorf("wait_settled no longer reads %s, so a pending HPA scale-down is not waited out", want)
+		}
+	}
+	// pod-delete: ONE deletion per run, and Litmus's recreation check waits as
+	// long as the app's startup probe would. Three deletions in 30 s with the
+	// default 180 s check expired on a Spring Boot replacement still booting
+	// ("container is not in running state"), on every run.
+	if strings.Contains(run, `{name:"CHAOS_INTERVAL",value:"10"}`) {
+		t.Error("pod-delete deletes a pod every 10 s again; a two-replica JVM app cannot recreate them inside Litmus's check")
+	}
+	for _, want := range []string{`{name:"CHAOS_INTERVAL",value:$i}`, `STATUS_CHECK_TIMEOUT`, `startupSeconds`} {
+		if !strings.Contains(run, want) {
+			t.Errorf("run.sh no longer carries %s, so pod-delete's recreation check ignores the app's startup budget", want)
+		}
+	}
+}
+
 func TestTheResilienceRunnerMayDoWhatItDoes(t *testing.T) {
 	role := stackObject(t, scorecardsDir+"resilience-runner.yaml", "Role", "adhar-resilience-runner")
 	b, _ := json.Marshal(role["rules"])

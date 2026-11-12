@@ -517,7 +517,9 @@ func TestGuardedPanelsExplainAnIdleWindow(t *testing.T) {
 						p.Title, nv)
 				}
 			}
-			if kind != "frontend" && checked < 5 {
+			// batch-jvm counts and times runs and takes no quantile or traffic-rated
+			// ratio (TestAppDashboardsNeverDivideByAnIdleRate), so it has none to check.
+			if kind != "frontend" && kind != "batch-jvm" && checked < 5 {
 				t.Errorf("checked %d idle-sensitive panels; the scanner is not reading the template", checked)
 			}
 		})

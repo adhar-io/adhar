@@ -19,6 +19,7 @@ package adharplatform
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -31,9 +32,10 @@ import (
 )
 
 // reconcileCIStorageClass publishes globals.CIStorageClass (see its comment):
-// a copy of the network block class when the cluster has one, otherwise of the
-// default class. StorageClass parameters are immutable, so a class created
-// before the block class existed is replaced once nothing uses it.
+// a copy of the network block class when the cluster has one (on an SSD tier,
+// see ciStorageParameters), otherwise of the default class. StorageClass
+// parameters are immutable, so a class created before the block class existed,
+// or on a slower tier, is replaced once nothing uses it.
 func (r *AdharPlatformReconciler) reconcileCIStorageClass(ctx context.Context) error {
 	source, err := r.ciStorageSource(ctx)
 	if err != nil || source == nil {
@@ -47,7 +49,8 @@ func (r *AdharPlatformReconciler) reconcileCIStorageClass(ctx context.Context) e
 	case err != nil:
 		return fmt.Errorf("reading StorageClass %s: %w", globals.CIStorageClass, err)
 	}
-	if current.Provisioner == source.Provisioner {
+	want := ciStorageClassFrom(source)
+	if current.Provisioner == want.Provisioner && maps.Equal(current.Parameters, want.Parameters) {
 		return nil
 	}
 	inUse, err := r.storageClassInUse(ctx, globals.CIStorageClass)
@@ -57,8 +60,26 @@ func (r *AdharPlatformReconciler) reconcileCIStorageClass(ctx context.Context) e
 	if err := r.Delete(ctx, current); err != nil && !k8serrors.IsNotFound(err) {
 		return fmt.Errorf("replacing StorageClass %s: %w", globals.CIStorageClass, err)
 	}
-	log.FromContext(ctx).Info("Rebuilt the CI StorageClass on the network block class", "from", current.Provisioner, "to", source.Provisioner)
-	return r.Create(ctx, ciStorageClassFrom(source))
+	log.FromContext(ctx).Info("Rebuilt the CI StorageClass on the network block class",
+		"from", current.Provisioner, "to", want.Provisioner, "parameters", want.Parameters)
+	return r.Create(ctx, want)
+}
+
+// ciStorageParameters are the source class's parameters with an HDD disk tier
+// raised to SSD. A CI workspace is a few GiB that live for one run, and what
+// it needs is IOPS, not capacity: every forked test JVM loads its jars from
+// the workspace's .m2. On GCP the block class follows the NODE disk type and
+// can be pd-standard (0.75 read IOPS per GB — three IOPS for the 4 GiB claim),
+// on which adhar-kit's suite ran 100-1000× slower than on a laptop and hit the
+// one-hour TaskRun timeout at module 18 of 30 (2026-11-11). pd-balanced has a
+// 3,000-IOPS baseline at any size, and the few GiB it costs against
+// SSD_TOTAL_GB are nothing next to the node disks that quota exists to protect.
+func ciStorageParameters(source *storagev1.StorageClass) map[string]string {
+	params := maps.Clone(source.Parameters)
+	if source.Provisioner == "pd.csi.storage.gke.io" && params["type"] == "pd-standard" {
+		params["type"] = "pd-balanced"
+	}
+	return params
 }
 
 // ciStorageSource is the class to copy: the block class, else the default one.
@@ -94,7 +115,7 @@ func ciStorageClassFrom(source *storagev1.StorageClass) *storagev1.StorageClass 
 			},
 		},
 		Provisioner:          source.Provisioner,
-		Parameters:           source.Parameters,
+		Parameters:           ciStorageParameters(source),
 		MountOptions:         source.MountOptions,
 		AllowVolumeExpansion: source.AllowVolumeExpansion,
 		ReclaimPolicy:        &reclaim,

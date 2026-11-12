@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -170,12 +171,19 @@ Built for developer productivity with enterprise-grade security and governance.`
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(ctx context.Context) error {
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		// A command may ask for a specific exit code (`adhar batch run --wait`
+		// ends with the run's); its outcome is already printed, so only an
+		// error it wraps is rendered.
+		code, hasCode := helpers.ExitCodeOf(err)
+		if !hasCode {
+			code = 1
+		}
 		// FriendlyError has already rendered a styled message + hint, so avoid
 		// printing the raw error a second time.
-		if !helpers.IsFriendlyError(err) {
+		if !helpers.IsFriendlyError(err) && (!hasCode || errors.Unwrap(err) != nil) {
 			fmt.Fprintf(os.Stderr, "%s %v\n", helpers.ErrorStyle.Render("Error:"), err)
 		}
-		os.Exit(1)
+		os.Exit(code)
 	}
 	return nil
 }

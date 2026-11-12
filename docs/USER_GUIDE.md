@@ -166,6 +166,28 @@ adhar application bind <app> sessions  # mount that Secret into a workload
 Each is a namespaced Crossplane request, so RBAC you already have decides who may
 create one, and the platform publishes the connection details as a Secret.
 
+### Batch jobs
+
+```bash
+adhar batch list --env prod                              # every BatchJob: schedule, next run, last run, hold
+adhar batch describe importer --env prod                 # definition, parameters, conditions, last 10 runs
+adhar batch run importer -p businessDate=2026-11-03 --wait --follow   # start a run and carry its exit code
+adhar batch runs importer --status failed                # the runs that failed, with exit code and outcome
+adhar batch logs importer-09932cb3 -f                    # the run's pod logs
+adhar batch stop importer-09932cb3                       # SIGTERM at the next chunk boundary (suspend)
+adhar batch resume importer-09932cb3                     # continue from the last commit (unsuspend)
+adhar batch restart importer-09932cb3                    # the same identity as importer-09932cb3-r1
+adhar batch hold importer --reason "upstream feed late"  # suspend the schedule without a commit
+adhar batch release importer
+```
+
+A run is named for its identifying parameters (`<job>-<hash8>`), so starting the
+same identity twice shows the existing run instead of running it again. With
+`--wait` an existing run that completed is a success, a failed one is restarted
+as the next `-r<n>`, and the process exit code is the run's (`-o json` prints the
+outcome). The job itself changes through Git; the hold annotation is the one
+thing an operator sets by hand.
+
 ### The platform's own packages
 
 ```bash
