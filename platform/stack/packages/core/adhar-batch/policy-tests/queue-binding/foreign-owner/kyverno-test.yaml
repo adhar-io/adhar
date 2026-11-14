@@ -1,0 +1,34 @@
+# The namespace's leaf name is right, and the Queue of that name is another team's.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: queue-binding-foreign-owner}
+policies: [../policy-under-test.yaml]
+resources: [../resources.yaml]
+variables: values.yaml
+userinfo: user.yaml
+results:
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-job-names-its-team-queue
+  kind: Job
+  resources: [own-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Job
+  resources: [own-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: CronJob
+  resources: [cron-own-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: PodGroup
+  resources: [podgroup-own-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Pod
+  resources: [volcano-pod-own-queue]
+  result: fail

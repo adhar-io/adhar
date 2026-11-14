@@ -1,0 +1,8 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: crossplane
+userInfo:
+  username: system:serviceaccount:adhar-system:crossplane
+  groups: [system:serviceaccounts, system:serviceaccounts:adhar-system, system:authenticated]
+clusterRoles: [crossplane]

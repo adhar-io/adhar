@@ -19,6 +19,21 @@ globalSettings:
   defaultHttpsPort: 8443
   enableHAMode: false
   email: "YOUR_EMAIL@example.com"
+  # How much of the cluster batch may hold when Volcano schedules it (docs/BATCH.md,
+  # design 0025 D17). Optional, and inert while the volcano package is disabled.
+  # `adhar up` renders it at seed time into Volcano's root queue `adhar-batch` and
+  # the `adhar-batch-scheduler` descriptor; leave it out and both are sized from the
+  # cluster:
+  #   capacity      30% of the CPU and 20% of the memory of maxWorkers x worker
+  #                 allocatable, in whole CPUs and GiB (22 CPU / 24Gi when the
+  #                 cluster cannot be measured)
+  #   prodDeserved  each team's prod queue share, what lets prod take capacity back
+  #                 from dev and test: the larger of 4500m / 7Gi (a 1+4 gang) and a
+  #                 quarter of the capacity, at most the capacity. Above the capacity
+  #                 is refused; below 4500m / 7Gi is accepted with a warning.
+  # batch:
+  #   capacity: { cpu: "22", memory: 24Gi }
+  #   prodDeserved: { cpu: 5500m, memory: 7Gi }
 
 # Provider configurations
 # Only configure the providers you plan to use

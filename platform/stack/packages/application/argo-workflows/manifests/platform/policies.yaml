@@ -26,11 +26,13 @@
 #       the garbage collector removes its foreground-deletion finalizer with an
 #       UPDATE. Refusing that would leave the object Terminating forever.
 #   failurePolicy
-#       Declared as the design asks (#1 Fail, #2 Ignore), but note that this
-#       platform's Kyverno runs with forceFailurePolicyIgnore (security/kyverno
-#       values.yaml): every webhook is registered Ignore, so while Kyverno is
-#       down these writes go through (FM-5). The declared value takes effect on a
-#       cluster that turns that flag off.
+#       Ignore on both (2026-11-14). The design asked #1 Fail, #2 Ignore, but this
+#       platform's Kyverno ran with forceFailurePolicyIgnore, so #1 was always
+#       registered Ignore: while Kyverno is down these writes go through (FM-5).
+#       User decision DEC-4 turned that flag off and kept every policy's behaviour
+#       by stating Ignore on each, except the two batch policies that must fail
+#       closed (TestEveryKyvernoPolicyStatesItsFailurePolicy). Fail here would put
+#       every Pod create in the cluster behind Kyverno's availability.
 #
 # Wave 25: after the engine is up. A policy Kyverno cannot make Ready would hold
 # its wave, and the guarded writes come later anyway.
@@ -51,8 +53,8 @@
 # Kyverno would normally generate the workload rule itself, but it generates
 # nothing for a policy any of whose rules matches by `names` — the two write
 # guards below do — so the workload rule is written out.
-# The pod rule rides the fail-closed webhook several pod policies on this
-# platform already use (Kyverno's default), so it adds no new failure mode.
+# The pod rule rides the fail-open (Ignore) webhook every pod policy on this
+# platform uses, so it adds no new failure mode.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -76,7 +78,7 @@ metadata:
       eight argoproj.io workflow CRDs that does not come from Argo CD.
 spec:
   background: false
-  failurePolicy: Fail
+  failurePolicy: Ignore
   rules:
     - name: refuse-litmus-chaos-infrastructure-images
       match:

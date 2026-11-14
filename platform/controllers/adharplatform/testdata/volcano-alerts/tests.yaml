@@ -1,0 +1,251 @@
+# promtool unit tests for observability/kube-prometheus/manifests/volcano-alerts.yaml.
+# TestVolcanoQueueAlertsPassTheirRuleTests writes the PrometheusRule's groups to
+# rules.yaml beside a copy of this file and runs `promtool test rules`.
+# Series are shaped exactly as kube-state-metrics v2.20.0 publishes them from
+# ../../../../stack/packages/observability/kube-prometheus/custom-resource-state.yaml
+# (customresource_* labels left out; nothing here matches on them).
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+tests:
+  # A prod leaf holding 3 of 4 CPUs with a 2-CPU gang waiting: full on cpu, not memory.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-payments-prod",parent="adhar-batch",organisation="acme",team="payments",tier="prod",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-payments-prod",parent="adhar-batch",organisation="acme",team="payments",tier="prod",resource="memory"}'
+        values: '8589934592x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-payments-prod",parent="adhar-batch",organisation="acme",team="payments",tier="prod",resource="cpu"}'
+        values: '3x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-payments-prod",parent="adhar-batch",organisation="acme",team="payments",tier="prod",resource="memory"}'
+        values: '2147483648x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-payments-prod",podgroup="settlement-x",queue="acme-payments-prod",batch_job="settlement",environment="prod",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-payments-prod",podgroup="settlement-x",queue="acme-payments-prod",batch_job="settlement",environment="prod",resource="memory"}'
+        values: '1073741824x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-payments-prod",podgroup="settlement-x",queue="acme-payments-prod",batch_job="settlement",environment="prod",phase="Pending"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-payments-prod",podgroup="settlement-x",queue="acme-payments-prod",batch_job="settlement",environment="prod",phase="Inqueue"}'
+        values: '0x60'
+    alert_rule_test:
+      # Not before it has waited 30 minutes.
+      - eval_time: 25m
+        alertname: BatchQueueSaturated
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, queue: acme-payments-prod, organisation: acme, team: payments, tier: prod, resource: cpu}
+            exp_annotations:
+              summary: "Batch queue acme-payments-prod is full on cpu"
+              description: "A gang has waited 30 minutes for queue acme-payments-prod (team payments, tier prod): what the queue holds plus what the gang needs at once is over its cpu capability. It starts when running work in the queue finishes, or once the team's allowance grows. `adhar batch queues --team acme-payments` shows the queue and its waiting gangs."
+      - eval_time: 40m
+        alertname: BatchCeilingSaturated
+        exp_alerts: []
+
+  # An idle leaf Volcano has written no allocation for, and a gang bigger than the
+  # leaf itself: it can never start, so the queue is full for it.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-payments-dev",parent="adhar-batch",organisation="acme",team="payments",tier="dev",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-payments-dev",podgroup="big-x",queue="acme-payments-dev",batch_job="big",environment="dev",resource="cpu"}'
+        values: '5x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-payments-dev",podgroup="big-x",queue="acme-payments-dev",batch_job="big",environment="dev",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, queue: acme-payments-dev, organisation: acme, team: payments, tier: dev, resource: cpu}
+            exp_annotations:
+              summary: "Batch queue acme-payments-dev is full on cpu"
+              description: "A gang has waited 30 minutes for queue acme-payments-dev (team payments, tier dev): what the queue holds plus what the gang needs at once is over its cpu capability. It starts when running work in the queue finishes, or once the team's allowance grows. `adhar batch queues --team acme-payments` shows the queue and its waiting gangs."
+
+  # Not saturated: a gang that fits, a gang admitted and waiting for NODES
+  # (Inqueue, BatchGangPending's business), and a queue outside the batch tree.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-web-prod",parent="adhar-batch",organisation="acme",team="web",tier="prod",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-web-prod",parent="adhar-batch",organisation="acme",team="web",tier="prod",resource="cpu"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-web-prod",podgroup="fits-x",queue="acme-web-prod",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-web-prod",podgroup="fits-x",queue="acme-web-prod",phase="Pending"}'
+        values: '1x60'
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-web-test",parent="adhar-batch",organisation="acme",team="web",tier="test",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-web-test",parent="adhar-batch",organisation="acme",team="web",tier="test",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-web-test",podgroup="admitted-x",queue="acme-web-test",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-web-test",podgroup="admitted-x",queue="acme-web-test",phase="Pending"}'
+        values: '0x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-web-test",podgroup="admitted-x",queue="acme-web-test",phase="Inqueue"}'
+        values: '1x60'
+      - series: 'kube_volcano_queue_spec_capability{queue="default",parent="root",resource="cpu"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="other",podgroup="theirs",queue="default",resource="cpu"}'
+        values: '8x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="other",podgroup="theirs",queue="default",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts: []
+
+  # The root is full while the gang's own leaf has room: the ceiling's alert, not the team's.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="adhar-batch",parent="root",resource="cpu"}'
+        values: '22x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="adhar-batch",parent="root",resource="cpu"}'
+        values: '21x60'
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-payments-prod",parent="adhar-batch",organisation="acme",team="payments",tier="prod",resource="cpu"}'
+        values: '8x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-payments-prod",parent="adhar-batch",organisation="acme",team="payments",tier="prod",resource="cpu"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-payments-prod",podgroup="settlement-y",queue="acme-payments-prod",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-payments-prod",podgroup="settlement-y",queue="acme-payments-prod",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchCeilingSaturated
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, resource: cpu}
+            exp_annotations:
+              summary: "The platform's batch ceiling is full on cpu"
+              description: "A gang has waited 30 minutes because the root batch queue adhar-batch, which every team's queue sits under, has no cpu left for it. The ceiling is the platform's batch share of the cluster (design 0025 §4.1, D8): raise it, or add workers and re-render it. `adhar batch queues`."
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts: []
+
+  # A closed leaf of the batch tree alerts; Volcano's own default queue does not.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_status_state{queue="acme-payments-test",parent="adhar-batch",organisation="acme",team="payments",tier="test",state="Closed"}'
+        values: '1x60'
+      - series: 'kube_volcano_queue_status_state{queue="acme-payments-test",parent="adhar-batch",organisation="acme",team="payments",tier="test",state="Open"}'
+        values: '0x60'
+      - series: 'kube_volcano_queue_status_state{queue="default",parent="root",state="Closed"}'
+        values: '1x60'
+      - series: 'kube_volcano_queue_status_state{queue="default",parent="root",state="Open"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BatchQueueClosed
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: BatchQueueClosed
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, queue: acme-payments-test, organisation: acme, team: payments, tier: test}
+            exp_annotations:
+              summary: "Batch queue acme-payments-test is closed"
+              description: "Volcano refuses every new run that names acme-payments-test while it is closed, so its scheduled runs fail at creation. A queue is closed by a Command or by hand, never by the platform itself: `kubectl get queue acme-payments-test -o yaml`, then open it again."
+
+  # A gang admitted and waiting for nodes (Inqueue) RESERVES its minimum in the
+  # queue: Volcano's capacity plugin enqueues a gang only while minReq + allocated
+  # + inqueue fits the capability, so a second gang that would fit an empty queue
+  # waits behind the reservation. The queue is full for it although nothing runs.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-ml-prod",parent="adhar-batch",organisation="acme",team="ml",tier="prod",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-ml-prod",parent="adhar-batch",organisation="acme",team="ml",tier="prod",resource="cpu"}'
+        values: '0x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-ml-prod",podgroup="train-a",queue="acme-ml-prod",resource="cpu"}'
+        values: '3x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-ml-prod",podgroup="train-a",queue="acme-ml-prod",phase="Inqueue"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-ml-prod",podgroup="train-b",queue="acme-ml-prod",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-ml-prod",podgroup="train-b",queue="acme-ml-prod",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, queue: acme-ml-prod, organisation: acme, team: ml, tier: prod, resource: cpu}
+            exp_annotations:
+              summary: "Batch queue acme-ml-prod is full on cpu"
+              description: "A gang has waited 30 minutes for queue acme-ml-prod (team ml, tier prod): what the queue holds plus what the gang needs at once is over its cpu capability. It starts when running work in the queue finishes, or once the team's allowance grows. `adhar batch queues --team acme-ml` shows the queue and its waiting gangs."
+
+  # A gang that can never fit its leaf is not hidden by a smaller one that waits
+  # for a different reason (the cluster, through the overcommit plugin): the
+  # queue is full for the big one.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-ml-dev",parent="adhar-batch",organisation="acme",team="ml",tier="dev",resource="cpu"}'
+        values: '4x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-ml-dev",podgroup="small",queue="acme-ml-dev",resource="cpu"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-ml-dev",podgroup="small",queue="acme-ml-dev",phase="Pending"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-ml-dev",podgroup="huge",queue="acme-ml-dev",resource="cpu"}'
+        values: '6x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-ml-dev",podgroup="huge",queue="acme-ml-dev",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, queue: acme-ml-dev, organisation: acme, team: ml, tier: dev, resource: cpu}
+            exp_annotations:
+              summary: "Batch queue acme-ml-dev is full on cpu"
+              description: "A gang has waited 30 minutes for queue acme-ml-dev (team ml, tier dev): what the queue holds plus what the gang needs at once is over its cpu capability. It starts when running work in the queue finishes, or once the team's allowance grows. `adhar batch queues --team acme-ml` shows the queue and its waiting gangs."
+
+  # The ceiling is about the batch tree only: a gang waiting in Volcano's own
+  # default queue is not held back by adhar-batch and must not page for it.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="adhar-batch",parent="root",resource="cpu"}'
+        values: '22x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="adhar-batch",parent="root",resource="cpu"}'
+        values: '21x60'
+      - series: 'kube_volcano_queue_status_state{queue="default",parent="root",state="Open"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="other",podgroup="theirs",queue="default",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="other",podgroup="theirs",queue="default",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchCeilingSaturated
+        exp_alerts: []
+
+  # The root's room is what its leaves hold plus what their admitted gangs
+  # reserve, whether or not Volcano writes an allocation onto the parent queue
+  # itself: two leaves holding 10 and 9 of 22 CPUs, a 2-CPU gang Inqueue in one
+  # and a 2-CPU gang waiting in the other. 10 + 9 + 2 + 2 > 22.
+  - interval: 1m
+    input_series:
+      - series: 'kube_volcano_queue_spec_capability{queue="adhar-batch",parent="root",resource="cpu"}'
+        values: '22x60'
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-a-prod",parent="adhar-batch",organisation="acme",team="a",tier="prod",resource="cpu"}'
+        values: '16x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-a-prod",parent="adhar-batch",organisation="acme",team="a",tier="prod",resource="cpu"}'
+        values: '10x60'
+      - series: 'kube_volcano_queue_spec_capability{queue="acme-b-prod",parent="adhar-batch",organisation="acme",team="b",tier="prod",resource="cpu"}'
+        values: '16x60'
+      - series: 'kube_volcano_queue_status_allocated{queue="acme-b-prod",parent="adhar-batch",organisation="acme",team="b",tier="prod",resource="cpu"}'
+        values: '9x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-a-prod",podgroup="admitted",queue="acme-a-prod",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-a-prod",podgroup="admitted",queue="acme-a-prod",phase="Inqueue"}'
+        values: '1x60'
+      - series: 'kube_volcano_podgroup_spec_min_resources{namespace="acme-b-prod",podgroup="waiting",queue="acme-b-prod",resource="cpu"}'
+        values: '2x60'
+      - series: 'kube_volcano_podgroup_status_phase{namespace="acme-b-prod",podgroup="waiting",queue="acme-b-prod",phase="Pending"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: BatchCeilingSaturated
+        exp_alerts:
+          - exp_labels: {severity: warning, source: volcano, resource: cpu}
+            exp_annotations:
+              summary: "The platform's batch ceiling is full on cpu"
+              description: "A gang has waited 30 minutes because the root batch queue adhar-batch, which every team's queue sits under, has no cpu left for it. The ceiling is the platform's batch share of the cluster (design 0025 §4.1, D8): raise it, or add workers and re-render it. `adhar batch queues`."
+      - eval_time: 40m
+        alertname: BatchQueueSaturated
+        exp_alerts: []

@@ -458,6 +458,32 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		go watchAppsBudget(bootstrapCtx, kubeClient, platformName, appsBudget, appsBudgetPoll, cancel, stopBudget)
 	}
 
+	// Volcano's root queue and every team's prod queue share, sized from this
+	// cluster before the stack is seeded (design 0025 D17). Inert while the volcano
+	// package is disabled; an explicit prod share above the ceiling is refused.
+	{
+		var batchSettings *config.BatchSettings
+		if envConfig != nil && envConfig.GlobalSettings != nil && envConfig.GlobalSettings.Batch != nil {
+			batchSettings = envConfig.GlobalSettings.Batch
+		} else if cfg != nil {
+			batchSettings = cfg.GlobalSettings.Batch
+		}
+		var batchScaling *v1alpha1.AutoscalingSpec
+		if envConfig != nil {
+			batchScaling, _ = autoscalingSpecFromConfig(envConfig.Autoscaling)
+		}
+		sizing, warnings, bErr := batchSchedulerSizing(ctx, kubeClient, batchSettings, envConfig, batchScaling)
+		if bErr != nil {
+			return fmt.Errorf("sizing the batch queues (globalSettings.batch): %w", bErr)
+		}
+		for _, w := range warnings {
+			logger.Warnf("%s", w)
+		}
+		withBatchSizing(&templateData, sizing)
+		logger.Debugf("Batch ceiling %s CPU / %s, prod share %s / %s (measured from the cluster: %v)",
+			sizing.CeilingCPU, sizing.CeilingMemory, sizing.ProdDeservedCPU, sizing.ProdDeservedMemory, sizing.Derived)
+	}
+
 	exitCh := make(chan error)
 	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsBudget, templateData, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)

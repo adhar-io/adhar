@@ -16,6 +16,19 @@
 # the WHOLE object store down — not just this bucket. That happened on a live
 # cluster (61 GiB of a backup copying itself), which is why the field exists and
 # why the quota does too.
+#
+# The connection Secret hands every bucket the store's ROOT credential
+# (design 0025 R5, risk accepted 2026-11-13). The PLAT-1.9 spike found the client CAN mint a
+# scoped identity — rc v0.1.37 has `rc admin user add`, `rc admin policy create`,
+# `rc admin policy attach` and `rc admin service-account` — so the obstacle is not
+# the tool. It is that the change swaps the credential under every existing Bucket
+# consumer at once (the Secret's keys change from root-creds to a per-bucket user)
+# and RustFS's honouring of a bucket-scoped IAM policy is unverified on a live
+# store, and the two together are not something to ship without a live bucket
+# test. Until then a Bucket is for ONE team, which docs/BATCH.md says. The
+# shape when it lands: an ESO Password generator (`refreshPolicy: CreatedOnce`)
+# mints the secret key, this Job adds the user and attaches a policy that names
+# only this bucket, and `credentialsSecret` below points at that Secret.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:

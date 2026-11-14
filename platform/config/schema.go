@@ -58,6 +58,9 @@ func (v *SchemaValidator) ValidateConfig(config *Config) error {
 
 	// Regions, counts, autoscaling ranges, disk sizes and node groups.
 	v.validateSizing(config)
+	for _, e := range ValidateBatchSettings(config.GlobalSettings.Batch) {
+		v.addError(e.field, e.value, e.msg)
+	}
 
 	if len(v.errors) > 0 {
 		return v.errors

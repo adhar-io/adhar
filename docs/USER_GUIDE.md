@@ -179,6 +179,7 @@ adhar batch resume importer-09932cb3                     # continue from the las
 adhar batch restart importer-09932cb3                    # the same identity as importer-09932cb3-r1
 adhar batch hold importer --reason "upstream feed late"  # suspend the schedule without a commit
 adhar batch release importer
+adhar batch queues --team acme-payments                  # the team's Volcano queues: used/deserved/capability, gangs waiting
 ```
 
 A run is named for its identifying parameters (`<job>-<hash8>`), so starting the
@@ -187,6 +188,19 @@ same identity twice shows the existing run instead of running it again. With
 as the next `-r<n>`, and the process exit code is the run's (`-o json` prints the
 outcome). The job itself changes through Git; the hold annotation is the one
 thing an operator sets by hand.
+
+Where Volcano is installed (opt-in; design 0025 Phase 2), a partitioned job runs
+as a Volcano Job whose manager and workers start together or not at all. `runs`
+then gains a GANG column (PodGroup phase and pods started of the gang size),
+a run waiting for its queue says why, `stop`/`resume` send Volcano's `AbortJob`/
+`ResumeJob`, `logs --role manager|worker` picks a task and `--index N` a worker,
+and `restart` still creates the next `-r<n>`. `adhar batch queues` lists the
+`adhar-batch` root and every `<org>-<team>-<env>` leaf (that needs list on
+queues); `--team` reads one team's three by name, which is what a team member may
+do. On a cluster without Volcano every command behaves as before and `queues`
+says there are none.
+The full guide — declaring a `BatchJob`, exit codes, alerts, delivery — is
+[BATCH.md](BATCH.md).
 
 ### The platform's own packages
 

@@ -90971,7 +90971,7 @@ spec:
             - --controllerRuntimeMetricsAddress=:8080
             - --enableDeferredLoading=true
             - --dumpPayload=false
-            - --forceFailurePolicyIgnore=true
+            - --forceFailurePolicyIgnore=false
             - --generateValidatingAdmissionPolicy=true
             - --generateMutatingAdmissionPolicy=false
             - --dumpPatches=false

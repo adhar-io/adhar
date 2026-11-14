@@ -117,6 +117,52 @@ e2e: build ## Run the e2e tests on Docker or Podman (ENGINE=docker|podman|nerdct
 	echo "e2e: container engine = $$engine"; \
 	KIND_EXPERIMENTAL_PROVIDER=$$engine ADHAR_E2E_ENGINE=$$engine go test -v -p 1 -timeout 120m --tags=e2e ./tests/e2e/...
 
+# The engine detection of `e2e`, for the batch targets below.
+E2E_ENGINE = engine="$(ENGINE)"; \
+	if [ -z "$$engine" ]; then \
+		for c in docker podman nerdctl finch; do command -v $$c >/dev/null 2>&1 && $$c info >/dev/null 2>&1 && { engine=$$c; break; }; done; \
+	fi; \
+	[ -n "$$engine" ] || { echo "No running container engine found (docker, podman, nerdctl or finch). The e2e tests bootstrap a Kind cluster."; exit 1; }; \
+	$$engine info >/dev/null 2>&1 || { echo "$$engine is not running. The e2e tests bootstrap a Kind cluster on it."; exit 1; }
+
+# The batch suites (tests/e2e/batch, design 0025 §17) are opt-in and skip under
+# `make e2e`: they scaffold a JVM job and wait for its kpack build, which costs a
+# Kind runner well over an hour. Each brings up (and destroys) the 'adhar' Kind
+# cluster itself; ADHAR_E2E_SKIP_UP=1 uses a running one instead.
+.PHONY: e2e-batch
+e2e-batch: build ## Batch suite on Kind (design 0025 A1.1-A1.3, A1.7, A1.9). Creates (and destroys) the local 'adhar' Kind cluster.
+	@$(E2E_ENGINE); echo "e2e-batch: container engine = $$engine"; \
+	KIND_EXPERIMENTAL_PROVIDER=$$engine ADHAR_E2E_ENGINE=$$engine ADHAR_E2E_BATCH=1 go test -v -p 1 -timeout 180m --tags=e2e ./tests/e2e/batch/...
+
+# A2.9: the same suite, plus the Phase-2 canary (A2.1-A2.7, A2.10), on a Kind
+# cluster that runs Volcano. Volcano is disabled in every shipped profile until
+# the production gate (design §15), so the harness stages a COPY of platform/stack
+# with volcano, adhar-batch-volcano and what they need switched on and runs
+# `adhar up -p <copy>`; the shipped profile is never edited.
+.PHONY: e2e-batch-volcano
+e2e-batch-volcano: build ## Batch suite + Volcano canary on Kind v1.37 with Volcano (design 0025 A2.1-A2.10). Creates (and destroys) the local 'adhar' Kind cluster.
+	@$(E2E_ENGINE); echo "e2e-batch-volcano: container engine = $$engine"; \
+	KIND_EXPERIMENTAL_PROVIDER=$$engine ADHAR_E2E_ENGINE=$$engine ADHAR_E2E_BATCH=1 ADHAR_E2E_VOLCANO=1 \
+		go test -v -p 1 -timeout 340m --tags=e2e ./tests/e2e/batch/...
+
+# core/volcano's scheduler and controllers, built from the tag the package pins,
+# run as their own ServiceAccounts on the shipped RBAC against envtest (no
+# cluster): the narrowed ClusterRoles still cover every call, and A2.4/A2.7 in
+# miniature. The version is read from the package contract, so it cannot drift.
+VOLCANO_VERSION ?= $(shell awk -F'"' '/^appVersion:/{print $$2}' platform/stack/packages/core/volcano/adhar-package.yaml)
+VOLCANO_BIN_DIR ?= $(LOCALBIN)/volcano-$(VOLCANO_VERSION)
+.PHONY: e2e-volcano-rehearsal
+e2e-volcano-rehearsal: setup-envtest ## Volcano (pinned tag) on the shipped RBAC and scheduler config, against envtest.
+	@set -e; [ -n "$(VOLCANO_VERSION)" ] || { echo "no appVersion in core/volcano/adhar-package.yaml"; exit 1; }; \
+	if [ ! -x "$(VOLCANO_BIN_DIR)/vc-scheduler" ] || [ ! -x "$(VOLCANO_BIN_DIR)/vc-controller-manager" ]; then \
+		src=$$(mktemp -d); trap 'rm -rf "$$src"' EXIT; \
+		curl -fsSL "https://github.com/volcano-sh/volcano/archive/refs/tags/$(VOLCANO_VERSION).tar.gz" | tar xz -C "$$src"; \
+		mkdir -p "$(VOLCANO_BIN_DIR)"; \
+		for c in scheduler controller-manager; do (cd "$$src"/volcano-* && CGO_ENABLED=0 go build -o "$(VOLCANO_BIN_DIR)/vc-$$c" ./cmd/$$c); done; \
+	fi; \
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" VOLCANO_BIN_DIR="$(VOLCANO_BIN_DIR)" \
+		go test ./platform/controllers/adharplatform/ -run 'TestVolcanoComponentsRunOnTheirNarrowedRBAC' -count=1 -v
+
 .PHONY: validate-packages
 validate-packages: ## Validate every package marketplace contract (platform/stack/packages/*/*/adhar-package.yaml).
 	./hack/validate-packages.sh

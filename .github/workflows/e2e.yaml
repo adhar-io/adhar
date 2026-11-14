@@ -3,10 +3,15 @@ name: E2E
 on:
   push:
     branches: ['**'] # not tags
+  # Nightly: the batch suites (below) are too long for every push.
+  schedule:
+    - cron: '23 2 * * *'
   workflow_dispatch:
 
 jobs:
   e2e:
+    # The nightly schedule is for the batch jobs; the bootstrap gate runs on push.
+    if: github.event_name != 'schedule'
     # E2E bootstraps a full platform; cancel superseded runs on the same ref —
     # one group per engine so Docker and Podman never cancel each other.
     #
@@ -82,5 +87,94 @@ jobs:
       # Gitea repos → ArgoCD API → package health → CLI status → adhar down
       - name: Run e2e tests
         run: ${SUDO:-} make e2e ENGINE=${{ matrix.engine }}
+        env:
+          HOME: /home/runner
+
+  # ─── Batch on Volcano (design 0025 Phase 2, PLAT-2.8, A2.9) ───────────────
+  #
+  # Volcano is disabled in every shipped profile until the production gate
+  # (design §15): v1.17, or a maintainer sign-off on v1.16 with THIS canary
+  # green. Design §4.6 runs it on every change to the package and what it
+  # drives (Kyverno included: DEC-4 makes the two batch policies fail closed
+  # through its chart values); a push touching none of that skips both jobs, and the nightly
+  # schedule and a manual dispatch always run them.
+  volcano-changes:
+    name: Batch/Volcano paths changed?
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.paths.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" != push ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # A new branch has no `before`: compare with where it left main.
+          base="$BEFORE"
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base=$(git merge-base origin/main HEAD 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
+          fi
+          changed=$(git diff --name-only "$base" HEAD)
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(platform/stack/packages/core/(volcano|adhar-batch)/|platform/stack/packages/security/kyverno/|platform/controlplane/configuration/(compositions/(batchjob|team)/|xrd/(batchjob|team)\.xrd\.yaml)|platform/controllers/autoscaler/|platform/controllers/adharplatform/volcano_|tests/e2e/batch/|cmd/batch/|Makefile$|\.github/workflows/e2e\.yaml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Minutes, no cluster: the pinned Volcano binaries on the shipped narrowed
+  # RBAC and scheduler configuration, against envtest. Catches a ClusterRole
+  # that lost a verb the binaries call before the long job below starts.
+  volcano-rehearsal:
+    name: Volcano rehearsal (envtest)
+    needs: volcano-changes
+    if: needs.volcano-changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build Volcano and rehearse
+        run: make e2e-volcano-rehearsal
+
+  # A2.9: the batch suite and the canary (A2.1-A2.7, A2.10) on Kind v1.37
+  # with Volcano. The harness stages a copy of platform/stack with Volcano
+  # switched on; the shipped profile is never edited.
+  batch-volcano:
+    name: Batch on Kind with Volcano (A2.1-A2.10)
+    needs: [volcano-changes, volcano-rehearsal]
+    if: needs.volcano-changes.outputs.run == 'true'
+    concurrency:
+      group: e2e-batch-volcano-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    # Above the test's own budget (go test -timeout 340m in the Makefile), so
+    # a stuck run reports why instead of being killed silently; GitHub's
+    # hosted-runner ceiling is 360.
+    timeout-minutes: 355
+    env:
+      ADHAR_E2E_UP_TIMEOUT: 40m
+      ADHAR_E2E_APPS_TIMEOUT: 25m
+      # Each suite's own budget: Phase 1 (~140m with the kpack build), then
+      # the canary (scaffold of the partitioned job plus the scenarios).
+      ADHAR_E2E_BATCH_TIMEOUT: 150m
+      ADHAR_E2E_VOLCANO_SCENARIO_TIMEOUT: 20m
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run the batch suite with Volcano
+        run: make e2e-batch-volcano ENGINE=docker
         env:
           HOME: /home/runner

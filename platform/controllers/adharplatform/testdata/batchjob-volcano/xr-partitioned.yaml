@@ -1,0 +1,17 @@
+# The design's partitioned, on-demand example (0025 §6.3), in dev.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: reconciler
+  namespace: dev
+spec:
+  parameters:
+    job: reconcileJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/reconciler:1.0.0
+    mode: partitioned
+    workers: 4
+    gridSize: 32
+    resources: { cpu: "500m", memory: 1Gi, workerCpu: "1", workerMemory: 1536Mi }
+    parameters:
+      - { name: businessDate, type: date, required: true }
+    database: { secretRef: reconciler-db-app }

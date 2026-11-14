@@ -1,0 +1,9 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: volcano-prod-only
+namespaceSelector:
+  - name: shop-prod
+    labels: { adhar.io/environment: prod }
+  - name: shop-dev
+    labels: { adhar.io/environment: dev }

@@ -17,6 +17,8 @@ metadata:
       preemptible pod to one node) and has a deadline and a TTL.
 spec:
   background: true
+  webhookConfiguration:
+    failurePolicy: Ignore
   rules:
     - name: a-run-has-a-deadline-and-a-ttl
       match: &batchRuns
@@ -29,21 +31,39 @@ spec:
       validate:
         failureAction: Audit
         message: A batch run needs activeDeadlineSeconds and ttlSecondsAfterFinished (design 0025 INV-1).
+        # "?*", not ">=0": Kyverno reads a MISSING field as passing a numeric
+        # comparison, so ">=0" admitted a run with no TTL at all (kyverno v1.19.0,
+        # 2026-11-14). ttlSecondsAfterFinished: 0 is still a TTL and passes.
         pattern:
           spec:
             activeDeadlineSeconds: ">0"
-            ttlSecondsAfterFinished: ">=0"
+            ttlSecondsAfterFinished: "?*"
     - name: a-run-pod-never-restarts-in-place-and-uses-a-batch-class
       match: *batchRuns
       validate:
         failureAction: Audit
-        message: A batch run pod needs restartPolicy Never and the PriorityClass adhar-batch or adhar-batch-critical.
+        message: A batch run pod needs restartPolicy Never and a batch PriorityClass (adhar-batch or adhar-batch-critical; adhar-batch-volcano or adhar-batch-volcano-critical when it names schedulerName volcano).
         pattern:
           spec:
             template:
               spec:
                 restartPolicy: Never
-                priorityClassName: "adhar-batch | adhar-batch-critical"
+                priorityClassName: "adhar-batch | adhar-batch-critical | adhar-batch-volcano | adhar-batch-volcano-critical"
+    # A single-mode run on Volcano (a batch/v1 Job naming schedulerName volcano, §6.4)
+    # takes a Volcano class, or Volcano can neither reclaim nor preempt for it (DEC-1).
+    # The dangerous direction, a Volcano class on a kube-scheduler pod, is Enforced by
+    # adhar-batch-volcano-classes.
+    - name: a-volcano-scheduled-run-pod-uses-a-volcano-class
+      match: *batchRuns
+      validate:
+        failureAction: Audit
+        message: A batch run pod that names schedulerName volcano needs the PriorityClass adhar-batch-volcano or adhar-batch-volcano-critical (Volcano refuses to reclaim or preempt for a preemptionPolicy Never class).
+        pattern:
+          spec:
+            template:
+              spec:
+                (schedulerName): volcano
+                priorityClassName: "adhar-batch-volcano | adhar-batch-volcano-critical"
     - name: a-run-mounts-no-persistent-volume
       match: *batchRuns
       validate:

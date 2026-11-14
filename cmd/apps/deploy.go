@@ -335,8 +335,8 @@ const cliFieldManager = "adhar-cli"
 // applyApplication does (control-plane.ts): no force, so a field another
 // manager set differently is reported as a conflict rather than taken over.
 // A control plane whose XRD predates spec.parameters.type, or its `function`
-// value, refuses the whole object ("field not declared in schema" /
-// `Unsupported value: "function"`); that one refusal is retried without the
+// or `batch` value, refuses the whole object ("field not declared in schema" /
+// `Unsupported value: "batch"`); that one refusal is retried without the
 // field — the adhar.io/dashboard-type and adhar.io/workload labels still say
 // what the app is.
 func applyWithTypeRetry(app *unstructured.Unstructured, apply func(*unstructured.Unstructured) error) error {
@@ -373,7 +373,7 @@ func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path strin
 	}
 	dashboard := s.TemplateLabels["adhar.io/dashboard-type"]
 	switch dashboard {
-	case "backend-jvm", "backend-generic", "frontend", "fullstack":
+	case "backend-jvm", "backend-generic", "frontend", "fullstack", "batch-jvm":
 		labels["adhar.io/dashboard-type"] = dashboard
 	default:
 		dashboard = ""
@@ -388,11 +388,11 @@ func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path strin
 		},
 	}
 	// The Console's applicationTypeOf: a function template deploys a Function
-	// XR per environment, a browser app is `web`, anything else keeps the
-	// XRD's default (`service`).
-	if isFunctionTemplate(s) {
-		labels["adhar.io/workload"] = "function"
-		params["type"] = "function"
+	// XR per environment, a batch template a BatchJob, a browser app is `web`,
+	// anything else keeps the XRD's default (`service`).
+	if workload := scaffoldWorkload(s); workload != "" {
+		labels["adhar.io/workload"] = workload
+		params["type"] = workload
 	} else if dashboard == "frontend" || dashboard == "fullstack" {
 		params["type"] = "web"
 	}
@@ -406,6 +406,43 @@ func pavedRoadApplication(appName, project string, s *scaffoldedRepo, path strin
 		},
 		"spec": map[string]interface{}{"parameters": params},
 	}}
+}
+
+// scaffoldWorkload is what a template scaffolds when it is not an ordinary
+// container service — the Console's scaffoldWorkload (scaffolder.ts →
+// inferFamily): what the template declares comes first, then a batch
+// template, then a function one. Batch goes before function because a batch
+// template is routinely named `*-service` and tagged `etl`.
+func scaffoldWorkload(s *scaffoldedRepo) string {
+	switch {
+	case s.TemplateLabels["adhar.io/workload"] == "function":
+		return "function"
+	case isBatchTemplate(s):
+		return "batch"
+	case isFunctionTemplate(s):
+		return "function"
+	}
+	return ""
+}
+
+// batchTemplateRe is the Console's isBatchTemplate name rule
+// (apps/console/app/server/templates.ts).
+var batchTemplateRe = regexp.MustCompile(`^springboot-batch(-|$)`)
+
+// isBatchTemplate says whether a template scaffolds a Spring Batch job: its
+// adhar.io/workload: batch label, a `springboot-batch-*` name or a `batch` tag
+// (design 0025 §7.5).
+func isBatchTemplate(s *scaffoldedRepo) bool {
+	if s.TemplateLabels["adhar.io/workload"] == "batch" ||
+		batchTemplateRe.MatchString(strings.ToLower(strings.TrimSpace(s.TemplateName))) {
+		return true
+	}
+	for _, tag := range s.TemplateTags {
+		if strings.ToLower(strings.TrimSpace(tag)) == "batch" {
+			return true
+		}
+	}
+	return false
 }
 
 // functionTemplateRe is the Console's isFunctionTemplate name rule

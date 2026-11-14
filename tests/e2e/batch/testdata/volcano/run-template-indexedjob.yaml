@@ -1,0 +1,52 @@
+# ConfigMap settlement-run of the same partitioned BatchJob on a cluster without
+# Volcano: the native fallback of design 0025 §4.5 (A2.10), written from the
+# contract like run-template-volcanojob.yaml beside it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settlement-run
+  namespace: prod
+data:
+  kind: IndexedJob
+  naming: v1
+  parameters.json: '[{"identifying":true,"name":"businessDate","required":false,"sensitive":false,"source":"schedule","type":"date"}]'
+  template.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      labels: {adhar.io/batch-job: settlement, adhar.io/workload: batch, adhar.io/batch-trigger: manual}
+      namespace: prod
+    spec:
+      completionMode: Indexed
+      completions: 5
+      parallelism: 5
+      backoffLimit: 3
+      podReplacementPolicy: Failed
+      ttlSecondsAfterFinished: 604800
+      activeDeadlineSeconds: 21600
+      successPolicy:
+        rules:
+          - succeededIndexes: "0"
+      podFailurePolicy:
+        rules:
+          - action: Ignore
+            onPodConditions: [{type: DisruptionTarget, status: "True"}]
+          - action: FailJob
+            onExitCodes: {containerName: batch, operator: In, values: [2, 3, 4, 6, 7]}
+      template:
+        metadata:
+          labels: {adhar.io/batch-job: settlement, adhar.io/workload: batch}
+        spec:
+          restartPolicy: Never
+          priorityClassName: adhar-batch-critical
+          containers:
+            - name: batch
+              image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+              env:
+                - {name: ADHAR_BATCH_ROLE, value: indexed}
+                - {name: ADHAR_BATCH_MODE, value: partitioned}
+                - {name: ADHAR_BATCH_TRIGGER, value: manual}
+                - {name: ADHAR_BATCH_PARAMS, value: "{}"}
+              resources:
+                requests: {cpu: "1", memory: 1536Mi}
+                limits: {memory: 1536Mi}

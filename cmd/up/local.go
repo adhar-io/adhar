@@ -267,6 +267,15 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) (err e
 		return err
 	}
 	lp.options.TemplateData.SelfSignedCert = string(cert)
+	// Volcano's queues sized from the Kind node (design 0025 D17); inert while the
+	// volcano package is disabled, which it is in the local profile. A failure to
+	// read the node leaves the reference sizing, never a failed `adhar up`.
+	if sizing, warnings, bErr := batchSchedulerSizing(ctx, kubeClient, nil, nil, nil); bErr == nil {
+		for _, w := range warnings {
+			logger.Warnf("%s", w)
+		}
+		withBatchSizing(&lp.options.TemplateData, sizing)
+	}
 	tracker.Done(2)
 
 	// Stages 4–8: the AdharPlatform controller installs the core components

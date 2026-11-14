@@ -439,6 +439,17 @@ data:
       # Litmus must wait for a replacement pod at least as long as the app's
       # startup probe would (fault_env, pod-delete); 300 s when it has none.
       STATUS_TIMEOUT="$(printf '%s' "$wl" | jq -r '[((.startupSeconds // 0) + 120), 300] | max')"
+      # Deleting the ONLY pod measures an outage by construction, not the app:
+      # dev runs one replica (its overlay), so pod-delete there failed every
+      # gate with 503 and, killing the pod mid-verification, failed Kargo's
+      # rollout-healthy check as well (transaction-service in dev, 2026-11-13).
+      # Recorded as not applicable, which does not block the gate.
+      desired="$(printf '%s' "$wl" | jq -r '.replicas // 1')"
+      if [ "$exp" = pod-delete ] && [ "${desired:-1}" -lt 2 ]; then
+        jq -nc --arg e "$exp" --argjson r "${desired:-1}" '{status:"unavailable",experiment:$e,replicas:$r,
+          detail:"pod-delete needs at least 2 replicas; with \($r) it can only measure an outage"}'
+        return
+      fi
       if ! kubectl get crd chaosengines.litmuschaos.io >/dev/null 2>&1 \
          || ! kubectl -n "$NS" get chaosexperiments.litmuschaos.io "$exp" >/dev/null 2>&1; then
         jq -nc --arg e "$exp" '{status:"unavailable",experiment:$e,detail:"Litmus (the litmus package) or its \($e) fault is not installed, so this experiment cannot run"}'

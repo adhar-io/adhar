@@ -17,3 +17,9 @@ results:
   - { policy: adhar-batch-pod-standards, rule: a-run-mounts-no-persistent-volume, kind: Job, resources: [bad], result: fail }
   - { policy: adhar-batch-pod-standards, rule: a-run-containers-memory-request-equals-its-limit, kind: Job, resources: [good], result: pass }
   - { policy: adhar-batch-pod-standards, rule: a-run-containers-memory-request-equals-its-limit, kind: Job, resources: [bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-run-has-a-deadline-and-a-ttl, kind: Job, resources: [no-ttl], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-run-has-a-deadline-and-a-ttl, kind: Job, resources: [volcano-single], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-pod-never-restarts-in-place-and-uses-a-batch-class, kind: Job, resources: [volcano-single, volcano-single-native-class], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [volcano-single], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [volcano-single-native-class], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [good], result: skip }

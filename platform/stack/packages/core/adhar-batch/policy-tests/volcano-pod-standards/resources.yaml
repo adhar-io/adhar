@@ -1,0 +1,593 @@
+# A partitioned run as design 0025 §4.5 renders it (1 manager + 4 workers), and
+# variants that each break one standard.
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: standard-run
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: no-ttl
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: no-task-deadline
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: restarts-in-place
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: OnFailure
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: service-priority
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-node-bound
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: task-service-priority
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+        priorityClassName: adhar-critical-path
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: claims-a-volume
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  volumes:
+  - mountPath: /data
+    volumeClaim:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: mounts-a-pvc
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+        volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: data
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: overcommits-memory
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+        activeDeadlineSeconds: 21600
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: not-batch
+  namespace: shop-prod
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-volcano-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+---
+# A Volcano run on a native, preemptionPolicy Never class (DEC-1, 2026-11-14).
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: native-class
+  namespace: shop-prod
+  labels:
+    adhar.io/batch-job: settlement
+    adhar.io/workload: batch
+spec:
+  schedulerName: volcano
+  queue: acme-payments-prod
+  priorityClassName: adhar-batch-critical
+  minAvailable: 5
+  maxRetry: 3
+  ttlSecondsAfterFinished: 604800
+  tasks:
+  - name: manager
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600
+  - name: worker
+    replicas: 4
+    template:
+      metadata:
+        labels:
+          adhar.io/workload: batch
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+          resources:
+            requests:
+              cpu: '1'
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+        activeDeadlineSeconds: 21600

@@ -1,0 +1,47 @@
+# settlement before Volcano was enabled: a native CronJob (Indexed runs) with a run
+# in flight. Turning Volcano on must not delete it under that run.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: settlement-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000021
+  annotations:
+    crossplane.io/composition-resource-name: runner-sa
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settlement-run
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000024
+  annotations:
+    crossplane.io/composition-resource-name: run-template
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: settlement
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000025
+  annotations:
+    crossplane.io/composition-resource-name: schedule-native
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Asia/Singapore
+  concurrencyPolicy: Forbid
+  suspend: false
+  jobTemplate:
+    spec:
+      completionMode: Indexed
+      completions: 5
+      parallelism: 5
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - { name: batch, image: "harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222" }
+status:
+  lastScheduleTime: "2026-11-13T18:00:00Z"
+  active:
+    - { apiVersion: batch/v1, kind: Job, name: settlement-29387160, namespace: prod }

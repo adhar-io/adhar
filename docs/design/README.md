@@ -29,5 +29,8 @@ Each doc verifies its cited paths/symbols against the tree and closes with a **d
 | 0022 | [Custom clusters, no managed K8s](0022-custom-clusters-no-managed-k8s.md) | [ADR-0022](../adr/0022-custom-clusters-no-managed-k8s.md) |
 | 0023 | [Control-plane / data-plane separation](0023-control-dataplane-separation.md) 🔜 | [ADR-0023](../adr/0023-control-dataplane-separation.md) |
 | 0024 | [Agentic AI platform (Adhar AI)](0024-agentic-ai-platform.md) 🔜 | [ADR-0024](../adr/0024-agentic-ai-platform.md) |
+| 0025 | [Batch platform (Spring Batch, adhar-kit, `BatchJob`, Volcano)](0025-batch-platform.md) 🔜¹ | [ADR-0028](../adr/0028-batch-scheduler.md) |
 
 🔜 = forward-looking design (proposed, not yet built). All others are as-built.
+
+¹ Numbered out of step with its ADR (commissioned as 0025, ADR-0028; see the design's §19). Phase 1, batch on plain Kubernetes, is implemented (live acceptance pending); Phases 2–4 are forward-looking. User guide: [BATCH.md](../BATCH.md).

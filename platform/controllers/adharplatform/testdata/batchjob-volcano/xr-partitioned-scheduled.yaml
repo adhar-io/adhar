@@ -1,0 +1,20 @@
+# A scheduled partitioned job in prod, opted in to buying nodes: the §4.5 gang.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: settlement
+  namespace: prod
+spec:
+  parameters:
+    job: settlementJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    mode: partitioned
+    workers: 4
+    schedule: { cron: "0 2 * * *", timeZone: Asia/Singapore }
+    resources: { cpu: "500m", memory: 1Gi, workerCpu: "500m", workerMemory: 1Gi }
+    parameters:
+      - { name: businessDate, type: date, source: schedule }
+    priority: critical
+    scaleUp: true
+    database: { secretRef: settlement-db-app }
+    sla: { maxDuration: 2h }

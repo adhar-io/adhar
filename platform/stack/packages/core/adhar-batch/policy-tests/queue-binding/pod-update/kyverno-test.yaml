@@ -1,0 +1,21 @@
+# A pod re-annotated after admission: onto team B's queue, a wildcard, or no queue
+# at all (Volcano's `default`) is denied; an update that leaves the queue alone is
+# not checked again.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: queue-binding-pod-update}
+policies: [../policy-under-test.yaml]
+resources: [../resources.yaml]
+variables: values.yaml
+userinfo: user.yaml
+results:
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [volcano-pod-team-b-queue, volcano-pod-wildcard-queue, volcano-pod-unset]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [volcano-pod-own-queue]
+  result: skip

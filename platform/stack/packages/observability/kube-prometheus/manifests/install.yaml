@@ -97302,6 +97302,112 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: prometheus-kube-state-metrics-customresourcestate-config
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: kube-state-metrics-8.4.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-state-metrics
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/version: 2.20.0
+    release: prometheus
+data:
+  config.yaml: "kind: CustomResourceStateMetrics\nspec:\n  resources:\n  - groupVersionKind:\n\
+    \      group: scheduling.volcano.sh\n      kind: PodGroup\n      version: v1beta1\n\
+    \    labelsFromPath:\n      batch_job:\n      - metadata\n      - labels\n   \
+    \   - adhar.io/batch-job\n      environment:\n      - metadata\n      - labels\n\
+    \      - adhar.io/environment\n      namespace:\n      - metadata\n      - namespace\n\
+    \      podgroup:\n      - metadata\n      - name\n      queue:\n      - spec\n\
+    \      - queue\n    metricNamePrefix: kube_volcano_podgroup\n    metrics:\n  \
+    \  - each:\n        stateSet:\n          labelName: phase\n          list:\n \
+    \         - Pending\n          - Inqueue\n          - Running\n          - Unknown\n\
+    \          - Completed\n          path:\n          - status\n          - phase\n\
+    \        type: StateSet\n      help: 'The PodGroup''s phase. Pending and Inqueue\
+    \ are a gang that is waiting:\n        Pending for its queue, Inqueue for nodes.'\n\
+    \      name: status_phase\n    - each:\n        gauge:\n          path:\n    \
+    \      - spec\n          - minMember\n        type: Gauge\n      help: Members\
+    \ the gang needs before any of them is bound (minMember).\n      name: spec_min_member\n\
+    \    - each:\n        gauge:\n          labelFromKey: resource\n          path:\n\
+    \          - spec\n          - minResources\n        type: Gauge\n      help:\
+    \ 'What the gang needs admitted at once (minResources) per resource: what\n  \
+    \      its queue must have room for.'\n      name: spec_min_resources\n    - each:\n\
+    \        gauge:\n          nilIsZero: true\n          path:\n          - status\n\
+    \          - running\n        type: Gauge\n      help: Members running.\n    \
+    \  name: status_running\n    - each:\n        gauge:\n          nilIsZero: true\n\
+    \          path:\n          - status\n          - succeeded\n        type: Gauge\n\
+    \      help: Members that succeeded.\n      name: status_succeeded\n    - each:\n\
+    \        gauge:\n          nilIsZero: true\n          path:\n          - status\n\
+    \          - failed\n        type: Gauge\n      help: Members that failed.\n \
+    \     name: status_failed\n    - each:\n        gauge:\n          labelsFromPath:\n\
+    \            reason:\n            - reason\n            type:\n            - type\n\
+    \          path:\n          - status\n          - conditions\n          valueFrom:\n\
+    \          - status\n        type: Gauge\n      help: The PodGroup's conditions\
+    \ (Unschedulable carries the scheduler's reason).\n      name: status_condition\n\
+    \    - each:\n        gauge:\n          path:\n          - metadata\n        \
+    \  - creationTimestamp\n        type: Gauge\n      help: Unix creation time of\
+    \ the PodGroup.\n      name: created\n  - groupVersionKind:\n      group: batch.volcano.sh\n\
+    \      kind: Job\n      version: v1alpha1\n    labelsFromPath:\n      batch_job:\n\
+    \      - metadata\n      - labels\n      - adhar.io/batch-job\n      environment:\n\
+    \      - metadata\n      - labels\n      - adhar.io/environment\n      namespace:\n\
+    \      - metadata\n      - namespace\n      queue:\n      - spec\n      - queue\n\
+    \      vcjob:\n      - metadata\n      - name\n    metricNamePrefix: kube_volcano_job\n\
+    \    metrics:\n    - each:\n        stateSet:\n          labelName: phase\n  \
+    \        list:\n          - Pending\n          - Aborting\n          - Aborted\n\
+    \          - Running\n          - Restarting\n          - Completing\n       \
+    \   - Completed\n          - Terminating\n          - Terminated\n          -\
+    \ Failed\n          path:\n          - status\n          - state\n          -\
+    \ phase\n        type: StateSet\n      help: The Volcano Job's phase.\n      name:\
+    \ status_phase\n    - each:\n        gauge:\n          path:\n          - spec\n\
+    \          - minAvailable\n        type: Gauge\n      help: 'Pods the job needs\
+    \ running together (minAvailable): the gang size.'\n      name: spec_min_available\n\
+    \    - each:\n        gauge:\n          nilIsZero: true\n          path:\n   \
+    \       - status\n          - pending\n        type: Gauge\n      help: Pods pending.\n\
+    \      name: status_pending\n    - each:\n        gauge:\n          nilIsZero:\
+    \ true\n          path:\n          - status\n          - running\n        type:\
+    \ Gauge\n      help: Pods running.\n      name: status_running\n    - each:\n\
+    \        gauge:\n          nilIsZero: true\n          path:\n          - status\n\
+    \          - succeeded\n        type: Gauge\n      help: Pods that succeeded.\n\
+    \      name: status_succeeded\n    - each:\n        gauge:\n          nilIsZero:\
+    \ true\n          path:\n          - status\n          - failed\n        type:\
+    \ Gauge\n      help: Pods that failed.\n      name: status_failed\n    - each:\n\
+    \        gauge:\n          nilIsZero: true\n          path:\n          - status\n\
+    \          - retryCount\n        type: Gauge\n      help: Times the whole gang\
+    \ was restarted (RestartJob).\n      name: status_retry_count\n    - each:\n \
+    \       gauge:\n          path:\n          - metadata\n          - creationTimestamp\n\
+    \        type: Gauge\n      help: Unix creation time of the Volcano Job.\n   \
+    \   name: created\n  - groupVersionKind:\n      group: scheduling.volcano.sh\n\
+    \      kind: Queue\n      version: v1beta1\n    labelsFromPath:\n      organisation:\n\
+    \      - metadata\n      - labels\n      - adhar.io/organisation\n      parent:\n\
+    \      - spec\n      - parent\n      queue:\n      - metadata\n      - name\n\
+    \      team:\n      - metadata\n      - labels\n      - adhar.io/team\n      tier:\n\
+    \      - metadata\n      - labels\n      - adhar.io/tier\n    metricNamePrefix:\
+    \ kube_volcano_queue\n    metrics:\n    - each:\n        stateSet:\n         \
+    \ labelName: state\n          list:\n          - Open\n          - Closed\n  \
+    \        - Closing\n          - Unknown\n          path:\n          - status\n\
+    \          - state\n        type: StateSet\n      help: The queue's state; only\
+    \ an Open queue takes new work.\n      name: status_state\n    - each:\n     \
+    \   gauge:\n          labelFromKey: resource\n          path:\n          - spec\n\
+    \          - capability\n        type: Gauge\n      help: 'The queue''s ceiling\
+    \ (capability) per resource: cpu in cores, memory\n        in bytes.'\n      name:\
+    \ spec_capability\n    - each:\n        gauge:\n          labelFromKey: resource\n\
+    \          path:\n          - status\n          - allocated\n        type: Gauge\n\
+    \      help: What the queue's running work holds per resource.\n      name: status_allocated\n\
+    \    - each:\n        gauge:\n          nilIsZero: true\n          path:\n   \
+    \       - status\n          - pending\n        type: Gauge\n      help: PodGroups\
+    \ waiting for the queue to admit them.\n      name: status_pending\n    - each:\n\
+    \        gauge:\n          nilIsZero: true\n          path:\n          - status\n\
+    \          - inqueue\n        type: Gauge\n      help: PodGroups admitted by the\
+    \ queue and waiting for nodes.\n      name: status_inqueue\n    - each:\n    \
+    \    gauge:\n          nilIsZero: true\n          path:\n          - status\n\
+    \          - running\n        type: Gauge\n      help: PodGroups running.\n  \
+    \    name: status_running\n"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: prometheus-kube-prometheus-grafana-datasource
   namespace: adhar-system
   labels:
@@ -97553,6 +97659,28 @@ rules:
   - storage.k8s.io
   resources:
   - volumeattachments
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - batch.volcano.sh
+  resources:
+  - jobs
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - scheduling.volcano.sh
+  resources:
+  - podgroups
+  - queues
   verbs:
   - list
   - watch
@@ -98439,6 +98567,11 @@ spec:
         - --port=8080
         - --resources=certificatesigningrequests,configmaps,cronjobs,daemonsets,deployments,endpointslices,horizontalpodautoscalers,ingresses,jobs,leases,limitranges,mutatingwebhookconfigurations,namespaces,networkpolicies,nodes,persistentvolumeclaims,persistentvolumes,poddisruptionbudgets,pods,replicasets,replicationcontrollers,resourcequotas,secrets,services,statefulsets,storageclasses,validatingwebhookconfigurations,volumeattachments
         - --metric-labels-allowlist=jobs=[adhar.io/batch-job,adhar.io/application,adhar.io/environment],pods=[adhar.io/batch-job,adhar.io/application,adhar.io/environment],cronjobs=[adhar.io/batch-job,adhar.io/application]
+        - --custom-resource-state-config-file=/etc/customresourcestate/config.yaml
+        volumeMounts:
+        - name: customresourcestate-config
+          mountPath: /etc/customresourcestate
+          readOnly: true
         imagePullPolicy: IfNotPresent
         image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0
         ports:
@@ -98473,6 +98606,10 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+      volumes:
+      - name: customresourcestate-config
+        configMap:
+          name: prometheus-kube-state-metrics-customresourcestate-config
 
 ---
 apiVersion: apps/v1

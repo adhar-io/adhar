@@ -74,6 +74,8 @@ var (
 	jobGVR        = schema.GroupVersionResource{Group: "batch", Version: "v1", Resource: "jobs"}
 	volcanoJobGVR = schema.GroupVersionResource{Group: "batch.volcano.sh", Version: "v1alpha1", Resource: "jobs"}
 	commandGVR    = schema.GroupVersionResource{Group: "bus.volcano.sh", Version: "v1alpha1", Resource: "commands"}
+	podGroupGVR   = schema.GroupVersionResource{Group: "scheduling.volcano.sh", Version: "v1beta1", Resource: "podgroups"}
+	queueGVR      = schema.GroupVersionResource{Group: "scheduling.volcano.sh", Version: "v1beta1", Resource: "queues"}
 	podGVR        = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 	configMapGVR  = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
 )
@@ -103,6 +105,11 @@ A run is named for its identifying parameters, <job>-<hash8>, so starting the
 same identity twice shows the existing run instead of running it again; a
 restart of a failed run is <job>-<hash8>-r<n>.
 
+Where Volcano is installed, a partitioned job runs as a Volcano Job whose
+manager and workers start together or not at all: its runs show the queue they
+wait in and their gang, stop and resume become Volcano commands, and
+` + "`queues`" + ` shows each team's queues and what they hold.
+
 A BatchJob lives in an environment namespace. Name it with -n, or with --env
 and --project, which resolve the namespace from the Project's environments.
 
@@ -113,7 +120,8 @@ Examples:
   adhar batch logs importer-09932cb3 -f         # the run's pod logs
   adhar batch stop importer-09932cb3            # SIGTERM at the next chunk boundary
   adhar batch restart importer-09932cb3         # the same identity, only the failed steps
-  adhar batch hold importer --reason "upstream feed late"`,
+  adhar batch hold importer --reason "upstream feed late"
+  adhar batch queues --team acme-payments       # the team's Volcano queues and their usage`,
 }
 
 func init() {
@@ -122,7 +130,7 @@ func init() {
 	BatchCmd.PersistentFlags().StringVar(&projectFlag, "project", defaultProject, "Project whose environments --env names")
 	BatchCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "table", "Output format (table, json, yaml)")
 
-	BatchCmd.AddCommand(listCmd, describeCmd, runsCmd, runCmd, logsCmd, stopCmd, resumeCmd, restartCmd, holdCmd, releaseCmd)
+	BatchCmd.AddCommand(listCmd, describeCmd, runsCmd, runCmd, logsCmd, stopCmd, resumeCmd, restartCmd, holdCmd, releaseCmd, queuesCmd)
 }
 
 func ctx(cmd *cobra.Command) context.Context {
@@ -249,6 +257,12 @@ func getRun(c context.Context, dc dynamic.Interface, namespace, name string) (*u
 	}
 	vc, verr := dc.Resource(volcanoJobGVR).Namespace(namespace).Get(c, name, metav1.GetOptions{})
 	if verr == nil {
+		// The same gate as a Job: a Volcano Job that is not a batch run (a
+		// team's own training job) must not be stopped, resumed or restarted
+		// as one — stop would send it an AbortJob.
+		if vc.GetLabels()[labelBatchJob] == "" {
+			return nil, fmt.Errorf("%s/%s is a Volcano Job, but not a batch run (it carries no %s label)", namespace, name, labelBatchJob)
+		}
 		return vc, nil
 	}
 	return nil, fmt.Errorf("run %s was not found in %s (`adhar batch runs <job>` lists a job's runs)", name, namespace)
@@ -281,7 +295,9 @@ func runsOfJob(c context.Context, dc dynamic.Interface, namespace, job string) (
 	if err != nil {
 		return nil, false, err
 	}
-	return runRowsOf(runs, pods, now()), podsUnknown, nil
+	rows := runRowsOf(runs, pods, now())
+	attachGangs(c, dc, namespace, rows)
+	return rows, podsUnknown, nil
 }
 
 // readRunTemplate reads and checks `ConfigMap <name>-run` (or the name the

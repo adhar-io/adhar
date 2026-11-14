@@ -1,4 +1,4 @@
-# A batch application as the console creates one from springboot-batch-job. Its
+# A batch application as the console creates one from springboot-batch-service. Its
 # repository's deploy/envs/<env> overlays hold BatchJob XRs. The label is what a
 # scaffolder stamps; a dashboard.type naming another template still reads batch-jvm.
 apiVersion: platform.adhar.io/v1alpha1

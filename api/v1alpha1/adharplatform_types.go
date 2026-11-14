@@ -438,6 +438,19 @@ type BuildCustomizationSpec struct {
 	// DNS, the load balancer and the Gateway are all demonstrably fine
 	// (AWS, 2026-09-27).
 	DNSRegion string `json:"dnsRegion,omitempty"`
+
+	// BatchCeiling* and BatchProdDeserved* are globalSettings.batch resolved
+	// against the cluster by `adhar up` (config.ResolveBatchScheduler, design 0025
+	// D17): the batch ceiling, which is Volcano's root queue adhar-batch, and every
+	// team's prod leaf queue share. They are rendered at seed time into
+	// core/volcano's root-queue.yaml.tmpl and scheduler-descriptor.yaml.tmpl, so a
+	// cluster's queues are sized for that cluster rather than for a reference one.
+	// Kubernetes quantities. Empty (a platform created before these existed)
+	// renders the reference values the templates name.
+	BatchCeilingCPU         string `json:"batchCeilingCPU,omitempty"`
+	BatchCeilingMemory      string `json:"batchCeilingMemory,omitempty"`
+	BatchProdDeservedCPU    string `json:"batchProdDeservedCPU,omitempty"`
+	BatchProdDeservedMemory string `json:"batchProdDeservedMemory,omitempty"`
 }
 
 // Normalize derives computed fields (PortSuffix) from Port/Protocol so that

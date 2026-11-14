@@ -1,0 +1,14 @@
+# Crossplane writes the XR's status and finalizers on every reconcile, as its own
+# service account; the policy exempts it exactly as it does Argo CD.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: hold-only-crossplane
+policies:
+  - ../../../manifests/kyverno-hold-only.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - { policy: adhar-batch-hold-only, rule: only-the-hold-annotation-changes, kind: BatchJob, resources: [change-the-image, change-a-label], operation: UPDATE, result: skip }

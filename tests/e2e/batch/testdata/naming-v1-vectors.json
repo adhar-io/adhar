@@ -1,0 +1,76 @@
+{
+  "version": "v1",
+  "source": "docs/design/0025-batch-platform.md section 8.3",
+  "vectors": [
+    {
+      "id": "v1-empty",
+      "params": {},
+      "canonical": "{}",
+      "canonicalUtf8Hex": "7b7d",
+      "hash8": "44136fa3"
+    },
+    {
+      "id": "v1-business-date",
+      "params": {
+        "businessDate": "2026-11-03"
+      },
+      "canonical": "{\"businessDate\":\"2026-11-03\"}",
+      "canonicalUtf8Hex": "7b22627573696e65737344617465223a22323032362d31312d3033227d",
+      "hash8": "09932cb3"
+    },
+    {
+      "id": "v1-key-order",
+      "params": {
+        "source": "inbound/records.csv",
+        "businessDate": "2026-11-03",
+        "region": "sg"
+      },
+      "canonical": "{\"businessDate\":\"2026-11-03\",\"region\":\"sg\",\"source\":\"inbound/records.csv\"}",
+      "canonicalUtf8Hex": "7b22627573696e65737344617465223a22323032362d31312d3033222c22726567696f6e223a227367222c22736f75726365223a22696e626f756e642f7265636f7264732e637376227d",
+      "hash8": "97cfb853"
+    },
+    {
+      "id": "v1-codepoint-order",
+      "params": {
+        "alpha": "1",
+        "a_b": "2",
+        "a.b": "3",
+        "Zeta": "4",
+        "A": "5"
+      },
+      "canonical": "{\"A\":\"5\",\"Zeta\":\"4\",\"a.b\":\"3\",\"a_b\":\"2\",\"alpha\":\"1\"}",
+      "canonicalUtf8Hex": "7b2241223a2235222c225a657461223a2234222c22612e62223a2233222c22615f62223a2232222c22616c706861223a2231227d",
+      "hash8": "ebe73916"
+    },
+    {
+      "id": "v1-escapes",
+      "params": {
+        "note": "q\"b\\s/<>&\n\t\u0001 "
+      },
+      "canonical": "{\"note\":\"q\\\"b\\\\s/<>&\\n\\t\\u0001 \"}",
+      "canonicalUtf8Hex": "7b226e6f7465223a22715c22625c5c732f3c3e265c6e5c745c75303030317fe280a8227d",
+      "hash8": "1d17cd61"
+    },
+    {
+      "id": "v1-unicode",
+      "params": {
+        "city": "café",
+        "name": "日本",
+        "tag": "🚀"
+      },
+      "canonical": "{\"city\":\"café\",\"name\":\"日本\",\"tag\":\"🚀\"}",
+      "canonicalUtf8Hex": "7b2263697479223a22636166c3a9222c226e616d65223a22e697a5e69cac222c22746167223a22f09f9a80227d",
+      "hash8": "044f08a7"
+    },
+    {
+      "id": "v1-empty-value",
+      "params": {
+        "businessDate": "2026-11-03",
+        "suffix": ""
+      },
+      "canonical": "{\"businessDate\":\"2026-11-03\",\"suffix\":\"\"}",
+      "canonicalUtf8Hex": "7b22627573696e65737344617465223a22323032362d31312d3033222c22737566666978223a22227d",
+      "hash8": "71c1df51"
+    }
+  ]
+}

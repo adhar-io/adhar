@@ -117,6 +117,7 @@ func listJobs(c context.Context, dc dynamic.Interface, namespace string) ([]jobV
 		return nil, err
 	}
 	rows := runRowsOf(runs, pods, now())
+	attachGangs(c, dc, namespace, rows)
 	views := make([]jobView, 0, len(jobs.Items))
 	for i := range jobs.Items {
 		views = append(views, jobViewOf(&jobs.Items[i], rows, now()))

@@ -258,6 +258,9 @@ func waitForRun(c context.Context, dc dynamic.Interface, logs logSource, ns, nam
 			items = pods.Items
 		}
 		row := runRowOf(run, items, now())
+		rows := []runRow{row}
+		attachGangs(c, dc, ns, rows)
+		row = rows[0]
 		if logs != nil {
 			for _, p := range podsOfRun(run, items) {
 				phase, _, _ := unstructured.NestedString(p.Object, "status", "phase")
@@ -296,6 +299,10 @@ func showRun(row runRow) {
 	}
 	if v.RestartOf != "" {
 		helpers.Printf("  restart of    %s\n", v.RestartOf)
+	}
+	if v.Scheduler == schedulerVolcano {
+		helpers.Printf("  queue         %s\n", dash(v.Queue))
+		helpers.Printf("  gang          %s\n", gangCell(v.Gang))
 	}
 	if v.Duration != "" {
 		helpers.Printf("  duration      %s\n", v.Duration)

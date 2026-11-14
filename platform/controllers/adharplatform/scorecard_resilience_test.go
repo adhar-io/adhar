@@ -116,6 +116,11 @@ func TestTheResilienceRunnerLetsTheAutoscalerSettleBeforeChaos(t *testing.T) {
 	if strings.Contains(run, `{name:"CHAOS_INTERVAL",value:"10"}`) {
 		t.Error("pod-delete deletes a pod every 10 s again; a two-replica JVM app cannot recreate them inside Litmus's check")
 	}
+	// Deleting a single-replica workload's only pod can only measure an outage:
+	// it failed dev's gate and dev's rollout-healthy check (2026-11-13).
+	if !strings.Contains(run, `[ "$exp" = pod-delete ] && [ "${desired:-1}" -lt 2 ]`) {
+		t.Error("pod-delete runs against a single-replica workload again; with one pod it can only measure an outage")
+	}
 	for _, want := range []string{`{name:"CHAOS_INTERVAL",value:$i}`, `STATUS_CHECK_TIMEOUT`, `startupSeconds`} {
 		if !strings.Contains(run, want) {
 			t.Errorf("run.sh no longer carries %s, so pod-delete's recreation check ignores the app's startup budget", want)

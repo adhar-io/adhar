@@ -1,0 +1,66 @@
+# What exists after the first reconcile of xr-partitioned-scheduled.yaml on Volcano.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: settlement-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000011
+  annotations:
+    crossplane.io/composition-resource-name: runner-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: settlement-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000012
+  annotations:
+    crossplane.io/composition-resource-name: runner-role
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: settlement-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000013
+  annotations:
+    crossplane.io/composition-resource-name: runner-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: settlement-batch
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settlement-run
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000014
+  annotations:
+    crossplane.io/composition-resource-name: run-template
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: settlement
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000015
+  annotations:
+    crossplane.io/composition-resource-name: schedule-volcano
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate: {}
+status:
+  lastScheduleTime: "2026-11-13T18:00:00Z"
+  lastSuccessfulTime: "2026-11-13T18:41:07Z"
+  active:
+    - { apiVersion: batch.volcano.sh/v1alpha1, kind: Job, name: settlement-29387160, namespace: prod }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: settlement-batch
+  namespace: prod
+  uid: 00000000-0000-0000-0000-000000000016
+  annotations:
+    crossplane.io/composition-resource-name: rules

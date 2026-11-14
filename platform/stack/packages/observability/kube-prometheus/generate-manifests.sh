@@ -10,7 +10,10 @@ echo "# This file is auto-generated with 'platform/stack/packages/observability/
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
 helm repo update prometheus-community
-helm template --include-crds --namespace adhar-system prometheus prometheus-community/kube-prometheus-stack -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >> ${INSTALL_YAML}
+# custom-resource-state.yaml holds kube-state-metrics' custom-resource state (the
+# Volcano objects, design 0025 §11.1) apart from values.yaml, so the move to
+# resource-state-metrics is a change to that one file.
+helm template --include-crds --namespace adhar-system prometheus prometheus-community/kube-prometheus-stack -f values.yaml -f custom-resource-state.yaml --version ${CHART_VERSION} --set crds.enabled=true >> ${INSTALL_YAML}
 # Post-render fixes. These used to be applied BY HAND to install.yaml after
 # templating and were not recorded here, so the first honest regeneration
 # silently reverted both — and the regression only surfaced because a stack

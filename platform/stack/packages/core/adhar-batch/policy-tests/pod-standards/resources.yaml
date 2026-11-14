@@ -33,3 +33,46 @@ spec:
       restartPolicy: OnFailure
       containers:
         - { name: x, image: "docker.io/library/busybox:1.36" }
+---
+# FU-7: everything right but the TTL, which ">=0" used to let through.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: no-ttl, namespace: dev, labels: { adhar.io/workload: batch } }
+spec:
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      priorityClassName: adhar-batch
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }
+---
+# A single-mode run on Volcano (design 0025 §6.4) on its Volcano class (DEC-1).
+apiVersion: batch/v1
+kind: Job
+metadata: { name: volcano-single, namespace: dev, labels: { adhar.io/workload: batch } }
+spec:
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 0
+  template:
+    spec:
+      schedulerName: volcano
+      priorityClassName: adhar-batch-volcano
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }
+---
+# The same on a native Never class: Volcano could neither reclaim nor preempt for it.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: volcano-single-native-class, namespace: dev, labels: { adhar.io/workload: batch } }
+spec:
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      schedulerName: volcano
+      priorityClassName: adhar-batch
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }

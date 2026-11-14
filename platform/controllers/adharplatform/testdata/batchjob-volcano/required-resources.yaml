@@ -1,0 +1,156 @@
+# What the BatchJob composition reads on a cluster that runs Volcano (design 0025
+# §4): environment namespaces with their tier, every batch PriorityClass, the
+# scheduler descriptor (D7), Volcano's three CRDs, the team's leaf queues and the
+# environments' quotas. volcano_composition_test.go drops pieces of it to reach
+# each branch (no descriptor, no CRDs, no leaf, a closed leaf, ...).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    kubernetes.io/metadata.name: prod
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: prod
+    adhar.io/tier: prod
+    adhar.io/plane: workload
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    kubernetes.io/metadata.name: dev
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: dev
+    adhar.io/tier: dev
+    adhar.io/plane: workload
+---
+# A named environment of tier test: it runs on the team's test leaf.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    kubernetes.io/metadata.name: staging
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: staging
+    adhar.io/tier: test
+    adhar.io/plane: workload
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch
+value: -100
+preemptionPolicy: Never
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-critical
+value: 0
+preemptionPolicy: Never
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-volcano
+value: -100
+preemptionPolicy: PreemptLowerPriority
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-volcano-critical
+value: 0
+preemptionPolicy: PreemptLowerPriority
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-batch-scheduler
+  namespace: adhar-system
+data:
+  scheduler: volcano
+  version: v1.16.0
+  gang: "true"
+  rootQueue: adhar-batch
+  prodDeservedCPU: "2"
+  prodDeservedMemory: 4Gi
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: jobs.batch.volcano.sh
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cronjobs.batch.volcano.sh
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: queues.scheduling.volcano.sh
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: acme-payments-prod
+  labels: { adhar.io/organisation: acme, adhar.io/team: payments, adhar.io/batch-queue: "true", adhar.io/tier: prod }
+spec:
+  parent: adhar-batch
+  capability: { cpu: "8", memory: 16Gi }
+  deserved: { cpu: "2", memory: 4Gi }
+  reclaimable: false
+  priority: 300
+status:
+  state: Open
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: acme-payments-dev
+  labels: { adhar.io/organisation: acme, adhar.io/team: payments, adhar.io/batch-queue: "true", adhar.io/tier: dev }
+spec:
+  parent: adhar-batch
+  capability: { cpu: "8", memory: 16Gi }
+  reclaimable: true
+  priority: 100
+status:
+  state: Open
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: acme-payments-test
+  labels: { adhar.io/organisation: acme, adhar.io/team: payments, adhar.io/batch-queue: "true", adhar.io/tier: test }
+spec:
+  parent: adhar-batch
+  capability: { cpu: "8", memory: 16Gi }
+  reclaimable: true
+  priority: 200
+status:
+  state: Open
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-quota
+  namespace: prod
+spec:
+  hard: { requests.cpu: "16", requests.memory: 32Gi, limits.cpu: "16", limits.memory: 32Gi, pods: "100" }
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dev-quota
+  namespace: dev
+spec:
+  hard: { requests.cpu: "16", requests.memory: 8Gi, limits.cpu: "16", limits.memory: 8Gi, pods: "20" }

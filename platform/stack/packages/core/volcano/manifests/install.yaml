@@ -10844,16 +10844,6 @@ metadata:
   name: volcano-controllers
 rules:
 - apiGroups:
-  - apiextensions.k8s.io
-  resources:
-  - customresourcedefinitions
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-  - delete
-- apiGroups:
   - batch.volcano.sh
   resources:
   - jobs
@@ -10946,8 +10936,6 @@ rules:
   - get
   - list
   - watch
-  - create
-  - delete
 - apiGroups:
   - ''
   resources:
@@ -10956,18 +10944,6 @@ rules:
   - get
   - list
   - watch
-  - create
-  - delete
-  - update
-- apiGroups:
-  - ''
-  resources:
-  - secrets
-  verbs:
-  - get
-  - create
-  - delete
-  - update
 - apiGroups:
   - scheduling.incubator.k8s.io
   - scheduling.volcano.sh
@@ -11008,28 +10984,6 @@ rules:
   - update
   - patch
 - apiGroups:
-  - flow.volcano.sh
-  resources:
-  - jobflows
-  - jobtemplates
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - delete
-  - update
-- apiGroups:
-  - flow.volcano.sh
-  resources:
-  - jobflows/status
-  - jobs/finalizers
-  - jobtemplates/status
-  - jobtemplates/finalizers
-  verbs:
-  - update
-  - patch
-- apiGroups:
   - scheduling.k8s.io
   resources:
   - priorityclasses
@@ -11037,16 +10991,6 @@ rules:
   - get
   - list
   - watch
-  - create
-  - delete
-- apiGroups:
-  - networking.k8s.io
-  resources:
-  - networkpolicies
-  verbs:
-  - get
-  - create
-  - delete
 - apiGroups:
   - apps
   resources:
@@ -11069,53 +11013,18 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - get
-  - create
-  - update
-  - watch
-- apiGroups:
   - topology.volcano.sh
   resources:
   - hypernodes
-  - hypernodes/status
   verbs:
   - list
   - watch
   - get
-  - create
-  - delete
-  - update
-  - patch
 - apiGroups:
   - ''
   resources:
   - nodes
   verbs:
-  - list
-  - watch
-- apiGroups:
-  - shard.volcano.sh
-  resources:
-  - nodeshards
-  - nodeshards/status
-  verbs:
-  - list
-  - watch
-  - get
-  - create
-  - delete
-  - update
-  - patch
-- apiGroups:
-  - config.volcano.sh
-  resources:
-  - colocationconfigurations
-  verbs:
-  - get
   - list
   - watch
 
@@ -11125,16 +11034,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: volcano-scheduler
 rules:
-- apiGroups:
-  - apiextensions.k8s.io
-  resources:
-  - customresourcedefinitions
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-  - delete
 - apiGroups:
   - batch.volcano.sh
   resources:
@@ -11225,8 +11124,6 @@ rules:
   - get
   - list
   - watch
-  - update
-  - patch
 - apiGroups:
   - storage.k8s.io
   resources:
@@ -11321,9 +11218,6 @@ rules:
   - get
   - list
   - watch
-  - create
-  - delete
-  - update
 - apiGroups:
   - apps
   resources:
@@ -11334,15 +11228,6 @@ rules:
   - list
   - watch
   - get
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - get
-  - create
-  - update
-  - watch
 - apiGroups:
   - resource.k8s.io
   resources:
@@ -11399,45 +11284,6 @@ rules:
   - nodeshards/status
   verbs:
   - update
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: vcjob-editor-role
-rules:
-- apiGroups:
-  - batch.volcano.sh
-  resources:
-  - jobs
-  verbs:
-  - create
-  - get
-  - list
-  - update
-  - delete
-- apiGroups:
-  - bus.volcano.sh
-  resources:
-  - commands
-  verbs:
-  - create
-  - get
-  - list
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: vcjob-viewer-role
-rules:
-- apiGroups:
-  - batch.volcano.sh
-  resources:
-  - jobs
-  verbs:
-  - get
-  - list
 
 ---
 kind: ClusterRoleBinding
@@ -11686,6 +11532,8 @@ spec:
         - --worker-threads-for-podgroup=5
         - --controllers=*,-sharding-controller,-jobflow-controller,-jobtemplate-controller,-colocation-config-controller,-hyperNode-controller
         - -v=2
+        - --leader-elect-resource-namespace=adhar-system
+        - --sharding-configmap-namespace=adhar-system
         - 2>&1
         imagePullPolicy: IfNotPresent
         securityContext:
@@ -11768,6 +11616,7 @@ spec:
         - --schedule-period=1s
         - --node-worker-threads=20
         - -v=2
+        - --leader-elect-resource-namespace=adhar-system
         - 2>&1
         env:
         - name: DEBUG_SOCKET_DIR

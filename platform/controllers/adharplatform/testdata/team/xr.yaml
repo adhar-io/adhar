@@ -1,0 +1,11 @@
+# A team as the Console creates it: the XR is named <organisation>-<team>, the
+# leaves follow the parameters (design 0025 §4.3).
+apiVersion: platform.adhar.io/v1alpha1
+kind: Team
+metadata:
+  name: acme-payments
+  namespace: adhar-system
+spec:
+  parameters:
+    name: payments
+    organisation: acme

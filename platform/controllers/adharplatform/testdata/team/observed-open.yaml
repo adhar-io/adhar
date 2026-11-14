@@ -1,0 +1,125 @@
+# Every leaf created and Open (second reconcile).
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: acme-payments-batch-queue-dev
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: batch-queue-dev
+spec:
+  forProvider:
+    manifest:
+      apiVersion: scheduling.volcano.sh/v1beta1
+      kind: Queue
+      metadata:
+        name: acme-payments-dev
+status:
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Available
+  - type: Synced
+    status: 'True'
+    reason: ReconcileSuccess
+  atProvider:
+    manifest:
+      apiVersion: scheduling.volcano.sh/v1beta1
+      kind: Queue
+      metadata:
+        name: acme-payments-dev
+      status:
+        state: Open
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: acme-payments-batch-queue-test
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: batch-queue-test
+spec:
+  forProvider:
+    manifest:
+      apiVersion: scheduling.volcano.sh/v1beta1
+      kind: Queue
+      metadata:
+        name: acme-payments-test
+status:
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Available
+  - type: Synced
+    status: 'True'
+    reason: ReconcileSuccess
+  atProvider:
+    manifest:
+      apiVersion: scheduling.volcano.sh/v1beta1
+      kind: Queue
+      metadata:
+        name: acme-payments-test
+      status:
+        state: Open
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: acme-payments-batch-queue-prod
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: batch-queue-prod
+spec:
+  forProvider:
+    manifest:
+      apiVersion: scheduling.volcano.sh/v1beta1
+      kind: Queue
+      metadata:
+        name: acme-payments-prod
+status:
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Available
+  - type: Synced
+    status: 'True'
+    reason: ReconcileSuccess
+  atProvider:
+    manifest:
+      apiVersion: scheduling.volcano.sh/v1beta1
+      kind: Queue
+      metadata:
+        name: acme-payments-prod
+      status:
+        state: Open
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: acme-payments-batch-queue-reader
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: batch-queue-reader
+status:
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Available
+  - type: Synced
+    status: 'True'
+    reason: ReconcileSuccess
+---
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: Object
+metadata:
+  name: acme-payments-batch-queue-reader-binding
+  namespace: adhar-system
+  annotations:
+    crossplane.io/composition-resource-name: batch-queue-reader-binding
+status:
+  conditions:
+  - type: Ready
+    status: 'True'
+    reason: Available
+  - type: Synced
+    status: 'True'
+    reason: ReconcileSuccess

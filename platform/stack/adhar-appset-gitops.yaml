@@ -336,6 +336,15 @@ spec:
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/volcano/manifests"
+          # core/adhar-batch's Volcano policies (queue binding, Volcano pod standards,
+          # Volcano prod-only). Kyverno refuses a policy naming a kind the cluster does
+          # not serve, so this is enabled exactly where "volcano" is (design 0025 §4.3,
+          # §10.3; TestQueueBindingIsSyncedWhereVolcanoIs).
+          - name: "adhar-batch-volcano"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "core"
+            manifestPath: "core/adhar-batch/manifests/volcano"
           # Batch on Kubernetes (design 0025): PriorityClasses, the aggregated roles and the
           # Kyverno policies that bound operating a job to its deployed template. Runs no
           # workloads. Every BatchJob needs its PriorityClass, so it is on everywhere.

@@ -34,6 +34,8 @@ metadata:
       and must export telemetry over OTLP. Agent and environment identity is
       injected into every container's environment from the namespace labels.
 spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
   validationFailureAction: Audit
   # The mutate rule reads request.namespace and the rules below use the
   # namespace selector; neither is available in a background scan.

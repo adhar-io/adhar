@@ -1,0 +1,39 @@
+# The scheduler descriptor (design 0025 §4.1, D7, D17). Its PRESENCE is how the
+# control plane knows Volcano runs here: the BatchJob composition renders the
+# Volcano path and the Team composition composes the leaf queues only while this
+# ConfigMap exists (together with the Queue CRD), and `adhar batch queues` and the
+# Console read it. It ships with core/volcano, so it exists exactly where Volcano
+# is synced; to move every BatchJob back to the native path, remove it first
+# (README, A2.10).
+#
+#   scheduler           the scheduler the compositions hand pods to
+#   version             the pinned Volcano release (TestVolcanoPinsOneVersionEverywhere)
+#   gang                "true": partitioned jobs run as an all-or-nothing gang
+#   rootQueue           the parent of every team leaf (root-queue.yaml.tmpl)
+#   prodDeservedCPU/    every team's prod leaf deserved share, what lets prod reclaim
+#   prodDeservedMemory  from dev and test. By default the larger of 4500m / 7Gi (the
+#                       design's largest example gang) and a quarter of the ceiling,
+#                       at most the ceiling (D17); rendered at seed time from the
+#                       cluster like the root queue. A platform created before the
+#                       seed carried them renders the reference values below.
+#
+# Read-only for everyone but Argo CD: the Team composition trusts these numbers.
+# Wave 2, with the root queue it names.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-batch-scheduler
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/component: batch-scheduler-descriptor
+    app.kubernetes.io/managed-by: adhar
+data:
+  scheduler: volcano
+  version: v1.16.0
+  gang: "true"
+  rootQueue: adhar-batch
+  prodDeservedCPU: '{{ or .BatchProdDeservedCPU "5500m" }}'
+  prodDeservedMemory: '{{ or .BatchProdDeservedMemory "7Gi" }}'

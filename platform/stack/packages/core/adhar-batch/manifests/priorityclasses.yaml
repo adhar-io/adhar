@@ -1,8 +1,23 @@
-# Batch never preempts (design 0025 INV-5, §4.4). Both classes are
-# preemptionPolicy: Never with a value at or below zero, so a batch pod never
-# evicts a service or a node-pinned stateful pod, and a pending batch pod is a
-# capacity question for queues and the autoscaler, never a priority question.
-# `adhar-batch-critical` is permitted in prod namespaces only
+# Batch never preempts a service (design 0025 INV-5, §4.4). Every class here has a
+# value at or below zero, so a batch pod never outranks a service or a node-pinned
+# stateful pod, and a pending batch pod is a capacity question for queues and the
+# autoscaler, never a priority question.
+#
+# Two pairs, by WHO schedules the pod (user decision DEC-1, 2026-11-14):
+#   adhar-batch / adhar-batch-critical                  kube-scheduler (the native path).
+#     preemptionPolicy: Never, so kube-scheduler never evicts anything for them.
+#   adhar-batch-volcano / adhar-batch-volcano-critical  Volcano (schedulerName: volcano).
+#     preemptionPolicy: PreemptLowerPriority, because Volcano v1.16 refuses EVERY
+#     reclaimer and preemptor whose class is Never (actions/reclaim/reclaim.go:145,
+#     actions/preempt/preempt.go:447): with the native classes prod could never take
+#     back its share from a dev gang (A2.4). INV-5 still holds: kube-scheduler never
+#     sees a schedulerName: volcano pod, so it never preempts for one, and Volcano
+#     picks victims only among the jobs it scheduled itself (A2.7). The pairing is
+#     what makes that true, so adhar-batch-volcano-classes (kyverno-volcano-classes.yaml)
+#     ENFORCES it: a volcano class on a pod kube-scheduler would schedule is refused.
+#     A Kyverno mutate cannot pick the class instead: Priority admission resolves the
+#     value before mutating webhooks run and rejects a class that no longer matches.
+# The critical classes are permitted in prod namespaces only
 # (adhar-batch-critical-prod-only). TestBatchPriorityClassesNeverPreempt pins this.
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -25,3 +40,25 @@ value: 0
 preemptionPolicy: Never
 globalDefault: false
 description: Prod runs with priority critical. Preempted only by platform classes, and preempts nothing.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-volcano
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+value: -100
+preemptionPolicy: PreemptLowerPriority
+globalDefault: false
+description: "Volcano batch runs by default (schedulerName: volcano). Volcano reclaims and preempts only among its own jobs; kube-scheduler never schedules, so never preempts for, these pods."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: adhar-batch-volcano-critical
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+value: 0
+preemptionPolicy: PreemptLowerPriority
+globalDefault: false
+description: "Volcano prod runs with priority critical (schedulerName: volcano). Preempted only by platform classes; Volcano preempts only among its own jobs."

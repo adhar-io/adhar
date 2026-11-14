@@ -17,6 +17,36 @@
 # The new name takes effect with `adhar upgrade`, after the console release
 # that copies team members into these groups — see the deploy order in
 # stack/packages/core/adhar-console/manifests/console-rbac.yaml.
+#
+# Batch queues (design 0025 §4.3, Phase 2). Where Volcano runs — the scheduler
+# descriptor ConfigMap adhar-system/adhar-batch-scheduler AND the Queue CRD both
+# exist — the team also composes its three Volcano leaf queues
+# `<organisation>-<team>-<dev|test|prod>` under the root queue the descriptor
+# names, and a ClusterRole/Binding giving its group `get` on exactly those three.
+# Every project of the team shares the team's leaf for a tier; a project-level
+# leaf would make two Project XRs compose the same cluster-scoped object. These
+# are Volcano's `scheduling.volcano.sh` Queues, not this API group's messaging
+# `Queue` (xrd/queue.xrd.yaml, RabbitMQ), which is unrelated.
+#   • capability = the smaller of the team's adhar-tenant-quotas allowance and the
+#     root queue's capability (the batch ceiling), per axis; an axis the
+#     allowance omits or sets to 0 is the ceiling's, as the quota webhook reads it.
+#   • only prod declares `deserved` (the descriptor's prodDeservedCPU/Memory,
+#     2 / 4Gi by default, never above the leaf's capability) and is not
+#     reclaimable; dev and test are reclaimable, so prod reclaims from them.
+#   • BatchQueuesReady reports them. When Volcano's queue webhook refuses one —
+#     typically the ceiling cannot admit another prod `deserved` share — the
+#     refusal is QueueRejected with Volcano's message. The queues do not hold the
+#     Team itself unready: a team whose prod share is refused is still a team.
+#   • A leaf name already held by a queue of ANOTHER (organisation, team) is
+#     refused (QueueNameTaken) rather than adopted: `<org>-<team>` is ambiguous
+#     ((acme, a-b) and (acme-a, b)), and adopting would hand one team's
+#     namespaces the other's queue. core/adhar-batch's queue binding checks the
+#     same labels at admission.
+#   • deletionPolicy Orphan: Volcano refuses to delete a queue that is not Closed,
+#     and when Volcano is removed (A2.10) the CRD may be gone before the Objects
+#     are, so deleting would wedge every Team on a finalizer.
+# Without Volcano nothing of this is composed and BatchQueuesReady is True with
+# reason NativeScheduler: the native path has no queues.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -46,6 +76,52 @@ spec:
             {{- $perm := dig "giteaPermission" "write" $p -}}
             {{- $group := printf "ws-team-%s.%s" $org $name -}}
             {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $platformNS := "adhar-system" -}}
+            {{- /* Volcano is here when its descriptor (core/volcano, design 0025 D7) and
+                   its Queue CRD both exist. The CRD is asked for first: a required
+                   resource of a kind the cluster does not serve fails the whole
+                   reconcile, so a Queue is never requested on a cluster without one. */ -}}
+            {{- $descItems := default (list) (getExtraResources . "batchScheduler") -}}
+            {{- $crdItems := default (list) (getExtraResources . "volcanoQueueCRD") -}}
+            {{- $desc := dict -}}
+            {{- range $descItems }}{{ $desc = dig "resource" "data" (dict) . }}{{ end -}}
+            {{- $scheduler := get $desc "scheduler" | default "volcano" -}}
+            {{- $rootQueue := get $desc "rootQueue" | default "adhar-batch" -}}
+            {{- $volcano := and (gt (len $descItems) 0) (gt (len $crdItems) 0) (eq $scheduler "volcano") -}}
+            {{- $tiers := list "dev" "test" "prod" -}}
+            {{- $leaves := dict -}}
+            {{- range $tiers }}{{ $_ := set $leaves . (printf "%s-%s-%s" $org $name .) }}{{ end -}}
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ExtraResources
+            requirements:
+              batchScheduler:
+                apiVersion: v1
+                kind: ConfigMap
+                matchName: adhar-batch-scheduler
+                namespace: {{ $platformNS }}
+              volcanoQueueCRD:
+                apiVersion: apiextensions.k8s.io/v1
+                kind: CustomResourceDefinition
+                matchName: queues.scheduling.volcano.sh
+              {{- if $volcano }}
+              tenantQuotas:
+                apiVersion: v1
+                kind: ConfigMap
+                matchName: adhar-tenant-quotas
+                namespace: {{ $platformNS }}
+              rootQueue:
+                apiVersion: scheduling.volcano.sh/v1beta1
+                kind: Queue
+                matchName: {{ $rootQueue | quote }}
+              {{- range $t := $tiers }}
+              queue-{{ $t }}:
+                apiVersion: scheduling.volcano.sh/v1beta1
+                kind: Queue
+                matchName: {{ get $leaves $t | quote }}
+              {{- end }}
+              {{- end }}
             ---
             # Gitea team in the organisation (idempotent: 422 = already there).
             # Units are the repository features the team may use; `includes_all_
@@ -94,6 +170,247 @@ spec:
                       resources:
                         requests: { cpu: 10m, memory: 32Mi }
                         limits: { memory: 64Mi }
+            {{- /* ---- Batch queues (design 0025 §4.3) ---- */ -}}
+            {{- $queueCond := dict "status" "True" "reason" "NativeScheduler" "message" (printf "Volcano is not installed (no ConfigMap %s/adhar-batch-scheduler or no Queue CRD): batch runs on the native path, which has no queues" $platformNS) -}}
+            {{- if and (gt (len $descItems) 0) (gt (len $crdItems) 0) (ne $scheduler "volcano") -}}
+            {{-   $queueCond = dict "status" "True" "reason" "NativeScheduler" "message" (printf "the scheduler descriptor names %q: batch runs on the native path, which has no queues" $scheduler) -}}
+            {{- end -}}
+            {{- $composed := list -}}
+            {{- if $volcano -}}
+            {{-   $root := dict -}}
+            {{-   range (default (list) (getExtraResources $ "rootQueue")) }}{{ $root = dig "resource" (dict) . }}{{ end -}}
+            {{-   $taken := list -}}
+            {{-   range $t := $tiers -}}
+            {{-     range (default (list) (getExtraResources $ (printf "queue-%s" $t))) -}}
+            {{-       $l := dig "resource" "metadata" "labels" (dict) . -}}
+            {{-       if or (ne (get $l "adhar.io/organisation") $org) (ne (get $l "adhar.io/team") $name) -}}
+            {{-         $taken = append $taken (printf "%s is held by organisation %q team %q" (get $leaves $t) (get $l "adhar.io/organisation") (get $l "adhar.io/team")) -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{-   if not $root -}}
+            {{-     $queueCond = dict "status" "False" "reason" "RootQueueMissing" "message" (printf "Volcano is installed but its root queue %s does not exist; core/volcano creates it" $rootQueue) -}}
+            {{-   else if $taken -}}
+            {{-     $queueCond = dict "status" "False" "reason" "QueueNameTaken" "message" (printf "not composing this team's queues: %s; organisation and team slugs that spell the same <organisation>-<team> cannot both run batch on Volcano" (join "; " $taken)) -}}
+            {{-   else -}}
+            {{- /* Quantities are compared in integer milli-units (function-go-templating
+                       has no Kubernetes quantity type), reading what resource.ParseQuantity
+                       — and so the quota webhook's ParseAllowance — reads: an optionally
+                       signed-plus decimal with n/u/m, k/M/G/T/P/E, Ki…Ei or an e-notation
+                       exponent. Anything else reads as -1 and is never preferred over the
+                       ceiling, which Volcano has already accepted. A value past int64
+                       milli-units (~9.2 PB) saturates rather than wrapping negative. */ -}}
+            {{-     $ceiling := dig "spec" "capability" (dict) $root -}}
+            {{-     $quotas := dict -}}
+            {{-     range (default (list) (getExtraResources $ "tenantQuotas")) }}{{ $quotas = dig "resource" "data" (dict) . }}{{ end -}}
+            {{-     $allowanceRaw := "" -}}
+            {{-     if hasKey $quotas $name }}{{ $allowanceRaw = get $quotas $name }}{{ else if hasKey $quotas "default" }}{{ $allowanceRaw = get $quotas "default" }}{{ end -}}
+            {{-     $deserved := dict "cpu" (get $desc "prodDeservedCPU" | default "2") "memory" (get $desc "prodDeservedMemory" | default "4Gi") -}}
+            {{-     $inputs := dict -}}
+            {{-     range $axis := list "cpu" "memory" -}}
+            {{- /* The allowance's `key: value` lines, read as platform/webhooks ParseAllowance reads them. */ -}}
+            {{-       $line := regexFind (printf `(?m)^[ \t]*%s[ \t]*:.*$` $axis) $allowanceRaw -}}
+            {{-       $v := regexReplaceAll `[ \t]+#.*$` (regexReplaceAll `^[^:]*:` $line "") "" | trim | trimAll `"'` -}}
+            {{-       $_ := set $inputs (printf "allowance-%s" $axis) $v -}}
+            {{- /* A ceiling written as a bare number arrives as a protojson float64, and
+                   toString spells one of a million or more in e-notation (25769803776 →
+                   "2.5769803776e+10"), which the parser once read as unreadable and so
+                   handed the leaf the whole ceiling over the team's allowance
+                   (2026-11-14). The parser reads e-notation now; %f stays so a float
+                   ceiling is read from its full decimal digits either way. */ -}}
+            {{-       $cv := get $ceiling $axis -}}
+            {{-       $_ := set $inputs (printf "ceiling-%s" $axis) (ternary (printf "%f" $cv) (toString $cv) (kindIs "float64" $cv)) -}}
+            {{-       $_ := set $inputs (printf "deserved-%s" $axis) (toString (get $deserved $axis)) -}}
+            {{-     end -}}
+            {{- /* value = mantissa × 10^exp × 2^bin, the mantissa held to 18 digits; one
+                   step per iteration: ×2 while bin remains (dividing out a pending 10
+                   first rather than overflowing), then ×10 or ÷10 until exp is spent.
+                   The old single multiply wrapped negative for a fractional Ti of four
+                   or more decimals (0.123456Ti) — read as unlimited (2026-11-14). */ -}}
+            {{-     $max := 9223372036854775807 -}}
+            {{-     $exp10 := dict "n" -9 "u" -6 "m" -3 "" 0 "k" 3 "M" 6 "G" 9 "T" 12 "P" 15 "E" 18 -}}
+            {{-     $exp2 := dict "Ki" 10 "Mi" 20 "Gi" 30 "Ti" 40 "Pi" 50 "Ei" 60 -}}
+            {{-     $milli := dict -}}
+            {{-     range $k, $q := $inputs -}}
+            {{-       $s := trim (toString $q) | trimPrefix "+" -}}
+            {{-       $val := -1 -}}
+            {{-       if regexMatch `^([0-9]+\.?[0-9]*|\.[0-9]+)([numkMGTPE]|[KMGTPE]i|[eE][+-]?[0-9]{1,3})?$` $s -}}
+            {{-         $num := regexFind `^[0-9.]+` $s -}}
+            {{-         $suffix := trimPrefix $num $s -}}
+            {{-         $exp := 0 -}}
+            {{-         $bin := 0 -}}
+            {{-         if regexMatch `^[eE][+-]?[0-9]` $suffix }}{{ $exp = atoi (regexReplaceAll `^[eE]` $suffix "") }}
+            {{-         else if hasKey $exp2 $suffix }}{{ $bin = get $exp2 $suffix }}
+            {{-         else }}{{ $exp = get $exp10 $suffix }}{{ end -}}
+            {{-         $frac := "" -}}
+            {{-         if contains "." $num }}{{ $frac = regexReplaceAll `^[0-9]*\.` $num "" }}{{ end -}}
+            {{-         $exp = sub (add $exp 3) (len $frac) -}}
+            {{-         $digits := regexReplaceAll `^0+` (printf "%s%s" (regexReplaceAll `\..*$` $num "") $frac) "" -}}
+            {{-         if gt (len $digits) 18 }}{{ $exp = add $exp (sub (len $digits) 18) }}{{ $digits = trunc 18 $digits }}{{ end -}}
+            {{-         $m := atoi (default "0" $digits) -}}
+            {{-         $sat := false -}}
+            {{- /* Division rounds UP, as Quantity.MilliValue does: flooring read an
+                   allowance under 1m (500u, 1n) as 0 — unlimited. */ -}}
+            {{-         if eq $m 0 }}{{ $exp = 0 }}{{ $bin = 0 }}{{ else if lt $exp -40 }}{{ $m = 1 }}{{ $exp = 0 }}{{ $bin = 0 }}{{ else if gt $exp 40 }}{{ $sat = true }}{{ end -}}
+            {{-         range until 160 -}}
+            {{-           if $sat -}}
+            {{-           else if gt $bin 0 -}}
+            {{-             if le $m (div $max 2) }}{{ $m = mul $m 2 }}{{ $bin = sub $bin 1 }}
+            {{-             else if lt $exp 0 }}{{ $m = add (div $m 10) (ternary 0 1 (eq (mod $m 10) 0)) }}{{ $exp = add $exp 1 }}
+            {{-             else }}{{ $sat = true }}{{ end -}}
+            {{-           else if gt $exp 0 -}}
+            {{-             if le $m (div $max 10) }}{{ $m = mul $m 10 }}{{ $exp = sub $exp 1 }}{{ else }}{{ $sat = true }}{{ end -}}
+            {{-           else if lt $exp 0 -}}
+            {{-             $m = add (div $m 10) (ternary 0 1 (eq (mod $m 10) 0)) }}{{ $exp = add $exp 1 -}}
+            {{-           end -}}
+            {{-         end -}}
+            {{-         $val = ternary $max $m $sat -}}
+            {{-       end -}}
+            {{-       $_ := set $milli $k $val -}}
+            {{-     end -}}
+            {{-     $capability := dict -}}
+            {{-     range $k, $v := $ceiling }}{{ $_ := set $capability $k $v }}{{ end -}}
+            {{-     $prodDeserved := dict -}}
+            {{-     range $axis := list "cpu" "memory" -}}
+            {{-       $am := get $milli (printf "allowance-%s" $axis) -}}
+            {{-       $cm := get $milli (printf "ceiling-%s" $axis) -}}
+            {{-       $capMilli := ternary $cm -1 (hasKey $ceiling $axis) -}}
+            {{-       if and (gt $am 0) (or (not (hasKey $ceiling $axis)) (and (ge $cm 0) (lt $am $cm))) -}}
+            {{-         $_ := set $capability $axis (get $inputs (printf "allowance-%s" $axis)) -}}
+            {{-         $capMilli = $am -}}
+            {{-       end -}}
+            {{-       $dm := get $milli (printf "deserved-%s" $axis) -}}
+            {{-       $_ := set $prodDeserved $axis (get $deserved $axis) -}}
+            {{-       if and (ge $capMilli 0) (gt $dm $capMilli) }}{{ $_ := set $prodDeserved $axis (get $capability $axis) }}{{ end -}}
+            {{-     end -}}
+            {{-     $qLabels := dict "adhar.io/organisation" $org "adhar.io/team" $name "adhar.io/batch-queue" "true" -}}
+            {{-     range $t := $tiers }}
+            ---
+            # Leaf queue `<organisation>-<team>-{{ $t }}` (cluster-scoped, hence an Object).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: batch-queue-{{ $t }}
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (hasKey $observed (printf "batch-queue-%s" $t)) | quote }}
+              labels:
+                adhar.io/organisation: {{ $org | quote }}
+                adhar.io/team: {{ $name | quote }}
+            spec:
+              deletionPolicy: Orphan
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: scheduling.volcano.sh/v1beta1
+                  kind: Queue
+                  metadata:
+                    name: {{ get $leaves $t | quote }}
+                    labels: {{ dict "adhar.io/organisation" $org "adhar.io/team" $name "adhar.io/batch-queue" "true" "adhar.io/tier" $t | toJson }}
+                  spec:
+                    parent: {{ $rootQueue | quote }}
+                    capability: {{ $capability | toJson }}
+                    {{- if eq $t "prod" }}
+                    deserved: {{ $prodDeserved | toJson }}
+                    reclaimable: false
+                    {{- else }}
+                    reclaimable: true
+                    {{- end }}
+                    priority: {{ get (dict "dev" 100 "test" 200 "prod" 300) $t }}
+            {{-     end }}
+            ---
+            # `get` on the team's three leaves, so its people (and the CLI and Console
+            # as them) can read their queues' capability and use, and nobody else's.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: batch-queue-reader
+              labels:
+                adhar.io/organisation: {{ $org | quote }}
+                adhar.io/team: {{ $name | quote }}
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: ClusterRole
+                  metadata:
+                    name: {{ printf "adhar-batch-queues-%s-%s" $org $name | quote }}
+                    labels: {{ $qLabels | toJson }}
+                  rules:
+                    - apiGroups: ["scheduling.volcano.sh"]
+                      resources: ["queues"]
+                      resourceNames: {{ list (get $leaves "dev") (get $leaves "test") (get $leaves "prod") | toJson }}
+                      verbs: ["get"]
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: batch-queue-reader-binding
+              labels:
+                adhar.io/organisation: {{ $org | quote }}
+                adhar.io/team: {{ $name | quote }}
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: ClusterRoleBinding
+                  metadata:
+                    name: {{ printf "adhar-batch-queues-%s-%s" $org $name | quote }}
+                    labels: {{ $qLabels | toJson }}
+                  roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ printf "adhar-batch-queues-%s-%s" $org $name | quote }} }
+                  subjects:
+                    - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: {{ printf "oidc:ws-team-%s.%s" $org $name | quote }} }
+            {{- /* What the queues report. A refusal by Volcano's queue webhook arrives as
+                       the Object's Synced=False, "... admission webhook ... denied the request: ...". */ -}}
+            {{-     $rejected := list }}{{ $unsynced := list }}{{ $notOpen := list }}{{ $pending := list -}}
+            {{-     range $t := $tiers -}}
+            {{-       $leaf := get $leaves $t -}}
+            {{-       $o := get $observed (printf "batch-queue-%s" $t) -}}
+            {{-       if not $o }}{{ $pending = append $pending $leaf }}{{ continue }}{{ end -}}
+            {{-       $synced := dict -}}
+            {{-       range (dig "resource" "status" "conditions" (list) $o) }}{{ if eq (get . "type") "Synced" }}{{ $synced = . }}{{ end }}{{ end -}}
+            {{-       $state := dig "resource" "status" "atProvider" "manifest" "status" "state" "" $o -}}
+            {{-       if eq (get $synced "status") "False" -}}
+            {{-         $msg := get $synced "message" | default (get $synced "reason") -}}
+            {{-         if contains "denied the request" $msg }}{{ $rejected = append $rejected (printf "%s: %s" $leaf $msg) }}{{ else }}{{ $unsynced = append $unsynced (printf "%s: %s" $leaf $msg) }}{{ end -}}
+            {{-       else if ne (get $synced "status") "True" -}}
+            {{-         $pending = append $pending $leaf -}}
+            {{-       else if and $state (ne $state "Open") -}}
+            {{-         $notOpen = append $notOpen (printf "%s is %s" $leaf $state) -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-     if $rejected -}}
+            {{-       $queueCond = dict "status" "False" "reason" "QueueRejected" "message" (printf "Volcano refused %s (the batch ceiling is Queue %s; a prod leaf asks for deserved %s)" (join "; " $rejected) $rootQueue ($prodDeserved | toJson)) -}}
+            {{-     else if $unsynced -}}
+            {{-       $queueCond = dict "status" "False" "reason" "QueueNotSynced" "message" (join "; " $unsynced) -}}
+            {{-     else if $notOpen -}}
+            {{-       $queueCond = dict "status" "False" "reason" "QueueNotOpen" "message" (join "; " $notOpen) -}}
+            {{-     else if $pending -}}
+            {{-       $queueCond = dict "status" "False" "reason" "Creating" "message" (printf "waiting for %s" (join ", " $pending)) -}}
+            {{-     else -}}
+            {{-       $queueCond = dict "status" "True" "reason" "QueuesOpen" "message" (printf "%s under %s" (join ", " (list (get $leaves "dev") (get $leaves "test") (get $leaves "prod"))) $rootQueue) -}}
+            {{-     end -}}
+            {{-     $composed = list (get $leaves "dev") (get $leaves "test") (get $leaves "prod") -}}
+            {{-   end -}}
+            {{- end }}
+            ---
+            apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+            kind: ClaimConditions
+            conditions:
+              - type: BatchQueuesReady
+                status: {{ get $queueCond "status" | quote }}
+                reason: {{ get $queueCond "reason" | quote }}
+                message: {{ get $queueCond "message" | quote }}
+                target: Composite
             ---
             apiVersion: platform.adhar.io/v1alpha1
             kind: Team
@@ -101,6 +418,9 @@ spec:
               group: {{ $group }}
               organisation: {{ $org }}
               giteaTeam: {{ printf "%s/%s" $org $name }}
+              {{- if $composed }}
+              batchQueues: {{ $composed | toJson }}
+              {{- end }}
               phase: Provisioned
     - step: ready
       functionRef:

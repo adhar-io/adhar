@@ -7,7 +7,7 @@ name: adhar-batch
 category: core
 version: "0.1.0"
 appVersion: "0.1.0"
-description: Adhar Batch — the PriorityClasses, roles, Kyverno policies and dashboard behind the BatchJob API. Batch never preempts, and operating a job can only ever run its deployed definition. Runs no workloads.
+description: Adhar Batch — the PriorityClasses, roles, Kyverno policies, alerts and dashboard behind the BatchJob API. Batch never preempts, and operating a job can only ever run its deployed definition. Runs no workloads.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar

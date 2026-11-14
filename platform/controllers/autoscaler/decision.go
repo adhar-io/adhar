@@ -65,6 +65,21 @@ const (
 	// scaleUpLabel opts a batch run into buying nodes. The composition sets it
 	// only for `scaleUp: true`, and Kyverno permits that only in prod namespaces.
 	scaleUpLabel = "adhar.io/scale-up"
+	// environmentLabel is the hierarchy label every composed object carries.
+	environmentLabel = "adhar.io/environment"
+	// volcanoSchedulerName is the schedulerName a Volcano-scheduled pod names.
+	// A Volcano Job's member's demand is read from its PodGroup, never from the
+	// pod (design 0025 §4.7); see pendingForCapacity for the single-mode run.
+	volcanoSchedulerName = "volcano"
+	// volcanoJobAPIGroup is the group of Volcano's Job (vcjob), the controller of
+	// every gang member's pod and of the PodGroup Volcano creates for it.
+	volcanoJobAPIGroup = "batch.volcano.sh"
+	// volcanoGroupNameAnnotation names the PodGroup a Volcano pod belongs to; the
+	// job controller and the PodGroup controller both stamp it.
+	volcanoGroupNameAnnotation = "scheduling.k8s.io/group-name"
+	// volcanoQueueAnnotation is the pod's queue, which adhar-batch-queue-binding
+	// mutates to the namespace's `<org>-<team>-<env>` leaf (§4.3).
+	volcanoQueueAnnotation = "scheduling.volcano.sh/queue-name"
 )
 
 // capacityShortageMarkers are the scheduler messages that mean "no node has
@@ -226,7 +241,12 @@ type Snapshot struct {
 	// could be read. Requests understate what the platform's pods use while they
 	// boot, so utilization takes the larger of the two. See usage.go.
 	NodeCPUUsageMilli map[string]int64
-	Now               time.Time
+	// Gangs are the cluster's Volcano PodGroups and Queues the gangs' queues
+	// (and their ancestors), by name. Both are empty on a cluster without
+	// Volcano, which then decides exactly as it always has. See gangWantsNodes.
+	Gangs  []Gang
+	Queues map[string]GangQueue
+	Now    time.Time
 }
 
 // Utilization is the cluster-wide requested share of worker capacity.
@@ -264,6 +284,9 @@ type Decision struct {
 	// PendingPods is how many pending pods were attributed to capacity
 	// shortage (diagnostics only).
 	PendingPods int
+	// PendingGangs is how many Volcano gangs this decision buys workers for
+	// (diagnostics only).
+	PendingGangs int
 }
 
 // Decide applies the autoscaling policy to a snapshot. It is pure: no cluster
@@ -289,9 +312,13 @@ func Decide(s Snapshot) Decision {
 	}
 
 	// --- Scale up -----------------------------------------------------------
-	pending := pendingForCapacity(s.Pods, workers, s.Now)
+	pending := volcanoQueuesAdmit(s, pendingForCapacity(s.Pods, workers, s.Now))
 	d.PendingPods = len(pending)
-	if len(pending) > 0 {
+	// A Volcano gang held at enqueue has no pods at all, so the line above
+	// cannot see it (design 0025 R3); its demand is its PodGroup's.
+	gangs := planGangs(s, spec.MaxWorkers-int32(len(workers)))
+	d.PendingGangs = len(gangs.served)
+	if len(pending) > 0 || len(gangs.served) > 0 {
 		// Any pending pod resets the idle clock: the cluster is not idle.
 		switch {
 		case int32(len(workers)) >= spec.MaxWorkers:
@@ -299,8 +326,12 @@ func Decide(s Snapshot) Decision {
 			return d
 		case !cooledDown(s.Status.LastScaleUp, s.Now, spec.ScaleUpCooldown.Duration):
 			d.Reason = fmt.Sprintf("%d pod(s) pending for capacity; waiting out the %s scale-up cooldown", len(pending), spec.ScaleUpCooldown.Duration)
+			if len(gangs.served) > 0 {
+				d.Reason = fmt.Sprintf("%d pod(s) and %d gang(s) pending for capacity; waiting out the %s scale-up cooldown",
+					len(pending), len(gangs.served), spec.ScaleUpCooldown.Duration)
+			}
 			return d
-		default:
+		case len(gangs.served) == 0:
 			d.Action = ActionScaleUp
 			d.ScaleUpBy = scaleUpBurst(s, pending, int32(len(workers)), spec.MaxWorkers)
 			if d.ScaleUpBy == 1 {
@@ -311,7 +342,26 @@ func Decide(s Snapshot) Decision {
 					len(pending), pending[0], d.ScaleUpBy, int32(len(workers))+d.ScaleUpBy, spec.MaxWorkers)
 			}
 			return d
+		default:
+			// The gangs' count is exact and comes first: a gang given part of what
+			// it needs schedules nothing (all-or-nothing) and holds the nodes idle.
+			// Pending pods take what room is left, sized as they always are.
+			d.Action = ActionScaleUp
+			d.ScaleUpBy = gangs.nodes
+			if after := int32(len(workers)) + gangs.nodes; len(pending) > 0 && after < spec.MaxWorkers {
+				d.ScaleUpBy += scaleUpBurst(s, pending, after, spec.MaxWorkers)
+			}
+			d.Reason = fmt.Sprintf("%d gang(s) unschedulable for capacity (e.g. %s, %d worker(s)) and %d pod(s); adding %d worker(s) (%d/%d)",
+				len(gangs.served), gangs.served[0], gangs.nodes, len(pending), d.ScaleUpBy, int32(len(workers))+d.ScaleUpBy, spec.MaxWorkers)
+			return d
 		}
+	}
+	// An opted-in gang that needs more workers than maxWorkers leaves room for
+	// is not bought a part of its gang, and the cluster does not shrink under it
+	// either: the same hold a pending pod at maxWorkers gets.
+	if gangs.refused != "" {
+		d.Reason = gangs.refused
+		return d
 	}
 
 	// --- Scale up before anything becomes unschedulable ---------------------
@@ -500,6 +550,22 @@ func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node, now time.Time)
 		if batchMayNotBuyNodes(p) {
 			continue
 		}
+		// A Volcano Job's pod is one member of a gang, and only the gang can say
+		// what it needs: counting its members here as well would buy their nodes
+		// twice, and buy them for gangs the PodGroup rules refuse.
+		//
+		// (2026-11-14) Only a Volcano JOB's members. Design 0025 §4.7 skips every
+		// pod with schedulerName volcano, but a single-mode run on Volcano stays a
+		// batch/v1 Job with that schedulerName (§6.4), and the PodGroup Volcano's
+		// PodGroup controller makes for its pod carries no labels and the native
+		// Job as its owner, so the gang rules can never read its opt-in: skipping
+		// it here left a prod `scaleUp: true` run that cannot buy a node. It stays
+		// on this rule, with its queue checked in Decide (volcanoQueuesAdmit).
+		// Without Volcano nothing writes such a pod's PodScheduled condition, so
+		// it never reaches the message test below.
+		if p.Spec.SchedulerName == volcanoSchedulerName && volcanoJobMember(p) {
+			continue
+		}
 		msg, ok := unschedulableMessage(p)
 		if !ok {
 			continue
@@ -532,6 +598,87 @@ func pendingForCapacity(pods []corev1.Pod, workers []corev1.Node, now time.Time)
 		out = append(out, p.Namespace+"/"+p.Name)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// volcanoJobMember reports whether the pod's controller is a Volcano Job, which
+// makes it one member of that Job's gang.
+func volcanoJobMember(p corev1.Pod) bool {
+	for _, o := range p.OwnerReferences {
+		if isVolcanoJobRef(o) {
+			return true
+		}
+	}
+	return false
+}
+
+// isVolcanoJobRef reports whether an owner reference is a controller reference
+// to a batch.volcano.sh Job (any version).
+func isVolcanoJobRef(o metav1.OwnerReference) bool {
+	return o.Controller != nil && *o.Controller && o.Kind == "Job" &&
+		strings.HasPrefix(o.APIVersion, volcanoJobAPIGroup+"/")
+}
+
+// volcanoQueuesAdmit drops the pending Volcano pods their queue would not take.
+// What is left on the pod rule from Volcano is a single-mode run (see
+// pendingForCapacity), and its queue decides about it exactly as it does about
+// a gang (§4.7: "a queue at capability never scales"): a run its own queue
+// cannot admit waits for the queue, and a new worker would sit idle. Its queue
+// is the pod annotation the queue binding mutates, so a dev or test leaf is a
+// dev or test run whatever its labels claim; a queue that was not read is full.
+func volcanoQueuesAdmit(s Snapshot, pending []string) []string {
+	if len(pending) == 0 {
+		return pending
+	}
+	held := map[string]bool{}
+	for _, p := range s.Pods {
+		if p.Spec.SchedulerName != volcanoSchedulerName {
+			continue
+		}
+		queue := p.Annotations[volcanoQueueAnnotation]
+		if queueIsDevOrTest(queue) {
+			held[p.Namespace+"/"+p.Name] = true
+			continue
+		}
+		if at, _ := queueAtCapability(queue, podResourceList(p), s.Queues); at {
+			held[p.Namespace+"/"+p.Name] = true
+		}
+	}
+	if len(held) == 0 {
+		return pending
+	}
+	out := make([]string, 0, len(pending))
+	for _, name := range pending {
+		if !held[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// queueIsDevOrTest reports whether a queue is a dev or test leaf (§4.3).
+func queueIsDevOrTest(queue string) bool {
+	return strings.HasSuffix(queue, "-dev") || strings.HasSuffix(queue, "-test")
+}
+
+// podResourceList is the pod's effective requests as a list: CPU and memory as
+// podRequests counts them, plus every other resource its containers request.
+func podResourceList(p corev1.Pod) corev1.ResourceList {
+	cpu, mem := podRequests(p)
+	out := corev1.ResourceList{
+		corev1.ResourceCPU:    *resource.NewMilliQuantity(cpu, resource.DecimalSI),
+		corev1.ResourceMemory: *resource.NewQuantity(mem, resource.BinarySI),
+	}
+	for _, c := range p.Spec.Containers {
+		for name, q := range c.Resources.Requests {
+			if name == corev1.ResourceCPU || name == corev1.ResourceMemory {
+				continue
+			}
+			sum := out[name]
+			sum.Add(q)
+			out[name] = sum
+		}
+	}
 	return out
 }
 
@@ -1124,4 +1271,406 @@ func saturationBurst(workers, maxWorkers int32) int32 {
 		n = room
 	}
 	return n
+}
+
+// Gang is the part of a Volcano PodGroup (scheduling.volcano.sh/v1beta1) the
+// scale-up decision reads. A Volcano Job's pods are not created until its
+// PodGroup leaves Pending, so a gang held at enqueue is invisible to every
+// pod-based rule above; this is its demand (design 0025 §4.7, R3).
+type Gang struct {
+	Namespace string
+	Name      string
+	// Phase is status.phase: Pending, Inqueue, Running, Unknown or Completed.
+	Phase string
+	// Unschedulable is a status condition of type Unschedulable that is True,
+	// which the gang plugin writes for every gang it could not make ready.
+	Unschedulable bool
+	// Message is that condition's message: "<n>/<m> tasks in gang
+	// unschedulable: <JobInfo.FitError()>", which carries one task's node fit
+	// summary ("… 0/3 nodes are unavailable: 3 Insufficient cpu.") when any
+	// task was tried against the nodes (Volcano v1.16.0 gang.go, job_info.go).
+	Message string
+	// OwnedByVolcanoJob is a controller reference to a batch.volcano.sh Job. Only
+	// those gangs can buy nodes: the opt-in below is the Job's labels, which
+	// Volcano's job controller copies onto the PodGroup it creates for it, and a
+	// PodGroup written by hand carries whatever labels its author chose.
+	OwnedByVolcanoJob bool
+	Labels            map[string]string
+	MinMember         int32
+	Running           int32
+	// MinResources is what the whole gang needs before any member runs.
+	MinResources corev1.ResourceList
+	Queue        string
+}
+
+// Key is "<namespace>/<name>".
+func (g Gang) Key() string { return g.Namespace + "/" + g.Name }
+
+// GangQueue is the part of a Volcano Queue the decision reads.
+type GangQueue struct {
+	Name   string
+	Parent string
+	// Capability is spec.capability; a resource it does not name is unbounded.
+	Capability corev1.ResourceList
+	// Allocated is status.allocated.
+	Allocated corev1.ResourceList
+}
+
+const (
+	// gangPhasePending / gangPhaseInqueue are the two phases a gang waits in.
+	gangPhasePending = "Pending"
+	gangPhaseInqueue = "Inqueue"
+	// volcanoDefaultQueue is where Volcano puts a PodGroup that names none.
+	volcanoDefaultQueue = "default"
+	// maxQueueDepth bounds the walk up a queue hierarchy, so a parent loop in
+	// what was read cannot hang a tick.
+	maxQueueDepth = 16
+)
+
+// gangPlan is what the gangs ask of one tick.
+type gangPlan struct {
+	// nodes is how many workers the served gangs need between them.
+	nodes int32
+	// served are the gangs ("<ns>/<name>") those workers are for.
+	served []string
+	// refused explains the first opted-in gang that needs more workers than
+	// maxWorkers leaves room for; "" when there is none.
+	refused string
+}
+
+// planGangs sizes the scale-up the pending gangs need. Every gang gets the whole
+// count it needs or nothing at all: a gang is all-or-nothing [S20], so a worker
+// bought towards a gang that still does not fit schedules none of it and only
+// adds a node the scale-down then has to retire. Gangs are taken in a stable
+// order and each one is added only if it fits in the room the earlier ones
+// left. A gang buys only when it may (gangWantsNodes) and Volcano says it is
+// short of what a new worker brings (gangShortOfCapacity).
+//
+// The burst cap that bounds pod-driven scale-ups (maxScaleUpBurst) deliberately
+// does not apply: it guards against guessing from a transient backlog, and a
+// gang's minResources is not a guess. It is bounded by the room under
+// maxWorkers instead, and by its queue's capability, which is itself a share of
+// what maxWorkers can hold (§14).
+func planGangs(s Snapshot, room int32) gangPlan {
+	var plan gangPlan
+	if len(s.Gangs) == 0 {
+		return plan
+	}
+	workers := schedulableWorkers(s.Nodes)
+	free := freeRoom(workers, s.Pods)
+	gangs := append([]Gang(nil), s.Gangs...)
+	sort.Slice(gangs, func(i, j int) bool { return gangs[i].Key() < gangs[j].Key() })
+	for _, g := range gangs {
+		if ok, _ := gangWantsNodes(g, s.Queues); !ok {
+			continue
+		}
+		members := gangMembers(g, s.Pods)
+		if ok, _ := gangShortOfCapacity(g, members, workers); !ok {
+			continue
+		}
+		need, left := gangNodes(gangDemand(g, members), s.Nodes, free)
+		if need == 0 {
+			// A member larger than a whole worker: no number of identical workers
+			// schedules it.
+			continue
+		}
+		if plan.nodes+need > room {
+			if plan.refused == "" {
+				plan.refused = fmt.Sprintf("gang %s needs %d worker(s) but %d can be added under maxWorkers; not buying part of a gang",
+					g.Key(), need, max(room-plan.nodes, 0))
+			}
+			continue
+		}
+		// The room a served gang was credited with is its own from here on; a gang
+		// that is not served (above) leaves it to the next.
+		free = left
+		plan.nodes += need
+		plan.served = append(plan.served, g.Key())
+	}
+	return plan
+}
+
+// gangWantsNodes reports whether a gang may buy workers, or why not. All of:
+//   - it is waiting (Pending or Inqueue) and the scheduler says it is
+//     unschedulable, with fewer members running than it needs;
+//   - its Volcano Job opted in: a batch run labelled adhar.io/scale-up "true"
+//     (the composition sets it only for `scaleUp: true` in prod), and not
+//     labelled as any environment but prod — a dev or test gang never buys a
+//     node (G3, INV-5);
+//   - its queue, and every queue above it, is below capability: a gang its own
+//     queue cannot admit waits for the queue, and a new worker would sit idle.
+func gangWantsNodes(g Gang, queues map[string]GangQueue) (bool, string) {
+	if g.Phase != gangPhasePending && g.Phase != gangPhaseInqueue {
+		return false, "phase " + g.Phase
+	}
+	if !g.Unschedulable {
+		return false, "not reported unschedulable"
+	}
+	if g.MinMember > 0 && g.Running >= g.MinMember {
+		return false, "already running"
+	}
+	if !g.OwnedByVolcanoJob {
+		return false, "not a Volcano Job's gang"
+	}
+	if g.Labels[workloadLabel] != "batch" || g.Labels[scaleUpLabel] != "true" {
+		return false, "not opted in to scale-up"
+	}
+	if env, ok := g.Labels[environmentLabel]; ok && env != "prod" {
+		return false, "environment " + env
+	}
+	// The queue says the same thing from the other side: adhar-batch-queue-binding
+	// pins every gang to its namespace's `<org>-<team>-<env>` leaf (§4.3), so a
+	// gang in a dev or test leaf is a dev or test run whatever its labels claim.
+	if queueIsDevOrTest(g.Queue) {
+		return false, "queue " + g.Queue + " is a dev or test leaf"
+	}
+	if at, why := queueAtCapability(g.Queue, g.MinResources, queues); at {
+		return false, why
+	}
+	return true, ""
+}
+
+// queueAtCapability walks from the gang's queue to the root and reports the
+// first queue that is at its capability, or could not take the gang on top of
+// what it has allocated. A queue that was not read is treated as full: the
+// tick cannot show it has room.
+func queueAtCapability(name string, want corev1.ResourceList, queues map[string]GangQueue) (bool, string) {
+	if name == "" {
+		name = volcanoDefaultQueue
+	}
+	if _, ok := queues[name]; !ok {
+		return true, "queue " + name + " not found"
+	}
+	seen := map[string]bool{}
+	for cur, depth := name, 0; cur != ""; depth++ {
+		if seen[cur] || depth > maxQueueDepth {
+			return true, "queue hierarchy loops at " + cur
+		}
+		seen[cur] = true
+		q, ok := queues[cur]
+		if !ok {
+			// An ancestor that was not read (Volcano's own root): nothing more
+			// is known above this point.
+			break
+		}
+		for res, capacity := range q.Capability {
+			// (2026-11-14) Only what the gang asks for: Volcano's capacity plugin
+			// admits a gang against the dimensions of its minResources, so a queue
+			// out of GPUs still takes a CPU-only gang, and refusing it here would
+			// leave an admissible gang waiting on nodes nobody buys.
+			if need := want[res]; need.IsZero() {
+				continue
+			}
+			allocated := q.Allocated[res]
+			if allocated.Cmp(capacity) >= 0 {
+				return true, fmt.Sprintf("queue %s is at its %s capability", cur, res)
+			}
+			total := allocated.DeepCopy()
+			total.Add(want[res])
+			if total.Cmp(capacity) > 0 {
+				return true, fmt.Sprintf("queue %s cannot admit the gang's %s within its capability", cur, res)
+			}
+		}
+		cur = q.Parent
+	}
+	return false, ""
+}
+
+// gangMembers are the gang's pods still waiting for a node: the pods in its
+// namespace whose group-name annotation names it. A Volcano Job creates them
+// once the gang leaves Pending, so a gang in Inqueue normally has them all.
+func gangMembers(g Gang, pods []corev1.Pod) []corev1.Pod {
+	var out []corev1.Pod
+	for _, p := range pods {
+		if p.Namespace != g.Namespace || p.Annotations[volcanoGroupNameAnnotation] != g.Name {
+			continue
+		}
+		if p.Status.Phase != corev1.PodPending || p.Spec.NodeName != "" || p.DeletionTimestamp != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// gangShortOfCapacity reports whether what Volcano wrote says the gang waits for
+// room a new worker brings, or why not. The pod rule asks the same two
+// questions of a pod (pendingForCapacity), and a gang needs them more: it keeps
+// its Unschedulable condition for as long as it waits, so a gang held by
+// anything else would buy a worker every cooldown until maxWorkers.
+//
+//   - The shortage must be capacity: a capacity marker in the gang's condition
+//     message, or in the PodScheduled message Volcano writes on any of its
+//     waiting members (TaskSchedulingReason: that pod's own node fit errors).
+//     A gang held by taints, affinity or a GPU no worker has says something
+//     else, and so does a gang waiting on its queue ("pod group is not ready"
+//     with no node summary).
+//   - Every waiting member must fit a new worker as the existing ones are
+//     labelled: a member pinned to labels or names no worker has never runs,
+//     and the gang runs only whole.
+//
+// (2026-11-14) Design 0025 §4.7 asks only for "an unschedulable condition";
+// this is that condition read the way the pod rule reads a pod's.
+func gangShortOfCapacity(g Gang, members []corev1.Pod, workers []corev1.Node) (bool, string) {
+	short := mentionsCapacityShortage(g.Message)
+	for _, p := range members {
+		if !placeableOnNewWorker(p, workers) || pinnedToNamedNodes(p) {
+			return false, "member " + p.Name + " needs a node a new worker would not be"
+		}
+		if msg, ok := unschedulableMessage(p); ok && mentionsCapacityShortage(msg) {
+			short = true
+		}
+	}
+	if !short {
+		return false, "not unschedulable for capacity"
+	}
+	return true, ""
+}
+
+// memberDemand is one gang member's requests.
+type memberDemand struct{ cpu, mem int64 }
+
+// gangDemand is what each member of the gang asks for. The waiting member pods
+// say it exactly, and are used whenever they cover what the gang still lacks: a
+// manager and its workers differ, and only the pods show by how much. A gang
+// whose pods are not (yet) there is its PodGroup's totals spread evenly over
+// minMember, the estimate a PodGroup allows.
+func gangDemand(g Gang, members []corev1.Pod) []memberDemand {
+	lacking := int(g.MinMember - g.Running)
+	if lacking < 1 {
+		lacking = 1
+	}
+	if len(members) >= lacking {
+		out := make([]memberDemand, 0, len(members))
+		for _, p := range members {
+			c, m := podRequests(p)
+			out = append(out, memberDemand{cpu: c, mem: m})
+		}
+		return out
+	}
+	n := int64(g.MinMember)
+	if n < 1 {
+		n = 1
+	}
+	cpu := quantity(g.MinResources, corev1.ResourceCPU).MilliValue()
+	mem := quantity(g.MinResources, corev1.ResourceMemory).Value()
+	avg := memberDemand{cpu: (cpu + n - 1) / n, mem: (mem + n - 1) / n}
+	out := make([]memberDemand, n)
+	for i := range out {
+		out[i] = avg
+	}
+	return out
+}
+
+// workerRoom is what a worker can still take: allocatable less the requests of
+// the pods placed on it.
+type workerRoom struct {
+	node     string
+	cpu, mem int64
+}
+
+// freeRoom is the room on each schedulable worker. A worker carrying a
+// NoSchedule or NoExecute taint is left out: whether a member tolerates it is
+// not worth guessing, and leaving it out can only buy a worker too many, never
+// one too few.
+func freeRoom(workers []corev1.Node, pods []corev1.Pod) []workerRoom {
+	out := make([]workerRoom, 0, len(workers))
+	index := map[string]int{}
+	for _, n := range workers {
+		if hasSchedulingTaint(n) {
+			continue
+		}
+		index[n.Name] = len(out)
+		out = append(out, workerRoom{
+			node: n.Name,
+			cpu:  n.Status.Allocatable.Cpu().MilliValue(),
+			mem:  n.Status.Allocatable.Memory().Value(),
+		})
+	}
+	for _, p := range pods {
+		i, ok := index[p.Spec.NodeName]
+		if !ok || isTerminated(p) {
+			continue
+		}
+		c, m := podRequests(p)
+		out[i].cpu -= c
+		out[i].mem -= m
+	}
+	return out
+}
+
+func hasSchedulingTaint(n corev1.Node) bool {
+	for _, t := range n.Spec.Taints {
+		if t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute {
+			return true
+		}
+	}
+	return false
+}
+
+// gangNodes is how many workers a gang needs on top of the room the existing
+// ones have, or 0 when one of its members is larger than a whole worker. It
+// returns the room left once the gang's members are placed in it.
+//
+// It places members, not resources: a pod does not split across nodes. Five
+// members of 3 CPU each need five 4-CPU workers, where the resource sum alone
+// (15 CPU) would say four and buy a cluster the gang still does not fit.
+// Members go largest first into the existing room, then onto new workers of the
+// largest worker's shape less the packing margin pod bursts use (first fit
+// decreasing); a member that fits a worker but not its margin gets one alone.
+//
+// When every member fits the existing room by this arithmetic it still returns
+// one: Volcano has just said the gang does not fit (gangShortOfCapacity), so
+// the room is not what it looks like from requests — fragmentation the
+// scheduler packs differently, or pods this tick did not see — and one worker is
+// the smallest step that answers it; the next tick measures again.
+//
+// (2026-11-14) Design 0025 §4.7 writes the count as ceil(minResources / worker
+// allocatable). That is the lower bound this returns when members are small
+// next to a worker and the cluster is full; where members are large it
+// undercounts and buys a partial gang, which §4.7's own all-or-nothing
+// reasoning forbids, and where the cluster has room it overbuys.
+func gangNodes(demand []memberDemand, nodes []corev1.Node, free []workerRoom) (int32, []workerRoom) {
+	shapeCPU, shapeMem := workerShape(nodes)
+	if shapeCPU <= 0 || shapeMem <= 0 {
+		// No worker to measure: one step, and the next tick sizes the rest.
+		return 1, free
+	}
+	for _, m := range demand {
+		if m.cpu > shapeCPU || m.mem > shapeMem {
+			return 0, free
+		}
+	}
+	sorted := append([]memberDemand(nil), demand...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].cpu != sorted[j].cpu {
+			return sorted[i].cpu > sorted[j].cpu
+		}
+		return sorted[i].mem > sorted[j].mem
+	})
+	left := append([]workerRoom(nil), free...)
+	binCPU := int64(float64(shapeCPU) * packingMargin)
+	binMem := int64(float64(shapeMem) * packingMargin)
+	var bins []workerRoom
+	for _, m := range sorted {
+		if placeMember(left, m) || placeMember(bins, m) {
+			continue
+		}
+		// A member above the margin leaves its worker below zero, so nothing
+		// else is placed beside it.
+		bins = append(bins, workerRoom{cpu: binCPU - m.cpu, mem: binMem - m.mem})
+	}
+	return max(int32(len(bins)), 1), left
+}
+
+// placeMember puts m in the first room that holds it, and reports whether one did.
+func placeMember(rooms []workerRoom, m memberDemand) bool {
+	for i := range rooms {
+		if rooms[i].cpu >= m.cpu && rooms[i].mem >= m.mem {
+			rooms[i].cpu -= m.cpu
+			rooms[i].mem -= m.mem
+			return true
+		}
+	}
+	return false
 }

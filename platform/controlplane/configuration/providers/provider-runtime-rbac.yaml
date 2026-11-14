@@ -254,6 +254,19 @@ rules:
     resources: ["roles"]
     resourceNames: ["adhar-resilience-gate"]
     verbs: ["bind"]
+  # Where Volcano runs, a Team composes its three leaf queues and a ClusterRole +
+  # ClusterRoleBinding giving its group `get` on exactly those (compositions/team,
+  # design 0025 §4.3). All three kinds are cluster-scoped and the names are per team,
+  # so resourceNames cannot pin them. No `bind` is needed and none is granted: the
+  # reader role carries only `get` on queues, which this identity holds, and the API
+  # server's escalation check lets a creator grant only what it holds — the same
+  # check bounds anything else a composed ClusterRole could try to carry.
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["queues"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

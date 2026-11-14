@@ -43,6 +43,21 @@
             "civo",
             "cloudflare"
           ]
+        },
+        "batch": {
+          "type": "object",
+          "description": "How much of the cluster batch may hold when Volcano schedules it (design 0025 D7, D17). Optional; rendered at seed time into Volcano's root queue adhar-batch and the adhar-batch-scheduler descriptor. Inert while Volcano is disabled.",
+          "properties": {
+            "capacity": {
+              "$ref": "#/definitions/batchResources",
+              "description": "The batch ceiling (root queue capability and deserved). Default: 30% of the CPU and 20% of the memory of maxWorkers x worker allocatable, in whole CPUs and GiB."
+            },
+            "prodDeserved": {
+              "$ref": "#/definitions/batchResources",
+              "description": "Each team's prod leaf queue deserved share, what lets prod reclaim from dev and test. Default: the larger of 4500m / 7Gi (the design's largest example gang) and a quarter of the ceiling, at most the ceiling. Above the ceiling is refused; below 4500m / 7Gi is a warning."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -99,6 +114,22 @@
   ],
   "additionalProperties": false,
   "definitions": {
+    "batchResources": {
+      "type": "object",
+      "properties": {
+        "cpu": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?m?$",
+          "description": "Kubernetes CPU quantity, e.g. 22 or 5500m"
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|k|M|G|T)?$",
+          "description": "Kubernetes memory quantity, e.g. 24Gi"
+        }
+      },
+      "additionalProperties": false
+    },
     "keyValue": {
       "type": "object",
       "description": "Key/value entry. Sizing keys (matched ignoring case and separators): controlPlaneMachineType - the control-plane size (compute mode); machineType | nodeSize | workerMachineType - the primary worker group's size; nodeCount - starting workers (whole number >= 0; 0 or absent = the provider default, 2 on every cloud); diskSizeGb - OS disk GiB (> 0; AWS and GCP - Azure reads providers.azure.config.diskSizeGb only); diskType - OS disk type; kubeVersion - Kubernetes version; podCidr - pod network CIDR.",

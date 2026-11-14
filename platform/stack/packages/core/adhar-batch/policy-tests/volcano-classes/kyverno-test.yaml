@@ -1,0 +1,15 @@
+# Enforce; Pod plus autogen for Job and CronJob (design 0025 INV-5, DEC-1).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-classes
+policies:
+  - ../../manifests/kyverno-volcano-classes.yaml
+resources:
+  - resources.yaml
+results:
+  - { policy: adhar-batch-volcano-classes, rule: a-volcano-class-is-for-volcano-pods, kind: Pod, resources: [volcano-class-on-volcano], result: pass }
+  - { policy: adhar-batch-volcano-classes, rule: a-volcano-class-is-for-volcano-pods, kind: Pod, resources: [volcano-class-on-kube-scheduler, volcano-critical-on-default-scheduler], result: fail }
+  - { policy: adhar-batch-volcano-classes, rule: a-volcano-class-is-for-volcano-pods, kind: Pod, resources: [native-class-on-kube-scheduler], result: skip }
+  - { policy: adhar-batch-volcano-classes, rule: autogen-a-volcano-class-is-for-volcano-pods, kind: Job, resources: [volcano-class-job-on-kube-scheduler], result: fail }
+  - { policy: adhar-batch-volcano-classes, rule: autogen-cronjob-a-volcano-class-is-for-volcano-pods, kind: CronJob, resources: [volcano-class-cron-on-volcano], result: pass }

@@ -2,6 +2,7 @@ package autoscaler
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -622,5 +623,269 @@ func TestScaleUpBurstsForCpuAndMemoryDemand(t *testing.T) {
 	s.VolumesPerNode = 0
 	if got := scaleUpBurst(s, names(pods), 2, 10); got != maxScaleUpBurst {
 		t.Fatalf("an unknown attach budget disabled demand sizing: %d", got)
+	}
+}
+
+// --- Volcano gangs (design 0025 §4.7, acceptance A2.6) ----------------------
+
+// gangShortOfCPU is the condition message Volcano v1.16.0's gang plugin writes
+// for a gang a task of which no node had room for.
+const gangShortOfCPU = "2/2 tasks in gang unschedulable: pod group is not ready, 2 Pending, 2 minAvailable; " +
+	"Pending: 2 Unschedulable. Node: settlement-worker-0: 0/3 nodes are unavailable: 1 node(s) had untolerated taint, 2 Insufficient cpu."
+
+// prodGang is a waiting gang of a prod run that opted into scale-up, which
+// Volcano reports short of CPU: members × (cpuMilli, memGi) each, in queue
+// acme-payments-prod.
+func prodGang(name string, members int32, cpuMilli, memGi int64) Gang {
+	return Gang{
+		Namespace:         "acme-payments-prod",
+		Name:              name,
+		Phase:             gangPhasePending,
+		Unschedulable:     true,
+		Message:           gangShortOfCPU,
+		OwnedByVolcanoJob: true,
+		Labels: map[string]string{
+			workloadLabel:        "batch",
+			scaleUpLabel:         "true",
+			environmentLabel:     "prod",
+			"adhar.io/batch-job": name,
+		},
+		MinMember: members,
+		MinResources: corev1.ResourceList{
+			corev1.ResourceCPU:    *resource.NewMilliQuantity(int64(members)*cpuMilli, resource.DecimalSI),
+			corev1.ResourceMemory: *resource.NewQuantity(int64(members)*memGi*1024*1024*1024, resource.BinarySI),
+		},
+		Queue: "acme-payments-prod",
+	}
+}
+
+func cpuMem(cpuMilli, memGi int64) corev1.ResourceList {
+	return corev1.ResourceList{
+		corev1.ResourceCPU:    *resource.NewMilliQuantity(cpuMilli, resource.DecimalSI),
+		corev1.ResourceMemory: *resource.NewQuantity(memGi*1024*1024*1024, resource.BinarySI),
+	}
+}
+
+// batchQueues is the §4.3 hierarchy: a root batch queue with room and the prod
+// leaf under it, both empty.
+func batchQueues() map[string]GangQueue {
+	return map[string]GangQueue{
+		"adhar-batch":        {Name: "adhar-batch", Parent: "root", Capability: cpuMem(12000, 24)},
+		"acme-payments-prod": {Name: "acme-payments-prod", Parent: "adhar-batch", Capability: cpuMem(8000, 16)},
+		"acme-payments-dev":  {Name: "acme-payments-dev", Parent: "adhar-batch", Capability: cpuMem(8000, 16)},
+	}
+}
+
+// gangSnapshot: two 4000m/8Gi workers with 600m/1Gi left on each (busy, but
+// under the 90% scale-up threshold), room for three more.
+func gangSnapshot(gangs ...Gang) Snapshot {
+	return Snapshot{
+		Spec:   enabledSpec(), // maxWorkers 5
+		Nodes:  []corev1.Node{controlPlane(), worker("w1"), worker("w2")},
+		Pods:   []corev1.Pod{placed("apps", "busy-1", "w1", 3400, 7), placed("apps", "busy-2", "w2", 3400, 7)},
+		Gangs:  gangs,
+		Queues: batchQueues(),
+		Now:    testNow,
+	}
+}
+
+func TestAPendingGangBuysWorkersOnlyWhenItMay(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Snapshot)
+		want   Action
+		by     int32
+	}{
+		// A2.6: fits one new worker (2 × 1500m/2Gi; 3400m after the packing margin).
+		{"an opted-in prod gang that fits one worker", nil, ActionScaleUp, 1},
+		{"held in Inqueue rather than Pending", func(s *Snapshot) { s.Gangs[0].Phase = gangPhaseInqueue }, ActionScaleUp, 1},
+
+		// A2.6: a dev gang never buys a node, opted in or not.
+		{"a dev gang", func(s *Snapshot) {
+			g := &s.Gangs[0]
+			g.Namespace, g.Queue = "acme-payments-dev", "acme-payments-dev"
+			g.Labels[environmentLabel] = "dev"
+			delete(g.Labels, scaleUpLabel)
+		}, ActionNone, 0},
+		{"a dev gang carrying the opt-in anyway", func(s *Snapshot) {
+			s.Gangs[0].Labels[environmentLabel] = "dev"
+			s.Gangs[0].Queue = "acme-payments-dev"
+		}, ActionNone, 0},
+		{"a test gang carrying the opt-in anyway", func(s *Snapshot) { s.Gangs[0].Labels[environmentLabel] = "test" }, ActionNone, 0},
+		// A hand-written Volcano Job with the opt-in and no environment label: the
+		// queue binding still put it in its namespace's dev leaf.
+		{"an opted-in gang in a dev leaf with no environment label", func(s *Snapshot) {
+			delete(s.Gangs[0].Labels, environmentLabel)
+			s.Gangs[0].Queue = "acme-payments-dev"
+		}, ActionNone, 0},
+		{"a prod gang that did not opt in", func(s *Snapshot) { delete(s.Gangs[0].Labels, scaleUpLabel) }, ActionNone, 0},
+		{"the opt-in spelled wrong", func(s *Snapshot) { s.Gangs[0].Labels[scaleUpLabel] = "yes" }, ActionNone, 0},
+		{"an opted-in gang that is not batch", func(s *Snapshot) { s.Gangs[0].Labels[workloadLabel] = "service" }, ActionNone, 0},
+
+		// A2.6: any gang at queue capability.
+		{"its queue is at capability", func(s *Snapshot) {
+			q := s.Queues["acme-payments-prod"]
+			q.Allocated = cpuMem(8000, 4)
+			s.Queues["acme-payments-prod"] = q
+		}, ActionNone, 0},
+		{"its queue cannot admit the gang on top of what it holds", func(s *Snapshot) {
+			q := s.Queues["acme-payments-prod"]
+			q.Allocated = cpuMem(6000, 4) // + 3000m > 8000m
+			s.Queues["acme-payments-prod"] = q
+		}, ActionNone, 0},
+		{"the root batch queue is at capability", func(s *Snapshot) {
+			q := s.Queues["adhar-batch"]
+			q.Allocated = cpuMem(12000, 8)
+			s.Queues["adhar-batch"] = q
+		}, ActionNone, 0},
+		{"its queue was not read", func(s *Snapshot) { s.Queues = nil }, ActionNone, 0},
+		{"its queue names a resource it does not cap", func(s *Snapshot) {
+			q := s.Queues["acme-payments-prod"]
+			q.Capability = corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("2")}
+			s.Queues["acme-payments-prod"] = q
+		}, ActionScaleUp, 1},
+		// Volcano admits a gang against what it asks for; a queue out of GPUs
+		// still takes a CPU-only gang, which then waits on nodes.
+		{"its queue is out of a resource the gang does not ask for", func(s *Snapshot) {
+			q := s.Queues["acme-payments-prod"]
+			q.Capability["nvidia.com/gpu"] = resource.MustParse("2")
+			q.Allocated = corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("2")}
+			s.Queues["acme-payments-prod"] = q
+		}, ActionScaleUp, 1},
+
+		// Only a gang Volcano is holding asks for a node.
+		{"already running", func(s *Snapshot) { s.Gangs[0].Phase = "Running" }, ActionNone, 0},
+		{"not reported unschedulable", func(s *Snapshot) { s.Gangs[0].Unschedulable = false }, ActionNone, 0},
+		{"a PodGroup no Volcano Job owns", func(s *Snapshot) { s.Gangs[0].OwnedByVolcanoJob = false }, ActionNone, 0},
+		{"a member larger than a whole worker", func(s *Snapshot) {
+			s.Gangs[0] = prodGang("settlement", 1, 6000, 2)
+		}, ActionNone, 0},
+
+		// The cooldown spaces gang scale-ups like any other: one scale-up, then
+		// the next tick waits while the worker joins.
+		{"a worker was just added for it", func(s *Snapshot) {
+			last := metav1.NewTime(testNow.Add(-time.Minute))
+			s.Status.LastScaleUp = &last
+		}, ActionNone, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := gangSnapshot(prodGang("settlement", 2, 1500, 2))
+			if c.mutate != nil {
+				c.mutate(&s)
+			}
+			d := Decide(s)
+			if d.Action != c.want || d.ScaleUpBy != c.by {
+				t.Fatalf("got %s by %d (%s), want %s by %d", d.Action, d.ScaleUpBy, d.Reason, c.want, c.by)
+			}
+		})
+	}
+}
+
+// A gang is all-or-nothing, so a part of the workers it needs buys nothing it
+// can use. It gets the right count, counted in members since a pod does not
+// split across nodes, or none at all.
+func TestAGangIsNeverBoughtPartOfWhatItNeeds(t *testing.T) {
+	cases := []struct {
+		name       string
+		gang       Gang
+		maxWorkers int32
+		want       Action
+		by         int32
+	}{
+		{"three members of 3000m need three workers", prodGang("g", 3, 3000, 2), 5, ActionScaleUp, 3},
+		// 4 × 2000m: the sum (8000m) fills three 3400m slices, but a slice holds
+		// one 2000m member, so four workers or the fourth member never runs.
+		{"four members of 2000m need four workers, not the three their sum fills", prodGang("g", 4, 2000, 2), 7, ActionScaleUp, 4},
+		// The resource sum (15000m) would say five 3400m slices; members say five
+		// workers too, and five do not fit the room of three.
+		{"five members of 3000m with room for three", prodGang("g", 5, 3000, 2), 5, ActionNone, 0},
+		// The pod burst cap does not apply to a gang's exact count.
+		{"five members of 3000m with room for five", prodGang("g", 5, 3000, 2), 7, ActionScaleUp, 5},
+		// Memory decides as much as CPU: 3 × 5Gi, one member per 8Gi worker.
+		{"memory-bound members", prodGang("g", 3, 500, 5), 5, ActionScaleUp, 3},
+		{"at maxWorkers", prodGang("g", 1, 1000, 1), 2, ActionNone, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := gangSnapshot(c.gang)
+			s.Spec = (&v1alpha1.AutoscalingSpec{Enabled: true, MinWorkers: 1, MaxWorkers: c.maxWorkers}).WithDefaults()
+			s.Queues["acme-payments-prod"] = GangQueue{Name: "acme-payments-prod", Parent: "adhar-batch"}
+			s.Queues["adhar-batch"] = GangQueue{Name: "adhar-batch"}
+			d := Decide(s)
+			if d.Action != c.want || d.ScaleUpBy != c.by {
+				t.Fatalf("got %s by %d (%s), want %s by %d", d.Action, d.ScaleUpBy, d.Reason, c.want, c.by)
+			}
+			if c.want == ActionNone && !strings.Contains(d.Reason, "not buying part of a gang") {
+				t.Fatalf("the operator is not told why the gang waits: %s", d.Reason)
+			}
+		})
+	}
+}
+
+// A gang that is waiting for room it cannot be given holds the cluster as a
+// pending pod at maxWorkers does: shrinking under it would only push it further
+// from fitting.
+func TestAGangThatCannotBeServedKeepsTheClusterFromShrinking(t *testing.T) {
+	s := idleSnapshot() // would retire w3
+	s.Spec.MaxWorkers = 4
+	s.Gangs = []Gang{prodGang("g", 2, 3950, 2)} // 7900m: within its queue; no worker has 3950m free, two new ones
+	s.Queues = batchQueues()
+	d := Decide(s)
+	if d.Action != ActionNone {
+		t.Fatalf("got %s %q (%s) under a gang that needs two workers", d.Action, d.Node, d.Reason)
+	}
+	// The same snapshot without the gang shrinks, so the gang is what held it.
+	s.Gangs = nil
+	if d := Decide(s); d.Action != ActionScaleDown {
+		t.Fatalf("fixture must shrink without the gang, got %s (%s)", d.Action, d.Reason)
+	}
+}
+
+// Two gangs: each is taken whole while the room lasts, and the one that does
+// not fit after the first is not bought a part.
+func TestGangsShareTheRoomWithoutSplittingAny(t *testing.T) {
+	s := gangSnapshot(prodGang("a", 2, 3000, 2), prodGang("b", 2, 3000, 2)) // two workers each; room 3
+	s.Queues["acme-payments-prod"] = GangQueue{Name: "acme-payments-prod"}
+	d := Decide(s)
+	if d.Action != ActionScaleUp || d.ScaleUpBy != 2 || d.PendingGangs != 1 {
+		t.Fatalf("got %s by %d for %d gang(s) (%s), want a whole gang's 2 workers", d.Action, d.ScaleUpBy, d.PendingGangs, d.Reason)
+	}
+}
+
+// A Volcano pod is one member of a gang. Its demand is its PodGroup's, so it is
+// never counted again by the pod rule, and without Volcano no node helps it.
+func TestVolcanoPodsAreCountedThroughTheirGangOnly(t *testing.T) {
+	member := func(name string) corev1.Pod {
+		return gangMember(name, "settlement", 1500, 2, "Node: 0/3 nodes are unavailable: 3 Insufficient cpu.")
+	}
+	// Members created once the gang went Inqueue: one worker, not one per member.
+	g := prodGang("settlement", 2, 1500, 2)
+	g.Phase = gangPhaseInqueue
+	s := gangSnapshot(g)
+	s.Pods = append(s.Pods, member("settlement-manager-0"), member("settlement-worker-0"))
+	d := Decide(s)
+	if d.Action != ActionScaleUp || d.ScaleUpBy != 1 || d.PendingPods != 0 {
+		t.Fatalf("got %s by %d with %d pod(s) (%s), want the gang's one worker", d.Action, d.ScaleUpBy, d.PendingPods, d.Reason)
+	}
+	// No Volcano, no gangs: the members alone buy nothing.
+	s = gangSnapshot()
+	s.Pods = append(s.Pods, member("a"), member("b"))
+	if d := Decide(s); d.Action != ActionNone {
+		t.Fatalf("Volcano pods with no gang bought a node: %s", d.Reason)
+	}
+}
+
+// Pods that pend beside a gang take what room the gang leaves.
+func TestPendingPodsShareTheRoomAGangLeaves(t *testing.T) {
+	s := gangSnapshot(prodGang("settlement", 2, 1500, 2))
+	s.Pods = append(s.Pods, pending("api", "0/3 nodes are available: 3 Insufficient cpu."))
+	d := Decide(s)
+	if d.Action != ActionScaleUp || d.ScaleUpBy != 2 {
+		t.Fatalf("got %s by %d (%s), want the gang's worker plus the pod's", d.Action, d.ScaleUpBy, d.Reason)
+	}
+	s.Spec.MaxWorkers = 3 // room for the gang alone
+	if d := Decide(s); d.Action != ActionScaleUp || d.ScaleUpBy != 1 {
+		t.Fatalf("got %s by %d (%s), want the gang's one worker within maxWorkers", d.Action, d.ScaleUpBy, d.Reason)
 	}
 }

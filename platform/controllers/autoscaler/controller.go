@@ -34,12 +34,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -138,6 +143,17 @@ type Reconciler struct {
 	progress scaleUpProgress
 	// oidcNextAttempt throttles the OIDC trust retries. Guarded by mu.
 	oidcNextAttempt time.Time
+
+	// APIReader reads Volcano's PodGroups and Queues straight from the API
+	// server: a plain LIST each tick, never an informer, because an informer
+	// on a CRD that may be absent blocks the cache sync and has killed the
+	// manager before. SetupWithManager sets it; nil falls back to Client.
+	APIReader client.Reader
+	// VolcanoServed reports whether the API server serves Volcano's scheduling
+	// API. Nil asks discovery through RESTConfig; tests substitute it.
+	VolcanoServed func(ctx context.Context) bool
+	// volcanoDiscovery is built once from RESTConfig. Guarded by mu.
+	volcanoDiscovery discovery.DiscoveryInterface
 }
 
 // dueIn reports how long remains before another evaluation is allowed, and
@@ -163,6 +179,7 @@ func (r *Reconciler) dueIn(now time.Time) time.Duration {
 // +kubebuilder:rbac:groups=storage.k8s.io,resources=csinodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=scheduling.volcano.sh,resources=podgroups;queues,verbs=get;list
 
 // SetupWithManager wires the controller.
 //
@@ -170,9 +187,13 @@ func (r *Reconciler) dueIn(now time.Time) time.Duration {
 // that does not exist yet blocks the manager's cache sync and kills it at
 // WaitForCacheSyncTimeout, which is why this controller can be registered
 // unconditionally at bootstrap, before AdharPlatform even has a spec. The
-// AdharPlatform itself is read on demand inside Reconcile.
+// AdharPlatform itself is read on demand inside Reconcile, and so are Volcano's
+// PodGroups and Queues (volcanoGangs), for the same reason.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.applyDefaults()
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 
 	// Every event maps to the same reconcile key: the decision is always about
 	// the cluster as a whole, so the workqueue collapses bursts into one tick.
@@ -384,6 +405,7 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 		}
 		usage = r.NodeUsage(ctx, names)
 	}
+	gangs, queues := r.volcanoGangs(ctx)
 
 	return &snapshotWithCluster{
 		Snapshot: Snapshot{
@@ -394,6 +416,8 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 			RWOClaims:         rwo,
 			VolumesPerNode:    r.volumesPerNode(ctx),
 			NodeCPUUsageMilli: usage,
+			Gangs:             gangs,
+			Queues:            queues,
 			Now:               r.Now(),
 		},
 		cluster: cluster,
@@ -543,4 +567,184 @@ func (p *providerScaler) ScaleDown(ctx context.Context, spec *clusterSpec, nodeN
 		return errNoClusterSpec
 	}
 	return p.r.scaleDown(ctx, spec, nodeName)
+}
+
+// volcanoSchedulingGV is the API Volcano's PodGroups and Queues are served at.
+var volcanoSchedulingGV = schema.GroupVersion{Group: "scheduling.volcano.sh", Version: "v1beta1"}
+
+// volcanoDiscoveryTimeout bounds the one discovery request a tick makes, so an
+// API server that does not answer costs a tick its gangs and nothing else.
+const volcanoDiscoveryTimeout = 10 * time.Second
+
+// volcanoGangs reads every PodGroup, and the Queues when one of them is
+// waiting, for the gang rules in Decide (design 0025 §4.7).
+//
+// A cluster without Volcano returns nothing and decides exactly as before: the
+// discovery check comes first, so the tick never LISTs a kind the API server
+// does not serve. Everything here is advisory: a PodGroup or Queue that cannot
+// be read costs this tick its gangs, never the scale decision for everything
+// else — the same rule the event bus follows.
+func (r *Reconciler) volcanoGangs(ctx context.Context) ([]Gang, map[string]GangQueue) {
+	if !r.volcanoServed(ctx) {
+		return nil, nil
+	}
+	logger := log.FromContext(ctx)
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	pgs := &unstructured.UnstructuredList{}
+	pgs.SetGroupVersionKind(volcanoSchedulingGV.WithKind("PodGroupList"))
+	if err := reader.List(ctx, pgs); err != nil {
+		logVolcanoReadError(logger, "PodGroups", err)
+		return nil, nil
+	}
+	var gangs []Gang
+	waiting := false
+	for i := range pgs.Items {
+		g := gangFromPodGroup(&pgs.Items[i])
+		gangs = append(gangs, g)
+		if g.Unschedulable && (g.Phase == gangPhasePending || g.Phase == gangPhaseInqueue) {
+			waiting = true
+		}
+	}
+	if !waiting {
+		// Nothing can ask for a node; the Queues are not worth a request.
+		return gangs, nil
+	}
+	qs := &unstructured.UnstructuredList{}
+	qs.SetGroupVersionKind(volcanoSchedulingGV.WithKind("QueueList"))
+	if err := reader.List(ctx, qs); err != nil {
+		// Without the Queues no gang can show its queue has room, and
+		// gangWantsNodes treats an unread queue as full.
+		logVolcanoReadError(logger, "Queues", err)
+		return gangs, nil
+	}
+	queues := make(map[string]GangQueue, len(qs.Items))
+	for i := range qs.Items {
+		q := queueFromUnstructured(&qs.Items[i])
+		queues[q.Name] = q
+	}
+	return gangs, queues
+}
+
+// logVolcanoReadError reports a failed Volcano read. A kind that went away
+// between discovery and the LIST is Volcano being removed, not a fault.
+func logVolcanoReadError(logger logr.Logger, what string, err error) {
+	if meta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+		logger.V(1).Info("Volcano is not served; no gang demand this tick", "kind", what)
+		return
+	}
+	logger.Info("reading Volcano gang demand failed; deciding without it this tick", "kind", what, "error", err.Error())
+}
+
+// volcanoServed asks discovery for scheduling.volcano.sh/v1beta1 and both kinds
+// the gang rules read. One small GET per tick: the full aggregated discovery a
+// RESTMapper miss triggers is the expensive request on a control plane carrying
+// hundreds of CRDs, and on a cluster without Volcano every tick would miss.
+func (r *Reconciler) volcanoServed(ctx context.Context) bool {
+	if r.VolcanoServed != nil {
+		return r.VolcanoServed(ctx)
+	}
+	if r.RESTConfig == nil {
+		return false
+	}
+	r.mu.Lock()
+	dc := r.volcanoDiscovery
+	if dc == nil {
+		cfg := rest.CopyConfig(r.RESTConfig)
+		cfg.Timeout = volcanoDiscoveryTimeout
+		c, err := discovery.NewDiscoveryClientForConfig(cfg)
+		if err != nil {
+			r.mu.Unlock()
+			log.FromContext(ctx).V(1).Info("building a discovery client for Volcano", "error", err.Error())
+			return false
+		}
+		r.volcanoDiscovery, dc = c, c
+	}
+	r.mu.Unlock()
+	resources, err := dc.ServerResourcesForGroupVersion(volcanoSchedulingGV.String())
+	if err != nil {
+		return false
+	}
+	return servesPodGroupsAndQueues(resources)
+}
+
+// servesPodGroupsAndQueues reports whether a discovery listing carries both.
+func servesPodGroupsAndQueues(list *metav1.APIResourceList) bool {
+	if list == nil {
+		return false
+	}
+	var podGroups, queues bool
+	for _, res := range list.APIResources {
+		switch res.Name {
+		case "podgroups":
+			podGroups = true
+		case "queues":
+			queues = true
+		}
+	}
+	return podGroups && queues
+}
+
+// gangFromPodGroup reads the fields Gang carries from a PodGroup.
+func gangFromPodGroup(u *unstructured.Unstructured) Gang {
+	g := Gang{
+		Namespace: u.GetNamespace(),
+		Name:      u.GetName(),
+		Labels:    u.GetLabels(),
+	}
+	g.Phase, _, _ = unstructured.NestedString(u.Object, "status", "phase")
+	g.Queue, _, _ = unstructured.NestedString(u.Object, "spec", "queue")
+	if v, ok, _ := unstructured.NestedInt64(u.Object, "spec", "minMember"); ok {
+		g.MinMember = int32(v)
+	}
+	if v, ok, _ := unstructured.NestedInt64(u.Object, "status", "running"); ok {
+		g.Running = int32(v)
+	}
+	g.MinResources = resourceListAt(u.Object, "spec", "minResources")
+	conditions, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	for _, c := range conditions {
+		m, ok := c.(map[string]interface{})
+		if ok && m["type"] == "Unschedulable" && m["status"] == string(corev1.ConditionTrue) {
+			g.Unschedulable = true
+			g.Message, _ = m["message"].(string)
+		}
+	}
+	for _, o := range u.GetOwnerReferences() {
+		if isVolcanoJobRef(o) {
+			g.OwnedByVolcanoJob = true
+		}
+	}
+	return g
+}
+
+// queueFromUnstructured reads the fields GangQueue carries from a Queue.
+func queueFromUnstructured(u *unstructured.Unstructured) GangQueue {
+	q := GangQueue{
+		Name:       u.GetName(),
+		Capability: resourceListAt(u.Object, "spec", "capability"),
+		Allocated:  resourceListAt(u.Object, "status", "allocated"),
+	}
+	q.Parent, _, _ = unstructured.NestedString(u.Object, "spec", "parent")
+	return q
+}
+
+// resourceListAt parses a map of quantities. A value that does not parse is
+// left out; for a capability that reads as unbounded, which the scheduler's own
+// admission (and every other queue in the walk) still bounds.
+func resourceListAt(obj map[string]interface{}, fields ...string) corev1.ResourceList {
+	raw, ok, _ := unstructured.NestedMap(obj, fields...)
+	if !ok {
+		return nil
+	}
+	out := corev1.ResourceList{}
+	for k, v := range raw {
+		q, err := resource.ParseQuantity(fmt.Sprint(v))
+		if err != nil {
+			continue
+		}
+		out[corev1.ResourceName(k)] = q
+	}
+	return out
 }

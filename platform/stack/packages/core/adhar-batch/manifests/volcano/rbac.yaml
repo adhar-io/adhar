@@ -1,0 +1,16 @@
+# Kyverno's admission controller reads the namespace's leaf Queue (the
+# the-team-queue-belongs-to-the-team rule). Kyverno aggregates roles carrying this
+# label into its own; read-only, Queues only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-batch-kyverno-queues
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    rbac.kyverno.io/aggregate-to-admission-controller: "true"
+    app.kubernetes.io/part-of: adhar
+rules:
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["queues"]
+    verbs: ["get", "list", "watch"]

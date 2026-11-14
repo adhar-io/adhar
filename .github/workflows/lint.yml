@@ -32,3 +32,20 @@ jobs:
       # from golangci-lint-action can lag behind new Go releases.
       - name: Run linter
         run: make lint
+
+  policy-test:
+    name: Kyverno policy fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      # hack/policy-test.sh checks every row of the CLI's output with Python, because
+      # `kyverno test` counts a policy it refused to load as passed.
+      - name: Install PyYAML
+        run: python3 -m pip install --upgrade pyyaml
+
+      # Downloads the kyverno CLI the platform's admission controller runs (checksum
+      # verified) and proves every package's policy-tests/ against it.
+      - name: Run policy tests
+        run: make policy-test

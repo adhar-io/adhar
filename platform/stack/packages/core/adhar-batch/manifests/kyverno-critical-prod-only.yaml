@@ -1,4 +1,5 @@
-# adhar-batch-critical and adhar.io/scale-up: "true" are prod's (design 0025 §4.4,
+# adhar-batch-critical (and its Volcano twin adhar-batch-volcano-critical, DEC-1) and
+# adhar.io/scale-up: "true" are prod's (design 0025 §4.4,
 # §4.7, §10.3): a dev or test run neither outranks a prod run nor buys a node. The
 # composition refuses the same definitions with a readable message; this is what
 # holds for a Job somebody writes by hand. Written against the Pod so autogen covers
@@ -15,10 +16,12 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Pod
     policies.kyverno.io/description: >-
-      The PriorityClass adhar-batch-critical and the label adhar.io/scale-up are
-      permitted only in namespaces labelled adhar.io/environment prod.
+      The PriorityClasses adhar-batch-critical and adhar-batch-volcano-critical and the
+      label adhar.io/scale-up are permitted only in namespaces labelled adhar.io/environment prod.
 spec:
   background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
   rules:
     - name: critical-priority-only-in-prod
       match:
@@ -34,10 +37,10 @@ spec:
                   adhar.io/environment: prod
       validate:
         failureAction: Enforce
-        message: The PriorityClass adhar-batch-critical is for prod environment namespaces only.
+        message: The PriorityClasses adhar-batch-critical and adhar-batch-volcano-critical are for prod environment namespaces only.
         pattern:
           spec:
-            =(priorityClassName): "!adhar-batch-critical"
+            =(priorityClassName): "!adhar-batch-critical & !adhar-batch-volcano-critical"
     - name: scale-up-only-in-prod
       match:
         any:

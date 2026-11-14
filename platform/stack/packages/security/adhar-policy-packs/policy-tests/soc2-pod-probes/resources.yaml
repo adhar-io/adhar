@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: Pod
+metadata: { name: batch-run-without-probes, namespace: prod, labels: { adhar.io/workload: batch, adhar.io/batch-job: importer } }
+spec:
+  restartPolicy: Never
+  containers:
+    - { name: batch, image: "harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000" }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: service-without-probes, namespace: prod, labels: { app: web } }
+spec:
+  containers:
+    - { name: web, image: "docker.io/library/nginx:1.27" }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: service-with-probes, namespace: prod, labels: { app: web } }
+spec:
+  containers:
+    - name: web
+      image: "docker.io/library/nginx:1.27"
+      livenessProbe: { httpGet: { path: /healthz, port: 8080 }, timeoutSeconds: 5 }
+      readinessProbe: { httpGet: { path: /ready, port: 8080 }, timeoutSeconds: 5 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: service-deployment-without-probes, namespace: prod }
+spec:
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata: { labels: { app: web } }
+    spec:
+      containers:
+        - { name: web, image: "docker.io/library/nginx:1.27" }
+---
+# The CronJob the BatchJob composition writes: the label is on the run pod template.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: batch-schedule-without-probes, namespace: prod, labels: { adhar.io/workload: batch } }
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate:
+    metadata: { labels: { adhar.io/workload: batch } }
+    spec:
+      template:
+        metadata: { labels: { adhar.io/workload: batch, adhar.io/batch-job: importer } }
+        spec:
+          restartPolicy: Never
+          containers:
+            - { name: batch, image: "harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000" }
+---
+# A run the CLI or the Console starts: a Job from the run template, label on the pod template.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: batch-manual-run-without-probes, namespace: prod, labels: { adhar.io/workload: batch, adhar.io/batch-job: importer } }
+spec:
+  template:
+    metadata: { labels: { adhar.io/workload: batch, adhar.io/batch-job: importer } }
+    spec:
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000" }

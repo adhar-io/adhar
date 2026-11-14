@@ -1,0 +1,17 @@
+# A batch run has nothing to probe (design 0025 §10.3, PLAT-1.10): the probe rule
+# skips a pod labelled adhar.io/workload: batch and still audits every other pod.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: soc2-pod-probes
+policies:
+  - ../../manifests/soc2.yaml
+resources:
+  - resources.yaml
+results:
+  - { policy: soc2-require-pod-probes, rule: require-liveness-readiness, kind: Pod, resources: [batch-run-without-probes], result: skip }
+  - { policy: soc2-require-pod-probes, rule: require-liveness-readiness, kind: Pod, resources: [service-without-probes], result: fail }
+  - { policy: soc2-require-pod-probes, rule: require-liveness-readiness, kind: Pod, resources: [service-with-probes], result: pass }
+  - { policy: soc2-require-pod-probes, rule: autogen-require-liveness-readiness, kind: Deployment, resources: [service-deployment-without-probes], result: fail }
+  - { policy: soc2-require-pod-probes, rule: autogen-require-liveness-readiness, kind: Job, resources: [batch-manual-run-without-probes], result: skip }
+  - { policy: soc2-require-pod-probes, rule: autogen-cronjob-require-liveness-readiness, kind: CronJob, resources: [batch-schedule-without-probes], result: skip }

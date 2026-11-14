@@ -121,6 +121,20 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get"]
+  # Volcano (design 0025 §4, Phase 2). A partitioned BatchJob on Volcano with a
+  # schedule composes a Volcano CronJob (its runs are Volcano Jobs the CronJob
+  # controller creates, never Crossplane, so `jobs` stays the runner's `get`). The
+  # Team composition reads the root queue and its own leaves, and the BatchJob
+  # composition its namespace's leaf, as required resources (§4.3): a required
+  # resource Crossplane may not read fails the whole reconcile. Nothing here
+  # composes or reads a PodGroup: Volcano writes them per run, and the gang's
+  # state reaches people through the CLI, the Console and the alerts.
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["queues"]
+    verbs: ["get", "list", "watch"]
   # The Qdrant chart (provider-helm, same ClusterRole) emits a
   # PodDisruptionBudget when a Vector asks for more than one replica.
   - apiGroups: ["policy"]

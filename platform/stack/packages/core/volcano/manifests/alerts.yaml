@@ -1,0 +1,58 @@
+# Volcano's own availability (design 0025 §13 F12, F13). Per-run alerts
+# (BatchRunStuckPending, BatchGangPending, …) are composed per BatchJob; these
+# are about the scheduler under every run.
+#
+# Each component runs ONE replica (values.yaml), so these are what stands in for
+# the second admission replica the design sketched: a component that is gone
+# says so, rather than surfacing as runs that quietly stay Pending.
+#
+# Read from kube-state-metrics and the API server, NOT from Volcano's own
+# metrics: a component that is down publishes nothing, and an alert on a series
+# that has stopped existing never fires. volcano-admission is not scraped at all.
+# Routed, like every platform alert, to the Console's Notification Center through
+# the platform Alertmanager.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: volcano
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+  labels:
+    adhar.io/component: volcano
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: adhar.batch.volcano
+      rules:
+        - alert: VolcanoSchedulerUnavailable
+          expr: max(kube_deployment_status_replicas_available{namespace="adhar-system", deployment="volcano-scheduler"}) < 1
+          for: 10m
+          labels: {severity: critical, source: volcano}
+          annotations:
+            summary: "The Volcano scheduler is down"
+            description: "Every run whose pods name schedulerName volcano stays Pending until it is back; kube-scheduler keeps every other pod. To move one job off Volcano meanwhile, hold it and set `scheduler: kubernetes` on its BatchJob; to move all of them, remove the adhar-batch-scheduler descriptor and the BatchJob composition renders the native path (design 0025 §13 F12). `kubectl -n adhar-system describe deploy volcano-scheduler`."
+        - alert: VolcanoControllersUnavailable
+          expr: max(kube_deployment_status_replicas_available{namespace="adhar-system", deployment="volcano-controllers"}) < 1
+          for: 10m
+          labels: {severity: critical, source: volcano}
+          annotations:
+            summary: "The Volcano controllers are down"
+            description: "No Volcano Job gets its PodGroup or pods, no Volcano CronJob fires, and no gang restarts after an eviction until they are back. Runs already scheduled keep running. `kubectl -n adhar-system describe deploy volcano-controllers`."
+        - alert: VolcanoAdmissionUnavailable
+          expr: max(kube_deployment_status_replicas_available{namespace="adhar-system", deployment="volcano-admission"}) < 1
+          for: 10m
+          labels: {severity: critical, source: volcano}
+          annotations:
+            summary: "The Volcano admission webhook is down"
+            description: "Its webhooks are failurePolicy Fail on Volcano's own kinds, so every create or update of a Volcano Job, CronJob, Queue or PodGroup is refused until it is back: manual and scheduled Volcano runs alike, and the Team composition's queues. Nothing else on the platform is affected (its webhooks match no other API group, TestVolcanoWebhooksCannotBlockAnythingButVolcanoObjects). `kubectl -n adhar-system describe deploy volcano-admission`."
+        - alert: VolcanoAdmissionCallsFailing
+          # The API server's own account of calling the webhook, so it also
+          # catches a pod that reads Ready but cannot serve: a certificate the
+          # API server rejects, a caBundle cainjector has not written.
+          expr: sum by (name) (increase(apiserver_admission_webhook_rejection_count{name=~".*\\.volcano\\.sh", error_type=~"calling_webhook_error|apiserver_internal_error"}[10m])) > 0
+          for: 10m
+          labels: {severity: warning, source: volcano}
+          annotations:
+            summary: "The API server cannot call Volcano webhook {{ $labels.name }}"
+            description: "Requests that need {{ $labels.name }} are refused because the call itself fails, not because the object is invalid. With the pod Running, the usual cause is TLS: `kubectl -n adhar-system get certificate volcano-admission` and the caBundle on the webhook configuration."

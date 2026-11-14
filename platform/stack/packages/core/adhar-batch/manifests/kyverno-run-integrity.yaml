@@ -14,7 +14,13 @@
 #   It is done twice on purpose: the webhook's matchConditions keep a Kyverno outage
 #   from blocking scheduled runs (fail closed for people, never for the clock), and
 #   the rule's own preconditions hold the same list in case a Kyverno release stops
-#   propagating matchConditions (design 0025 R6). `system:kube-controller-manager` is
+#   propagating matchConditions (design 0025 R6). v1.19.0 propagates them (live,
+#   2026-11-14). security/kyverno's global forceFailurePolicyIgnore, which used to
+#   register this webhook Ignore and so fail OPEN for people too, is off since user
+#   decision DEC-4 (2026-11-14): this policy and adhar-batch-queue-binding are the
+#   two that fail closed, every other policy in the stack says Ignore itself
+#   (TestEveryKyvernoPolicyStatesItsFailurePolicy). alerts.yaml stays R6's fallback
+#   audit alert. `system:kube-controller-manager` is
 #   the same CronJob controller on a cluster that does not run it with
 #   --use-service-account-credentials, which a `provided` cluster may not.
 #
@@ -30,8 +36,11 @@
 #   is quantity aware. verify-supply-chain-images pins a tag to tag@sha256:… before
 #   this policy sees it, so a template naming a tag accepts that tag pinned.
 #
-# Adding a Volcano Job to this policy waits for Phase 2 and its CRD (PLAT-2.4):
-# Kyverno refuses a policy naming a kind the cluster does not serve.
+# A rule naming a Volcano kind (batch.volcano.sh, scheduling.volcano.sh) never goes in
+# this file: manifests/ syncs on every cluster and Kyverno refuses a policy naming a
+# kind the cluster does not serve (TestQueueBindingIsNotSyncedWithoutVolcano). The
+# Volcano half of run integrity belongs in manifests/volcano/, in a policy of its own,
+# synced by the adhar-batch-volcano element exactly where Volcano is.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -57,6 +66,15 @@ spec:
           'system:serviceaccount:kube-system:cronjob-controller',
           'system:kube-controller-manager',
           'system:serviceaccount:adhar-system:volcano-controllers'])
+      # Fail closed for batch runs ONLY (DEC-4, 2026-11-14). Kyverno registers a
+      # policy's webhook by kind, so without this every Job anyone creates (an Argo
+      # CD hook, a Crossplane-composed Job) would be refused while Kyverno is down.
+      # The rule matches nothing else anyway; this keeps the webhook off them too.
+      # TestFailClosedPoliciesReachOnlyWhatTheyCheck runs it on a real API server.
+      - name: only-batch-runs
+        expression: >-
+          object != null && has(object.metadata.labels) &&
+          'adhar.io/batch-job' in object.metadata.labels
   rules:
     - name: a-run-matches-its-template
       match:
@@ -179,6 +197,8 @@ metadata:
       adhar.io/batch-job label, which is what subjects it to the run template.
 spec:
   background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
   rules:
     - name: a-persons-job-in-prod-names-a-batchjob
       match:

@@ -1,0 +1,22 @@
+# The Volcano half of the prod-only rules; the namespace's environment label decides.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-prod-only
+policies:
+  - ../../manifests/volcano/kyverno-prod-only.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-scale-up-only-in-prod, kind: Job, resources: [scale-up-in-dev], result: fail }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-scale-up-only-in-prod, kind: Job, resources: [standard-in-dev], result: pass }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-scale-up-only-in-prod, kind: Job, resources: [scale-up-in-prod], result: skip }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-scale-up-only-in-prod, kind: PodGroup, resources: [podgroup-scale-up-in-dev], result: fail }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-cronjob-scale-up-only-in-prod, kind: CronJob, resources: [cron-scale-up-in-dev], result: fail }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-cronjob-scale-up-only-in-prod, kind: CronJob, resources: [cron-standard-in-dev], result: pass }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-critical-priority-only-in-prod, kind: Job, resources: [critical-in-dev, task-critical-in-dev], result: fail }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-critical-priority-only-in-prod, kind: Job, resources: [standard-in-dev], result: pass }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-critical-priority-only-in-prod, kind: Job, resources: [critical-in-prod], result: skip }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-cronjob-critical-priority-only-in-prod, kind: CronJob, resources: [cron-critical-in-dev], result: fail }
+  - { policy: adhar-batch-volcano-prod-only, rule: volcano-cronjob-critical-priority-only-in-prod, kind: CronJob, resources: [cron-standard-in-dev], result: pass }

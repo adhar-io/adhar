@@ -1,0 +1,54 @@
+# The Volcano PriorityClasses are for pods Volcano schedules (design 0025 INV-5, §4.4,
+# user decision DEC-1, 2026-11-14). adhar-batch-volcano and adhar-batch-volcano-critical
+# are preemptionPolicy: PreemptLowerPriority so that Volcano can reclaim and preempt
+# among its own jobs. The same class on a pod kube-scheduler schedules would let
+# kube-scheduler preempt for a batch pod, which INV-5 forbids: so a volcano class
+# without schedulerName: volcano is refused. The reverse (a Volcano pod on a native,
+# Never class) is harmless, only unable to reclaim, and is an Audit finding of the pod
+# standards instead.
+#
+# Pods only, so this lives in manifests/ (the Pod kind is served everywhere); autogen
+# carries it to Jobs and CronJobs so a bad template is refused when it is written, not
+# when its first pod is. A Volcano Job's pods are created with the Job's schedulerName,
+# so the Pod rule covers them too.
+#
+# failurePolicy Ignore (DEC-4: only adhar-batch-queue-binding and
+# adhar-batch-run-integrity fail closed). During a Kyverno outage a pod could carry a
+# volcano class to kube-scheduler; the most it can then preempt is a pod below its
+# value, which on this platform is a native batch run (adhar-batch, -100).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-batch-volcano-classes
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    pod-policies.kyverno.io/autogen-controllers: Job,CronJob
+    policies.kyverno.io/title: "Batch: Volcano priority classes only for Volcano pods"
+    policies.kyverno.io/category: Batch
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      The PriorityClasses adhar-batch-volcano and adhar-batch-volcano-critical may
+      preempt, so only pods that name schedulerName volcano may use them;
+      kube-scheduler never preempts for a batch pod.
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
+  rules:
+    - name: a-volcano-class-is-for-volcano-pods
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      validate:
+        failureAction: Enforce
+        message: >-
+          The PriorityClasses adhar-batch-volcano and adhar-batch-volcano-critical are for
+          pods that name schedulerName volcano; kube-scheduler would preempt for this one
+          (design 0025 INV-5). Use adhar-batch or adhar-batch-critical.
+        pattern:
+          spec:
+            (priorityClassName): "adhar-batch-volcano | adhar-batch-volcano-critical"
+            schedulerName: volcano

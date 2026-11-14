@@ -49,3 +49,18 @@ results:
     kind: Job
     resources: [scale-up-in-prod]
     result: skip
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-critical-priority-only-in-prod
+    kind: Job
+    resources: [volcano-critical-in-dev]
+    result: fail
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-critical-priority-only-in-prod
+    kind: Job
+    resources: [volcano-standard-in-dev]
+    result: pass
+  - policy: adhar-batch-critical-prod-only
+    rule: autogen-critical-priority-only-in-prod
+    kind: Job
+    resources: [volcano-critical-in-prod]
+    result: skip

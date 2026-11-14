@@ -1,0 +1,55 @@
+# Volcano classes may preempt, so only Volcano may schedule a pod that names one.
+apiVersion: v1
+kind: Pod
+metadata: { name: volcano-class-on-volcano, namespace: dev }
+spec:
+  schedulerName: volcano
+  priorityClassName: adhar-batch-volcano
+  containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: volcano-class-on-kube-scheduler, namespace: dev }
+spec:
+  priorityClassName: adhar-batch-volcano
+  containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: volcano-critical-on-default-scheduler, namespace: prod }
+spec:
+  schedulerName: default-scheduler
+  priorityClassName: adhar-batch-volcano-critical
+  containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+# A native class is no concern of this policy, whoever schedules it.
+apiVersion: v1
+kind: Pod
+metadata: { name: native-class-on-kube-scheduler, namespace: dev }
+spec:
+  priorityClassName: adhar-batch
+  containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: volcano-class-job-on-kube-scheduler, namespace: dev }
+spec:
+  template:
+    spec:
+      priorityClassName: adhar-batch-volcano-critical
+      restartPolicy: Never
+      containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: volcano-class-cron-on-volcano, namespace: dev }
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          schedulerName: volcano
+          priorityClassName: adhar-batch-volcano
+          restartPolicy: Never
+          containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ]

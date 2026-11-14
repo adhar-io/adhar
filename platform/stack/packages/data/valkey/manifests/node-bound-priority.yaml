@@ -32,6 +32,8 @@ metadata:
       node-local volume allows exactly one node can preempt its way onto it.
 spec:
   background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
   rules:
     - name: adhar-cache-priority
       match:

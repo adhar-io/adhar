@@ -61,8 +61,8 @@ type backstageTemplate struct {
 		Name        string `yaml:"name"`
 		Title       string `yaml:"title"`
 		Description string `yaml:"description"`
-		// The name and tags decide whether the template scaffolds a Function,
-		// the way the Console decides it (isFunctionTemplate).
+		// The name and tags decide whether the template scaffolds a Function
+		// or a batch job, the way the Console decides it (scaffoldWorkload).
 		Tags []string `yaml:"tags"`
 		// adhar.io/dashboard-type and adhar.io/workload say what the scaffolded
 		// Application is (see pavedRoadApplication).

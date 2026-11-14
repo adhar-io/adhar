@@ -2628,7 +2628,9 @@ kube-state-metrics:
   ## and kube_cronjob_labels. It exports none by default, so without this every
   ## batch alert (compositions/batchjob) and Kargo's batch verification
   ## (compositions/project) join on a series that does not exist and never fire.
-  ## Design 0025 §11.1; TestKubeStateMetricsExportsTheBatchLabels.
+  ## Design 0025 §11.1; TestKubeStateMetricsExportsTheBatchLabels. cronjobs also
+  ## carries adhar.io/application, beyond §16's list (2026-11-14): the batch-jvm
+  ## dashboard joins kube_cronjob_labels on it.
   metricLabelsAllowlist:
     - jobs=[adhar.io/batch-job,adhar.io/application,adhar.io/environment]
     - pods=[adhar.io/batch-job,adhar.io/application,adhar.io/environment]

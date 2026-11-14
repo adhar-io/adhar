@@ -35,8 +35,10 @@ var logsCmd = &cobra.Command{
 	Use:   "logs <run>",
 	Short: "Print the pod logs of a run",
 	Long: `Print the logs of a run's pods, oldest attempt first, from the batch container.
-A partitioned run (Phase 2) has a manager and workers: --role picks one kind,
---index one worker. With -f the logs are followed until the run ends.`,
+A partitioned run has a manager and workers: --role picks one kind, --index one
+worker. On a Volcano run the role is the task (manager or worker) and --index is
+the worker's task index, counted from 0; on an Indexed Job index 0 is the manager
+and the workers are 1..N. With -f the logs are followed until the run ends.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if logsRole != "" && logsRole != "manager" && logsRole != "worker" && logsRole != "single" {
@@ -62,7 +64,7 @@ A partitioned run (Phase 2) has a manager and workers: --role picks one kind,
 			if err != nil {
 				return fmt.Errorf("listing the pods of %s: %w", name, err)
 			}
-			pods := selectPods(podList.Items, logsRole, cmd.Flags().Changed("index"), logsIndex)
+			pods := selectPods(podList.Items, logsRole, cmd.Flags().Changed("index"), logsIndex, runKindOf(run) == "VolcanoJob")
 			for _, p := range pods {
 				phase, _, _ := unstructured.NestedString(p.Object, "status", "phase")
 				if printed[p.GetName()] || phase == "Pending" || phase == "" {
@@ -99,7 +101,7 @@ A partitioned run (Phase 2) has a manager and workers: --role picks one kind,
 
 func init() {
 	logsCmd.Flags().StringVar(&logsRole, "role", "", "Only pods of this role (manager, worker)")
-	logsCmd.Flags().IntVar(&logsIndex, "index", 0, "Only the worker with this completion index")
+	logsCmd.Flags().IntVar(&logsIndex, "index", 0, "Only the worker with this index (completion index, or Volcano task index)")
 	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Follow the logs until the run ends")
 }
 
@@ -112,22 +114,22 @@ func podSelectorOf(run *unstructured.Unstructured) string {
 }
 
 // selectPods keeps the pods of the asked role and index, oldest first, so the
-// attempts read in the order they happened.
-func selectPods(pods []unstructured.Unstructured, role string, indexSet bool, index int) []*unstructured.Unstructured {
+// attempts read in the order they happened. The role is the composition's
+// label, else the Volcano task (podRole). A Volcano Job numbers each task from
+// 0, so on a Volcano run --index alone means a worker's index: worker 0 is not
+// the manager there, as index 0 is in an Indexed Job.
+func selectPods(pods []unstructured.Unstructured, role string, indexSet bool, index int, volcano bool) []*unstructured.Unstructured {
+	if volcano && indexSet && role == "" {
+		role = "worker"
+	}
 	var out []*unstructured.Unstructured
 	for i := range pods {
 		p := &pods[i]
-		if role != "" && podLabel(p, labelRole) != role {
+		if role != "" && podRole(p) != role {
 			continue
 		}
-		if indexSet {
-			idx := podLabel(p, labelNativeIndex)
-			if idx == "" {
-				idx = podLabel(p, labelVolcanoIndex)
-			}
-			if idx != fmt.Sprint(index) {
-				continue
-			}
+		if indexSet && podIndex(p) != fmt.Sprint(index) {
+			continue
 		}
 		out = append(out, p)
 	}

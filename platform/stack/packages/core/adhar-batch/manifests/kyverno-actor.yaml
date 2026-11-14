@@ -4,7 +4,8 @@
 # carries an empty annotation for the policy to overwrite.
 #
 # failurePolicy Ignore: a Kyverno outage must never stop a scheduled run over a
-# provenance stamp. Manual runs are fail-closed anyway, by the integrity policy.
+# provenance stamp. A manual run admitted while Kyverno is down keeps the client's
+# stamp and raises BatchRunAdmittedUnchecked (alerts.yaml).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:

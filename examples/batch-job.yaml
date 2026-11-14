@@ -1,7 +1,7 @@
 # A Spring Batch job on the platform: one Kubernetes run per job-instance attempt,
 # restartable from its last commit. It lives in an environment namespace, whose labels
 # decide its organisation, team, project and environment. docs/BATCH.md is the guide,
-# and `springboot-batch-job` is the template that writes one of these for you.
+# and `springboot-batch-service` is the template that writes one of these for you.
 apiVersion: platform.adhar.io/v1alpha1
 kind: BatchJob
 metadata:

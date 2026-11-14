@@ -12,10 +12,10 @@
 # Fields arrive with the phase whose composition renders them (decision D3). The
 # schema is structural and strict on purpose: an earlier control plane rejects a
 # field it cannot honour instead of accepting a definition and silently ignoring
-# part of it. So `mode`, `workers`, `gridSize`, `resources.workerCpu`,
-# `resources.workerMemory` and `retry.maxRetry` are absent until Phase 2, and
-# `schedule.calendar`, `sla.finishBy`, `sla.timeZone`, `dependsOn`, `retention`
-# and `smoke` until Phase 3.
+# part of it. `mode`, `workers`, `gridSize`, `resources.workerCpu`,
+# `resources.workerMemory` and `retry.maxRetry` arrived with Phase 2 (Volcano and
+# the partitioned shape); `schedule.calendar`, `sla.finishBy`, `sla.timeZone`,
+# `dependsOn`, `retention` and `smoke` are absent until Phase 3.
 #
 # Where a BatchJob runs is decided by its NAMESPACE, never by its parameters: an
 # environment namespace supplies organisation, team, project and environment, and
@@ -64,6 +64,8 @@ spec:
                   x-kubernetes-validations:
                     - rule: "self.timeouts.terminationGracePeriodSeconds < self.timeouts.activeDeadlineSeconds"
                       message: "timeouts.terminationGracePeriodSeconds must be shorter than timeouts.activeDeadlineSeconds"
+                    - rule: "self.mode != 'partitioned' || (has(self.workers) && self.workers >= 1)"
+                      message: "mode partitioned needs workers >= 1"
                   properties:
                     displayName:
                       type: string
@@ -93,12 +95,35 @@ spec:
                       type: array
                       description: Pull secrets of a run pod. Defaults to [harbor-dockercfg]; an empty list names none.
                       items: { type: string }
+                    mode:
+                      type: string
+                      description: >-
+                        `single` runs the job in one pod. `partitioned` runs one manager and
+                        `workers` workers that consume its partitions (remote partitioning on the
+                        JobRepository's database): a Volcano gang where Volcano runs, an Indexed
+                        Job without it.
+                      enum: [single, partitioned]
+                      default: single
+                    workers:
+                      type: integer
+                      description: How many worker pods a partitioned run has besides its manager. Ignored in single mode.
+                      minimum: 1
+                      maximum: 64
+                      default: 4
+                    gridSize:
+                      type: integer
+                      description: How many partitions the manager splits a partitioned run into. Defaults to 4 × workers; the gang size and the partition count are independent.
+                      minimum: 1
+                      maximum: 1024
                     scheduler:
                       type: string
                       description: >-
-                        `kubernetes` is the native path. `auto` resolves to it while no Volcano
-                        path exists (Phase 1), and `volcano` reports PrerequisitesReady=False
-                        rather than quietly running somewhere it did not ask for.
+                        `kubernetes` is the native path. `auto` runs on Volcano where it is
+                        installed (the descriptor ConfigMap adhar-system/adhar-batch-scheduler)
+                        and the namespace's leaf queue is open, and natively otherwise.
+                        `volcano` insists: without Volcano or the queue it reports
+                        PrerequisitesReady=False rather than quietly running somewhere it did
+                        not ask for.
                       enum: [auto, volcano, kubernetes]
                       default: auto
                     schedule:
@@ -192,7 +217,13 @@ spec:
                           default: 1536Mi
                         cpuLimit:
                           type: string
-                          description: Unset means no CPU limit.
+                          description: The CPU limit of every run pod, never below a CPU request. Unset, the limit is the request, because the environment's LimitRange would otherwise default it to 500m and reject a larger request.
+                        workerCpu:
+                          type: string
+                          description: A partitioned run's worker CPU request. Defaults to cpu, which then sizes the manager alone.
+                        workerMemory:
+                          type: string
+                          description: A partitioned run's worker memory, request and limit. Defaults to memory.
                         tmpSize:
                           type: string
                           description: The size limit of the /tmp emptyDir.
@@ -220,10 +251,16 @@ spec:
                       properties:
                         backoffLimit:
                           type: integer
-                          description: How many times Kubernetes replaces a failed pod (exit codes the failure policy counts). Spring Batch restarts from the last commit each time.
+                          description: How many times Kubernetes replaces a failed pod (exit codes the failure policy counts) on the native path. Spring Batch restarts from the last commit each time.
                           minimum: 0
                           maximum: 10
                           default: 2
+                        maxRetry:
+                          type: integer
+                          description: How many times Volcano restarts a partitioned run's whole gang (RestartJob) after a pod fails or is evicted. Spring Batch re-runs only the partitions that did not complete.
+                          minimum: 0
+                          maximum: 10
+                          default: 3
                     timeouts:
                       type: object
                       default: {}
@@ -257,7 +294,11 @@ spec:
                           default: 604800
                     priority:
                       type: string
-                      description: Maps to the PriorityClass adhar-batch or, in prod only, adhar-batch-critical. Neither ever preempts anything.
+                      description: >-
+                        Maps to the PriorityClass adhar-batch or, in prod only, adhar-batch-critical,
+                        neither of which ever preempts anything. A run Volcano schedules uses
+                        adhar-batch-volcano or adhar-batch-volcano-critical instead, with which
+                        Volcano reclaims and preempts among batch runs only.
                       enum: [standard, critical]
                       default: standard
                     disruption:
@@ -340,7 +381,7 @@ spec:
                   description: The scheduler this job's runs resolved to.
                 queue:
                   type: string
-                  description: The Volcano queue, when there is one.
+                  description: The Volcano queue this job's runs are bound to, when they run on Volcano.
                 runTemplate:
                   type: string
                   description: The ConfigMap clients start runs from.

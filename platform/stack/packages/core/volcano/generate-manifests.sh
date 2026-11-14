@@ -116,6 +116,107 @@ for configs, resource in (
         }
     )
 
+# Narrow the controllers' and scheduler's ClusterRoles to what the v1.16.0 binaries
+# call with the components and job plugins this package runs (2026-11-14, every
+# removal checked against the v1.16.0 source tree and rehearsed against a real API
+# server, TestVolcanoComponentsRunOnTheirNarrowedRBAC). What goes, and why it was
+# dangerous rather than merely unused:
+#   customresourcedefinitions create/delete   no CRD client exists anywhere in either
+#                                             binary; it could rewrite any CRD on the cluster
+#   secrets (controllers)                     only the `ssh` job plugin uses it; cluster-wide
+#                                             `get` reads every credential on the platform.
+#                                             The platform's runs use the `env` plugin only
+#                                             (design 0025 §4.5); an ssh-plugin vcjob is refused
+#                                             by the API server instead
+#   leases                                    leader election is off (one replica); a
+#                                             cluster-wide lease writer can take any
+#                                             controller's leadership, kube-system's included
+#   configmap/service writes,                 only the `svc` job plugin (and the tensorflow/
+#   networkpolicies (controllers)             mpi/pytorch/ray plugins, which the job webhook
+#                                             makes pull `svc` in) write them. Cluster-wide,
+#                                             that is a ServiceAccount that can rewrite
+#                                             volcano-scheduler-configmap, cilium-config,
+#                                             coredns or argocd-cm: the very reason design
+#                                             §4.1 leaves the dashboard out. The platform's
+#                                             runs use `env` only ("no svc plugin", §4.5), so
+#                                             such a vcjob is refused by the API server
+#                                             instead (2026-11-14). The job controller keeps
+#                                             its Service informer, so services stay readable
+#   flow.volcano.sh                           the JobFlow CRDs are not installed
+#   colocationconfigurations, nodeshards,     their controllers are disabled in values.yaml
+#   hypernode writes (controllers)
+#   priorityclasses create/delete             read through an informer only
+#   nodes update/patch (scheduler)            only the deviceshare/vGPU node lock, not enabled
+#   configmap writes (scheduler)              only the fairshare plugin persists state, not enabled
+def narrow(role_name, edits, why):
+    role = only("ClusterRole", role_name)
+    for key, verbs in edits.items():
+        group, resource = key
+        hit = [
+            r
+            for r in role["rules"]
+            if group in r.get("apiGroups", []) and resource in r.get("resources", [])
+        ]
+        if not hit:
+            sys.exit(f"{role_name}: no rule grants {group or 'core'}/{resource} ({why}); re-read this edit")
+        for r in hit:
+            others = [x for x in r["resources"] if x != resource]
+            if others:
+                # Split the rule so the neighbours keep their verbs.
+                role["rules"].append({**r, "resources": others})
+                r["resources"] = [resource]
+            if verbs:
+                r["verbs"] = [v for v in r["verbs"] if v in verbs]
+            else:
+                r["verbs"] = []
+    role["rules"] = [r for r in role["rules"] if r.get("verbs")]
+
+
+READ = ("get", "list", "watch")
+narrow(
+    "volcano-controllers",
+    {
+        ("apiextensions.k8s.io", "customresourcedefinitions"): None,
+        ("", "secrets"): None,
+        ("", "configmaps"): READ,
+        ("", "services"): READ,
+        ("networking.k8s.io", "networkpolicies"): None,
+        ("coordination.k8s.io", "leases"): None,
+        ("flow.volcano.sh", "jobflows"): None,
+        ("flow.volcano.sh", "jobtemplates"): None,
+        ("flow.volcano.sh", "jobflows/status"): None,
+        ("flow.volcano.sh", "jobs/finalizers"): None,
+        ("flow.volcano.sh", "jobtemplates/status"): None,
+        ("flow.volcano.sh", "jobtemplates/finalizers"): None,
+        ("config.volcano.sh", "colocationconfigurations"): None,
+        ("shard.volcano.sh", "nodeshards"): None,
+        ("shard.volcano.sh", "nodeshards/status"): None,
+        ("topology.volcano.sh", "hypernodes"): READ,
+        ("topology.volcano.sh", "hypernodes/status"): None,
+        ("scheduling.k8s.io", "priorityclasses"): READ,
+    },
+    "controllers",
+)
+narrow(
+    "volcano-scheduler",
+    {
+        ("apiextensions.k8s.io", "customresourcedefinitions"): None,
+        ("coordination.k8s.io", "leases"): None,
+        ("", "configmaps"): READ,
+        ("", "nodes"): READ,
+    },
+    "scheduler",
+)
+
+# Unbound and unaggregated upstream, so inert today, but they are the second copy of
+# the user-facing Volcano grants. core/adhar-batch's adhar-batch-view/-edit/-operator
+# (design 0025 §10.2) are the only ones, so a reviewer reads one set.
+take(
+    lambda d: d["kind"] == "ClusterRole" and d["metadata"]["name"] in ("vcjob-editor-role", "vcjob-viewer-role"),
+    2,
+    "vcjob editor/viewer roles",
+)
+
 # cainjector fills the caBundle as soon as the Certificate is ready. The binary
 # writes the same value from its mounted ca.crt, which is why it keeps `update`.
 for d in mutating + validating:
@@ -180,6 +281,24 @@ for name, d in deployments.items():
     if len(containers) != 1:
         sys.exit(f"{name}: expected one container")
     containers[0].update(probe_for[name])
+
+# Flags whose built-in default is `volcano-system` (vc-scheduler/vc-controller-manager
+# --help, v1.16.0). The chart writes them only while leader election or sharding is
+# on, so with both off they fall back to upstream's namespace: unused today, and the
+# first thing to break the day someone turns leader election back on (CONFLICTS.md
+# "Namespace references hide in … CLI flags"). Pinned here so no flag of any
+# component names a namespace other than adhar-system.
+hidden_namespace_flags = {
+    "volcano-scheduler": ["--leader-elect-resource-namespace"],
+    "volcano-controllers": ["--leader-elect-resource-namespace", "--sharding-configmap-namespace"],
+}
+for name, flags in hidden_namespace_flags.items():
+    args = deployments[name]["spec"]["template"]["spec"]["containers"][0]["args"]
+    for flag in flags:
+        if any(a.startswith(flag + "=") for a in args):
+            sys.exit(f"{name}: the chart now renders {flag}; drop it from hidden_namespace_flags")
+        # Before the trailing "2>&1" the chart appends to every component.
+        args.insert(len(args) - 1 if args[-1] == "2>&1" else len(args), f"{flag}=adhar-system")
 
 # The scheduler creates the `root` and `default` queues at startup, through the
 # queue webhook, and exits if that keeps failing for a minute. Wave 0 holds it

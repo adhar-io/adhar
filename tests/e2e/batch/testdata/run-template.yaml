@@ -1,0 +1,207 @@
+# ConfigMap importer-run exactly as compositions/batchjob/kubernetes.yaml composes it,
+# rendered 2026-11-14 with:
+#   crossplane render platform/controllers/adharplatform/testdata/batchjob/xr-scheduled.yaml \
+#     platform/controlplane/configuration/compositions/batchjob/kubernetes.yaml \
+#     platform/controllers/adharplatform/testdata/batchjob/functions.yaml \
+#     --required-resources=platform/controllers/adharplatform/testdata/batchjob/required-resources.yaml
+# The run builder (runtemplate.go) is tested against what the cluster serves, not a hand copy.
+apiVersion: v1
+data:
+  kind: Job
+  naming: v1
+  parameters.json: '[{"identifying":true,"name":"businessDate","required":false,"sensitive":false,"source":"schedule","type":"date"},{"default":"inbound/records.csv","identifying":true,"name":"source","pattern":"^[a-zA-Z0-9/._-]+$","required":false,"sensitive":false,"source":"input","type":"string"},{"default":"false","identifying":false,"name":"dryRun","required":false,"sensitive":false,"source":"input","type":"boolean"}]'
+  template.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+        annotations:
+            adhar.io/batch-actor: ""
+        labels:
+            adhar.io/application: importer
+            adhar.io/batch-job: importer
+            adhar.io/batch-role: single
+            adhar.io/batch-trigger: manual
+            adhar.io/component: app
+            adhar.io/environment: prod
+            adhar.io/organisation: acme
+            adhar.io/plane: workload
+            adhar.io/project: shop
+            adhar.io/team: payments
+            adhar.io/workload: batch
+            app.kubernetes.io/name: importer
+        namespace: prod
+    spec:
+        activeDeadlineSeconds: 21600
+        backoffLimit: 2
+        completions: 1
+        parallelism: 1
+        podFailurePolicy:
+            rules:
+                - action: Ignore
+                  onPodConditions:
+                    - status: "True"
+                      type: DisruptionTarget
+                - action: FailJob
+                  onExitCodes:
+                    containerName: batch
+                    operator: In
+                    values:
+                        - 2
+                        - 3
+                        - 4
+                        - 6
+                        - 7
+        podReplacementPolicy: Failed
+        template:
+            metadata:
+                annotations:
+                    adhar.io/batch-actor: ""
+                    cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+                labels:
+                    adhar.io/application: importer
+                    adhar.io/batch-job: importer
+                    adhar.io/batch-role: single
+                    adhar.io/batch-trigger: manual
+                    adhar.io/component: app
+                    adhar.io/environment: prod
+                    adhar.io/organisation: acme
+                    adhar.io/plane: workload
+                    adhar.io/project: shop
+                    adhar.io/team: payments
+                    adhar.io/workload: batch
+                    app.kubernetes.io/name: importer
+            spec:
+                containers:
+                    - env:
+                        - name: ADHAR_BATCH_JOB
+                          value: importJob
+                        - name: ADHAR_BATCH_NAME
+                          value: importer
+                        - name: ADHAR_BATCH_ROLE
+                          value: single
+                        - name: ADHAR_BATCH_TRIGGER
+                          value: manual
+                        - name: ADHAR_BATCH_PARAMS
+                          value: '{}'
+                        - name: ADHAR_BATCH_TIME_ZONE
+                          value: Asia/Singapore
+                        - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+                          value: batch
+                        - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+                          value: 90s
+                        - name: ADHAR_BATCH_K8S_JOB
+                          valueFrom:
+                            fieldRef:
+                                apiVersion: v1
+                                fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+                        - name: ADHAR_BATCH_ACTOR
+                          valueFrom:
+                            fieldRef:
+                                apiVersion: v1
+                                fieldPath: metadata.annotations['adhar.io/batch-actor']
+                        - name: POD_NAME
+                          valueFrom:
+                            fieldRef:
+                                apiVersion: v1
+                                fieldPath: metadata.name
+                        - name: POD_UID
+                          valueFrom:
+                            fieldRef:
+                                apiVersion: v1
+                                fieldPath: metadata.uid
+                        - name: NODE_NAME
+                          valueFrom:
+                            fieldRef:
+                                apiVersion: v1
+                                fieldPath: spec.nodeName
+                        - name: ADHAR_ENVIRONMENT
+                          value: prod
+                        - name: SPRING_DATASOURCE_URL
+                          valueFrom:
+                            secretKeyRef:
+                                key: jdbc-uri
+                                name: importer-db-app
+                        - name: SPRING_DATASOURCE_USERNAME
+                          valueFrom:
+                            secretKeyRef:
+                                key: username
+                                name: importer-db-app
+                        - name: SPRING_DATASOURCE_PASSWORD
+                          valueFrom:
+                            secretKeyRef:
+                                key: password
+                                name: importer-db-app
+                        - name: BPL_JVM_THREAD_COUNT
+                          value: "50"
+                        - name: JAVA_TOOL_OPTIONS
+                          value: -XX:ReservedCodeCacheSize=64M
+                        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                          value: http://alloy.adhar-system.svc.cluster.local:4318
+                        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+                          value: http/protobuf
+                        - name: OTEL_METRICS_EXPORTER
+                          value: otlp
+                        - name: OTEL_RESOURCE_ATTRIBUTES
+                          value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=importer,adhar.batch.job=importer
+                        - name: OTEL_SERVICE_NAME
+                          value: importer
+                      envFrom:
+                        - secretRef:
+                            name: importer-inbound-bucket
+                      image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+                      name: batch
+                      resources:
+                        limits:
+                            memory: 1536Mi
+                        requests:
+                            cpu: "1"
+                            memory: 1536Mi
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        capabilities:
+                            drop:
+                                - ALL
+                      volumeMounts:
+                        - mountPath: /tmp
+                          name: tmp
+                enableServiceLinks: false
+                imagePullSecrets:
+                    - name: harbor-dockercfg
+                priorityClassName: adhar-batch-critical
+                restartPolicy: Never
+                schedulerName: default-scheduler
+                securityContext:
+                    runAsNonRoot: true
+                    seccompProfile:
+                        type: RuntimeDefault
+                serviceAccountName: importer-batch
+                terminationGracePeriodSeconds: 120
+                volumes:
+                    - emptyDir:
+                        sizeLimit: 1Gi
+                      name: tmp
+        ttlSecondsAfterFinished: 604800
+kind: ConfigMap
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: run-template
+  labels:
+    adhar.io/application: importer
+    adhar.io/batch-job: importer
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: importer
+    crossplane.io/composite: importer
+  name: importer-run
+  namespace: prod
+  ownerReferences:
+  - apiVersion: platform.adhar.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: BatchJob
+    name: importer
+    uid: ""

@@ -1,14 +1,33 @@
 ---
-# BatchJob on plain Kubernetes (design 0025 §6.4): the native path, the first
-# thing that ships and the permanent fallback when no batch scheduler is
-# installed. README.md beside this file maps every parameter to what it becomes.
+# BatchJob (design 0025 §6.4, §4): the native path, the first thing that shipped
+# and the permanent fallback, plus the Volcano path where Volcano runs. README.md
+# beside this file maps every parameter to what it becomes.
 #
 # What one BatchJob produces, all in the XR's own namespace and composed directly
 # (no provider-kubernetes: nothing here leaves the namespace):
 #   ServiceAccount, Role, RoleBinding  <name>-batch  the runner's two GETs
 #   ConfigMap   <name>-run    the RUN TEMPLATE every client starts a run from
-#   CronJob     <name>        when `schedule` is set
+#   CronJob     <name>        when `schedule` is set: batch/v1, or Volcano's for a gang
 #   PrometheusRule <name>-batch  the alerts of §11.3
+#
+# The run is one of three shapes (the run template's `kind`):
+#   Job          mode single. On Volcano only the pod changes: schedulerName volcano,
+#                the leaf queue's annotation and the adhar-batch-volcano classes.
+#   IndexedJob   mode partitioned without Volcano: N+1 indexes, index 0 the manager,
+#                and the Job succeeds when index 0 does (§4.5 native fallback).
+#   VolcanoJob   mode partitioned on Volcano: a gang of 1 manager + N workers that
+#                starts whole or not at all; the manager finishing completes it.
+# The scheduler resolves per job: `kubernetes` is native; `auto` is Volcano where
+# its descriptor (D7) names it, its CRDs are served and the namespace's leaf queue
+# `<organisation>-<team>-<tier>` is this team's and open, otherwise native — so
+# removing Volcano leaves every BatchJob running (A2.10); `volcano` insists, and
+# without all of that reads PrerequisitesReady=False. A queue that cannot take the
+# job is QueueFits=False, a warning, never a silent denial at run time (DEC-3).
+#
+# Switching a scheduled gang to or from Volcano changes the CronJob's KIND, and
+# deleting a CronJob cascades to its runs. While the old CronJob has a run in
+# flight the switch waits: the old one is kept, suspended, and SchedulerSwitch says
+# so; the new one is composed once nothing is running.
 #
 # The run template and the CronJob's jobTemplate are the SAME object built by the
 # same loop, differing only in the trigger, so a run started by a person cannot
@@ -52,7 +71,42 @@ spec:
             {{- $platformNS := "adhar-system" -}}
             {{- $otlp := "http://alloy.adhar-system.svc.cluster.local:4318" -}}
             {{- $priority := dig "priority" "standard" $p -}}
-            {{- $priorityClass := ternary "adhar-batch-critical" "adhar-batch" (eq $priority "critical") -}}
+            {{- $nativeClass := ternary "adhar-batch-critical" "adhar-batch" (eq $priority "critical") -}}
+            {{- /* DEC-1: Volcano-scheduled runs have classes of their own that may preempt,
+                   because Volcano refuses every reclaimer and preemptor of a Never class.
+                   kube-scheduler never schedules a schedulerName: volcano pod, so it never
+                   preempts for one; Volcano picks victims among its own jobs only. */ -}}
+            {{- $volcanoClass := ternary "adhar-batch-volcano-critical" "adhar-batch-volcano" (eq $priority "critical") -}}
+            {{- $partitioned := eq (dig "mode" "single" $p) "partitioned" -}}
+            {{- $workers := int (dig "workers" 4 $p) -}}
+            {{- $gridSize := int (dig "gridSize" (mul 4 $workers) $p) -}}
+            {{- /* The first call has none of the extra resources yet: a namespace always
+                   exists, so its absence means this is the pass that only asks. Every
+                   refusal below reads the namespace, and must not fire on a pass that
+                   cannot see it. */ -}}
+            {{- $nsItems := default (list) (getExtraResources . "namespace") -}}
+            {{- $nsLabels := dict -}}
+            {{- range $nsItems }}{{ $nsLabels = dig "resource" "metadata" "labels" (dict) . }}{{ end -}}
+            {{- $org := get $nsLabels "adhar.io/organisation" -}}
+            {{- $team := get $nsLabels "adhar.io/team" -}}
+            {{- $project := get $nsLabels "adhar.io/project" -}}
+            {{- $env := get $nsLabels "adhar.io/environment" -}}
+            {{- /* The leaf is team × TIER (§4.3, DEC-8): an environment named staging of
+                   tier test runs on the team's test leaf, exactly as adhar-batch-queue-
+                   binding (core/adhar-batch) computes it from the same labels. */ -}}
+            {{- $tier := get $nsLabels "adhar.io/tier" -}}
+            {{- $leaf := "" -}}
+            {{- if and $org $team (has $tier (list "dev" "test" "prod")) }}{{ $leaf = printf "%s-%s-%s" $org $team $tier }}{{ end -}}
+            {{- /* Volcano is here when its descriptor names it AND its three CRDs are
+                   served: composing a kind the cluster does not serve, or asking for one
+                   as a required resource, fails the whole reconcile, so a stale
+                   descriptor on a cluster Volcano has left must read as absent. */ -}}
+            {{- $descItems := default (list) (getExtraResources . "schedulerDescriptor") -}}
+            {{- $desc := dict -}}
+            {{- range $descItems }}{{ $desc = dig "resource" "data" (dict) . }}{{ end -}}
+            {{- $descScheduler := get $desc "scheduler" | default "volcano" -}}
+            {{- $crdsServed := and (gt (len (default (list) (getExtraResources . "volcanoJobCRD"))) 0) (gt (len (default (list) (getExtraResources . "volcanoCronJobCRD"))) 0) (gt (len (default (list) (getExtraResources . "volcanoQueueCRD"))) 0) -}}
+            {{- $volcanoInstalled := and (gt (len $descItems) 0) (eq $descScheduler "volcano") $crdsServed -}}
             ---
             apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
             kind: ExtraResources
@@ -64,23 +118,42 @@ spec:
               priorityClass:
                 apiVersion: scheduling.k8s.io/v1
                 kind: PriorityClass
-                matchName: {{ $priorityClass | quote }}
+                matchName: {{ $nativeClass | quote }}
+              volcanoPriorityClass:
+                apiVersion: scheduling.k8s.io/v1
+                kind: PriorityClass
+                matchName: {{ $volcanoClass | quote }}
               schedulerDescriptor:
                 apiVersion: v1
                 kind: ConfigMap
                 matchName: adhar-batch-scheduler
                 namespace: {{ $platformNS | quote }}
-            {{- /* The first call has none of them yet: a namespace always exists, so its
-                   absence means this is the pass that only asks. Every refusal below
-                   reads the namespace, and must not fire on a pass that cannot see it. */ -}}
-            {{- $nsItems := default (list) (getExtraResources . "namespace") -}}
+              volcanoJobCRD:
+                apiVersion: apiextensions.k8s.io/v1
+                kind: CustomResourceDefinition
+                matchName: jobs.batch.volcano.sh
+              volcanoCronJobCRD:
+                apiVersion: apiextensions.k8s.io/v1
+                kind: CustomResourceDefinition
+                matchName: cronjobs.batch.volcano.sh
+              volcanoQueueCRD:
+                apiVersion: apiextensions.k8s.io/v1
+                kind: CustomResourceDefinition
+                matchName: queues.scheduling.volcano.sh
+              {{- if $partitioned }}
+              quota:
+                apiVersion: v1
+                kind: ResourceQuota
+                matchName: {{ printf "%s-quota" $ns | quote }}
+                namespace: {{ $ns | quote }}
+              {{- end }}
+              {{- if and $volcanoInstalled $leaf }}
+              leafQueue:
+                apiVersion: scheduling.volcano.sh/v1beta1
+                kind: Queue
+                matchName: {{ $leaf | quote }}
+              {{- end }}
             {{- if $nsItems -}}
-            {{- $nsLabels := dict -}}
-            {{- range $nsItems }}{{ $nsLabels = dig "resource" "metadata" "labels" (dict) . }}{{ end -}}
-            {{- $org := get $nsLabels "adhar.io/organisation" -}}
-            {{- $team := get $nsLabels "adhar.io/team" -}}
-            {{- $project := get $nsLabels "adhar.io/project" -}}
-            {{- $env := get $nsLabels "adhar.io/environment" -}}
             {{- $overridden := list -}}
             {{- range $k := list "organisation" "team" "project" "environment" -}}
             {{-   $lv := get $nsLabels (printf "adhar.io/%s" $k) -}}
@@ -123,8 +196,171 @@ spec:
             {{-   fail "parameters.job, parameters.image and parameters.database.secretRef must all be set" -}}
             {{- end -}}
             {{- range $k, $v := (dig "env" (dict) $p) -}}
-            {{-   if or (hasPrefix "ADHAR_BATCH_" $k) (has $k (list "ADHAR_ENVIRONMENT" "POD_NAME" "POD_UID" "NODE_NAME" "SPRING_DATASOURCE_URL" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD")) -}}
+            {{-   if or (hasPrefix "ADHAR_BATCH_" $k) (has $k (list "ADHAR_ENVIRONMENT" "POD_NAME" "POD_UID" "NODE_NAME" "JOB_COMPLETION_INDEX" "SPRING_DATASOURCE_URL" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD")) -}}
             {{-     fail (printf "env %s is owned by the runner's contract and cannot be set on a BatchJob; parameters go in parameters.parameters and the database in parameters.database" $k) -}}
+            {{-   end -}}
+            {{- end -}}
+
+            {{- /* Quantities (design 0025 §6.4 gang fit, DEC-3 queue fit), compared in
+                   integer milli-units because function-go-templating has no Kubernetes
+                   quantity type: an optional decimal with n/u/m, k/M/G/T/P/E or Ki…Ei,
+                   division rounding up as Quantity.MilliValue does. A float arrives
+                   from a bare number in a Queue or a ResourceQuota and is read from its
+                   full decimal digits. Anything else (e-notation, a value past ~9.2
+                   PB) reads as -1, and a check with a -1 on either side is skipped:
+                   these checks warn and refuse ahead of the API server, they never
+                   replace it. */ -}}
+            {{- $cpu := toString (dig "resources" "cpu" "1" $p) -}}
+            {{- $mem := toString (dig "resources" "memory" "1536Mi" $p) -}}
+            {{- $workerCpu := toString (dig "resources" "workerCpu" "" $p) | default $cpu -}}
+            {{- $workerMem := toString (dig "resources" "workerMemory" "" $p) | default $mem -}}
+            {{- $quotaItems := default (list) (getExtraResources . "quota") -}}
+            {{- $quotaHard := dict -}}
+            {{- range $quotaItems }}{{ $quotaHard = dig "resource" "spec" "hard" (dict) . }}{{ end -}}
+            {{- $leafQueue := dict -}}
+            {{- range (default (list) (getExtraResources . "leafQueue")) }}{{ $leafQueue = dig "resource" (dict) . }}{{ end -}}
+            {{- $deserved := dig "spec" "deserved" (dict) $leafQueue -}}
+            {{- $qin := dict "cpu" $cpu "memory" $mem "workerCpu" $workerCpu "workerMemory" $workerMem -}}
+            {{- with dig "resources" "cpuLimit" "" $p }}{{ $_ := set $qin "cpuLimit" (toString .) }}{{ end -}}
+            {{- range $qk := list "requests.cpu" "cpu" "limits.cpu" "requests.memory" "memory" "limits.memory" "pods" }}{{ if hasKey $quotaHard $qk }}{{ $_ := set $qin (printf "quota-%s" $qk) (get $quotaHard $qk) }}{{ end }}{{ end -}}
+            {{- $capability := dig "spec" "capability" (dict) $leafQueue -}}
+            {{- range $axis := list "cpu" "memory" }}{{ if hasKey $deserved $axis }}{{ $_ := set $qin (printf "deserved-%s" $axis) (get $deserved $axis) }}{{ end }}{{ if hasKey $capability $axis }}{{ $_ := set $qin (printf "capability-%s" $axis) (get $capability $axis) }}{{ end }}{{ end -}}
+            {{- $mexp := dict "n" -9 "u" -6 "m" -3 "k" 3 "M" 6 "G" 9 "T" 12 "P" 15 "E" 18 -}}
+            {{- $mbin := dict "Ki" 10 "Mi" 20 "Gi" 30 "Ti" 40 "Pi" 50 "Ei" 60 -}}
+            {{- $milli := dict -}}
+            {{- range $k, $q := $qin -}}
+            {{-   $s := trim (toString $q) | trimPrefix "+" -}}
+            {{-   if kindIs "float64" $q }}{{ $s = regexReplaceAll `\.$` (regexReplaceAll `0+$` (printf "%f" $q) "") "" }}{{ end -}}
+            {{-   $val := -1 -}}
+            {{-   if regexMatch `^([0-9]+\.?[0-9]*|\.[0-9]+)([numkMGTPE]|[KMGTPE]i)?$` $s -}}
+            {{-     $num := regexFind `^[0-9.]+` $s -}}
+            {{-     $suffix := trimPrefix $num $s -}}
+            {{-     $frac := "" -}}
+            {{-     if contains "." $num }}{{ $frac = regexReplaceAll `^[0-9]*\.` $num "" }}{{ end -}}
+            {{-     $digits := regexReplaceAll `^0+` (printf "%s%s" (regexReplaceAll `\..*$` $num "") $frac) "" -}}
+            {{-     if le (len $digits) 18 -}}
+            {{-       $m := atoi (default "0" $digits) -}}
+            {{-       $exp := sub (add (int (get $mexp $suffix | default 0)) 3) (len $frac) -}}
+            {{-       $sat := false -}}
+            {{-       range until (int (get $mbin $suffix | default 0)) }}{{ if gt $m 4000000000000000000 }}{{ $sat = true }}{{ else }}{{ $m = mul $m 2 }}{{ end }}{{ end -}}
+            {{-       range until 48 -}}
+            {{-         if gt $exp 0 }}{{ if gt $m 900000000000000000 }}{{ $sat = true }}{{ else }}{{ $m = mul $m 10 }}{{ end }}{{ $exp = sub $exp 1 }}
+            {{-         else if lt $exp 0 }}{{ $m = add (div $m 10) (ternary 0 1 (eq (mod $m 10) 0)) }}{{ $exp = add $exp 1 }}{{ end -}}
+            {{-       end -}}
+            {{-       if not $sat }}{{ $val = $m }}{{ end -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{-   $_ := set $milli $k $val -}}
+            {{- end -}}
+            {{- /* The CPU limit is never below a request: the API server rejects such a
+                   pod, and only when the Job controller creates it, so nothing would say so
+                   until a run failed to start. */ -}}
+            {{- if hasKey $milli "cpuLimit" -}}
+            {{-   $limitMilli := int64 (get $milli "cpuLimit") -}}
+            {{-   $topReq := int64 (get $milli "cpu") -}}
+            {{-   $topReqText := $cpu -}}
+            {{-   if and $partitioned (gt (int64 (get $milli "workerCpu")) $topReq) }}{{ $topReq = int64 (get $milli "workerCpu") }}{{ $topReqText = $workerCpu }}{{ end -}}
+            {{-   if and (ge $limitMilli 0) (ge $topReq 0) (lt $limitMilli $topReq) -}}
+            {{-     fail (printf "resources.cpuLimit %s is below the CPU request %s: the API server rejects a pod whose request is above its limit; raise cpuLimit, or leave it unset and the limit is the request" (get $qin "cpuLimit") $topReqText) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* An Indexed Job has ONE pod template for the manager and the workers, so
+                   it takes the larger of the two per axis. */ -}}
+            {{- $indexedCpu := ternary $cpu $workerCpu (gt (int64 (get $milli "cpu")) (int64 (get $milli "workerCpu"))) -}}
+            {{- $indexedMem := ternary $mem $workerMem (gt (int64 (get $milli "memory")) (int64 (get $milli "workerMemory"))) -}}
+            {{- /* What one run asks for at once, per shape, in milli-units (-1: unreadable). */ -}}
+            {{- $readable := and (ge (int64 (get $milli "cpu")) 0) (ge (int64 (get $milli "memory")) 0) (ge (int64 (get $milli "workerCpu")) 0) (ge (int64 (get $milli "workerMemory")) 0) -}}
+            {{- $ask := dict "cpu" -1 "memory" -1 -}}
+            {{- if $readable -}}
+            {{-   range $axis, $wk := dict "cpu" "workerCpu" "memory" "workerMemory" -}}
+            {{-     $one := int64 (get $milli $axis) -}}
+            {{-     if $partitioned }}{{ $one = add $one (mul $workers (int64 (get $milli $wk))) }}{{ end -}}
+            {{-     $_ := set $ask $axis $one -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- $fmtMem := printf "%dMi" (div (add (int64 (get $ask "memory")) 1048575999) 1048576000) -}}
+            {{- $fmtCpu := printf "%dm" (int64 (get $ask "cpu")) -}}
+
+            {{- /* Which scheduler runs this job. $volcanoBlocker says why Volcano cannot
+                   (empty: it can); `auto` then runs natively, `volcano` waits. */ -}}
+            {{- $schedulerAsked := dig "scheduler" "auto" $p -}}
+            {{- $hasVolcanoClass := gt (len (default (list) (getExtraResources . "volcanoPriorityClass"))) 0 -}}
+            {{- $leafLabels := dig "metadata" "labels" (dict) $leafQueue -}}
+            {{- $leafState := dig "status" "state" "" $leafQueue -}}
+            {{- $volcanoBlocker := "" -}}
+            {{- $volcanoBlockerReason := "SchedulerUnavailable" -}}
+            {{- if and (gt (len $descItems) 0) (ne $descScheduler "volcano") -}}
+            {{-   $volcanoBlocker = printf "the scheduler descriptor %s/adhar-batch-scheduler names %q, not volcano" $platformNS $descScheduler -}}
+            {{- else if not $volcanoInstalled -}}
+            {{-   $volcanoBlocker = printf "Volcano is not installed on this cluster (no ConfigMap %s/adhar-batch-scheduler, or its CRDs are not served)" $platformNS -}}
+            {{- else if not $leaf -}}
+            {{-   $volcanoBlocker = printf "namespace %s has no adhar.io/tier label of dev, test or prod, so it has no leaf queue" $ns -}}
+            {{-   $volcanoBlockerReason = "QueueUnavailable" -}}
+            {{- else if not $leafQueue -}}
+            {{-   $volcanoBlocker = printf "queue %s does not exist: Team %s-%s's BatchQueuesReady condition says why (Volcano refuses a prod leaf whose deserved share the batch ceiling cannot admit)" $leaf $org $team -}}
+            {{-   $volcanoBlockerReason = "QueueUnavailable" -}}
+            {{- else if or (ne (get $leafLabels "adhar.io/organisation") $org) (ne (get $leafLabels "adhar.io/team") $team) -}}
+            {{-   $volcanoBlocker = printf "queue %s belongs to organisation %q team %q, not to this namespace's team, and adhar-batch-queue-binding denies every run on it" $leaf (get $leafLabels "adhar.io/organisation") (get $leafLabels "adhar.io/team") -}}
+            {{-   $volcanoBlockerReason = "QueueUnavailable" -}}
+            {{- else if has $leafState (list "Closed" "Closing") -}}
+            {{-   $volcanoBlocker = printf "queue %s is %s, and Volcano admits no job to a queue that is not Open" $leaf $leafState -}}
+            {{-   $volcanoBlockerReason = "QueueUnavailable" -}}
+            {{- else if not $hasVolcanoClass -}}
+            {{-   $volcanoBlocker = printf "PriorityClass %s does not exist: the installed core/adhar-batch predates Volcano support" $volcanoClass -}}
+            {{-   $volcanoBlockerReason = "PriorityClassMissing" -}}
+            {{- else if and $partitioned (eq (toString (get $desc "gang")) "false") -}}
+            {{-   $volcanoBlocker = printf "the scheduler descriptor %s/adhar-batch-scheduler says gang: \"false\", and a partitioned job on Volcano is a gang" $platformNS -}}
+            {{- end -}}
+            {{- $useVolcano := and (ne $schedulerAsked "kubernetes") (eq $volcanoBlocker "") -}}
+            {{- $scheduler := ternary "volcano" "kubernetes" $useVolcano -}}
+            {{- $priorityClass := ternary $volcanoClass $nativeClass $useVolcano -}}
+            {{- $shape := "single" -}}
+            {{- if $partitioned }}{{ $shape = ternary "gang" "indexed" $useVolcano }}{{ end -}}
+            {{- $runKind := get (dict "single" "Job" "indexed" "IndexedJob" "gang" "VolcanoJob") $shape -}}
+            {{- $scheduleRes := ternary "schedule-volcano" "schedule-native" (eq $shape "gang") -}}
+
+            {{- /* §6.4 gang fit: a partitioned run's pods run at once, so a set larger than
+                   the namespace's quota could never start on Volcano, and natively would
+                   start only some of its workers. The Indexed fallback sizes every index
+                   alike, so it is checked at its own (larger) size. Every key the quota
+                   sets is checked, not memory alone: an environment quota caps
+                   requests.cpu as tightly as memory, and a gang over it is admitted by
+                   its leaf, creates its pods and is forbidden the last of them, holding
+                   the rest of the namespace's quota while it never reaches minAvailable
+                   (D16). */ -}}
+            {{- /* Not on a pass that has asked for the leaf and not yet been given it: the
+                   shape is not known there, and a refusal ends Crossplane's passes, so it
+                   would refuse a gang for the Indexed Job it is not. Crossplane answers
+                   every requirement it was asked, found or not. */ -}}
+            {{- $answered := dict -}}
+            {{- range $k, $_ := (default (dict) .extraResources) }}{{ $_ := set $answered $k true }}{{ end -}}
+            {{- range $k, $_ := (default (dict) .requiredResources) }}{{ $_ := set $answered $k true }}{{ end -}}
+            {{- $leafPending := and $volcanoInstalled (ne $leaf "") (not (hasKey $answered "leafQueue")) -}}
+            {{- if and $partitioned (not $leafPending) $readable -}}
+            {{-   $gangPods := add $workers 1 -}}
+            {{-   $reqCpu := int64 (get $ask "cpu") -}}
+            {{-   $reqMem := int64 (get $ask "memory") -}}
+            {{-   if eq $shape "indexed" -}}
+            {{-     $reqCpu = mul $gangPods (int64 (max (int64 (get $milli "cpu")) (int64 (get $milli "workerCpu")))) -}}
+            {{-     $reqMem = mul $gangPods (int64 (max (int64 (get $milli "memory")) (int64 (get $milli "workerMemory")))) -}}
+            {{-   end -}}
+            {{- /* limits.cpu is the request unless cpuLimit sets it on every pod. */ -}}
+            {{-   $limCpu := $reqCpu -}}
+            {{-   if hasKey $milli "cpuLimit" }}{{ $limCpu = ternary -1 (mul $gangPods (int64 (get $milli "cpuLimit"))) (lt (int64 (get $milli "cpuLimit")) 0) }}{{ end -}}
+            {{-   $need := dict "requests.cpu" $reqCpu "cpu" $reqCpu "limits.cpu" $limCpu "requests.memory" $reqMem "memory" $reqMem "limits.memory" $reqMem "pods" (mul $gangPods 1000) -}}
+            {{-   $overQuota := list -}}
+            {{-   range $qk := list "requests.cpu" "cpu" "limits.cpu" "requests.memory" "memory" "limits.memory" "pods" -}}
+            {{-     $hard := -1 -}}
+            {{-     if hasKey $milli (printf "quota-%s" $qk) }}{{ $hard = int64 (get $milli (printf "quota-%s" $qk)) }}{{ end -}}
+            {{-     $n := int64 (get $need $qk) -}}
+            {{-     if and (ge $hard 0) (ge $n 0) (gt $n $hard) -}}
+            {{-       $shown := printf "%dm" $n -}}
+            {{-       if contains "memory" $qk }}{{ $shown = printf "%dMi" (div (add $n 1048575999) 1048576000) }}{{ else if eq $qk "pods" }}{{ $shown = printf "%d" $gangPods }}{{ end -}}
+            {{-       $overQuota = append $overQuota (printf "%s %s > %v" $qk $shown (get $quotaHard $qk)) -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{-   if $overQuota -}}
+            {{-     fail (printf "a partitioned run of 1 manager and %d workers asks at once for more than ResourceQuota %s-quota allows in namespace %s (%s)%s: it could never start; lower workers or the run's resources (workerCpu, workerMemory, cpuLimit), or raise the environment's quota" $workers $ns $ns (join ", " $overQuota) (ternary "; natively every index is sized like the larger of manager and worker" "" (eq $shape "indexed"))) -}}
             {{-   end -}}
             {{- end -}}
 
@@ -132,25 +368,56 @@ spec:
                    PrerequisitesReady=False, which Argo CD reports as Degraded. */ -}}
             {{- $missing := list -}}
             {{- $missingReason := "" -}}
-            {{- if not (getExtraResources . "priorityClass") -}}
-            {{-   $missing = append $missing (printf "PriorityClass %s does not exist: the core/adhar-batch package is not installed" $priorityClass) -}}
+            {{- if and (not $useVolcano) (not (getExtraResources . "priorityClass")) -}}
+            {{-   $missing = append $missing (printf "PriorityClass %s does not exist: the core/adhar-batch package is not installed" $nativeClass) -}}
             {{-   $missingReason = "PriorityClassMissing" -}}
             {{- end -}}
-            {{- $hasDescriptor := gt (len (default (list) (getExtraResources . "schedulerDescriptor"))) 0 -}}
-            {{- $schedulerAsked := dig "scheduler" "auto" $p -}}
-            {{- /* Phase 1 has one path. `auto` is that path; `volcano` is a request this
-                   composition cannot honour yet, and running it natively anyway would
-                   ignore what the definition said (design 0025 D3). */ -}}
-            {{- if eq $schedulerAsked "volcano" -}}
-            {{-   $missingReason = "SchedulerUnavailable" -}}
-            {{-   if $hasDescriptor -}}
-            {{-     $missing = append $missing "scheduler volcano needs the composition's Volcano path, which arrives with Phase 2; use auto or kubernetes" -}}
-            {{-   else -}}
-            {{-     $missing = append $missing (printf "scheduler volcano needs ConfigMap %s/adhar-batch-scheduler, and Volcano is not installed on this cluster; use auto or kubernetes" $platformNS) -}}
-            {{-   end -}}
+            {{- /* `volcano` is a request: running it natively anyway would ignore what the
+                   definition said (design 0025 D3). */ -}}
+            {{- if and (eq $schedulerAsked "volcano") (not $useVolcano) -}}
+            {{-   $missingReason = $volcanoBlockerReason -}}
+            {{-   $missing = append $missing (printf "scheduler volcano cannot run this job: %s; use auto or kubernetes" $volcanoBlocker) -}}
             {{- end -}}
             {{- $prereqOK := not $missing -}}
 
+            {{- /* DEC-3: whether the queue can take this job, said on the BatchJob rather
+                   than discovered as a denial in the middle of a night. A prod leaf has a
+                   deserved share; a run larger than it in EVERY dimension it declares can
+                   start only while the batch tree has idle room, and can never reclaim
+                   capacity from dev and test (Volcano's capacity plugin reclaims only for
+                   a queue under its deserved share in at least one dimension). */ -}}
+            {{- $queueFits := dict "status" "True" "reason" "NativeScheduler" "message" (printf "this job runs on the native path (%s), which has no queues" (ternary "scheduler: kubernetes" (default "Volcano is not in use" $volcanoBlocker) (eq $schedulerAsked "kubernetes"))) -}}
+            {{- if and (not $useVolcano) (ne $schedulerAsked "kubernetes") (eq $volcanoBlockerReason "QueueUnavailable") -}}
+            {{-   $queueFits = dict "status" "False" "reason" "LeafQueueUnavailable" "message" (printf "%s; %s" $volcanoBlocker (ternary "scheduler volcano waits for it" "until it is fixed this job runs on the native path" (eq $schedulerAsked "volcano"))) -}}
+            {{- else if $useVolcano -}}
+            {{- /* A run larger than its leaf's capability in ANY dimension is never
+                   admitted: the capacity plugin's enqueue compares its minimum resources
+                   with the capability, so its PodGroup stays Pending forever, and
+                   BatchGangQueueRejected's description sends the reader here to say so. */ -}}
+            {{-   $overCap := list -}}
+            {{-   range $axis := list "cpu" "memory" -}}
+            {{-     $c := int64 (get $milli (printf "capability-%s" $axis) | default -1) -}}
+            {{-     $n := int64 (get $ask $axis) -}}
+            {{-     if and (ge $c 0) (ge $n 0) (gt $n $c) }}{{ $overCap = append $overCap (printf "%s %s > capability %v" $axis (ternary $fmtCpu $fmtMem (eq $axis "cpu")) (get $capability $axis)) }}{{ end -}}
+            {{-   end -}}
+            {{-   $compared := list -}}
+            {{-   $exceeded := list -}}
+            {{-   range $axis := list "cpu" "memory" -}}
+            {{-     $d := int64 (get $milli (printf "deserved-%s" $axis) | default -1) -}}
+            {{-     $n := int64 (get $ask $axis) -}}
+            {{-     if and (ge $d 0) (ge $n 0) -}}
+            {{-       $compared = append $compared $axis -}}
+            {{-       if gt $n $d }}{{ $exceeded = append $exceeded (printf "%s %s > deserved %v" $axis (ternary $fmtCpu $fmtMem (eq $axis "cpu")) (get $deserved $axis)) }}{{ end -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{-   if $overCap -}}
+            {{-     $queueFits = dict "status" "False" "reason" "ExceedsCapability" "message" (printf "a run asks for more than queue %s's capability (%s): Volcano never admits it, so it waits Pending for good; shrink the run (workers, resources), raise the team's allowance or the batch ceiling (globalSettings.batch), or use scheduler: kubernetes" $leaf (join ", " $overCap)) -}}
+            {{-   else if and $compared (eq (len $exceeded) (len $compared)) -}}
+            {{-     $queueFits = dict "status" "False" "reason" "ExceedsDeserved" "message" (printf "a run asks for more than queue %s's deserved share in every dimension (%s): it starts only while the batch tree has idle room and can never reclaim capacity from dev and test; shrink the run, or raise the batch ceiling's prod share (globalSettings.batch)" $leaf (join ", " $exceeded)) -}}
+            {{-   else -}}
+            {{-     $queueFits = dict "status" "True" "reason" "Fits" "message" (printf "runs on queue %s%s" $leaf (ternary (printf " (deserved %s)" (toJson $deserved)) "" (gt (len $deserved) 0))) -}}
+            {{-   end -}}
+            {{- end -}}
             {{- /* Hold: operators set one annotation, the composition suspends the schedule. */ -}}
             {{- $annotations := dig "metadata" "annotations" (dict) $xr -}}
             {{- $isHeld := hasKey $annotations "adhar.io/batch-hold" -}}
@@ -198,9 +465,6 @@ spec:
             {{- with get $declaredEnv "OTEL_RESOURCE_ATTRIBUTES" -}}
             {{-   $_ := set $platformEnv "OTEL_RESOURCE_ATTRIBUTES" (printf "%s,deployment.environment.name=%s,deployment.environment=%s,service.namespace=%s,k8s.namespace.name=%s,k8s.pod.name=$(POD_NAME),adhar.application=%s,adhar.batch.job=%s" (toString .) $env $env $ns $ns $app $name) -}}
             {{- end -}}
-            {{- $requests := dict "cpu" (dig "resources" "cpu" "1" $p) "memory" (dig "resources" "memory" "1536Mi" $p) -}}
-            {{- $limits := dict "memory" (dig "resources" "memory" "1536Mi" $p) -}}
-            {{- with dig "resources" "cpuLimit" "" $p }}{{ $_ := set $limits "cpu" . }}{{ end -}}
             {{- $pullSecrets := list -}}
             {{- if hasKey $p "imagePullSecrets" -}}
             {{-   range (default (list) (get $p "imagePullSecrets")) }}{{ $pullSecrets = append $pullSecrets (dict "name" .) }}{{ end -}}
@@ -208,72 +472,171 @@ spec:
             {{-   $pullSecrets = list (dict "name" "harbor-dockercfg") -}}
             {{- end -}}
             {{- $sa := dig "serviceAccountName" "" $p | default (printf "%s-batch" $name) -}}
+            {{- $backoff := int (dig "retry" "backoffLimit" 2 $p) -}}
+            {{- $ttl := int (dig "history" "ttlSecondsAfterFinished" 604800 $p) -}}
+            {{- $podFailurePolicy := dict "rules" (list
+                  (dict "action" "Ignore" "onPodConditions" (list (dict "type" "DisruptionTarget" "status" "True")))
+                  (dict "action" "FailJob" "onExitCodes" (dict "containerName" "batch" "operator" "In" "values" (list 2 3 4 6 7)))) -}}
+            {{- /* The roles of one run: `single`, `indexed` (index 0 manages, §4.5), or a
+                   gang's `manager` and `worker` tasks. */ -}}
+            {{- $roles := list $shape -}}
+            {{- if eq $shape "gang" }}{{ $roles = list "manager" "worker" }}{{ end -}}
+            {{- $roleResources := dict
+                  "single" (dict "cpu" $cpu "memory" $mem)
+                  "manager" (dict "cpu" $cpu "memory" $mem)
+                  "worker" (dict "cpu" $workerCpu "memory" $workerMem)
+                  "indexed" (dict "cpu" $indexedCpu "memory" $indexedMem) -}}
+            {{- /* The partition channel (§5.10, kit KIT-2.1): Spring Boot binds these to
+                   adhar.batch.partition.{transport,grid-size,timeout}. The timeout is the
+                   deadline less five minutes (half the deadline when that is shorter), so
+                   a manager gives up waiting before the pod is killed. There is no
+                   ADHAR_BATCH_MODE: Spring would bind it to adhar.batch.mode
+                   (auto|kubernetes|embedded), and the role already says partitioned. */ -}}
+            {{- $partitionEnv := list -}}
+            {{- if $partitioned -}}
+            {{-   $partitionEnv = list
+                    (dict "name" "ADHAR_BATCH_PARTITION_TRANSPORT" "value" "jdbc")
+                    (dict "name" "ADHAR_BATCH_PARTITION_GRIDSIZE" "value" (toString $gridSize))
+                    (dict "name" "ADHAR_BATCH_PARTITION_TIMEOUT" "value" (printf "%ds" (max (sub $deadline 300) (div $deadline 2)))) -}}
+            {{- end -}}
+            {{- /* A Volcano Job's pods carry its name as volcano.sh/job-name; a batch/v1
+                   Job's as batch.kubernetes.io/job-name. */ -}}
+            {{- $jobNameLabel := ternary "volcano.sh/job-name" "batch.kubernetes.io/job-name" (eq $shape "gang") -}}
             {{- $runs := dict -}}
             {{- range $trigger := list "schedule" "manual" -}}
-            {{-   $runLabels := dict -}}
-            {{-   range $k, $v := $labels }}{{ $_ := set $runLabels $k $v }}{{ end -}}
-            {{-   $_ := set $runLabels "adhar.io/batch-role" "single" -}}
+            {{-   $pods := dict -}}
+            {{-   $podLabelsOf := dict -}}
+            {{-   range $role := $roles -}}
+            {{-     $runLabels := dict -}}
+            {{-     range $k, $v := $labels }}{{ $_ := set $runLabels $k $v }}{{ end -}}
+            {{-     $_ := set $runLabels "adhar.io/batch-role" $role -}}
             {{- /* Alloy derives adhar_component from app.kubernetes.io/instance or `app`, which a
                    run pod has neither of; without this its log streams carry no component and
                    every Logs panel of the batch-jvm dashboard (adhar_component=~"app") is empty. */ -}}
-            {{-   $_ := set $runLabels "adhar.io/component" "app" -}}
-            {{-   $_ := set $runLabels "adhar.io/batch-trigger" $trigger -}}
-            {{-   if $scaleUp }}{{ $_ := set $runLabels "adhar.io/scale-up" "true" }}{{ end -}}
-            {{-   $podAnnotations := dict "adhar.io/batch-actor" "" -}}
-            {{-   if eq (dig "disruption" "avoid" $p) "avoid" }}{{ $_ := set $podAnnotations "cluster-autoscaler.kubernetes.io/safe-to-evict" "false" }}{{ end -}}
-            {{-   $envList := list
-                    (dict "name" "ADHAR_BATCH_JOB" "value" $job)
-                    (dict "name" "ADHAR_BATCH_NAME" "value" $name)
-                    (dict "name" "ADHAR_BATCH_ROLE" "value" "single")
-                    (dict "name" "ADHAR_BATCH_TRIGGER" "value" $trigger)
-                    (dict "name" "ADHAR_BATCH_PARAMS" "value" "{}")
-                    (dict "name" "ADHAR_BATCH_TIME_ZONE" "value" $tz)
-                    (dict "name" "ADHAR_BATCH_REPOSITORY_SCHEMA" "value" (dig "database" "schema" "batch" $p))
-                    (dict "name" "ADHAR_BATCH_SHUTDOWN_TIMEOUT" "value" (printf "%ds" $shutdown))
-                    (dict "name" "ADHAR_BATCH_K8S_JOB" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.labels['batch.kubernetes.io/job-name']")))
-                    (dict "name" "ADHAR_BATCH_ACTOR" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.annotations['adhar.io/batch-actor']")))
-                    (dict "name" "POD_NAME" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.name")))
-                    (dict "name" "POD_UID" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.uid")))
-                    (dict "name" "NODE_NAME" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "spec.nodeName")))
-                    (dict "name" "ADHAR_ENVIRONMENT" "value" $env)
-                    (dict "name" "SPRING_DATASOURCE_URL" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "jdbc-uri")))
-                    (dict "name" "SPRING_DATASOURCE_USERNAME" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "username")))
-                    (dict "name" "SPRING_DATASOURCE_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "password"))) -}}
-            {{-   range $k := (keys $platformEnv | sortAlpha) }}{{ $envList = append $envList (dict "name" $k "value" (get $platformEnv $k)) }}{{ end -}}
-            {{-   $container := dict
-                    "name" "batch"
-                    "image" $image
-                    "env" $envList
-                    "resources" (dict "requests" $requests "limits" $limits)
-                    "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")))
-                    "volumeMounts" (list (dict "name" "tmp" "mountPath" "/tmp")) -}}
-            {{-   with dig "envFrom" (list) $p }}{{ $_ := set $container "envFrom" . }}{{ end -}}
-            {{-   $podSpec := dict
-                    "restartPolicy" "Never"
-                    "schedulerName" "default-scheduler"
-                    "priorityClassName" $priorityClass
-                    "serviceAccountName" $sa
-                    "terminationGracePeriodSeconds" $grace
-                    "enableServiceLinks" false
-                    "securityContext" (dict "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault"))
-                    "containers" (list $container)
-                    "volumes" (list (dict "name" "tmp" "emptyDir" (dict "sizeLimit" (dig "resources" "tmpSize" "1Gi" $p)))) -}}
-            {{-   if $pullSecrets }}{{ $_ := set $podSpec "imagePullSecrets" $pullSecrets }}{{ end -}}
-            {{-   $jobSpec := dict
-                    "parallelism" 1
-                    "completions" 1
-                    "backoffLimit" (int (dig "retry" "backoffLimit" 2 $p))
-                    "activeDeadlineSeconds" $deadline
-                    "ttlSecondsAfterFinished" (int (dig "history" "ttlSecondsAfterFinished" 604800 $p))
-                    "podReplacementPolicy" "Failed"
-                    "podFailurePolicy" (dict "rules" (list
-                      (dict "action" "Ignore" "onPodConditions" (list (dict "type" "DisruptionTarget" "status" "True")))
-                      (dict "action" "FailJob" "onExitCodes" (dict "containerName" "batch" "operator" "In" "values" (list 2 3 4 6 7)))))
-                    "template" (dict "metadata" (dict "labels" $runLabels "annotations" $podAnnotations) "spec" $podSpec) -}}
-            {{-   $_ := set $runs $trigger (dict "metadata" (dict "labels" $runLabels "annotations" (dict "adhar.io/batch-actor" "")) "spec" $jobSpec) -}}
+            {{-     $_ := set $runLabels "adhar.io/component" "app" -}}
+            {{-     $_ := set $runLabels "adhar.io/batch-trigger" $trigger -}}
+            {{-     if $scaleUp }}{{ $_ := set $runLabels "adhar.io/scale-up" "true" }}{{ end -}}
+            {{-     $podAnnotations := dict "adhar.io/batch-actor" "" -}}
+            {{-     if eq (dig "disruption" "avoid" $p) "avoid" }}{{ $_ := set $podAnnotations "cluster-autoscaler.kubernetes.io/safe-to-evict" "false" }}{{ end -}}
+            {{- /* A single-mode pod Volcano schedules has its own PodGroup, which Volcano's
+                   controller builds from this annotation [S19]; adhar-batch-queue-default
+                   would write the same leaf, and writing it here keeps a run on its queue
+                   while Kyverno is down. A gang's pods inherit the Job's queue instead. */ -}}
+            {{-     if and $useVolcano (eq $role "single") }}{{ $_ := set $podAnnotations "scheduling.volcano.sh/queue-name" $leaf }}{{ end -}}
+            {{-     $envList := list
+                      (dict "name" "ADHAR_BATCH_JOB" "value" $job)
+                      (dict "name" "ADHAR_BATCH_NAME" "value" $name)
+                      (dict "name" "ADHAR_BATCH_ROLE" "value" $role)
+                      (dict "name" "ADHAR_BATCH_TRIGGER" "value" $trigger)
+                      (dict "name" "ADHAR_BATCH_PARAMS" "value" "{}")
+                      (dict "name" "ADHAR_BATCH_TIME_ZONE" "value" $tz)
+                      (dict "name" "ADHAR_BATCH_REPOSITORY_SCHEMA" "value" (dig "database" "schema" "batch" $p))
+                      (dict "name" "ADHAR_BATCH_SHUTDOWN_TIMEOUT" "value" (printf "%ds" $shutdown)) -}}
+            {{-     $envList = concat $envList $partitionEnv -}}
+            {{- /* The kit resolves `indexed` to manager at index 0 (BatchRole.effective).
+                   Kubernetes injects the same variable itself; naming it here keeps the
+                   contract in the template a client compares against. */ -}}
+            {{-     if eq $role "indexed" }}{{ $envList = append $envList (dict "name" "JOB_COMPLETION_INDEX" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.annotations['batch.kubernetes.io/job-completion-index']"))) }}{{ end -}}
+            {{-     $envList = concat $envList (list
+                      (dict "name" "ADHAR_BATCH_K8S_JOB" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" (printf "metadata.labels['%s']" $jobNameLabel))))
+                      (dict "name" "ADHAR_BATCH_ACTOR" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.annotations['adhar.io/batch-actor']")))
+                      (dict "name" "POD_NAME" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.name")))
+                      (dict "name" "POD_UID" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "metadata.uid")))
+                      (dict "name" "NODE_NAME" "valueFrom" (dict "fieldRef" (dict "apiVersion" "v1" "fieldPath" "spec.nodeName")))
+                      (dict "name" "ADHAR_ENVIRONMENT" "value" $env)
+                      (dict "name" "SPRING_DATASOURCE_URL" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "jdbc-uri")))
+                      (dict "name" "SPRING_DATASOURCE_USERNAME" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "username")))
+                      (dict "name" "SPRING_DATASOURCE_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "password")))) -}}
+            {{-     range $k := (keys $platformEnv | sortAlpha) }}{{ $envList = append $envList (dict "name" $k "value" (get $platformEnv $k)) }}{{ end -}}
+            {{-     $rr := get $roleResources $role -}}
+            {{- /* limits.cpu is always set, to the request unless cpuLimit says more: every
+                   environment namespace's LimitRange defaults a missing CPU limit to 500m,
+                   and a pod whose 1-CPU request is above that defaulted limit is rejected
+                   when the Job controller creates it (its ResourceQuota counts limits.cpu,
+                   so the limit cannot simply be left off either). */ -}}
+            {{-     $limits := dict "memory" (get $rr "memory") "cpu" (get $rr "cpu") -}}
+            {{-     with dig "resources" "cpuLimit" "" $p }}{{ $_ := set $limits "cpu" . }}{{ end -}}
+            {{-     $container := dict
+                      "name" "batch"
+                      "image" $image
+                      "env" $envList
+                      "resources" (dict "requests" (dict "cpu" (get $rr "cpu") "memory" (get $rr "memory")) "limits" $limits)
+                      "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")))
+                      "volumeMounts" (list (dict "name" "tmp" "mountPath" "/tmp")) -}}
+            {{-     with dig "envFrom" (list) $p }}{{ $_ := set $container "envFrom" . }}{{ end -}}
+            {{-     $podSpec := dict
+                      "restartPolicy" "Never"
+                      "schedulerName" (ternary "volcano" "default-scheduler" $useVolcano)
+                      "priorityClassName" $priorityClass
+                      "serviceAccountName" $sa
+                      "terminationGracePeriodSeconds" $grace
+                      "enableServiceLinks" false
+                      "securityContext" (dict "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault"))
+                      "containers" (list $container)
+                      "volumes" (list (dict "name" "tmp" "emptyDir" (dict "sizeLimit" (dig "resources" "tmpSize" "1Gi" $p)))) -}}
+            {{- /* A Volcano Job has no Job-level deadline: each task's pod carries it
+                   (adhar-batch-volcano-pod-standards, INV-1). A RestartJob makes new pods,
+                   so the clock restarts with each attempt of the gang. */ -}}
+            {{-     if eq $shape "gang" }}{{ $_ := set $podSpec "activeDeadlineSeconds" $deadline }}{{ end -}}
+            {{-     if $pullSecrets }}{{ $_ := set $podSpec "imagePullSecrets" $pullSecrets }}{{ end -}}
+            {{-     $_ := set $pods $role (dict "metadata" (dict "labels" $runLabels "annotations" $podAnnotations) "spec" $podSpec) -}}
+            {{-     $_ := set $podLabelsOf $role $runLabels -}}
+            {{-   end -}}
+            {{-   if eq $shape "gang" -}}
+            {{- /* The Job's own labels are what Volcano copies onto its PodGroup, which is
+                   what the node autoscaler reads (workload, environment, scale-up); the
+                   roles live on the tasks. */ -}}
+            {{-     $jobLabels := dict -}}
+            {{-     range $k, $v := $labels }}{{ $_ := set $jobLabels $k $v }}{{ end -}}
+            {{-     $_ := set $jobLabels "adhar.io/batch-trigger" $trigger -}}
+            {{-     if $scaleUp }}{{ $_ := set $jobLabels "adhar.io/scale-up" "true" }}{{ end -}}
+            {{- /* §4.5 and §5.7: a non-retryable exit code ends the gang (TerminateJob); any
+                   other failure or an eviction (reclaim, preempt, drain) restarts the whole
+                   gang, and Spring Batch re-runs only the partitions that did not complete.
+                   Exit-code rules come first: the first matching policy applies. */ -}}
+            {{-     $policies := list -}}
+            {{-     range $c := list 2 3 4 6 7 }}{{ $policies = append $policies (dict "exitCode" $c "action" "TerminateJob") }}{{ end -}}
+            {{-     $policies = append $policies (dict "events" (list "PodEvicted" "PodFailed") "action" "RestartJob") -}}
+            {{-     $vcSpec := dict
+                      "schedulerName" "volcano"
+                      "queue" $leaf
+                      "priorityClassName" $priorityClass
+                      "minAvailable" (add $workers 1)
+                      "maxRetry" (int (dig "retry" "maxRetry" 3 $p))
+                      "ttlSecondsAfterFinished" $ttl
+                      "plugins" (dict "env" (list))
+                      "policies" $policies
+                      "tasks" (list
+                        (dict "name" "manager" "replicas" 1 "minAvailable" 1
+                              "policies" (list (dict "events" (list "TaskCompleted") "action" "CompleteJob"))
+                              "template" (get $pods "manager"))
+                        (dict "name" "worker" "replicas" $workers "minAvailable" $workers
+                              "template" (get $pods "worker"))) -}}
+            {{-     $_ := set $runs $trigger (dict "metadata" (dict "labels" $jobLabels "annotations" (dict "adhar.io/batch-actor" "")) "spec" $vcSpec) -}}
+            {{-   else -}}
+            {{-     $jobSpec := dict
+                      "parallelism" 1
+                      "completions" 1
+                      "backoffLimit" $backoff
+                      "activeDeadlineSeconds" $deadline
+                      "ttlSecondsAfterFinished" $ttl
+                      "podReplacementPolicy" "Failed"
+                      "podFailurePolicy" $podFailurePolicy
+                      "template" (get $pods $shape) -}}
+            {{- /* §4.5 native fallback: every index runs at once; the Job succeeds when
+                   the manager (index 0) does, and the Job controller then ends the
+                   workers still consuming. */ -}}
+            {{-     if eq $shape "indexed" -}}
+            {{-       $_ := set $jobSpec "parallelism" (add $workers 1) -}}
+            {{-       $_ := set $jobSpec "completions" (add $workers 1) -}}
+            {{-       $_ := set $jobSpec "completionMode" "Indexed" -}}
+            {{-       $_ := set $jobSpec "successPolicy" (dict "rules" (list (dict "succeededIndexes" "0"))) -}}
+            {{-     end -}}
+            {{-     $_ := set $runs $trigger (dict "metadata" (dict "labels" (get $podLabelsOf $shape) "annotations" (dict "adhar.io/batch-actor" "")) "spec" $jobSpec) -}}
+            {{-   end -}}
             {{- end -}}
             {{- $manualRun := get $runs "manual" -}}
-            {{- $runTemplate := dict "apiVersion" "batch/v1" "kind" "Job" "metadata" (dict "namespace" $ns "labels" (dig "metadata" "labels" (dict) $manualRun) "annotations" (dig "metadata" "annotations" (dict) $manualRun)) "spec" (get $manualRun "spec") -}}
+            {{- $runTemplate := dict "apiVersion" (ternary "batch.volcano.sh/v1alpha1" "batch/v1" (eq $shape "gang")) "kind" "Job" "metadata" (dict "namespace" $ns "labels" (dig "metadata" "labels" (dict) $manualRun) "annotations" (dig "metadata" "annotations" (dict) $manualRun)) "spec" (get $manualRun "spec") -}}
 
             {{- /* parameters.json is complete on its own: every default written out, so a
                    client needs no schema to build a form or check a value. */ -}}
@@ -294,14 +657,31 @@ spec:
 
             {{- /* What has been observed: a statusless kind is ready once it exists. */ -}}
             {{- $seen := dict -}}
-            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "rules" -}}
+            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "schedule-volcano" "rules" -}}
             {{-   $_ := set $seen $r (ne (toString (dig $r "resource" "metadata" "uid" "" $observed)) "") -}}
             {{- end -}}
             {{- $composeSA := eq (dig "serviceAccountName" "" $p) "" -}}
-            {{- $cronSeen := get $seen "schedule-native" -}}
-            {{- $cronStatus := dig "schedule-native" "resource" "status" (dict) $observed -}}
+
+            {{- /* A switch of the schedule's kind (native CronJob <-> Volcano CronJob) deletes
+                   the old one, and its runs with it. While the old one has a run in flight
+                   the switch waits: the old object is composed as observed, suspended, and
+                   the new one is not composed yet (hold → switch → release, §6.4). A Volcano
+                   CronJob can be kept only while Volcano's CRDs are served. */ -}}
+            {{- $oldScheduleRes := ternary "schedule-native" "schedule-volcano" (eq $scheduleRes "schedule-volcano") -}}
+            {{- $oldSchedule := dig $oldScheduleRes "resource" (dict) $observed -}}
+            {{- $oldActive := list -}}
+            {{- range (dig "status" "active" (list) $oldSchedule) }}{{ $oldActive = append $oldActive (get . "name") }}{{ end -}}
+            {{- $switchWaits := and (ne $cron "") (gt (len $oldActive) 0) (or (eq $oldScheduleRes "schedule-native") $crdsServed) -}}
+            {{- $composedScheduleRes := ternary $oldScheduleRes $scheduleRes $switchWaits -}}
+            {{- $cronSeen := get $seen $composedScheduleRes -}}
+            {{- $cronStatus := dig $composedScheduleRes "resource" "status" (dict) $observed -}}
             {{- $activeRuns := list -}}
             {{- range (dig "active" (list) $cronStatus) }}{{ $activeRuns = append $activeRuns (get . "name") }}{{ end -}}
+            {{- $kindOf := dict "schedule-native" "CronJob (batch/v1)" "schedule-volcano" "Volcano CronJob (batch.volcano.sh/v1alpha1)" -}}
+            {{- $switchCond := dict "status" "True" "reason" "Settled" "message" (ternary (printf "the schedule is a %s" (get $kindOf $scheduleRes)) "no schedule" (ne $cron "")) -}}
+            {{- if $switchWaits -}}
+            {{-   $switchCond = dict "status" "False" "reason" "WaitingForRuns" "message" (printf "the switch to a %s waits for %s to finish: the %s %s is kept and suspended until then, because deleting it would end the run; hold the job (adhar batch hold) to keep the clock from starting more" (get $kindOf $scheduleRes) (join ", " $oldActive) (get $kindOf $oldScheduleRes) $name) -}}
+            {{- end -}}
 
             {{- /* A job firing every few minutes pays a JVM start each time (§14). */ -}}
             {{- $notes := list -}}
@@ -320,12 +700,19 @@ spec:
             {{-   end -}}
             {{- end -}}
             {{- if $overridden }}{{ $notes = append $notes (printf "ignored %s: an environment namespace decides where its jobs run" (join ", " $overridden)) }}{{ end -}}
+            {{- /* Warnings with a condition of their own reach the one-line summary too,
+                   which is what the CLI prints; Placement keeps to placement. */ -}}
+            {{- $warnings := list -}}
+            {{- if eq (get $queueFits "status") "False" }}{{ $warnings = append $warnings (get $queueFits "message") }}{{ end -}}
+            {{- if $switchWaits }}{{ $warnings = append $warnings (get $switchCond "message") }}{{ end -}}
 
             {{- /* Conditions and the summary line. */ -}}
             {{- $scheduleCond := dict "status" "True" "reason" "OnDemand" "message" "no schedule: this job runs when somebody starts it" -}}
             {{- if $cron -}}
             {{-   if not $prereqOK -}}
             {{-     $scheduleCond = dict "status" "False" "reason" "PrerequisitesMissing" "message" "the schedule is suspended until the prerequisites are met" -}}
+            {{-   else if $switchWaits -}}
+            {{-     $scheduleCond = dict "status" "False" "reason" "SwitchPending" "message" (get $switchCond "message") -}}
             {{-   else if not $cronSeen -}}
             {{-     $scheduleCond = dict "status" "Unknown" "reason" "Creating" "message" (printf "creating CronJob %s" $name) -}}
             {{-   else if $isHeld -}}
@@ -338,7 +725,7 @@ spec:
             {{- end -}}
             {{- $templateCond := dict "status" "True" "reason" "Published" "message" (printf "runs start from ConfigMap %s-run" $name) -}}
             {{- if not (get $seen "run-template") }}{{ $templateCond = dict "status" "Unknown" "reason" "Creating" "message" (printf "creating ConfigMap %s-run" $name) }}{{ end -}}
-            {{- $prereqCond := dict "status" "True" "reason" "Met" "message" (printf "PriorityClass %s exists" $priorityClass) -}}
+            {{- $prereqCond := dict "status" "True" "reason" "Met" "message" (printf "PriorityClass %s exists%s" $priorityClass (ternary (printf "; runs on Volcano queue %s" $leaf) "" $useVolcano)) -}}
             {{- if not $prereqOK }}{{ $prereqCond = dict "status" "False" "reason" $missingReason "message" (join "; " $missing) }}{{ end -}}
             {{- $message := "" -}}
             {{- if not $prereqOK -}}
@@ -350,7 +737,7 @@ spec:
             {{- else -}}
             {{-   $message = "on demand" -}}
             {{- end -}}
-            {{- if $notes }}{{ $message = printf "%s; %s" $message (join "; " $notes) }}{{ end -}}
+            {{- with concat $notes $warnings }}{{ $message = printf "%s; %s" $message (join "; " .) }}{{ end -}}
 
             {{- /* Alert thresholds, in seconds: PromQL compares numbers. */ -}}
             {{- $seconds := dict -}}
@@ -437,18 +824,40 @@ spec:
             data:
               template.yaml: {{ toYaml $runTemplate | toJson }}
               parameters.json: {{ toJson $declared | toJson }}
-              kind: Job
+              kind: {{ $runKind }}
               naming: v1
-            {{- if $cron }}
+            {{- if $switchWaits }}
             ---
-            apiVersion: batch/v1
+            # The schedule this job had, kept while its run finishes (see the header):
+            # composed as observed, and suspended so the clock starts nothing more.
+            apiVersion: {{ get $oldSchedule "apiVersion" }}
             kind: CronJob
             metadata:
               name: {{ $name }}
               namespace: {{ $ns }}
               labels: {{ toJson $labels }}
               annotations:
-                gotemplating.fn.crossplane.io/composition-resource-name: schedule-native
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ $oldScheduleRes }}
+                gotemplating.fn.crossplane.io/ready: "True"
+            {{- $keptSpec := omit (dig "spec" (dict) $oldSchedule) "suspend" }}
+            {{- $_ := set $keptSpec "suspend" true }}
+            spec: {{ toJson $keptSpec }}
+            {{- else if $cron }}
+            ---
+            {{- if eq $scheduleRes "schedule-volcano" }}
+            # A gang's schedule: Volcano's CronJob (a CRD since v1.13 [S4]) stamps out the
+            # same Volcano Job as the run template.
+            apiVersion: batch.volcano.sh/v1alpha1
+            {{- else }}
+            apiVersion: batch/v1
+            {{- end }}
+            kind: CronJob
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ $scheduleRes }}
                 gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" $cronSeen | quote }}
             spec:
               schedule: {{ $cron | quote }}
@@ -479,6 +888,56 @@ spec:
               groups:
                 - name: {{ printf "adhar.batch.%s.%s" $ns $name }}
                   rules:
+                    {{- if eq $shape "gang" }}
+                    {{- /* A gang run is a Volcano Job: kube-state-metrics' Job series never see
+                           it, so its failure, its wait and its last success are read from the
+                           kube_volcano_* custom-resource-state series of
+                           observability/kube-prometheus (custom-resource-state.yaml; design 0025
+                           §11.1). Series of one object differ only in `phase`, so they are
+                           joined ignoring it, never on the Volcano Job's name label. The
+                           pod-level alerts below cover every shape. Aborted is a person's
+                           `adhar batch stop`, not a failure. */ -}}
+                    {{- $vcSel := printf "namespace=\"%s\",batch_job=\"%s\"" $ns $name }}
+                    - alert: BatchRunFailed
+                      expr: {{ printf "kube_volcano_job_status_phase{%s,phase=~\"Failed|Terminated\"} == 1 and ignoring(phase) topk by (namespace,batch_job) (1, kube_volcano_job_created{%s})" $vcSel $vcSel | quote }}
+                      for: 1m
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "The latest run of BatchJob %s/%s failed" $ns $name | quote }}
+                        description: "The newest Volcano Job of this partitioned job ended Failed (its gang restarts used up retry.maxRetry) or Terminated (a non-retryable exit code); the alert resolves when a newer run exists. `adhar batch runs` and the Console's run detail show which pod and step failed."
+                    - alert: BatchGangPending
+                      expr: {{ printf "kube_volcano_podgroup_status_phase{%s,phase=\"Inqueue\"} == 1" $vcSel | quote }}
+                      for: 30m
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "A gang of BatchJob %s/%s has waited 30 minutes for room" $ns $name | quote }}
+                        description: "The queue admitted the run (its PodGroup is Inqueue) but the cluster has no room for all of its pods at once, and a gang never starts part of itself. A prod gang with scaleUp buys nodes; anything else waits for capacity. `adhar batch queues` shows the leaf's use."
+                    - alert: BatchGangQueueRejected
+                      expr: {{ printf "kube_volcano_podgroup_status_phase{%s,phase=\"Pending\"} == 1" $vcSel | quote }}
+                      for: 30m
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "The queue of BatchJob %s/%s has not admitted a run for 30 minutes" $ns $name | quote }}
+                        description: "The run's PodGroup is still Pending: its leaf queue is at its capability, or the gang is larger than the batch tree can ever hold. It holds no quota while it waits. The BatchJob's QueueFits condition and `adhar batch queues` say which."
+                    {{- /* Volcano's CronJob publishes neither a next-schedule time nor its
+                           suspension as a series, so there is no BatchScheduleMissed here, and a
+                           held or suspended schedule simply composes no BatchNoRecentSuccess:
+                           the composition knows, and re-renders on a hold and its release. */ -}}
+                    {{- if and $cron (not $suspend) }}
+                    - alert: BatchNoRecentSuccess
+                      expr: {{ printf "time() - max by (namespace,batch_job) (kube_volcano_job_created{%s} and ignoring(phase) (kube_volcano_job_status_phase{%s,phase=\"Completed\"} == 1)) > %d" $vcSel $vcSel $staleAfter | quote }}
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "BatchJob %s/%s has not succeeded recently" $ns $name | quote }}
+                        description: "The newest run that completed started longer ago than the job's alerts.staleAfter. A job on hold does not raise this: its rule is not composed while it is held."
+                    {{- end }}
+                    - alert: BatchRunTooLong
+                      expr: {{ printf "time() - kube_pod_start_time{%s} > %d and on(namespace,pod) kube_pod_status_phase{%s,phase=\"Running\"} == 1 and on(namespace,pod) kube_pod_labels{%s,%s}" $sel $maxDuration $sel $sel $jobSel | quote }}
+                      labels: {{ toJson $alertLabels }}
+                      annotations:
+                        summary: {{ printf "A run of BatchJob %s/%s is past its maxDuration" $ns $name | quote }}
+                        description: "A pod of the gang has been running longer than sla.maxDuration. Each task pod's activeDeadlineSeconds stays the hard stop."
+                    {{- else }}
                     - alert: BatchRunFailed
                       expr: {{ printf "kube_job_failed{%s,condition=\"true\"} == 1 and on(namespace,job_name) topk by (namespace,label_adhar_io_batch_job) (1, kube_job_created{%s} * on(namespace,job_name) group_left(label_adhar_io_batch_job) kube_job_labels{%s,%s})" $sel $sel $sel $jobSel | quote }}
                       for: 1m
@@ -506,6 +965,7 @@ spec:
                       annotations:
                         summary: {{ printf "A run of BatchJob %s/%s is past its maxDuration" $ns $name | quote }}
                         description: "The run has been active longer than sla.maxDuration. activeDeadlineSeconds stays the hard stop."
+                    {{- end }}
                     - alert: BatchRunStuckPending
                       expr: {{ printf "kube_pod_status_phase{%s,phase=\"Pending\"} == 1 and on(namespace,pod) kube_pod_labels{%s,%s}" $sel $sel $jobSel | quote }}
                       for: 15m
@@ -528,7 +988,10 @@ spec:
             apiVersion: platform.adhar.io/v1alpha1
             kind: BatchJob
             status:
-              scheduler: kubernetes
+              scheduler: {{ $scheduler }}
+              {{- if $useVolcano }}
+              queue: {{ $leaf | quote }}
+              {{- end }}
               runTemplate: {{ printf "%s-run" $name | quote }}
               {{- if $cron }}
               cronJob: {{ $name | quote }}
@@ -569,6 +1032,16 @@ spec:
                 status: {{ ternary "True" "False" $isHeld | quote }}
                 reason: {{ ternary "OnHold" "NotHeld" $isHeld | quote }}
                 message: {{ ternary (printf "held: %s" $holdReason) "the schedule is not on hold" $isHeld | quote }}
+                target: Composite
+              - type: QueueFits
+                status: {{ get $queueFits "status" | quote }}
+                reason: {{ get $queueFits "reason" | quote }}
+                message: {{ get $queueFits "message" | quote }}
+                target: Composite
+              - type: SchedulerSwitch
+                status: {{ get $switchCond "status" | quote }}
+                reason: {{ get $switchCond "reason" | quote }}
+                message: {{ get $switchCond "message" | quote }}
                 target: Composite
               - type: Placement
                 status: "True"

@@ -1,0 +1,39 @@
+# A manual run is checked against its deployed template by adhar-batch-run-integrity
+# (design 0025 R6). Until user decision DEC-4 (2026-11-14) that check failed OPEN:
+# security/kyverno set forceFailurePolicyIgnore, which overrode the policy's own
+# `failurePolicy: Fail`, so Kyverno registered the webhook as
+# `validate.kyverno.svc-ignore-finegrained-adhar-batch-run-integrity` and the API server
+# admitted a manual run unchecked while Kyverno could not answer (live-verified on
+# Kyverno v1.19.0). The flag is off now: the webhook is
+# `validate.kyverno.svc-fail-finegrained-…` and such a run is REFUSED, never admitted.
+# The fail-open alert stays as the record if that ever changes again (the flag back on,
+# or the policy set to Ignore): the API server's own counter is the only trace, Kyverno
+# publishes nothing about requests it never received. adhar-batch-queue-binding is the
+# other policy that fails closed and is counted the same way.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: adhar-batch
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+  labels:
+    adhar.io/component: batch
+    app.kubernetes.io/name: adhar-batch
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: adhar.batch.integrity
+      rules:
+        - alert: BatchRunAdmittedUnchecked
+          expr: sum(increase(apiserver_admission_webhook_fail_open_count{name=~"validate\\.kyverno\\.svc-(ignore|fail)-finegrained-adhar-batch-(run-integrity|queue-binding)"}[15m])) > 0
+          labels: {severity: critical, source: adhar-batch}
+          annotations:
+            summary: "A batch run was admitted without its template check"
+            description: "The API server could not reach Kyverno's adhar-batch-run-integrity or adhar-batch-queue-binding webhook and admitted {{ $value | humanize }} request(s) anyway, so that webhook is registered Ignore although both policies say Fail (design 0025 DEC-4): check security/kyverno's forceFailurePolicyIgnore. Such a run may execute an image, command or service account its BatchJob does not declare, and its adhar.io/batch-actor stamp is whatever the client wrote. `kubectl get jobs -A -l adhar.io/batch-job,adhar.io/batch-trigger!=schedule` and compare each to its <batch-job>-run ConfigMap."
+        - alert: BatchRunIntegrityUnenforced
+          expr: max(kube_deployment_status_replicas_available{namespace="adhar-system", deployment="kyverno-admission-controller"}) < 1
+          for: 5m
+          labels: {severity: warning, source: adhar-batch}
+          annotations:
+            summary: "Manual batch runs are being refused"
+            description: "Kyverno's admission controller has no available replica. adhar-batch-run-integrity and adhar-batch-queue-binding fail closed (DEC-4), so every manual run, and every Volcano run a person submits, is refused until it is back; every other policy fails open. Scheduled runs are unaffected (matchConditions keep the controllers off both webhooks). `kubectl -n adhar-system describe deploy kyverno-admission-controller`."

@@ -205,6 +205,8 @@ func fakeCluster(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
 			jobGVR:        "JobList",
 			volcanoJobGVR: "JobList",
 			commandGVR:    "CommandList",
+			podGroupGVR:   "PodGroupList",
+			queueGVR:      "QueueList",
 			podGVR:        "PodList",
 			configMapGVR:  "ConfigMapList",
 		}, objs...)

@@ -1,0 +1,46 @@
+# The parent of every team batch queue (design 0025 §4.3, ADR-0028 decision 5).
+#
+#   root                       Volcano's own; the scheduler creates it at startup
+#   ├── default                Volcano's own; untouched (Kyverno keeps workload namespaces off it)
+#   └── adhar-batch            THIS queue: the cluster's batch ceiling
+#       └── <org>-<team>-<env> leaves, composed by the Team composition
+#
+# Only leaves schedule (capacity plugin, enableHierarchy), so no job ever runs in
+# this queue. What it does is bound the whole batch tree:
+#   capability  no leaf may declare more (the queue webhook refuses it), and the
+#               tree together never holds more of the cluster
+#   deserved    the webhook refuses a set of leaves whose deserved shares sum past
+#               it, so it is the room the prod leaves' guaranteed shares
+#               (prodDeservedCPU/Memory in scheduler-descriptor.yaml) have to fit
+#               in: floor(ceiling / share) teams, per resource. An adhar-batch
+#               queue with no deserved would make every prod leaf QueueRejected.
+#
+# SEED-TIME TEMPLATE (design 0025 D17, user decision DEC-3, 2026-11-14). The
+# ceiling is globalSettings.batch.capacity, or by default 30% of the CPU and 20%
+# of the memory of maxWorkers x worker allocatable, measured by `adhar up` from the
+# cluster's workers (config.ResolveBatchScheduler) and carried on the platform's
+# BuildCustomizationSpec. A platform created before those fields existed renders
+# the reference values below (D8 on design §2.2's 10 x 8 vCPU / 16 GiB cluster);
+# TestVolcanoRootQueueIsRenderedFromTheCluster pins both renderings.
+#
+# Wave 2: the scheduler (wave 1) creates `root`, and the queue webhooks
+# (admission, wave 0) must be serving, or this write is refused.
+# TestVolcanoRootQueueBoundsTheBatchTree pins the shape.
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: adhar-batch
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/component: batch-root-queue
+    app.kubernetes.io/managed-by: adhar
+spec:
+  parent: root
+  capability:
+    cpu: '{{ or .BatchCeilingCPU "22" }}'
+    memory: '{{ or .BatchCeilingMemory "24Gi" }}'
+  deserved:
+    cpu: '{{ or .BatchCeilingCPU "22" }}'
+    memory: '{{ or .BatchCeilingMemory "24Gi" }}'

@@ -109,6 +109,18 @@ of the compiled-in collisions above apply: its certificate Secret is
 its ConfigMaps are `volcano-*`, and with one replica of each it holds no Leases. The
 object-name scan below finds nothing shared with another package.
 
+**Re-scanned 2026-11-14 (Phase 2, design 0025 PLAT-2.1), and now a test**
+(`TestVolcanoObjectNamesConflictWithNoOtherPackage`), wider than the scan below:
+
+| What | Volcano's names | Result |
+|---|---|---|
+| Namespaced objects | ServiceAccounts, ConfigMaps, Services and Deployments `volcano-{admission,controllers,scheduler}*`; Issuers `volcano-selfsign`, `volcano-admission-ca`; Certificates `volcano-admission-ca`, `volcano-admission`; PrometheusRule `volcano`; ServiceMonitors `volcano-scheduler`, `volcano-controllers` | No other package declares any of them. |
+| Secrets it never declares | `volcano-admission-ca`, `volcano-admission-secret` (cert-manager writes them) | Unclaimed. Volcano does not use the knative webhook framework, so `webhook-certs` (cosign, kpack, tekton, knative, spark-operator) is not its name. |
+| Cluster-scoped objects | ClusterRoles/-Bindings `volcano-*`, seven `volcano-admission-service-*` webhook configurations, ten `*.volcano.sh` CRDs, `Queue/adhar-batch` | No collision. `adhar-batch` is also a PriorityClass and a package name, which are different kinds. The upstream `vcjob-editor-role`/`vcjob-viewer-role` are no longer shipped: `core/adhar-batch`'s roles are the only user-facing Volcano grants. |
+| Service-link variables | `VOLCANO_{ADMISSION,CONTROLLERS,SCHEDULER}_SERVICE_*` / `_PORT*`, injected into every pod in `adhar-system` | No package reads them. The other direction cannot happen: every Volcano pod has `enableServiceLinks: false`, so `WEBHOOK_PORT` and friends never reach it. |
+| Leases | `vc-scheduler`, `vc-controller-manager` (only if leader election is turned on) | None held: leader election is off, and the ClusterRoles no longer grant leases at all. |
+| Hidden namespaces | the binaries default `--leader-elect-resource-namespace` and `--sharding-configmap-namespace` to `volcano-system` | Pinned to `adhar-system` by the generator, though both features are off, so the day leader election is turned on its Lease lands in the platform namespace (`TestVolcanoLivesInThePlatformNamespace`). |
+
 Three things are still worth knowing:
 
 | Name | Against | What happens |

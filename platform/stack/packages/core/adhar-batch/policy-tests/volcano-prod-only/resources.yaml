@@ -1,0 +1,195 @@
+# Volcano runs in a prod and a dev namespace (design 0025 §4.4, §4.7).
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: scale-up-in-dev
+  namespace: shop-dev
+  labels: { adhar.io/scale-up: "true" }
+spec:
+  schedulerName: volcano
+  minAvailable: 1
+  tasks:
+  - name: batch
+    replicas: 1
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: scale-up-in-prod
+  namespace: shop-prod
+  labels: { adhar.io/scale-up: "true" }
+spec:
+  schedulerName: volcano
+  minAvailable: 1
+  tasks:
+  - name: batch
+    replicas: 1
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: standard-in-dev
+  namespace: shop-dev
+spec:
+  schedulerName: volcano
+  minAvailable: 1
+  priorityClassName: adhar-batch-volcano
+  tasks:
+  - name: batch
+    replicas: 1
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: critical-in-dev
+  namespace: shop-dev
+spec:
+  schedulerName: volcano
+  minAvailable: 1
+  priorityClassName: adhar-batch-volcano-critical
+  tasks:
+  - name: batch
+    replicas: 1
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: task-critical-in-dev
+  namespace: shop-dev
+spec:
+  schedulerName: volcano
+  minAvailable: 1
+  priorityClassName: adhar-batch-volcano
+  tasks:
+  - name: batch
+    replicas: 1
+    template:
+      spec:
+        restartPolicy: Never
+        priorityClassName: adhar-batch-volcano-critical
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: critical-in-prod
+  namespace: shop-prod
+  labels: { adhar.io/scale-up: "true" }
+spec:
+  schedulerName: volcano
+  minAvailable: 1
+  priorityClassName: adhar-batch-volcano-critical
+  tasks:
+  - name: batch
+    replicas: 1
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: batch
+          image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: cron-scale-up-in-dev
+  namespace: shop-dev
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    metadata:
+      labels: { adhar.io/scale-up: "true" }
+    spec:
+      schedulerName: volcano
+      minAvailable: 1
+      tasks:
+      - name: batch
+        replicas: 1
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: cron-standard-in-dev
+  namespace: shop-dev
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    metadata: {}
+    spec:
+      schedulerName: volcano
+      minAvailable: 1
+      priorityClassName: adhar-batch-volcano
+      tasks:
+      - name: batch
+        replicas: 1
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: cron-critical-in-dev
+  namespace: shop-dev
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    metadata: {}
+    spec:
+      schedulerName: volcano
+      minAvailable: 1
+      priorityClassName: adhar-batch-volcano-critical
+      tasks:
+      - name: batch
+        replicas: 1
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: PodGroup
+metadata:
+  name: podgroup-scale-up-in-dev
+  namespace: shop-dev
+  labels: { adhar.io/scale-up: "true" }
+spec:
+  minMember: 1
+  queue: acme-payments-dev

@@ -1,0 +1,26 @@
+# Leaves are team x TIER: an environment named staging of tier test runs on the
+# team's test leaf, never its dev one.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: queue-binding-staging}
+policies: [../policy-under-test.yaml]
+resources: [../resources.yaml]
+variables: values.yaml
+userinfo: user.yaml
+results:
+- policy: adhar-batch-queue-default
+  rule: default-a-volcano-job-to-its-team-queue
+  kind: Job
+  resources: [staging-unset-queue]
+  patchedResources: ../patched.yaml
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-job-names-its-team-queue
+  kind: Job
+  resources: [staging-test-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-job-names-its-team-queue
+  kind: Job
+  resources: [staging-dev-queue]
+  result: fail

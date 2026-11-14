@@ -1,7 +1,7 @@
 # ADR-0028: Volcano is the batch scheduler; Armada is not adopted
 
 - **Status**: Proposed
-- **Date**: 2026-11-04
+- **Date**: 2026-11-04 (amended 2026-11-14: see [Amendments](#amendments-2026-11-14))
 - **Owners**: Platform Engineering
 - **Design**: [docs/design/0025-batch-platform.md](../design/0025-batch-platform.md). The design index normally numbers a design after its ADR. This design was commissioned as `0025`; see its §19.
 - **Related**: [ADR-0004](0004-applicationset-package-model.md), [ADR-0005](0005-crossplane-v2-namespaced.md), [ADR-0011](0011-shared-platform-namespace.md), [ADR-0023](0023-control-dataplane-separation.md), [ADR-0026](0026-concept-hierarchy.md), [ADR-0027](0027-functions-on-knative.md)
@@ -54,7 +54,8 @@ Adhar is getting a batch management system: Spring Batch jobs written against ad
    - It ships as one GitOps stack package, `core/volcano`, installed in `adhar-system`.
    - Not installed: the JobFlow/JobTemplate subchart, the colocation agent, the dashboard and Volcano Global.
    - Webhooks are rendered statically, with cert-manager CA injection.
-   - The admission ClusterRole is narrowed. Upstream it can create and update every webhook configuration and approve CSRs [S11].
+   - The admission ClusterRole is narrowed. Upstream it can create and update every webhook configuration and approve CSRs [S11]. The controllers' and the scheduler's ClusterRoles are narrowed too, to what the v1.16.0 binaries call (design D20), so the Volcano Job plugins `ssh`, `svc`, `tensorflow`, `mpi`, `pytorch` and `ray` are unsupported; `env` is the one the platform uses.
+   - One replica of each component, with availability alerts instead of a second admission replica (design D19).
    - Image tags are pinned. The chart's default tag is `latest` [S8].
 
 2. **Version policy.**
@@ -71,6 +72,7 @@ Adhar is getting a batch management system: Spring Batch jobs written against ad
    | Plugins | `gang`, `priority`, `conformance`, `drf`, `predicates`, `capacity` (hierarchical) [S16], `nodeorder`, `binpack` |
    | Actions | `enqueue`, `allocate`, `backfill`, `reclaim`, `preempt` [S15] |
    | Policies | Volcano Job lifecycle policies [S12][S13] |
+   | Not used | `overcommit`: with it, a prod gang on a full cluster is never enqueued and so can never reclaim (design D16) |
    | CRDs | The CronJob CRD (since v1.13 [S4]) |
 
    **Deferred** until they leave alpha or a need appears:
@@ -84,16 +86,23 @@ Adhar is getting a batch management system: Spring Batch jobs written against ad
    - With no Volcano descriptor on the cluster, it renders plain Kubernetes Jobs and CronJobs. That **native path ships first**, as design 0025's Phase 1, and is the permanent fallback.
 
 5. **Queues follow the tenancy model.**
-   - Leaf queues `<org>-<team>-<env>` sit under one `adhar-batch` parent, whose capability is the cluster's batch ceiling.
+   - Leaf queues `<org>-<team>-<tier>` (the namespace's `adhar.io/tier`: dev, test or prod) sit under one `adhar-batch` parent, whose capability and `deserved` are the cluster's batch ceiling, sized at seed time from the cluster (design D17).
    - The Team composition emits them.
-   - Only `prod` declares a `deserved` share and is not reclaimable, so prod reclaims from dev and test.
-   - Volcano's job admission checks only that a queue is a valid leaf [S29], so a Kyverno policy binds each namespace to its own queue.
+   - Only `prod` declares a `deserved` share and is not reclaimable, so prod reclaims from dev and test. That share is derived from the ceiling and is never smaller than the largest gang the design's examples use, because a gang larger than its leaf's `deserved` in every dimension cannot reclaim.
+   - Volcano's job admission checks only that a queue is a valid leaf [S29], so Kyverno binds each namespace to its own queue: a mutate policy defaults the queue and a validate policy (`failurePolicy: Fail`) denies any other (design D18, D22).
 
-6. **Priorities.** Batch PriorityClasses use `preemptionPolicy: Never` and a value ≤ 0 [S52]:
-   - `adhar-batch` at −100;
-   - `adhar-batch-critical` at 0, prod only.
+6. **Priorities.** Every batch PriorityClass has a value ≤ 0 [S52]:
 
-   Batch therefore never evicts a service or a platform pod. Inside batch, Volcano's `preempt` (within a queue) and `reclaim` (across queues) decide.
+   | Class | Value | `preemptionPolicy` | Runs |
+   |---|---|---|---|
+   | `adhar-batch` | −100 | Never | native |
+   | `adhar-batch-critical` | 0, prod only | Never | native |
+   | `adhar-batch-volcano` | −100 | PreemptLowerPriority | Volcano |
+   | `adhar-batch-volcano-critical` | 0, prod only | PreemptLowerPriority | Volcano |
+
+   Batch therefore never evicts a service or a platform pod. kube-scheduler never preempts for a native batch pod (`Never`), and never schedules, so never preempts for, a Volcano pod. Inside batch, Volcano's `preempt` (within a queue) and `reclaim` (across queues) decide, and they choose victims only among Volcano's own jobs.
+
+   *Amended 2026-11-14 (design D15).* This decision first gave every batch run the two `Never` classes. Volcano v1.16.0 skips a reclaimer whose pod is `Never` and refuses it as a preemptor (`actions/reclaim/reclaim.go:145`, `actions/preempt/preempt.go:447`), so prod could never reclaim from dev (A2.4). The Priority admission plugin rejects a pod whose policy differs from its class's, so Volcano runs needed classes of their own.
 
 7. **Gangs.**
    - A remote-partitioned job is **one** Volcano Job:
@@ -161,7 +170,9 @@ It lacks queues, fair share and reclaim. Its gang is beta and off by default [S4
 | Broad admission RBAC [S11] | Narrowed to `resourceNames`, no CSR rules, and a guard test |
 | API server memory at 97%, plus about 10 CRDs (≈0.58 MB without JobFlow) [S10] | Canary measurement before enabling; JobFlow not installed |
 | Argo CD has no health checks for Volcano kinds [S87] | Lua checks in both values files and both generated install manifests; the existing "every custom kind is assessable" guard is extended |
-| Any namespace can name any queue [S29] | Kyverno binds namespace → queue until `NamespaceQueue` is GA [S2] |
+| Any namespace can name any queue [S29] | Kyverno binds namespace → queue until `NamespaceQueue` is GA [S2]; the binding policy fails closed (design D18) |
+| One admission replica (platform rule) | Availability alerts on the component and on the API server's webhook calls (design D19) |
+| Narrowed controller RBAC drops the `ssh`/`svc`/`tensorflow`/`mpi`/`pytorch`/`ray` plugins | Not needed (pods talk through the JobRepository); the queue binding refuses them at admission; three lines to undo (design D20) |
 | The Volcano Job API is still `v1alpha1` [S12] | Only the `BatchJob` composition emits it; a bump is a composition change |
 | No fleet-wide fair share | Accepted. Teams are bound to environments and environments to data planes, so per-cluster fairness suffices. Armada's revisit triggers are recorded above. |
 
@@ -185,8 +196,24 @@ This ADR moves to **Accepted** when design 0025's Phase 2 canary passes on Kind 
 Guard tests pin:
 - the pinned image tags and the narrowed admission ClusterRole;
 - the absence of the JobFlow CRDs;
-- the batch PriorityClasses' `Never` and values ≤ 0;
+- the batch PriorityClasses' values ≤ 0, `Never` on the native pair and `PreemptLowerPriority` on the Volcano pair;
+- the narrowed controllers' and scheduler's ClusterRoles, and the scheduler configuration (no `overcommit`, gang's reclaim vote);
 - the presence of Argo CD health checks for every Volcano kind the stack syncs.
+
+## Amendments (2026-11-14)
+
+Phase 2's first stage ran the real v1.16.0 scheduler and controllers against a real API server, and settled nine questions with the user. Design 0025 §15.1 records each with its reasoning (D15–D23). Those that change this ADR:
+
+| Design | Change here |
+|---|---|
+| D15 | Decision 6: Volcano runs get `adhar-batch-volcano` (−100) and `adhar-batch-volcano-critical` (0) with `PreemptLowerPriority`; the native classes stay `Never` |
+| D16 | Decision 3: `overcommit` is recorded as not used (proposed, rehearsed, withdrawn) |
+| D17 | Decision 5: the root queue and prod's `deserved` are sized from the cluster at seed time |
+| D18 | Decision 5: the queue binding fails closed; Kyverno's platform-wide fail-open override is off and every other policy states `Ignore` |
+| D19, D20 | Decision 1: one replica per component with alerts; narrowed controllers and scheduler RBAC |
+| D22 | Decision 5: leaves keyed on `adhar.io/tier`; a mutate and a validate policy |
+
+The decision itself, Volcano over Armada, is unchanged, as is the production gate.
 
 ## Sources
 

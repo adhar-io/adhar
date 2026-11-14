@@ -1,0 +1,8 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: team-pipeline
+userInfo:
+  username: system:serviceaccount:prod:pipeline
+  groups: [system:serviceaccounts, system:serviceaccounts:prod, system:authenticated]
+clusterRoles: [edit]

@@ -1,0 +1,103 @@
+# The Volcano half of adhar-batch-critical-prod-only (design 0025 §4.4, §4.7, §10.3;
+# 2026-11-14). Volcano copies a Volcano Job's metadata.labels onto its PodGroup, and
+# the node autoscaler buys workers for a PodGroup labelled adhar.io/scale-up "true":
+# so the label is held where it is written, on the Job and on a CronJob's job
+# template, and on a PodGroup written by hand. adhar-batch-volcano-critical outranks
+# every other run in a queue, so it is prod's too. The pods Volcano creates are held
+# by the Pod rules of kyverno-critical-prod-only.yaml as well; these refuse the
+# definition when it is written, with the reason, instead of its first pod.
+#
+# In manifests/volcano/ because it names Volcano kinds, which Kyverno refuses where
+# Volcano is not installed (see kyverno-queue.yaml). failurePolicy Ignore, like its
+# native half (DEC-4: only adhar-batch-queue-binding and adhar-batch-run-integrity
+# fail closed).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-batch-volcano-prod-only
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    policies.kyverno.io/title: "Batch: Volcano critical priority and scale-up are for prod"
+    policies.kyverno.io/category: Batch
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Job, CronJob, PodGroup
+    policies.kyverno.io/description: >-
+      A Volcano Job, CronJob or PodGroup outside a namespace labelled
+      adhar.io/environment prod may not carry adhar.io/scale-up "true" or name the
+      PriorityClass adhar-batch-volcano-critical.
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
+  rules:
+    - name: volcano-scale-up-only-in-prod
+      match:
+        any:
+          - resources:
+              kinds: ["batch.volcano.sh/v1alpha1/Job", "scheduling.volcano.sh/v1beta1/PodGroup"]
+              operations: ["CREATE", "UPDATE"]
+      exclude: &prod
+        any:
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/environment: prod
+      validate:
+        failureAction: Enforce
+        message: The label adhar.io/scale-up is for prod environment namespaces only; a dev or test gang never buys a node.
+        pattern:
+          metadata:
+            =(labels):
+              =(adhar.io/scale-up): "!true"
+    - name: volcano-cronjob-scale-up-only-in-prod
+      match:
+        any:
+          - resources:
+              kinds: ["batch.volcano.sh/v1alpha1/CronJob"]
+              operations: ["CREATE", "UPDATE"]
+      exclude: *prod
+      validate:
+        failureAction: Enforce
+        message: The label adhar.io/scale-up is for prod environment namespaces only; a dev or test gang never buys a node.
+        pattern:
+          spec:
+            jobTemplate:
+              =(metadata):
+                =(labels):
+                  =(adhar.io/scale-up): "!true"
+    - name: volcano-critical-priority-only-in-prod
+      match:
+        any:
+          - resources:
+              kinds: ["batch.volcano.sh/v1alpha1/Job"]
+              operations: ["CREATE", "UPDATE"]
+      exclude: *prod
+      validate:
+        failureAction: Enforce
+        message: The PriorityClasses adhar-batch-volcano-critical and adhar-batch-critical are for prod environment namespaces only.
+        pattern:
+          spec:
+            =(priorityClassName): "!adhar-batch-critical & !adhar-batch-volcano-critical"
+            tasks:
+              - template:
+                  spec:
+                    =(priorityClassName): "!adhar-batch-critical & !adhar-batch-volcano-critical"
+    - name: volcano-cronjob-critical-priority-only-in-prod
+      match:
+        any:
+          - resources:
+              kinds: ["batch.volcano.sh/v1alpha1/CronJob"]
+              operations: ["CREATE", "UPDATE"]
+      exclude: *prod
+      validate:
+        failureAction: Enforce
+        message: The PriorityClasses adhar-batch-volcano-critical and adhar-batch-critical are for prod environment namespaces only.
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                =(priorityClassName): "!adhar-batch-critical & !adhar-batch-volcano-critical"
+                tasks:
+                  - template:
+                      spec:
+                        =(priorityClassName): "!adhar-batch-critical & !adhar-batch-volcano-critical"

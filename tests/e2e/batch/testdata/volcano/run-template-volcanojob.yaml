@@ -1,0 +1,87 @@
+# ConfigMap settlement-run of a partitioned BatchJob on Volcano, written from
+# the CONTRACT (design 0025 §4.5, §6.5, FU-3, DEC-1), not rendered: the
+# composition's Volcano branch (PLAT-2.5) is built beside this suite. Replace it
+# with a `crossplane render` of compositions/batchjob/kubernetes.yaml once that
+# branch lands (as testdata/run-template.yaml is for the native Job), and the
+# CheckVolcanoGang test then holds the composition to the contract.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settlement-run
+  namespace: prod
+data:
+  kind: VolcanoJob
+  naming: v1
+  parameters.json: '[{"identifying":true,"name":"businessDate","required":false,"sensitive":false,"source":"schedule","type":"date"}]'
+  template.yaml: |
+    apiVersion: batch.volcano.sh/v1alpha1
+    kind: Job
+    metadata:
+      labels:
+        adhar.io/batch-job: settlement
+        adhar.io/workload: batch
+        adhar.io/batch-trigger: manual
+        adhar.io/environment: prod
+        adhar.io/scale-up: "true"
+      namespace: prod
+    spec:
+      schedulerName: volcano
+      queue: acme-payments-prod
+      priorityClassName: adhar-batch-volcano-critical
+      minAvailable: 5
+      maxRetry: 3
+      ttlSecondsAfterFinished: 604800
+      plugins:
+        env: []
+      policies:
+        - {exitCode: 2, action: TerminateJob}
+        - {exitCode: 3, action: TerminateJob}
+        - {exitCode: 4, action: TerminateJob}
+        - {exitCode: 6, action: TerminateJob}
+        - {exitCode: 7, action: TerminateJob}
+        - {events: [PodEvicted, PodFailed], action: RestartJob}
+      tasks:
+        - name: manager
+          replicas: 1
+          policies:
+            - {event: TaskCompleted, action: CompleteJob}
+          template:
+            metadata:
+              labels: {adhar.io/batch-job: settlement, adhar.io/batch-role: manager, adhar.io/workload: batch}
+            spec:
+              schedulerName: volcano
+              restartPolicy: Never
+              activeDeadlineSeconds: 21600
+              priorityClassName: adhar-batch-volcano-critical
+              containers:
+                - name: batch
+                  image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+                  env:
+                    - {name: ADHAR_BATCH_ROLE, value: manager}
+                    - {name: ADHAR_BATCH_MODE, value: partitioned}
+                    - {name: ADHAR_BATCH_TRIGGER, value: manual}
+                    - {name: ADHAR_BATCH_PARAMS, value: "{}"}
+                  resources:
+                    requests: {cpu: 500m, memory: 1Gi}
+                    limits: {memory: 1Gi}
+        - name: worker
+          replicas: 4
+          template:
+            metadata:
+              labels: {adhar.io/batch-job: settlement, adhar.io/batch-role: worker, adhar.io/workload: batch}
+            spec:
+              schedulerName: volcano
+              restartPolicy: Never
+              activeDeadlineSeconds: 21600
+              priorityClassName: adhar-batch-volcano-critical
+              containers:
+                - name: batch
+                  image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+                  env:
+                    - {name: ADHAR_BATCH_ROLE, value: worker}
+                    - {name: ADHAR_BATCH_MODE, value: partitioned}
+                    - {name: ADHAR_BATCH_TRIGGER, value: manual}
+                    - {name: ADHAR_BATCH_PARAMS, value: "{}"}
+                  resources:
+                    requests: {cpu: "1", memory: 1536Mi}
+                    limits: {memory: 1536Mi}

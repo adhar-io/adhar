@@ -215,7 +215,7 @@ Full reference, including day-2 operations and the limits that actually bite:
 - **External DNS** - Automated DNS management
 - **Velero** - Backup & disaster recovery
 - **Harbor** - Container registry & artifact repository
-- **Armada** - Multi-cluster batch job scheduling
+- **Adhar Batch** - Spring Batch jobs as `BatchJob`s: scheduled, restartable, operated from the Console and `adhar batch` ([guide](docs/BATCH.md))
 
 </details>
 

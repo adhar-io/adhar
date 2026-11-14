@@ -396,13 +396,13 @@ func TestRunsFilterAndPodSelection(t *testing.T) {
 		return *p
 	}
 	pods := []unstructured.Unstructured{mk("w2", "worker", "2", created.Add(2*time.Minute)), mk("m", "manager", "0", created), mk("w1", "worker", "1", created.Add(time.Minute))}
-	if got := selectPods(pods, "worker", false, 0); len(got) != 2 || got[0].GetName() != "w1" {
+	if got := selectPods(pods, "worker", false, 0, false); len(got) != 2 || got[0].GetName() != "w1" {
 		t.Errorf("--role worker = %v", podNames(got))
 	}
-	if got := selectPods(pods, "", true, 2); len(got) != 1 || got[0].GetName() != "w2" {
+	if got := selectPods(pods, "", true, 2, false); len(got) != 1 || got[0].GetName() != "w2" {
 		t.Errorf("--index 2 = %v", podNames(got))
 	}
-	if got := selectPods(pods, "", false, 0); len(got) != 3 || got[0].GetName() != "m" {
+	if got := selectPods(pods, "", false, 0, false); len(got) != 3 || got[0].GetName() != "m" {
 		t.Errorf("all, oldest first = %v", podNames(got))
 	}
 }

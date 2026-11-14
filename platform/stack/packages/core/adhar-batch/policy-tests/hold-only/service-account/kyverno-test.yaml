@@ -1,0 +1,15 @@
+# A team's own ServiceAccount holds `patch batchjobs` through `edit`; it is held to
+# the hold like a person, so a pipeline cannot rewrite a definition around Git.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: hold-only-service-account
+policies:
+  - ../../../manifests/kyverno-hold-only.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - { policy: adhar-batch-hold-only, rule: only-the-hold-annotation-changes, kind: BatchJob, resources: [set-the-hold], operation: UPDATE, result: pass }
+  - { policy: adhar-batch-hold-only, rule: only-the-hold-annotation-changes, kind: BatchJob, resources: [change-the-image, change-a-label], operation: UPDATE, result: fail }

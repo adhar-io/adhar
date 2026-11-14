@@ -2,10 +2,11 @@
 #
 # Regenerate manifests/install.yaml with ./generate-manifests.sh after any change
 # here. What the chart cannot express (no pod priority, service links off, probes,
-# narrowed admission RBAC, cert-manager CA injection, no JobFlow CRDs) is applied
+# narrowed admission, controllers and scheduler RBAC, cert-manager CA injection,
+# no JobFlow CRDs, namespace flags whose defaults name volcano-system) is applied
 # by the generator, anchored so an upstream rename fails the render loudly.
-# TestVolcano* in platform/controllers/adharplatform/volcano_package_test.go pins
-# the result.
+# TestVolcano* in platform/controllers/adharplatform/volcano_{package,platform}_test.go
+# pin the result; volcano_rehearsal_apiserver_test.go runs it.
 
 basic:
   # The chart's own default tag moved to a real version in 1.16, but pin it here
@@ -28,10 +29,15 @@ custom:
   controller_metrics_enable: true
 
   # ONE copy of every component (TestNoPackageWorkloadShipsMoreThanOneReplica).
-  # Design 0025 §4.1 sketched two admission replicas; nothing outside Volcano's
-  # own kinds depends on admission (see enabled_admissions below), so while the
-  # single pod rolls, the only thing refused is a Volcano object, and that is
-  # retried by whoever submitted it.
+  # DEVIATION from design 0025 §4.1 and F13, which sketched two admission
+  # replicas (recorded 2026-11-14): the platform-wide rule is one copy by default,
+  # HA being the cluster's choice, and nothing outside Volcano's own kinds depends
+  # on admission (see enabled_admissions below). While the single pod rolls, the
+  # only thing refused is a Volcano object, which whoever submitted it retries.
+  # F13's other mitigation, an alert on admission availability, is
+  # manifests/alerts.yaml. Admission holds no lease, so a second admission
+  # replica needs nothing else; a second scheduler or controllers replica also
+  # needs leader election and a lease grant, which the generator removed (README).
   admission_replicas: 1
   controller_replicas: 1
   scheduler_replicas: 1
@@ -118,11 +124,55 @@ custom:
   # The stable core from ADR-0028, design 0025 §4.2. Deferred until they leave
   # alpha: NamespaceQueue, fairshare, gangPreempt/gangReclaim.
   #
-  # `enablePreemptable: false` on gang and drf is upstream's own setting in both
-  # its default and its hierarchical configs. It looks like a detail and is not:
-  # with gang's vote on, a gang running exactly at minAvailable can never be a
-  # victim (pkg/scheduler/plugins/gang/gang.go), so prod could never reclaim from
-  # a dev gang, which is acceptance A2.4. A reclaimed gang restarts whole.
+  # How victims are chosen, read from the v1.16.0 source (2026-11-14,
+  # pkg/scheduler/framework/session_plugins.go Preemptable/Reclaimable). Each
+  # action asks the plugins of tier 1 first; a plugin that returns NO candidates
+  # ends its tier with no decision and the next tier is asked; the first tier
+  # with candidates decides. `enablePreemptable` gates a plugin's vote in
+  # `preempt` only, `enableReclaimable` its vote in `reclaim` only.
+  #
+  #   preempt (inside one queue, by priority, design §4.4). gang and drf vote
+  #     off, as in upstream's default config, so tier 1 is priority + conformance:
+  #     an adhar-batch-critical prod run can take a node from an adhar-batch run in
+  #     the same queue even when that run is a gang at exactly minAvailable, which
+  #     gang's vote would always refuse.
+  #   reclaim (across queues, A2.4). gang's vote stays ON, and that is
+  #     deliberate: every run the BatchJob composition emits has minAvailable equal
+  #     to its task count, so gang returns no candidates, tier 1 decides nothing,
+  #     and tier 2's capacity plugin picks the victims: only from reclaimable
+  #     leaves (dev, test) that hold more than their deserved share. Turning gang's
+  #     reclaim vote off would leave conformance deciding tier 1 alone, and it
+  #     accepts every non-critical pod, so prod would reclaim from a dev leaf that
+  #     is inside its share.
+  #   A reclaimed or preempted task is evicted; the vcjob's PodEvicted policy
+  #   restarts the whole gang (§4.5) and Spring Batch resumes it (A2.4).
+  #
+  # Neither action can touch a pod Volcano did not schedule (A2.7): both take
+  # victims only from tasks whose job is in the scheduler's session, and the
+  # cache creates a job only for a pod that names a PodGroup, which Volcano's
+  # controllers create only for pods with schedulerName volcano
+  # (pkg/scheduler/cache/event_handlers.go getOrCreateJob,
+  # actions/reclaim/reclaim.go reclaimForTask, actions/preempt/preempt.go).
+  # `shuffle` and the rescheduling plugin, which evict by node utilisation, are
+  # left out.
+  #
+  # `overcommit` is NOT here, and that is deliberate (2026-11-14, against the stage-2
+  # default DEC-2, which proposed it at factor 1.0 so that an over-size gang stays
+  # Pending holding no quota). overcommit admits a PodGroup to Inqueue only while
+  # its minResources fit into allocatable x factor less what the nodes ALREADY run
+  # (plugins/overcommit/overcommit.go), and `reclaim` and `preempt` skip every job
+  # that is still Pending (actions/reclaim/reclaim.go:73, preempt.go:113). So on a
+  # cluster a dev gang has filled, a prod gang is never enqueued, and prod can never
+  # reclaim its share: the whole point of the queues (A2.4). Rehearsed against the
+  # v1.16.0 binaries (TestVolcanoComponentsRunOnTheirNarrowedRBAC with the
+  # adhar-batch-volcano class): A2.4 passes in 16 s without overcommit and times out
+  # with it. A gang held at enqueue also creates no pods and gets no Unschedulable
+  # condition (only an event), so the autoscaler could never buy its workers (A2.6).
+  # What is given up: a gang larger than the free room goes Inqueue and its pods wait
+  # Pending against the namespace ResourceQuota until they bind; `gang` still never
+  # binds part of one (A2.1). The decision is the user's; adding overcommit back is
+  # the plugin entry in tier 2 plus this test's expected tiers.
+  # TestVolcanoSchedulerConfigKeepsReclaimAndPreemptInsideBatch pins this block.
   scheduler_config_override: |
     actions: "enqueue, allocate, backfill, reclaim, preempt"
     tiers:

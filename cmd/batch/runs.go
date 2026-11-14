@@ -124,7 +124,11 @@ type runView struct {
 	Summary      map[string]interface{} `json:"summary,omitempty" yaml:"summary,omitempty"`
 	Image        string                 `json:"image,omitempty" yaml:"image,omitempty"`
 	Age          string                 `json:"age,omitempty" yaml:"age,omitempty"`
-	phase        runPhase
+	// Volcano (Phase 2): absent for a run kube-scheduler places.
+	Scheduler string    `json:"scheduler,omitempty" yaml:"scheduler,omitempty"`
+	Queue     string    `json:"queue,omitempty" yaml:"queue,omitempty"`
+	Gang      *gangView `json:"gang,omitempty" yaml:"gang,omitempty"`
+	phase     runPhase
 }
 
 func runViewOf(r runRow, at time.Time) runView {
@@ -134,6 +138,7 @@ func runViewOf(r runRow, at time.Time) runView {
 		BusinessDate: r.BusinessDate, RestartOf: r.RestartOf, Attempts: r.Attempts,
 		StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, ExitCode: r.ExitCode,
 		Outcome: outcomeLabel(r.Summary), Image: r.Image, phase: r.Phase,
+		Scheduler: r.Scheduler, Queue: r.Queue, Gang: r.Gang,
 	}
 	if r.HasDuration {
 		v.Duration = duration.HumanDuration(r.Duration)
@@ -148,10 +153,26 @@ func runViewOf(r runRow, at time.Time) runView {
 	return v
 }
 
+// runsTable is the runs as a table. GANG appears only when a run is
+// Volcano-scheduled, so a cluster without Volcano prints the Phase-1 table. The
+// queue is the same for every run of a job (one leaf per team and tier), so it
+// is in describe and -o json rather than on every row.
 func runsTable(views []runView) *helpers.Table {
-	t := helpers.NewTable("RUN", "STATUS", "TRIGGER", "ACTOR", "BUSINESS DATE", "STARTED", "DURATION", "EXIT", "OUTCOME")
+	volcano := false
 	for _, v := range views {
-		t.Row(v.Name, phaseCell(v.phase), dash(v.Trigger), dash(v.Actor), dash(v.BusinessDate), startedCell(v), dash(v.Duration), exitCell(v.ExitCode), dash(v.Outcome))
+		volcano = volcano || v.Scheduler == schedulerVolcano
+	}
+	headers := []string{"RUN", "STATUS", "TRIGGER", "ACTOR", "BUSINESS DATE", "STARTED", "DURATION", "EXIT", "OUTCOME"}
+	if volcano {
+		headers = append(headers[:2:2], append([]string{"GANG"}, headers[2:]...)...)
+	}
+	t := helpers.NewTable(headers...)
+	for _, v := range views {
+		cells := []string{v.Name, phaseCell(v.phase), dash(v.Trigger), dash(v.Actor), dash(v.BusinessDate), startedCell(v), dash(v.Duration), exitCell(v.ExitCode), dash(v.Outcome)}
+		if volcano {
+			cells = append(cells[:2:2], append([]string{gangCell(v.Gang)}, cells[2:]...)...)
+		}
+		t.Row(cells...)
 	}
 	return t
 }

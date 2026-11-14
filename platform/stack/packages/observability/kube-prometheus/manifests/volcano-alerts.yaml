@@ -1,0 +1,135 @@
+# Batch queue alerts that belong to no single BatchJob (design 0025 §11.3, P2).
+# The per-run ones (BatchGangPending and the Phase 1 set) are composed per
+# BatchJob as PrometheusRule <name>-batch; Volcano's own availability is
+# core/volcano/manifests/alerts.yaml. These are about the queues every gang waits in.
+#
+# They read the kube_volcano_* series this package's kube-state-metrics publishes
+# from the Queue and PodGroup objects (../custom-resource-state.yaml), not the
+# scheduler's volcano_queue_* series: those vanish with the scheduler pod, and an
+# alert on a series that has stopped existing never fires. On a cluster without
+# Volcano, which is every profile today, the series do not exist and nothing fires.
+#
+# A queue is saturated when a gang has waited for it (PodGroup Pending) and what
+# the queue already holds plus what that gang needs at once exceeds the queue's
+# capability: the wait is the ceiling's, not the nodes'. "Holds" is Volcano's
+# own enqueue test (capacity plugin, v1.16 jobEnqueueable: minReq + allocated +
+# inqueue <= capability, for the queue and every ancestor): what runs, plus the
+# minimum every admitted gang (Inqueue, waiting for nodes) reserves. The gang is
+# the LARGEST one waiting, so a gang that can never fit is not hidden by a small
+# one waiting on the cluster. A gang that would not fit even in an idle queue
+# counts, which is why an allocation or a reservation Volcano has not written
+# yet reads as zero rather than dropping the queue. The root's holding is summed
+# from its leaves, so it does not depend on Volcano writing an allocation onto a
+# parent queue, and only gangs in the batch tree are counted against it.
+# Guards: TestVolcanoAlertsReadOnlySeriesKubeStateMetricsPublishes,
+# TestVolcanoQueueAlertsPassTheirRuleTests (promtool against
+# platform/controllers/adharplatform/testdata/volcano-alerts/tests.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: adhar-batch-queues
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    app.kubernetes.io/name: adhar-batch-queues
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: adhar.batch.queues
+      rules:
+        # A team's leaf (dev, test or prod). Routed by the team label like the
+        # team's per-job alerts. Raising it is the team's allowance
+        # (adhar-tenant-quotas), which the leaf's capability follows.
+        - alert: BatchQueueSaturated
+          expr: |
+            (
+              (
+                max by (queue, organisation, team, tier, resource) (kube_volcano_queue_status_allocated{parent="adhar-batch", resource=~"cpu|memory"})
+                or
+                0 * max by (queue, organisation, team, tier, resource) (kube_volcano_queue_spec_capability{parent="adhar-batch", resource=~"cpu|memory"})
+              )
+              + on (queue, resource) group_left ()
+              (
+                sum by (queue, resource) (
+                  kube_volcano_podgroup_spec_min_resources{resource=~"cpu|memory"}
+                  and on (namespace, podgroup)
+                  (kube_volcano_podgroup_status_phase{phase="Inqueue"} == 1)
+                )
+                or
+                0 * max by (queue, resource) (kube_volcano_queue_spec_capability{parent="adhar-batch", resource=~"cpu|memory"})
+              )
+              + on (queue, resource) group_left ()
+              max by (queue, resource) (
+                kube_volcano_podgroup_spec_min_resources{resource=~"cpu|memory"}
+                and on (namespace, podgroup)
+                (kube_volcano_podgroup_status_phase{phase="Pending"} == 1)
+              )
+            )
+            > on (queue, resource) group_left ()
+            max by (queue, resource) (kube_volcano_queue_spec_capability{parent="adhar-batch", resource=~"cpu|memory"})
+          for: 30m
+          labels: {severity: warning, source: volcano}
+          annotations:
+            summary: "Batch queue {{ $labels.queue }} is full on {{ $labels.resource }}"
+            description: "A gang has waited 30 minutes for queue {{ $labels.queue }} (team {{ $labels.team }}, tier {{ $labels.tier }}): what the queue holds plus what the gang needs at once is over its {{ $labels.resource }} capability. It starts when running work in the queue finishes, or once the team's allowance grows. `adhar batch queues --team {{ $labels.organisation }}-{{ $labels.team }}` shows the queue and its waiting gangs."
+        # The root of the batch tree: every team's leaf shares it, so a full root
+        # holds back a gang whose own leaf has room. Not a team's to fix: the
+        # ceiling is the platform's batch share of the cluster (globalSettings.batch).
+        - alert: BatchCeilingSaturated
+          expr: |
+            (
+              (
+                # The larger of the root's own allocation and its leaves' sum.
+                (
+                  max by (resource) (kube_volcano_queue_status_allocated{queue="adhar-batch", resource=~"cpu|memory"})
+                  >= on (resource)
+                  sum by (resource) (kube_volcano_queue_status_allocated{parent="adhar-batch", resource=~"cpu|memory"})
+                )
+                or
+                sum by (resource) (kube_volcano_queue_status_allocated{parent="adhar-batch", resource=~"cpu|memory"})
+                or
+                max by (resource) (kube_volcano_queue_status_allocated{queue="adhar-batch", resource=~"cpu|memory"})
+                or
+                0 * max by (resource) (kube_volcano_queue_spec_capability{queue="adhar-batch", resource=~"cpu|memory"})
+              )
+              + on (resource)
+              (
+                sum by (resource) (
+                  kube_volcano_podgroup_spec_min_resources{resource=~"cpu|memory"}
+                  and on (namespace, podgroup)
+                  (kube_volcano_podgroup_status_phase{phase="Inqueue"} == 1)
+                  and on (queue)
+                  kube_volcano_queue_spec_capability{parent="adhar-batch"}
+                )
+                or
+                0 * max by (resource) (kube_volcano_queue_spec_capability{queue="adhar-batch", resource=~"cpu|memory"})
+              )
+              + on (resource)
+              max by (resource) (
+                kube_volcano_podgroup_spec_min_resources{resource=~"cpu|memory"}
+                and on (namespace, podgroup)
+                (kube_volcano_podgroup_status_phase{phase="Pending"} == 1)
+                and on (queue)
+                kube_volcano_queue_spec_capability{parent="adhar-batch"}
+              )
+            )
+            > on (resource)
+            max by (resource) (kube_volcano_queue_spec_capability{queue="adhar-batch", resource=~"cpu|memory"})
+          for: 30m
+          labels: {severity: warning, source: volcano}
+          annotations:
+            summary: "The platform's batch ceiling is full on {{ $labels.resource }}"
+            description: "A gang has waited 30 minutes because the root batch queue adhar-batch, which every team's queue sits under, has no {{ $labels.resource }} left for it. The ceiling is the platform's batch share of the cluster (design 0025 §4.1, D8): raise it, or add workers and re-render it. `adhar batch queues`."
+        # A closed queue accepts no new run: Volcano's admission refuses every Job
+        # naming it, so scheduled runs fail at creation rather than wait.
+        - alert: BatchQueueClosed
+          expr: |
+            (max by (queue, organisation, team, tier) (kube_volcano_queue_status_state{state=~"Closed|Closing"}) == 1)
+            and on (queue)
+            (kube_volcano_queue_status_state{queue="adhar-batch"} or kube_volcano_queue_status_state{parent="adhar-batch"})
+          for: 15m
+          labels: {severity: warning, source: volcano}
+          annotations:
+            summary: "Batch queue {{ $labels.queue }} is closed"
+            description: "Volcano refuses every new run that names {{ $labels.queue }} while it is closed, so its scheduled runs fail at creation. A queue is closed by a Command or by hand, never by the platform itself: `kubectl get queue {{ $labels.queue }} -o yaml`, then open it again."

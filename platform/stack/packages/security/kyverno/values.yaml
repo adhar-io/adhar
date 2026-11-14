@@ -1,13 +1,21 @@
 crds:
   enabled: true
-# Register policy webhooks with failurePolicy Ignore instead of Fail. On a
-# single-node local cluster the admission controller gets probe-killed under
-# load; with Fail webhooks every API write in the cluster is then rejected,
-# which stalls ArgoCD syncs and kubelet pod creation until kyverno recovers.
-# Policies still enforce whenever kyverno is up.
+# Each policy's OWN failurePolicy decides (user decision DEC-4, 2026-11-14). This
+# flag used to force every policy webhook to Ignore: on a single-node local cluster
+# the admission controller gets probe-killed under load, and with Fail webhooks
+# every API write the policies match is then rejected, which stalls Argo CD syncs
+# and kubelet pod creation until Kyverno recovers. That protection is kept policy by
+# policy instead: every Kyverno policy in the stack states failurePolicy Ignore
+# itself, except core/adhar-batch's adhar-batch-run-integrity and
+# adhar-batch-queue-binding, which must fail CLOSED (design 0025 §10.3: a Kyverno
+# outage blocks a person's manual or Volcano run, never a scheduled one, whose
+# controllers their matchConditions exclude). The flag also overrode those two, so
+# they admitted everything while Kyverno was down. A policy that names no
+# failurePolicy gets Kyverno's default, Fail, so
+# TestEveryKyvernoPolicyStatesItsFailurePolicy refuses one that does not say.
 features:
   forceFailurePolicyIgnore:
-    enabled: true
+    enabled: false
   # PolicyExceptions ON, and only honoured from the platform namespace. They were
   # off (the chart default), so the exceptions shipped in
   # security/adhar-kyverno-policies were inert and every node agent that needs

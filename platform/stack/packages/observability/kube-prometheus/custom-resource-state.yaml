@@ -1,0 +1,259 @@
+# kube-state-metrics custom-resource state: the objects of other packages that
+# have no exporter of their own, published as kube_* series beside the built-in
+# ones. A second values file for the chart, passed by generate-manifests.sh after
+# values.yaml, so the whole configuration lives here and nowhere else.
+#
+# Custom-resource state is feature-frozen upstream in favour of
+# resource-state-metrics (design 0025 §11.1, [S58]). Keeping it in ONE file is
+# what makes that move a single change: the metric names below are the contract
+# (alerts, the Console), and resource-state-metrics can publish the same names.
+#
+# Volcano (design 0025 §4, §11; ADR-0028). Volcano's own scheduler series
+# (volcano_queue_*, volcano_e2e_*) come from the scheduler pod through the
+# core/volcano ServiceMonitors and vanish while it is down; these come from the
+# API objects, so a gang that is waiting is visible however Volcano is doing.
+# kube-state-metrics discovers the CRDs as they are served (verified with
+# v2.20.0 against an API server that gained the Volcano CRDs after it started),
+# so on every cluster without Volcano, which is every profile today, these
+# resources publish nothing and cost one CRD watch.
+#
+# Values are what kube-state-metrics makes of the field: a phase becomes a
+# StateSet (one series per phase, 1 for the current one), a quantity becomes a
+# number (cpu in cores, memory in bytes), a timestamp becomes Unix seconds.
+# Guards: TestKubeStateMetricsPublishesVolcanoState,
+# TestVolcanoAlertsReadOnlySeriesKubeStateMetricsPublishes.
+kube-state-metrics:
+  rbac:
+    # The chart adds list/watch on CustomResourceDefinitions itself
+    # (rbac.customResourceState.createClusterRoleRules); these are the objects.
+    extraRules:
+      - apiGroups: ["batch.volcano.sh"]
+        resources: ["jobs"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["scheduling.volcano.sh"]
+        resources: ["podgroups", "queues"]
+        verbs: ["list", "watch"]
+  customResourceState:
+    enabled: true
+    config:
+      kind: CustomResourceStateMetrics
+      spec:
+        resources:
+          # One per gang. Volcano copies the Volcano Job's labels onto it, so the
+          # BatchJob a gang runs for is a label here, the join every composed
+          # per-job alert (BatchGangPending) makes.
+          - groupVersionKind:
+              group: scheduling.volcano.sh
+              version: v1beta1
+              kind: PodGroup
+            metricNamePrefix: kube_volcano_podgroup
+            labelsFromPath:
+              namespace: [metadata, namespace]
+              podgroup: [metadata, name]
+              queue: [spec, queue]
+              batch_job: [metadata, labels, adhar.io/batch-job]
+              environment: [metadata, labels, adhar.io/environment]
+            metrics:
+              - name: status_phase
+                help: "The PodGroup's phase. Pending and Inqueue are a gang that is waiting: Pending for its queue, Inqueue for nodes."
+                each:
+                  type: StateSet
+                  stateSet:
+                    labelName: phase
+                    path: [status, phase]
+                    list: [Pending, Inqueue, Running, Unknown, Completed]
+              - name: spec_min_member
+                help: "Members the gang needs before any of them is bound (minMember)."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [spec, minMember]
+              - name: spec_min_resources
+                help: "What the gang needs admitted at once (minResources) per resource: what its queue must have room for."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [spec, minResources]
+                    labelFromKey: resource
+              - name: status_running
+                help: "Members running."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, running]
+                    nilIsZero: true
+              - name: status_succeeded
+                help: "Members that succeeded."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, succeeded]
+                    nilIsZero: true
+              - name: status_failed
+                help: "Members that failed."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, failed]
+                    nilIsZero: true
+              - name: status_condition
+                help: "The PodGroup's conditions (Unschedulable carries the scheduler's reason)."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, conditions]
+                    labelsFromPath:
+                      type: [type]
+                      reason: [reason]
+                    valueFrom: [status]
+              - name: created
+                help: "Unix creation time of the PodGroup."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [metadata, creationTimestamp]
+          # One per run of a partitioned BatchJob (and any other Volcano Job).
+          - groupVersionKind:
+              group: batch.volcano.sh
+              version: v1alpha1
+              kind: Job
+            metricNamePrefix: kube_volcano_job
+            labelsFromPath:
+              namespace: [metadata, namespace]
+              # Not `job`: kube-state-metrics is scraped with honorLabels, so a
+              # series label named job would replace the scrape target's.
+              vcjob: [metadata, name]
+              queue: [spec, queue]
+              batch_job: [metadata, labels, adhar.io/batch-job]
+              environment: [metadata, labels, adhar.io/environment]
+            metrics:
+              - name: status_phase
+                help: "The Volcano Job's phase."
+                each:
+                  type: StateSet
+                  stateSet:
+                    labelName: phase
+                    path: [status, state, phase]
+                    list: [Pending, Aborting, Aborted, Running, Restarting, Completing, Completed, Terminating, Terminated, Failed]
+              - name: spec_min_available
+                help: "Pods the job needs running together (minAvailable): the gang size."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [spec, minAvailable]
+              - name: status_pending
+                help: "Pods pending."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, pending]
+                    nilIsZero: true
+              - name: status_running
+                help: "Pods running."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, running]
+                    nilIsZero: true
+              - name: status_succeeded
+                help: "Pods that succeeded."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, succeeded]
+                    nilIsZero: true
+              - name: status_failed
+                help: "Pods that failed."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, failed]
+                    nilIsZero: true
+              - name: status_retry_count
+                help: "Times the whole gang was restarted (RestartJob)."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, retryCount]
+                    nilIsZero: true
+              - name: created
+                help: "Unix creation time of the Volcano Job."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [metadata, creationTimestamp]
+          # The batch tree: the root adhar-batch and every team's dev/test/prod
+          # leaf. A leaf carries its team, so a queue alert routes like a job's.
+          - groupVersionKind:
+              group: scheduling.volcano.sh
+              version: v1beta1
+              kind: Queue
+            metricNamePrefix: kube_volcano_queue
+            labelsFromPath:
+              queue: [metadata, name]
+              parent: [spec, parent]
+              organisation: [metadata, labels, adhar.io/organisation]
+              team: [metadata, labels, adhar.io/team]
+              tier: [metadata, labels, adhar.io/tier]
+            metrics:
+              - name: status_state
+                help: "The queue's state; only an Open queue takes new work."
+                each:
+                  type: StateSet
+                  stateSet:
+                    labelName: state
+                    path: [status, state]
+                    list: [Open, Closed, Closing, Unknown]
+              - name: spec_capability
+                help: "The queue's ceiling (capability) per resource: cpu in cores, memory in bytes."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [spec, capability]
+                    labelFromKey: resource
+              # A map path that is absent on an object is not an error to
+              # kube-state-metrics' output, only to its log: the object's other
+              # series still publish, and this one is simply missing for it
+              # (verified with v2.20.0). That costs one `got nil while resolving
+              # path` line per update, and capability and allocated below both
+              # pay it: Volcano v1.16 creates its own `root` and `default`
+              # queues with weight and reclaimable only, so they never carry a
+              # capability, and no queue carries allocated until the scheduler
+              # first writes its status. Accepted for both, because the queue
+              # alerts read them. nilIsZero is not the cure: it publishes a
+              # series with no resource label, which matches nothing.
+              #
+              # spec.deserved is left out because nothing here reads it, not to
+              # save that log line: only prod leaves declare one, the alerts
+              # test the ceiling (capability) and never the share, and the
+              # scheduler's volcano_queue_deserved_* already carries it. Adding
+              # it is one metric and the same per-update log cost on every
+              # dev/test leaf.
+              - name: status_allocated
+                help: "What the queue's running work holds per resource."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, allocated]
+                    labelFromKey: resource
+              - name: status_pending
+                help: "PodGroups waiting for the queue to admit them."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, pending]
+                    nilIsZero: true
+              - name: status_inqueue
+                help: "PodGroups admitted by the queue and waiting for nodes."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, inqueue]
+                    nilIsZero: true
+              - name: status_running
+                help: "PodGroups running."
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, running]
+                    nilIsZero: true

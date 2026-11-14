@@ -8,6 +8,8 @@
 # spelled in five places. The organisation is part of the group because a team
 # name is unique only inside its organisation. It also creates the Gitea team
 # inside the organisation so repositories can be granted to the team as a unit.
+# Where Volcano runs it also composes the team's batch leaf queues (design 0025
+# §4.3; see compositions/team/local.yaml).
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
@@ -77,6 +79,10 @@ spec:
                   description: Keycloak group that is this team (`ws-team-<organisation>.<name>`), bound by every project the team owns.
                 organisation: {type: string}
                 giteaTeam: {type: string}
+                batchQueues:
+                  type: array
+                  description: The team's Volcano leaf queues `<organisation>-<team>-<dev|test|prod>` (design 0025 §4.3), present only where Volcano runs; BatchQueuesReady says whether they are open.
+                  items: {type: string}
                 ready: {type: boolean}
                 phase: {type: string}
                 message: {type: string}

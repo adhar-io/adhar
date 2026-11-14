@@ -34,6 +34,8 @@ metadata:
       Gitea PR that ArgoCD later reconciles). Audit mode: violations are
       reported, not blocked.
 spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
   validationFailureAction: Audit
   # MUST be false: both rules match on `subjects` (the adhar-ai ServiceAccount),
   # which is userInfo from the admission request. A background scan re-evaluates

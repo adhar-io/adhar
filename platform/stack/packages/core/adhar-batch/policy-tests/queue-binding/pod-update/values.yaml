@@ -1,0 +1,65 @@
+# A pod in acme/payments' dev namespace UPDATED after it was admitted on the team's
+# leaf. Volcano's PodGroup controller rebuilds a Deployment's or StatefulSet's
+# PodGroup from its pod's annotation as volcano-controllers (excluded), so a changed
+# or removed queue annotation on UPDATE is what has to be refused. The CLI sets
+# oldObject = object on UPDATE; the old annotation is given here.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: queue-binding-pod-update
+namespaceSelector:
+- name: shop-dev
+  labels: &id001
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: dev
+    adhar.io/tier: dev
+- name: shop-staging
+  labels:
+    adhar.io/organisation: acme
+    adhar.io/team: payments
+    adhar.io/project: shop
+    adhar.io/environment: staging
+    adhar.io/tier: test
+- name: tools
+  labels:
+    kubernetes.io/metadata.name: tools
+globalValues:
+  request.operation: UPDATE
+  request.oldObject.metadata.annotations:
+    scheduling.volcano.sh/queue-name: acme-payments-dev
+policies:
+- name: adhar-batch-queue-default
+  rules:
+  - name: default-a-volcano-job-to-its-team-queue
+    values:
+      ns: *id001
+  - name: default-a-volcano-cronjob-to-its-team-queue
+    values:
+      ns: *id001
+  - name: default-a-volcano-pod-to-its-team-queue
+    values:
+      ns: *id001
+- name: adhar-batch-queue-binding
+  rules:
+  - name: a-volcano-job-names-its-team-queue
+    values:
+      ns: *id001
+  - name: a-volcano-cronjob-names-its-team-queue
+    values:
+      ns: *id001
+  - name: a-podgroup-names-its-team-queue
+    values:
+      ns: *id001
+  - name: a-volcano-pod-names-its-team-queue
+    values:
+      ns: *id001
+  - name: the-team-queue-belongs-to-the-team
+    values:
+      ns: *id001
+      owner:
+        adhar.io/organisation: acme
+        adhar.io/team: payments
+        adhar.io/batch-queue: 'true'
+        adhar.io/tier: dev

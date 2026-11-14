@@ -20,6 +20,8 @@ metadata:
     app.kubernetes.io/part-of: adhar-platform
 spec:
   background: true
+  webhookConfiguration:
+    failurePolicy: Ignore
   # Reporting only where it is a validation; the generate rules below always act.
   rules:
     - name: preview-resource-quota

@@ -310,7 +310,12 @@ type runRow struct {
 	Summary      *runSummary
 	Image        string
 	Created      time.Time
-	obj          *unstructured.Unstructured
+	// Scheduler, Queue and Gang are set only for a run Volcano places (Phase
+	// 2, gang.go); a run kube-scheduler places has none of them.
+	Scheduler string
+	Queue     string
+	Gang      *gangView
+	obj       *unstructured.Unstructured
 }
 
 func podLabel(pod *unstructured.Unstructured, key string) string { return pod.GetLabels()[key] }
@@ -381,11 +386,12 @@ func terminationOf(pod *unstructured.Unstructured) *termination {
 func speakerPod(pods []*unstructured.Unstructured) *unstructured.Unstructured {
 	var notWorkers, managers []*unstructured.Unstructured
 	for _, p := range pods {
-		if podLabel(p, labelRole) == "worker" {
+		role := podRole(p)
+		if role == "worker" {
 			continue
 		}
 		notWorkers = append(notWorkers, p)
-		if podLabel(p, labelRole) == "manager" || podLabel(p, labelNativeIndex) == "0" || podLabel(p, labelVolcanoIndex) == "0" {
+		if role == "manager" || podIndex(p) == "0" {
 			managers = append(managers, p)
 		}
 	}
@@ -457,7 +463,7 @@ func attemptsOf(run *unstructured.Unstructured, pods []*unstructured.Unstructure
 	// below what the status says.
 	seen := 0
 	for _, p := range pods {
-		if podLabel(p, labelRole) != "worker" {
+		if podRole(p) != "worker" {
 			seen++
 		}
 	}
@@ -498,6 +504,9 @@ func runRowOf(run *unstructured.Unstructured, allPods []unstructured.Unstructure
 		Image:       runImage(run),
 		Created:     run.GetCreationTimestamp().Time,
 		obj:         run,
+	}
+	if volcanoScheduled(run) {
+		row.Scheduler, row.Queue, row.Gang = schedulerVolcano, queueOfRun(run), gangOfRun(run)
 	}
 	for _, typ := range []string{"Failed", "FailureTarget", "Suspended"} {
 		if ok, msg, _ := condTrue(run, typ); ok && msg != "" {

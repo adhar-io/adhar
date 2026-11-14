@@ -24,6 +24,8 @@ metadata:
       enforced.
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
   validationFailureAction: Audit
   background: true
   rules:

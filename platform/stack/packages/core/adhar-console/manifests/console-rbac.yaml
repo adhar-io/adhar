@@ -33,6 +33,8 @@
 # * notifications-broadcast create                  notify every member
 #   ai-knowledge            create | update         add notes | rate grounding
 #   applications            create | delete         scaffold | delete (incl. repo)
+#   application-scaling     update                  instances + autoscaling, committed to the
+#                                                   app's GitOps overlay (namespaced)
 #
 # * = ORGANISATION-SCOPED. The console answers these itself and never asks the
 # apiserver: it reads the Keycloak groups on the signed-in user's verified
@@ -55,9 +57,11 @@
 #   super-admin                        everything (adhar-console-admin below).
 #   every signed-in user               adhar-console-member: what any member
 #                                      could do before these checks existed.
-#   application-admin                  resilience runs, application delete.
-#   ws-team-<org>.<team> (admin of its resilience runs IN those namespaces,
-#     namespaces, Project composition) via aggregation into `admin`.
+#   application-admin                  resilience runs, application delete,
+#                                      application scaling.
+#   ws-team-<org>.<team> (admin of its resilience runs and application
+#     namespaces, Project composition)   scaling IN those namespaces, via
+#                                      aggregation into `admin`.
 #   security-reviewer / security-admin waiver review; security-admin also
 #                                      scan policy.
 #
@@ -177,6 +181,12 @@ rules:
   - apiGroups: [console.adhar.io]
     resources: [applications]
     verbs: [delete]
+  # Change an application's instances and autoscaling in any environment. The
+  # console commits it to the app's overlay; the Kargo promotion that rolls it
+  # out still needs Kargo rights of the person's own.
+  - apiGroups: [console.adhar.io]
+    resources: [application-scaling]
+    verbs: [update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -195,8 +205,8 @@ subjects:
 ---
 # Folded into the built-in `admin` role, which the Project composition binds
 # to oidc:ws-team-<org>.<team> in the team's own namespace: a team may start
-# resilience suites against its own apps (the console asks in the app's
-# namespace) and nowhere else.
+# resilience suites against its own apps, and change their instances and
+# autoscaling (the console asks in the app's namespace), and nowhere else.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -208,6 +218,9 @@ rules:
   - apiGroups: [console.adhar.io]
     resources: [resilience-runs]
     verbs: [create]
+  - apiGroups: [console.adhar.io]
+    resources: [application-scaling]
+    verbs: [update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

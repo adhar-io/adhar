@@ -1,0 +1,40 @@
+# Volcano's controller manager creating what an admitted object asks for (a
+# CronJob's Jobs, a Job's PodGroup and pods) is not checked again.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: queue-binding-controllers}
+policies: [../policy-under-test.yaml]
+resources: [../resources.yaml]
+variables: values.yaml
+userinfo: user.yaml
+results:
+- policy: adhar-batch-queue-default
+  rule: default-a-volcano-job-to-its-team-queue
+  kind: Job
+  resources: [unset-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-job-names-its-team-queue
+  kind: Job
+  resources: [team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-podgroup-names-its-team-queue
+  kind: PodGroup
+  resources: [podgroup-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Job
+  resources: [own-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-pod-is-scheduled-by-volcano
+  kind: Pod
+  resources: [annotated-kube-scheduler-pod]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-job-uses-the-env-plugin-only
+  kind: Job
+  resources: [svc-plugin-job]
+  result: skip

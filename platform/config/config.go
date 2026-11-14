@@ -35,6 +35,8 @@ type GlobalSettingsConfig struct {
 	DNSProvider           string `mapstructure:"dnsProvider" json:"dnsProvider,omitempty"`
 	ProductionProvider    string `mapstructure:"productionProvider" json:"productionProvider"`
 	NonProductionProvider string `mapstructure:"nonProductionProvider" json:"nonProductionProvider"`
+	// Batch sizes what batch may hold when Volcano schedules it (batch.go).
+	Batch *BatchSettings `mapstructure:"batch" json:"batch,omitempty"`
 }
 
 // ConfigProviderConfig holds provider-specific configuration
@@ -286,6 +288,8 @@ type GlobalSettings struct {
 	// "cloudflare" uses Cloudflare (token from CLOUDFLARE_API_TOKEN) — the
 	// usual choice for on-prem/custom clusters.
 	DNSProvider string `json:"dnsProvider,omitempty"`
+	// Batch is globalSettings.batch (batch.go).
+	Batch *BatchSettings `json:"batch,omitempty"`
 }
 
 // ClusterConfig represents a key-value cluster configuration
@@ -853,6 +857,7 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 		DefaultHost:  c.GlobalSettings.DefaultHost,
 		EnableHAMode: c.GlobalSettings.EnableHAMode,
 		Email:        c.GlobalSettings.Email,
+		Batch:        c.GlobalSettings.Batch,
 	}
 
 	return resolved, nil

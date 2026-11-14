@@ -672,8 +672,9 @@ func TestBatchJobMissingPrerequisitesSuspendTheScheduleAndSaySo(t *testing.T) {
 	}
 }
 
-// Phase 1 has one path. `auto` is that path, and `volcano` is reported rather than
-// quietly run somewhere else (D3).
+// Without Volcano there is one path. `auto` is that path, and `volcano` is reported
+// rather than quietly run somewhere else (D3). A descriptor alone is not Volcano: its
+// CRDs must be served too (the Volcano branches: volcano_composition_test.go).
 func TestBatchJobSchedulerResolution(t *testing.T) {
 	descriptor := map[string]any{
 		"apiVersion": "v1", "kind": "ConfigMap",
@@ -690,10 +691,10 @@ func TestBatchJobSchedulerResolution(t *testing.T) {
 	}{
 		{"unset", nil, bjCluster(t), "True", ""},
 		{"auto without Volcano", "auto", bjCluster(t), "True", ""},
-		{"auto with Volcano installed stays native in Phase 1", "auto", append(bjCluster(t), descriptor), "True", ""},
+		{"auto with a descriptor but no Volcano CRDs stays native", "auto", append(bjCluster(t), descriptor), "True", ""},
 		{"kubernetes", "kubernetes", append(bjCluster(t), descriptor), "True", ""},
 		{"volcano without Volcano", "volcano", bjCluster(t), "False", "not installed"},
-		{"volcano with Volcano installed", "volcano", append(bjCluster(t), descriptor), "False", "Phase 2"},
+		{"volcano with a stale descriptor", "volcano", append(bjCluster(t), descriptor), "False", "CRDs are not served"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			docs := bjMustRender(t, bjWithParams(xr, map[string]any{"scheduler": c.scheduler}), c.cluster, nil)
@@ -985,7 +986,8 @@ func TestBatchJobComposedKindsAreGrantedToCrossplane(t *testing.T) {
 	}
 }
 
-// D3: the schema is strict and carries only what this phase's composition renders.
+// D3: the schema is strict and carries only what the composition renders: Phase 1's
+// fields and Phase 2's partitioned shape, nothing of Phase 3.
 func TestBatchJobXRDCarriesThePhaseOneFields(t *testing.T) {
 	docs := readYAMLDocs(t, filepath.Join(controlPlaneDir(t), "xrd/batchjob.xrd.yaml"))
 	if len(docs) != 1 {
@@ -1000,18 +1002,26 @@ func TestBatchJobXRDCarriesThePhaseOneFields(t *testing.T) {
 	params := dig(v0, "schema", "openAPIV3Schema", "properties", "spec", "properties", "parameters", "properties").(map[string]any)
 	for _, f := range []string{"displayName", "application", "job", "image", "imagePullSecrets", "scheduler", "schedule", "parameters", "resources", "jvm",
 		"retry", "timeouts", "history", "priority", "disruption", "scaleUp", "database", "env", "envFrom", "serviceAccountName", "sla", "alerts",
-		"organisation", "team", "project", "environment"} {
+		"organisation", "team", "project", "environment", "mode", "workers", "gridSize"} {
 		if params[f] == nil {
 			t.Errorf("parameter %s is missing", f)
 		}
 	}
-	for _, f := range []string{"mode", "workers", "gridSize", "dependsOn", "retention", "smoke"} {
+	for path, fields := range map[string][]string{"resources": {"workerCpu", "workerMemory"}, "retry": {"maxRetry"}} {
+		sub, _ := dig(params, path, "properties").(map[string]any)
+		for _, f := range fields {
+			if sub[f] == nil {
+				t.Errorf("%s.%s is missing; Phase 2's composition renders it", path, f)
+			}
+		}
+	}
+	for _, f := range []string{"dependsOn", "retention", "smoke"} {
 		if params[f] != nil {
 			t.Errorf("parameter %s arrives with a later phase (D3): an earlier control plane must reject it, not ignore it", f)
 		}
 	}
 	for path, fields := range map[string][]string{
-		"resources": {"workerCpu", "workerMemory"}, "retry": {"maxRetry"}, "schedule": {"calendar"}, "sla": {"finishBy", "timeZone"},
+		"schedule": {"calendar"}, "sla": {"finishBy", "timeZone"},
 	} {
 		sub, _ := dig(params, path, "properties").(map[string]any)
 		for _, f := range fields {

@@ -28,6 +28,7 @@ func TestTemplateScaffoldRegistersThePavedRoadApplication(t *testing.T) {
 		{"reactapp", "frontend", "", "web"},
 		{"tanstack-app", "fullstack", "", "web"},
 		{"deno-func", "backend-generic", "function", "function"},
+		{"nightly-import", "batch-jvm", "batch", "batch"},
 		{"odd-labels", "not-a-dashboard", "", ""},
 	}
 	for _, c := range cases {
@@ -70,8 +71,8 @@ func TestTemplateScaffoldRegistersThePavedRoadApplication(t *testing.T) {
 		if gotType != c.wantType {
 			t.Errorf("%s: spec.parameters.type %q, want %q", c.name, gotType, c.wantType)
 		}
-		if c.workload == "function" && labels["adhar.io/workload"] != "function" {
-			t.Errorf("%s: a function template's app lost its adhar.io/workload label", c.name)
+		if c.workload != "" && labels["adhar.io/workload"] != c.workload {
+			t.Errorf("%s: a %s template's app lost its adhar.io/workload label (got %q)", c.name, c.workload, labels["adhar.io/workload"])
 		}
 		project, _, _ := unstructured.NestedString(app.Object, "spec", "parameters", "project")
 		repoURL, _, _ := unstructured.NestedString(app.Object, "spec", "parameters", "source", "repoURL")
@@ -99,14 +100,16 @@ func TestPublicCloneURLDropsOnlyTheDefaultPort(t *testing.T) {
 	}
 }
 
-// What the Console's applicationManifest returns for the same three apps —
+// What the Console's applicationManifest returns for the same four apps —
 // output of apps/console/app/server/control-plane.ts (with scaffoldWorkload and
-// dashboardTypeOf over each template.yaml), captured 2026-11-03. The CLI's
-// Application must be this object, labelled as the CLI's.
+// dashboardTypeOf over each template.yaml), captured 2026-11-03 (the batch
+// one 2026-11-13). The CLI's Application must be this object, labelled as the
+// CLI's.
 var consoleApplicationManifests = map[string]string{
-	"qua-service": `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"qua-service","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"qua-service","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"backend-jvm"}},"spec":{"parameters":{"project":"adhar","displayName":"qua-service","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/qua-service.git","path":"deploy","targetRevision":"main"}}}}`,
-	"reactapp":    `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"reactapp","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"reactapp","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"frontend"}},"spec":{"parameters":{"project":"adhar","displayName":"reactapp","type":"web","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/reactapp.git","path":"deploy","targetRevision":"main"}}}}`,
-	"deno-func":   `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"deno-func","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"deno-func","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"backend-generic","adhar.io/workload":"function"}},"spec":{"parameters":{"project":"adhar","displayName":"deno-func","type":"function","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/deno-func.git","path":"deploy","targetRevision":"main"}}}}`,
+	"nightly-import": `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"nightly-import","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"nightly-import","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"batch-jvm","adhar.io/workload":"batch"}},"spec":{"parameters":{"project":"adhar","displayName":"nightly-import","type":"batch","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/nightly-import.git","path":"deploy","targetRevision":"main"}}}}`,
+	"qua-service":    `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"qua-service","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"qua-service","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"backend-jvm"}},"spec":{"parameters":{"project":"adhar","displayName":"qua-service","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/qua-service.git","path":"deploy","targetRevision":"main"}}}}`,
+	"reactapp":       `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"reactapp","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"reactapp","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"frontend"}},"spec":{"parameters":{"project":"adhar","displayName":"reactapp","type":"web","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/reactapp.git","path":"deploy","targetRevision":"main"}}}}`,
+	"deno-func":      `{"apiVersion":"platform.adhar.io/v1alpha1","kind":"Application","metadata":{"name":"deno-func","namespace":"adhar-system","labels":{"adhar.io/managed-by":"adhar-console","adhar.io/project":"adhar","adhar.io/application":"deno-func","adhar.io/scaffolded":"true","adhar.io/dashboard-type":"backend-generic","adhar.io/workload":"function"}},"spec":{"parameters":{"project":"adhar","displayName":"deno-func","type":"function","source":{"repoURL":"https://gitea.platform.adhar.io/adhar/deno-func.git","path":"deploy","targetRevision":"main"}}}}`,
 }
 
 func TestThePavedRoadApplicationIsTheConsolesManifest(t *testing.T) {
@@ -118,6 +121,8 @@ func TestThePavedRoadApplicationIsTheConsolesManifest(t *testing.T) {
 			TemplateLabels: map[string]string{"adhar.io/dashboard-type": "frontend"}},
 		"deno-func": {TemplateName: "function-deno-service", TemplateTags: []string{"function", "serverless", "deno"},
 			TemplateLabels: map[string]string{"adhar.io/dashboard-type": "backend-generic", "adhar.io/workload": "function"}},
+		"nightly-import": {TemplateName: "springboot-batch-service", TemplateTags: []string{"recommended", "java", "springboot"},
+			TemplateLabels: map[string]string{"adhar.io/dashboard-type": "batch-jvm", "adhar.io/workload": "batch"}},
 	}
 	for name, s := range templates {
 		// What commitScaffold builds from utils.GiteaBaseUrl, which spells :443.
@@ -161,6 +166,82 @@ func TestAFunctionTemplateIsRecognisedTheWayTheConsoleRecognisesIt(t *testing.T)
 		CloneURL: "https://gitea.example.io/adhar/thumbs.git", ManifestPath: "deploy"}, "")
 	if typ, _, _ := unstructured.NestedString(app.Object, "spec", "parameters", "type"); typ != "function" || app.GetLabels()["adhar.io/workload"] != "function" {
 		t.Errorf("a function-tagged template registered type %q, labels %v", typ, app.GetLabels())
+	}
+}
+
+// The Console decides "batch" from the template's adhar.io/workload: batch
+// label, a `springboot-batch-*` name or a `batch` tag (isBatchTemplate), and
+// checks it BEFORE the function rule and the name regexes — a batch template is
+// routinely named `*-service` and tagged `etl`. Until 2026-11-13 the CLI knew
+// no batch at all: a springboot-batch-service scaffold registered as a plain
+// `service` and lost its batch-jvm dashboard label, so the Application
+// composition's $isBatch branch never fired.
+func TestABatchTemplateIsRecognisedTheWayTheConsoleRecognisesIt(t *testing.T) {
+	for _, tc := range []struct {
+		s    scaffoldedRepo
+		want bool
+	}{
+		{scaffoldedRepo{TemplateName: "springboot-batch-job"}, true},
+		{scaffoldedRepo{TemplateName: "springboot-batch"}, true},
+		{scaffoldedRepo{TemplateName: "Springboot-Batch-Partitioned", TemplateTags: []string{"java"}}, true},
+		{scaffoldedRepo{TemplateName: "nightly-import", TemplateTags: []string{"java", " Batch "}}, true},
+		{scaffoldedRepo{TemplateName: "nightly-import", TemplateLabels: map[string]string{"adhar.io/workload": "batch"}}, true},
+		{scaffoldedRepo{TemplateName: "springboot-batching-service", TemplateTags: []string{"batches"}}, false},
+		{scaffoldedRepo{TemplateName: "springboot-batchless-api"}, false},
+		{scaffoldedRepo{TemplateName: " springboot-batch-job\n"}, true},
+		{scaffoldedRepo{TemplateName: "legacy-springboot-batch-job"}, false},
+		{scaffoldedRepo{TemplateName: "springboot-web-service", TemplateTags: []string{"java", "springboot"}}, false},
+	} {
+		if got := isBatchTemplate(&tc.s); got != tc.want {
+			t.Errorf("isBatchTemplate(%+v) = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+
+	// An etl-tagged batch template is batch, not data; a *-service name is
+	// batch, not service; and the function rule does not outrank it.
+	for name, s := range map[string]*scaffoldedRepo{
+		"etl":     {TemplateName: "springboot-batch-service", TemplateTags: []string{"etl", "batch"}},
+		"service": {TemplateName: "springboot-batch-service", TemplateTags: []string{"java"}},
+		"tag":     {TemplateName: "function-shaped-worker", TemplateTags: []string{"batch"}},
+	} {
+		if got := scaffoldWorkload(s); got != "batch" {
+			t.Errorf("%s: scaffoldWorkload = %q, want batch", name, got)
+		}
+	}
+	// What the template DECLARES comes first (inferFamily): a template labelled
+	// function is a function whatever it is named or tagged.
+	if got := scaffoldWorkload(&scaffoldedRepo{TemplateName: "springboot-batch-job", TemplateTags: []string{"batch"},
+		TemplateLabels: map[string]string{"adhar.io/workload": "function"}}); got != "function" {
+		t.Errorf("a template declaring adhar.io/workload: function registered as %q", got)
+	}
+	if got := scaffoldWorkload(&scaffoldedRepo{TemplateName: "go-web-service", TemplateTags: []string{"go"}}); got != "" {
+		t.Errorf("a plain service registered as %q", got)
+	}
+
+	app := pavedRoadApplication("nightly", "", &scaffoldedRepo{TemplateName: "springboot-batch-service", TemplateTags: []string{"java", "etl"},
+		TemplateLabels: map[string]string{"adhar.io/dashboard-type": "batch-jvm"},
+		CloneURL:       "https://gitea.example.io/adhar/nightly.git", ManifestPath: "deploy"}, "")
+	typ, _, _ := unstructured.NestedString(app.Object, "spec", "parameters", "type")
+	if labels := app.GetLabels(); typ != "batch" || labels["adhar.io/workload"] != "batch" || labels["adhar.io/dashboard-type"] != "batch-jvm" {
+		t.Errorf("a batch template registered type %q, labels %v; want type batch, workload batch, dashboard batch-jvm", typ, labels)
+	}
+
+	// An old control plane refuses `batch` the way it refused `function`; the
+	// retry drops the field and keeps the labels, which still say batch.
+	var sent []bool
+	err := applyWithTypeRetry(app, func(obj *unstructured.Unstructured) error {
+		_, has, _ := unstructured.NestedFieldNoCopy(obj.Object, "spec", "parameters", "type")
+		sent = append(sent, has)
+		if has {
+			return errors.New(`Application.platform.adhar.io "nightly" is invalid: spec.parameters.type: Unsupported value: "batch"`)
+		}
+		return nil
+	})
+	if err != nil || len(sent) != 2 || !sent[0] || sent[1] {
+		t.Errorf("batch refusal: err %v, type sent per attempt %v", err, sent)
+	}
+	if labels := app.GetLabels(); labels["adhar.io/workload"] != "batch" || labels["adhar.io/dashboard-type"] != "batch-jvm" {
+		t.Errorf("the retry dropped the batch labels: %v", labels)
 	}
 }
 

@@ -16,6 +16,8 @@ metadata:
       lifecycle trusts Harbor's internal TLS when it pushes/pulls images.
 spec:
   background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
   rules:
     - name: inject-adhar-ca
       match:

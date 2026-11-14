@@ -1,0 +1,53 @@
+# Kyverno's autogen covers only the built-in controllers, so the batch pod standards
+# are written for spec.tasks[*].template (design 0025 §10.3); each variant breaks one.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: volcano-pod-standards}
+policies: [../queue-binding/policy-under-test.yaml]
+resources: [resources.yaml]
+results:
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-has-a-deadline-and-a-ttl
+  kind: Job
+  resources: [standard-run]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-has-a-deadline-and-a-ttl
+  kind: Job
+  resources: [no-ttl, no-task-deadline]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-has-a-deadline-and-a-ttl
+  kind: Job
+  resources: [not-batch]
+  result: skip
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-never-restarts-in-place-and-uses-a-batch-class
+  kind: Job
+  resources: [standard-run]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-never-restarts-in-place-and-uses-a-batch-class
+  kind: Job
+  resources: [restarts-in-place, service-priority, task-service-priority, native-class]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-mounts-no-persistent-volume
+  kind: Job
+  resources: [standard-run]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-mounts-no-persistent-volume
+  kind: Job
+  resources: [claims-a-volume, mounts-a-pvc]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-containers-memory-request-equals-its-limit
+  kind: Job
+  resources: [standard-run]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-run-containers-memory-request-equals-its-limit
+  kind: Job
+  resources: [overcommits-memory]
+  result: fail

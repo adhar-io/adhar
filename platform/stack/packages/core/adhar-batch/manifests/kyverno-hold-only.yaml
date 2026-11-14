@@ -20,6 +20,8 @@ metadata:
       its adhar.io/batch-hold annotation.
 spec:
   background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
   rules:
     - name: only-the-hold-annotation-changes
       match:
@@ -36,11 +38,8 @@ spec:
               - kind: ServiceAccount
                 name: crossplane
                 namespace: adhar-system
-      preconditions:
-        all:
-          - key: "{{ request.userInfo.username }}"
-            operator: NotEquals
-            value: "system:*"
+      # No `system:*` precondition: `edit` grants a team's own ServiceAccounts
+      # `patch batchjobs` too, and exempting them would let CI rewrite a definition.
       context:
         - name: changed
           variable:

@@ -30,6 +30,7 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0025](0025-ai-gateway-agentgateway.md) | agentgateway as the platform’s AI data plane (LLM routing, federated MCP, guardrails) | Accepted |
 | [0026](0026-concept-hierarchy.md) | Organisation → Team → Project → Application → Environment → Release as one declarative control plane (XRDs, one label vocabulary, Kargo-backed releases) | Accepted |
 | [0027](0027-functions-on-knative.md) | Functions standardize on Knative Serving/Eventing; OpenFunction removed from the platform stack | Accepted |
+| [0028](0028-batch-scheduler.md) | Volcano is the batch scheduler; Armada is not adopted ([design 0025](../design/0025-batch-platform.md)) | Proposed |
 
 ## Proposing an ADR
 

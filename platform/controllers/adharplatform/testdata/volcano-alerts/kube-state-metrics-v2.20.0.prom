@@ -1,0 +1,107 @@
+# Captured 2026-11-14 from kube-state-metrics v2.20.0 running the rendered
+# prometheus-kube-state-metrics-customresourcestate-config against an API server
+# serving core/volcano's CRDs, with one root queue, two leaves, a PodGroup and a
+# Volcano Job. TestVolcanoQueueAlertRuleTestsUseTheSeriesKubeStateMetricsPublishes
+# holds testdata/volcano-alerts/tests.yaml to these names and labels.
+# HELP kube_volcano_job_status_phase The Volcano Job's phase.
+# TYPE kube_volcano_job_status_phase gauge
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Aborted",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Aborting",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Completed",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Completing",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Failed",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Pending",queue="acme-payments-prod",vcjob="settlement-abc"} 1
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Restarting",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Running",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Terminated",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+kube_volcano_job_status_phase{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",phase="Terminating",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+# HELP kube_volcano_job_spec_min_available Pods the job needs running together (minAvailable): the gang size.
+# TYPE kube_volcano_job_spec_min_available gauge
+kube_volcano_job_spec_min_available{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 5
+# HELP kube_volcano_job_status_pending Pods pending.
+# TYPE kube_volcano_job_status_pending gauge
+kube_volcano_job_status_pending{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 5
+# HELP kube_volcano_job_status_running Pods running.
+# TYPE kube_volcano_job_status_running gauge
+kube_volcano_job_status_running{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+# HELP kube_volcano_job_status_succeeded Pods that succeeded.
+# TYPE kube_volcano_job_status_succeeded gauge
+kube_volcano_job_status_succeeded{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+# HELP kube_volcano_job_status_failed Pods that failed.
+# TYPE kube_volcano_job_status_failed gauge
+kube_volcano_job_status_failed{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+# HELP kube_volcano_job_status_retry_count Times the whole gang was restarted (RestartJob).
+# TYPE kube_volcano_job_status_retry_count gauge
+kube_volcano_job_status_retry_count{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 0
+# HELP kube_volcano_job_created Unix creation time of the Volcano Job.
+# TYPE kube_volcano_job_created gauge
+kube_volcano_job_created{batch_job="settlement",customresource_group="batch.volcano.sh",customresource_kind="Job",customresource_version="v1alpha1",environment="prod",namespace="acme-payments-prod",queue="acme-payments-prod",vcjob="settlement-abc"} 1.79462085e+09
+# HELP kube_volcano_podgroup_status_phase The PodGroup's phase. Pending and Inqueue are a gang that is waiting: Pending for its queue, Inqueue for nodes.
+# TYPE kube_volcano_podgroup_status_phase gauge
+kube_volcano_podgroup_status_phase{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",phase="Completed",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+kube_volcano_podgroup_status_phase{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",phase="Inqueue",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 1
+kube_volcano_podgroup_status_phase{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",phase="Pending",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+kube_volcano_podgroup_status_phase{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",phase="Running",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+kube_volcano_podgroup_status_phase{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",phase="Unknown",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+# HELP kube_volcano_podgroup_spec_min_member Members the gang needs before any of them is bound (minMember).
+# TYPE kube_volcano_podgroup_spec_min_member gauge
+kube_volcano_podgroup_spec_min_member{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 5
+# HELP kube_volcano_podgroup_spec_min_resources What the gang needs admitted at once (minResources) per resource: what its queue must have room for.
+# TYPE kube_volcano_podgroup_spec_min_resources gauge
+kube_volcano_podgroup_spec_min_resources{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod",resource="cpu"} 2.5
+kube_volcano_podgroup_spec_min_resources{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod",resource="memory"} 5.36870912e+09
+# HELP kube_volcano_podgroup_status_running Members running.
+# TYPE kube_volcano_podgroup_status_running gauge
+kube_volcano_podgroup_status_running{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+# HELP kube_volcano_podgroup_status_succeeded Members that succeeded.
+# TYPE kube_volcano_podgroup_status_succeeded gauge
+kube_volcano_podgroup_status_succeeded{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+# HELP kube_volcano_podgroup_status_failed Members that failed.
+# TYPE kube_volcano_podgroup_status_failed gauge
+kube_volcano_podgroup_status_failed{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 0
+# HELP kube_volcano_podgroup_status_condition The PodGroup's conditions (Unschedulable carries the scheduler's reason).
+# TYPE kube_volcano_podgroup_status_condition gauge
+kube_volcano_podgroup_status_condition{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod",reason="NotEnoughResources",type="Unschedulable"} 1
+# HELP kube_volcano_podgroup_created Unix creation time of the PodGroup.
+# TYPE kube_volcano_podgroup_created gauge
+kube_volcano_podgroup_created{batch_job="settlement",customresource_group="scheduling.volcano.sh",customresource_kind="PodGroup",customresource_version="v1beta1",environment="prod",namespace="acme-payments-prod",podgroup="settlement-abc-1234",queue="acme-payments-prod"} 1.79462085e+09
+# HELP kube_volcano_queue_status_state The queue's state; only an Open queue takes new work.
+# TYPE kube_volcano_queue_status_state gauge
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",state="Closed"} 0
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",state="Closing"} 0
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",state="Open"} 1
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",state="Unknown"} 0
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",state="Closed",team="payments",tier="prod"} 0
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",state="Closing",team="payments",tier="prod"} 0
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",state="Open",team="payments",tier="prod"} 1
+kube_volcano_queue_status_state{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",state="Unknown",team="payments",tier="prod"} 0
+# HELP kube_volcano_queue_spec_capability The queue's ceiling (capability) per resource: cpu in cores, memory in bytes.
+# TYPE kube_volcano_queue_spec_capability gauge
+kube_volcano_queue_spec_capability{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",resource="cpu"} 22
+kube_volcano_queue_spec_capability{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",resource="memory"} 2.5769803776e+10
+kube_volcano_queue_spec_capability{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",resource="cpu",team="payments",tier="prod"} 4
+kube_volcano_queue_spec_capability{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",resource="memory",team="payments",tier="prod"} 8.589934592e+09
+kube_volcano_queue_spec_capability{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-dev",resource="cpu",team="payments",tier="dev"} 4
+kube_volcano_queue_spec_capability{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-dev",resource="memory",team="payments",tier="dev"} 8.589934592e+09
+# HELP kube_volcano_queue_status_allocated What the queue's running work holds per resource.
+# TYPE kube_volcano_queue_status_allocated gauge
+kube_volcano_queue_status_allocated{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",resource="cpu"} 3.5
+kube_volcano_queue_status_allocated{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch",resource="memory"} 7.516192768e+09
+kube_volcano_queue_status_allocated{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",resource="cpu",team="payments",tier="prod"} 3.5
+kube_volcano_queue_status_allocated{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",resource="memory",team="payments",tier="prod"} 7.516192768e+09
+kube_volcano_queue_status_allocated{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",resource="pods",team="payments",tier="prod"} 4
+# HELP kube_volcano_queue_status_pending PodGroups waiting for the queue to admit them.
+# TYPE kube_volcano_queue_status_pending gauge
+kube_volcano_queue_status_pending{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch"} 0
+kube_volcano_queue_status_pending{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",team="payments",tier="prod"} 1
+kube_volcano_queue_status_pending{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-dev",team="payments",tier="dev"} 0
+# HELP kube_volcano_queue_status_inqueue PodGroups admitted by the queue and waiting for nodes.
+# TYPE kube_volcano_queue_status_inqueue gauge
+kube_volcano_queue_status_inqueue{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch"} 0
+kube_volcano_queue_status_inqueue{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",team="payments",tier="prod"} 1
+kube_volcano_queue_status_inqueue{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-dev",team="payments",tier="dev"} 0
+# HELP kube_volcano_queue_status_running PodGroups running.
+# TYPE kube_volcano_queue_status_running gauge
+kube_volcano_queue_status_running{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",parent="root",queue="adhar-batch"} 0
+kube_volcano_queue_status_running{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-prod",team="payments",tier="prod"} 2
+kube_volcano_queue_status_running{customresource_group="scheduling.volcano.sh",customresource_kind="Queue",customresource_version="v1beta1",organisation="acme",parent="adhar-batch",queue="acme-payments-dev",team="payments",tier="dev"} 0
