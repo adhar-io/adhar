@@ -1,0 +1,59 @@
+# The Mimir ruler's own health, evaluated by the in-cluster Prometheus (no
+# adhar.io/rules-target label). The rules in batch-app-alerts.yaml reach a person
+# only if four things hold: Alloy loads them, the ruler runs, it evaluates them,
+# and it can hand what fires to the Alertmanager. Each fails silently, and a
+# batch alert that never fires reads exactly like a healthy batch platform, so
+# each is watched from the side that does not depend on it. Every series here
+# was observed on a Mimir 3.2.0 ruler with these rule groups loaded through its
+# API (2026-11-14); the ruler is scraped through servicemonitor.yaml, whose
+# relabelling makes its job "adhar-system/ruler".
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mimir-ruler
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/name: mimir
+    app.kubernetes.io/component: ruler
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    - name: mimir.ruler
+      rules:
+        - alert: MimirRulerDown
+          expr: (max(up{job="adhar-system/ruler"}) or vector(0)) < 1
+          for: 15m
+          labels: {severity: warning, source: mimir}
+          annotations:
+            summary: "The Mimir ruler is not running"
+            description: "No alert on a series that lives only in Mimir is evaluated, BatchNoProgress, BatchDeadLetterGrowing and the batch deadline alerts among them. `kubectl -n adhar-system describe deploy mimir-ruler`."
+        # Loaded by observability/alloy's mimir.rules.kubernetes; the Mimir rule
+        # namespace is "<prefix>/<namespace>/<name>/<uid>", so the group is found
+        # by the PrometheusRule's name.
+        - alert: MimirBatchRulesNotLoaded
+          expr: absent(cortex_prometheus_rule_group_rules{job="adhar-system/ruler", rule_group=~".*adhar-batch-app.*;adhar\\.batch\\.app\\.alerts"} > 0)
+          for: 30m
+          labels: {severity: warning, source: mimir}
+          annotations:
+            summary: "The batch alerts are not loaded into the Mimir ruler"
+            description: "The ruler has no adhar.batch.app.alerts group from PrometheusRule adhar-system/adhar-batch-app, so BatchNoProgress, BatchDeadLetterGrowing and the deadline alerts cannot fire. Alloy's mimir.rules.kubernetes loads it: check that component in the Alloy UI (port 12345) and its log for the ruler API's answer."
+        - alert: MimirRuleEvaluationsFailing
+          expr: sum by (rule_group) (rate(cortex_prometheus_rule_evaluation_failures_total{job="adhar-system/ruler"}[10m])) > 0
+          for: 15m
+          labels: {severity: warning, source: mimir}
+          annotations:
+            summary: "Mimir ruler group {{ $labels.rule_group }} fails to evaluate"
+            description: "Its queries return errors rather than empty results, so its alerts can neither fire nor resolve. The ruler's log names the rule and the query error."
+        - alert: MimirRulerCannotNotify
+          expr: |
+            (max(cortex_prometheus_notifications_alertmanagers_discovered{job="adhar-system/ruler"}) < 1)
+            or
+            (sum(rate(cortex_prometheus_notifications_errors_total{job="adhar-system/ruler"}[10m])) + sum(rate(cortex_prometheus_notifications_dropped_total{job="adhar-system/ruler"}[10m])) > 0)
+          for: 15m
+          labels: {severity: warning, source: mimir}
+          annotations:
+            summary: "The Mimir ruler cannot deliver its alerts"
+            description: "It has no Alertmanager to send to, or its sends fail or are dropped: alerts it fires never reach OnCall. Its alertmanager_url is the platform Alertmanager (mimir/values.yaml); check that prometheus-kube-prometheus-alertmanager answers on 9093."

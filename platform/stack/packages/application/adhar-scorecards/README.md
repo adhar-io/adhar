@@ -19,6 +19,8 @@ CronJob adhar-scorecard-scorer ──► reads (read-only SA):
                                      • Kyverno PolicyReports    (pass rate)
                                      • Velero Schedules         (backup coverage)
                                      • CNPG Clusters            (backup config)
+                                     • BatchJobs, their rules, runs and
+                                       Prometheus history       (batch rules)
                                           │
                                           ▼  score.sh (kubectl | jq)
                        ConfigMap adhar-system/adhar-scorecards
@@ -67,6 +69,31 @@ picks them up. Weights are relative; they need not sum to 100.
 - **Graceful empties** — if a signal's source CRD isn't installed, the scorer
   substitutes an empty list, so it runs cleanly on a minimal local cluster
   (e.g. no Velero/Kyverno) and simply marks those signals not-applicable.
+
+### Batch applications
+
+An application whose Argo CD Applications deliver `BatchJob`s (design 0025)
+earns five more signals, graded on the BatchJobs of its most-promoted
+environment. `batch.jq` (in `adhar-scorecard-script`) projects the evidence per
+BatchJob; `score.jq` grades it. An application with no BatchJob gets none of
+these signals, so a service's ledger does not change.
+
+| Signal | Category | Passes when |
+|---|---|---|
+| `batch_restart_test` | resilience | every job's newest restart run that ended (trigger `restart`: `adhar batch restart`, or `adhar batch run --wait` restarting a failed run as `-r<n>`), on any environment, completed and is younger than `batch_restart_max_age_days` (30); or the resilience runner's batch restart test (`adhar-resilience-results` `.<app>.batchRestart`, `status: passed`) is fresher than `evidence_max_age_days`. The scorer records each job's newest restart in `adhar-scorecards-batch-restarts`, so the proof outlives the run, which is deleted 7 days after it ends |
+| `batch_alerts` | observability | `alerts.enabled` is not false and the composed `PrometheusRule <name>-batch` carries `BatchRunFailed`, and on a schedule `BatchNoRecentSuccess` |
+| `batch_jdbc_repository` | reliability | the JobRepository's Secret (`database.secretRef`) is published by a CloudNativePG cluster in the job's namespace (`<cluster>-app`, or the cluster's bootstrap Secret), or is the connection Secret of a `Database` on a cloud PostgreSQL composition (`database-aws-rds-postgresql`, `database-gcp-cloudsql`; `writeConnectionSecretToRef`, else `<name>-db`) |
+| `batch_deadline` | operations | every scheduled job sets `sla.finishBy` (an on-demand job has no deadline to set: not applicable) |
+| `batch_success_rate` | reliability | at least `batch_success_rate_min_pct` (95) of the runs that ended in the last `batch_window_days` (7) succeeded, and no schedule has stopped: a scheduled job older than the window, neither held (`adhar.io/batch-hold`) nor declared suspended, with no run ended in it fails the rate instead of reading not applicable |
+
+The success rate is counted by Prometheus from kube-state-metrics'
+`kube_job_complete`/`kube_job_failed` (joined to `kube_job_labels` on the
+`adhar.io/batch-job` label) and `kube_volcano_job_status_phase` for gangs,
+because those series outlive the Job: a CronJob keeps only its last three runs of
+each outcome. When Prometheus does not answer, the runs still kept are counted
+and the detail says so, and no schedule is called stopped (a healthy job's kept
+runs are gone after their TTL too). A batch application serves nothing, so
+`httproute_exposed`, `load_test` and `chaos_pod_delete` do not apply to it.
 
 ## Grades
 

@@ -9,6 +9,11 @@
 #   ConfigMap   <name>-run    the RUN TEMPLATE every client starts a run from
 #   CronJob     <name>        when `schedule` is set: batch/v1, or Volcano's for a gang
 #   PrometheusRule <name>-batch  the alerts of §11.3
+#   ConfigMap   <name>-calendar  when `schedule.calendar` names one: its copy (D5)
+#
+# Every run also carries the JobRepository's retention (ADHAR_BATCH_RETENTION_DAYS,
+# _KEEP_LAST, D4) and, with a calendar, ADHAR_BATCH_CALENDAR, the path of the copy
+# it mounts read-only. The smoke run in test (D6) is the Project composition's.
 #
 # The run is one of three shapes (the run template's `kind`):
 #   Job          mode single. On Volcano only the pod changes: schedulerName volcano,
@@ -78,8 +83,12 @@ spec:
                    preempts for one; Volcano picks victims among its own jobs only. */ -}}
             {{- $volcanoClass := ternary "adhar-batch-volcano-critical" "adhar-batch-volcano" (eq $priority "critical") -}}
             {{- $partitioned := eq (dig "mode" "single" $p) "partitioned" -}}
-            {{- $workers := int (dig "workers" 4 $p) -}}
+            {{- $workers := int (dig "workers" 2 $p) -}}
             {{- $gridSize := int (dig "gridSize" (mul 4 $workers) $p) -}}
+            {{- /* D5: the business calendar is a ConfigMap of this name labelled
+                   adhar.io/batch-calendar "true", in the job's namespace or else in
+                   adhar-system. It is asked for on the first pass, with the namespace. */ -}}
+            {{- $calendarName := dig "schedule" "calendar" "" $p -}}
             {{- /* The first call has none of the extra resources yet: a namespace always
                    exists, so its absence means this is the pass that only asks. Every
                    refusal below reads the namespace, and must not fire on a pass that
@@ -147,6 +156,18 @@ spec:
                 matchName: {{ printf "%s-quota" $ns | quote }}
                 namespace: {{ $ns | quote }}
               {{- end }}
+              {{- if $calendarName }}
+              calendarLocal:
+                apiVersion: v1
+                kind: ConfigMap
+                matchName: {{ $calendarName | quote }}
+                namespace: {{ $ns | quote }}
+              calendarPlatform:
+                apiVersion: v1
+                kind: ConfigMap
+                matchName: {{ $calendarName | quote }}
+                namespace: {{ $platformNS | quote }}
+              {{- end }}
               {{- if and $volcanoInstalled $leaf }}
               leafQueue:
                 apiVersion: scheduling.volcano.sh/v1beta1
@@ -198,6 +219,70 @@ spec:
             {{- range $k, $v := (dig "env" (dict) $p) -}}
             {{-   if or (hasPrefix "ADHAR_BATCH_" $k) (has $k (list "ADHAR_ENVIRONMENT" "POD_NAME" "POD_UID" "NODE_NAME" "JOB_COMPLETION_INDEX" "SPRING_DATASOURCE_URL" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD")) -}}
             {{-     fail (printf "env %s is owned by the runner's contract and cannot be set on a BatchJob; parameters go in parameters.parameters and the database in parameters.database" $k) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* Phase 3. The smoke run (D6) and a dependency run (§12) are started by
+                   the platform with values for DECLARED parameters; a name the job does
+                   not declare would be refused by the CLI and the runner at the moment
+                   the gate or the observer starts it, so it is refused here instead. */ -}}
+            {{- $declaredNames := list -}}
+            {{- range (dig "parameters" (list) $p) }}{{ $declaredNames = append $declaredNames (get . "name") }}{{ end -}}
+            {{- range $k := (keys (dig "smoke" "parameters" (dict) $p) | sortAlpha) -}}
+            {{-   if not (has $k $declaredNames) -}}
+            {{-     fail (printf "smoke.parameters names %s, which the job does not declare in parameters.parameters: the smoke run in test would be refused as invalid and block every promotion" $k) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* The business-date parameter the observer sets on a dependency run: the one
+                   named businessDate, else the first date the schedule supplies (the
+                   observer's businessDateField). It is needed for EVERY dependency, not
+                   only a same-date one: it is the run's identity, so without it the
+                   second night's run has the first night's name and never starts. */ -}}
+            {{- $businessDate := "" -}}
+            {{- if has "businessDate" $declaredNames }}{{ $businessDate = "businessDate" }}{{ end -}}
+            {{- range (dig "parameters" (list) $p) -}}
+            {{-   if and (not $businessDate) (eq (get . "type" | default "string") "date") (eq (get . "source" | default "input") "schedule") }}{{ $businessDate = get . "name" }}{{ end -}}
+            {{- end -}}
+            {{- range $d := (dig "dependsOn" (list) $p) -}}
+            {{-   if and (eq (get $d "batchJob") $name) (eq (get $d "namespace" | default $ns) $ns) -}}
+            {{-     fail (printf "dependsOn names %s itself: the job could never start" $name) -}}
+            {{-   end -}}
+            {{-   if not $businessDate -}}
+            {{-     fail (printf "dependsOn %s: the batch observer starts this job for a business date, and the job declares no businessDate parameter (nor a date the schedule supplies) to carry it; declare one, type date" (get $d "batchJob")) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* The values the gate and the observer give a run are only the smoke
+                   parameters, or only the business date; every other declared parameter
+                   takes its default. A parameter the CLI and the observer would then refuse
+                   (resolveParams: required with no default, a schedule-supplied non-date, a
+                   value outside `allowed` or of the wrong type) fails every promotion or
+                   every night, so it is refused here, where the author can see it. */ -}}
+            {{- $platformRuns := list -}}
+            {{- if hasKey $p "smoke" }}{{ $platformRuns = append $platformRuns (dict "what" "the smoke run (smoke.parameters)" "values" (dig "smoke" "parameters" (dict) $p) "given" "") }}{{ end -}}
+            {{- if and (dig "dependsOn" (list) $p) $businessDate }}{{ $platformRuns = append $platformRuns (dict "what" "a dependency run (dependsOn)" "values" (dict $businessDate "2000-01-01") "given" $businessDate) }}{{ end -}}
+            {{- range $pr := $platformRuns -}}
+            {{-   range $d := (dig "parameters" (list) $p) -}}
+            {{-     $pn := get $d "name" -}}
+            {{-     $pt := get $d "type" | default "string" -}}
+            {{-     $pv := toString (get $pr.values $pn) -}}
+            {{-     if not $pv -}}
+            {{-       if and (not (hasKey $d "default")) (not (and (eq $pt "date") (eq (get $d "source" | default "input") "schedule"))) -}}
+            {{-         if eq (toString (dig "required" false $d)) "true" -}}
+            {{-           fail (printf "%s gives no value for parameter %s, which is required and has no default: it would be refused every time it starts; give it a default or a value" $pr.what $pn) -}}
+            {{-         else if eq (get $d "source" | default "input") "schedule" -}}
+            {{-           fail (printf "%s gives no value for parameter %s, which the schedule supplies and is not a date, so a run off the schedule cannot fill it; give it a default or a value" $pr.what $pn) -}}
+            {{-         end -}}
+            {{-       end -}}
+            {{-     else if ne $pn $pr.given -}}
+            {{-       with (dig "allowed" (list) $d) -}}
+            {{-         if not (has $pv .) }}{{ fail (printf "%s sets %s=%s, which is not one of its allowed values %s" $pr.what $pn $pv (join ", " .)) }}{{ end -}}
+            {{-       end -}}
+            {{-       $typeOK := true -}}
+            {{-       if eq $pt "long" }}{{ $typeOK = regexMatch "^-?[0-9]{1,19}$" $pv }}{{ end -}}
+            {{-       if eq $pt "double" }}{{ $typeOK = regexMatch "^-?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][-+]?[0-9]+)?$" $pv }}{{ end -}}
+            {{-       if eq $pt "boolean" }}{{ $typeOK = has $pv (list "true" "false") }}{{ end -}}
+            {{-       if eq $pt "date" }}{{ $typeOK = regexMatch "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" $pv }}{{ end -}}
+            {{-       if not $typeOK }}{{ fail (printf "%s sets %s=%s, which is not a %s" $pr.what $pn $pv $pt) }}{{ end -}}
+            {{-     end -}}
             {{-   end -}}
             {{- end -}}
 
@@ -378,6 +463,30 @@ spec:
             {{-   $missingReason = $volcanoBlockerReason -}}
             {{-   $missing = append $missing (printf "scheduler volcano cannot run this job: %s; use auto or kubernetes" $volcanoBlocker) -}}
             {{- end -}}
+            {{- /* D5: the calendar the job names. The namespace's own wins over the
+                   platform's; a ConfigMap of that name that is not labelled as a calendar,
+                   or has no calendar.yaml, is not one. Its CONTENT is the runner's to
+                   judge (an invalid file is exit 2, the same parser as the in-service
+                   engine): a template cannot parse YAML without failing the whole
+                   reconcile on a typo. */ -}}
+            {{- $calendarSource := "" -}}
+            {{- $calendarText := "" -}}
+            {{- if $calendarName -}}
+            {{-   range $key := list "calendarLocal" "calendarPlatform" -}}
+            {{-     range (default (list) (getExtraResources $ $key)) -}}
+            {{-       $cm := dig "resource" (dict) . -}}
+            {{-       $text := dig "data" "calendar.yaml" "" $cm -}}
+            {{-       if and (not $calendarSource) (eq (toString (dig "metadata" "labels" "adhar.io/batch-calendar" "" $cm)) "true") (ne (trim (toString $text)) "") -}}
+            {{-         $calendarSource = printf "%s/%s" (dig "metadata" "namespace" "" $cm) (dig "metadata" "name" "" $cm) -}}
+            {{-         $calendarText = toString $text -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-   end -}}
+            {{-   if not $calendarSource -}}
+            {{-     $missing = append $missing (printf "calendar %s cannot be resolved: no ConfigMap of that name labelled adhar.io/batch-calendar \"true\" with a calendar.yaml key in namespace %s or %s" $calendarName $ns $platformNS) -}}
+            {{-     if not $missingReason }}{{ $missingReason = "CalendarUnresolvable" }}{{ end -}}
+            {{-   end -}}
+            {{- end -}}
             {{- $prereqOK := not $missing -}}
 
             {{- /* DEC-3: whether the queue can take this job, said on the BatchJob rather
@@ -447,6 +556,14 @@ spec:
             {{- with dig "jvm" "options" "" $p }}{{ $javaOpts = printf "%s %s" $javaOpts . }}{{ end -}}
             {{- $shutdown := sub $grace 30 -}}
             {{- if lt $shutdown 10 }}{{ $shutdown = 10 }}{{ end -}}
+            {{- /* D4: housekeeping runs inside the run, after a completed business run, so
+                   no CronJob and no JVM is spent on it. Every run carries both values,
+                   defaults included, and they are not client-settable: the integrity
+                   policy compares them with the template like any other env entry. */ -}}
+            {{- $retentionDays := toString (int (dig "retention" "days" 90 $p)) -}}
+            {{- $retentionKeep := toString (int (dig "retention" "keepLast" 30 $p)) -}}
+            {{- $calendarDir := "/etc/adhar/batch/calendar" -}}
+            {{- $calendarPath := printf "%s/calendar.yaml" $calendarDir -}}
             {{- $platformEnv := dict
                   "OTEL_SERVICE_NAME" $name
                   "OTEL_EXPORTER_OTLP_ENDPOINT" $otlp
@@ -531,7 +648,10 @@ spec:
                       (dict "name" "ADHAR_BATCH_PARAMS" "value" "{}")
                       (dict "name" "ADHAR_BATCH_TIME_ZONE" "value" $tz)
                       (dict "name" "ADHAR_BATCH_REPOSITORY_SCHEMA" "value" (dig "database" "schema" "batch" $p))
-                      (dict "name" "ADHAR_BATCH_SHUTDOWN_TIMEOUT" "value" (printf "%ds" $shutdown)) -}}
+                      (dict "name" "ADHAR_BATCH_SHUTDOWN_TIMEOUT" "value" (printf "%ds" $shutdown))
+                      (dict "name" "ADHAR_BATCH_RETENTION_DAYS" "value" $retentionDays)
+                      (dict "name" "ADHAR_BATCH_RETENTION_KEEP_LAST" "value" $retentionKeep) -}}
+            {{-     if $calendarName }}{{ $envList = append $envList (dict "name" "ADHAR_BATCH_CALENDAR" "value" $calendarPath) }}{{ end -}}
             {{-     $envList = concat $envList $partitionEnv -}}
             {{- /* The kit resolves `indexed` to manager at index 0 (BatchRole.effective).
                    Kubernetes injects the same variable itself; naming it here keeps the
@@ -556,13 +676,27 @@ spec:
                    so the limit cannot simply be left off either). */ -}}
             {{-     $limits := dict "memory" (get $rr "memory") "cpu" (get $rr "cpu") -}}
             {{-     with dig "resources" "cpuLimit" "" $p }}{{ $_ := set $limits "cpu" . }}{{ end -}}
+            {{-     $mounts := list (dict "name" "tmp" "mountPath" "/tmp") -}}
+            {{-     $volumes := list (dict "name" "tmp" "emptyDir" (dict "sizeLimit" (dig "resources" "tmpSize" "1Gi" $p))) -}}
+            {{-     if $calendarName -}}
+            {{-       $mounts = append $mounts (dict "name" "calendar" "mountPath" $calendarDir "readOnly" true) -}}
+            {{- /* defaultMode is what the API server writes in; the template states it so
+                   the run a client creates from it is the run the server stores. optional:
+                   a calendar that never resolved has no copy, and a run started from the
+                   template anyway (manual, smoke, a workflow step — none of them reads
+                   PrerequisitesReady) would otherwise sit in FailedMount until its
+                   activeDeadlineSeconds; mounted empty, the runner finds no file and exits
+                   2 at once, as D5 says. The cost: a run racing the copy's very first
+                   creation exits 2 instead of waiting for the mount, and is rerun. */ -}}
+            {{-       $volumes = append $volumes (dict "name" "calendar" "configMap" (dict "name" (printf "%s-calendar" $name) "items" (list (dict "key" "calendar.yaml" "path" "calendar.yaml")) "defaultMode" 420 "optional" true)) -}}
+            {{-     end -}}
             {{-     $container := dict
                       "name" "batch"
                       "image" $image
                       "env" $envList
                       "resources" (dict "requests" (dict "cpu" (get $rr "cpu") "memory" (get $rr "memory")) "limits" $limits)
                       "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")))
-                      "volumeMounts" (list (dict "name" "tmp" "mountPath" "/tmp")) -}}
+                      "volumeMounts" $mounts -}}
             {{-     with dig "envFrom" (list) $p }}{{ $_ := set $container "envFrom" . }}{{ end -}}
             {{-     $podSpec := dict
                       "restartPolicy" "Never"
@@ -573,7 +707,7 @@ spec:
                       "enableServiceLinks" false
                       "securityContext" (dict "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault"))
                       "containers" (list $container)
-                      "volumes" (list (dict "name" "tmp" "emptyDir" (dict "sizeLimit" (dig "resources" "tmpSize" "1Gi" $p)))) -}}
+                      "volumes" $volumes -}}
             {{- /* A Volcano Job has no Job-level deadline: each task's pod carries it
                    (adhar-batch-volcano-pod-standards, INV-1). A RestartJob makes new pods,
                    so the clock restarts with each attempt of the gang. */ -}}
@@ -657,8 +791,18 @@ spec:
 
             {{- /* What has been observed: a statusless kind is ready once it exists. */ -}}
             {{- $seen := dict -}}
-            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "schedule-volcano" "rules" -}}
+            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "schedule-volcano" "rules" "calendar" -}}
             {{-   $_ := set $seen $r (ne (toString (dig $r "resource" "metadata" "uid" "" $observed)) "") -}}
+            {{- end -}}
+            {{- /* The calendar copy. While the source cannot be resolved the copy already
+                   made is kept as it is: deleting it would leave a run in flight, and
+                   every run started from the template, without the file it mounts. The
+                   schedule is suspended meanwhile (PrerequisitesReady). */ -}}
+            {{- $calendarCopy := $calendarText -}}
+            {{- $calendarCopyFrom := $calendarSource -}}
+            {{- if and $calendarName (not $calendarSource) -}}
+            {{-   $calendarCopy = toString (dig "calendar" "resource" "data" "calendar.yaml" "" $observed) -}}
+            {{-   $calendarCopyFrom = toString (dig "calendar" "resource" "metadata" "annotations" "adhar.io/batch-calendar-source" "" $observed) -}}
             {{- end -}}
             {{- $composeSA := eq (dig "serviceAccountName" "" $p) "" -}}
 
@@ -725,7 +869,7 @@ spec:
             {{- end -}}
             {{- $templateCond := dict "status" "True" "reason" "Published" "message" (printf "runs start from ConfigMap %s-run" $name) -}}
             {{- if not (get $seen "run-template") }}{{ $templateCond = dict "status" "Unknown" "reason" "Creating" "message" (printf "creating ConfigMap %s-run" $name) }}{{ end -}}
-            {{- $prereqCond := dict "status" "True" "reason" "Met" "message" (printf "PriorityClass %s exists%s" $priorityClass (ternary (printf "; runs on Volcano queue %s" $leaf) "" $useVolcano)) -}}
+            {{- $prereqCond := dict "status" "True" "reason" "Met" "message" (printf "PriorityClass %s exists%s%s" $priorityClass (ternary (printf "; runs on Volcano queue %s" $leaf) "" $useVolcano) (ternary (printf "; business calendar %s from %s" $calendarName $calendarSource) "" (ne $calendarSource ""))) -}}
             {{- if not $prereqOK }}{{ $prereqCond = dict "status" "False" "reason" $missingReason "message" (join "; " $missing) }}{{ end -}}
             {{- $message := "" -}}
             {{- if not $prereqOK -}}
@@ -826,6 +970,25 @@ spec:
               parameters.json: {{ toJson $declared | toJson }}
               kind: {{ $runKind }}
               naming: v1
+            {{- if and $calendarName $calendarCopy }}
+            ---
+            # The business calendar (D5), copied from the ConfigMap the job names so a
+            # run's inputs stay inside its own namespace (a pod cannot mount a ConfigMap
+            # of adhar-system). Every run mounts it read-only at ADHAR_BATCH_CALENDAR; it
+            # carries no adhar.io/batch-calendar label, so it is never a calendar itself.
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ $name }}-calendar
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: calendar
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "calendar") | quote }}
+                adhar.io/batch-calendar-source: {{ $calendarCopyFrom | quote }}
+            data:
+              calendar.yaml: {{ $calendarCopy | toJson }}
+            {{- end }}
             {{- if $switchWaits }}
             ---
             # The schedule this job had, kept while its run finishes (see the header):
@@ -995,6 +1158,9 @@ spec:
               runTemplate: {{ printf "%s-run" $name | quote }}
               {{- if $cron }}
               cronJob: {{ $name | quote }}
+              {{- end }}
+              {{- if $calendarSource }}
+              calendar: {{ $calendarSource | quote }}
               {{- end }}
               {{- with get $cronStatus "lastScheduleTime" }}
               lastScheduleTime: {{ . | quote }}

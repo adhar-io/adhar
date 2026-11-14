@@ -31,6 +31,7 @@ var (
 	runWait      bool
 	runFollow    bool
 	runTimeout   time.Duration
+	runSmoke     bool
 
 	// pollInterval is how often --wait re-reads the run; tests shorten it.
 	pollInterval = 2 * time.Second
@@ -49,14 +50,30 @@ an existing run that completed is a success with no new run; one still
 running is waited for; one that failed is restarted as the next -r<n>; one
 that is stopped is reported as Stopped with a hint to resume. The process exit
 code is the run's (0 includes a skipped run), 4 for a stopped one, and -o json
-prints {run, namespace, batchJob, kind, status, exitCode, executionId, summary}.`,
+prints {run, namespace, batchJob, kind, status, exitCode, executionId, summary}.
+
+--smoke starts the job's smoke run (design 0025 D6), which the promotion into
+a test environment waits for: the parameters are the BatchJob's
+spec.parameters.smoke, the trigger is smoke and the run is named
+<job>-smoke-<sha7>, the first 7 hex characters of the image digest in the run
+template, so the same build verified again reuses its run. It refuses an image
+that is not pinned to a digest, and waits for the run template to carry the
+BatchJob's image before naming anything.`,
 	Example: `  adhar batch run importer -p businessDate=2026-11-03
   adhar batch run importer -p businessDate=2026-11-03 --wait --follow
-  adhar batch run importer --env prod --wait -o json | jq .status`,
+  adhar batch run importer --env prod --wait -o json | jq .status
+  adhar batch run importer -n test --smoke --wait -o json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runFollow && !runWait {
 			runWait = true
+		}
+		values, err := parseParamArgs(runParamArgs)
+		if err != nil {
+			return err
+		}
+		if runSmoke && len(values) > 0 {
+			return fmt.Errorf("a smoke run takes its parameters from the BatchJob's spec.parameters.smoke, not from -p")
 		}
 		cl, err := connect(cmd)
 		if err != nil {
@@ -67,27 +84,20 @@ prints {run, namespace, batchJob, kind, status, exitCode, executionId, summary}.
 			return err
 		}
 		ns, name := parseRef(args[0], ns)
-		values, err := parseParamArgs(runParamArgs)
-		if err != nil {
-			return err
-		}
 		var logs logSource
 		if runFollow {
 			logs = &podLogSource{cs: cl.cs}
 		}
-		outcome, err := startRun(ctx(cmd), cl.dc, logs, ns, name, values, runWait, runTimeout)
+		var outcome runOutcome
+		if runSmoke {
+			outcome, err = startSmokeRun(ctx(cmd), cl.dc, logs, ns, name, runWait, runTimeout)
+		} else {
+			outcome, err = startRun(ctx(cmd), cl.dc, logs, ns, name, values, runWait, runTimeout)
+		}
 		if err != nil {
 			return err
 		}
-		if machineReadable() {
-			if err := printMachine(outcome); err != nil {
-				return err
-			}
-		}
-		if outcome.ExitCode != 0 {
-			return helpers.ExitCode(outcome.ExitCode, nil)
-		}
-		return nil
+		return finishOutcome(outcome)
 	},
 }
 
@@ -95,6 +105,7 @@ func init() {
 	runCmd.Flags().StringArrayVarP(&runParamArgs, "param", "p", nil, "A parameter as key=value (repeatable)")
 	runCmd.Flags().BoolVar(&runWait, "wait", false, "Wait for the run to end and exit with its exit code")
 	runCmd.Flags().BoolVar(&runFollow, "follow", false, "Stream the run's logs while waiting (implies --wait)")
+	runCmd.Flags().BoolVar(&runSmoke, "smoke", false, "Start the job's smoke run (spec.parameters.smoke): <job>-smoke-<sha7 of the image digest>, trigger smoke")
 	runCmd.Flags().DurationVar(&runTimeout, "timeout", 0, "Give up waiting after this long (default: the job's activeDeadlineSeconds plus ten minutes)")
 }
 
@@ -120,6 +131,37 @@ func startRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name 
 	if err != nil {
 		return runOutcome{}, err
 	}
+	if len(resolved.Params) > 0 && !machineReadable() {
+		helpers.Printf("%s\n", helpers.CreateMuted("parameters "+paramsLine(t.Fields, resolved.Params)))
+	}
+	spec := runSpec{Base: base, Trigger: "manual", RestartTrigger: "restart",
+		build: func(n, trigger, restartOf string) *unstructured.Unstructured {
+			return buildRun(t, n, ns, trigger, resolved.Params, restartOf)
+		}}
+	return executeRun(c, dc, logs, job, spec, wait, timeout)
+}
+
+// runSpec is one client run before it exists: the base name of its identity,
+// the trigger it carries and how a member of its restart chain is built. A
+// person's run, a smoke run (D6), an ops command and a backfill date are all
+// one of these, so the idempotency of D2 is written once.
+type runSpec struct {
+	// Base is the run's name, and the head of its chain `<base>-r<n>`.
+	Base string
+	// Trigger is what the first run of the chain carries.
+	Trigger string
+	// RestartTrigger is what a retry in the chain carries: `restart` for a
+	// person's run, the run's own trigger for a smoke run or an ops command, so
+	// a retried smoke run is still a smoke run.
+	RestartTrigger string
+	// build makes the run named name; restartOf names the run it retries.
+	build func(name, trigger, restartOf string) *unstructured.Unstructured
+}
+
+// executeRun carries one run spec against the runs that already exist: create
+// it, or show/reuse/wait for/restart the chain member that exists (D2).
+func executeRun(c context.Context, dc dynamic.Interface, logs logSource, job *unstructured.Unstructured, spec runSpec, wait bool, timeout time.Duration) (runOutcome, error) {
+	ns, name, base := job.GetNamespace(), job.GetName(), spec.Base
 	rows, _, err := runsOfJob(c, dc, ns, name)
 	if err != nil {
 		return runOutcome{}, err
@@ -136,9 +178,6 @@ func startRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name 
 			helpers.Printf(format+"\n", args...)
 		}
 	}
-	if len(resolved.Params) > 0 {
-		say("%s", helpers.CreateMuted("parameters "+paramsLine(t.Fields, resolved.Params)))
-	}
 
 	// Without --wait the command does one thing: create the run, and show the
 	// existing one when the identity is taken (§3.4, §8.1). Restarting or
@@ -152,8 +191,7 @@ func startRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name 
 			sayHint(say, existing)
 			return outcomeOf(existing), nil
 		}
-		run := buildRun(t, base, ns, "manual", resolved.Params, "")
-		created, err := createRun(c, dc, run)
+		created, err := createRun(c, dc, spec.build(base, spec.Trigger, ""))
 		if errors.Is(err, errRunExists) {
 			return showExisting(c, dc, ns, base, say)
 		}
@@ -184,14 +222,12 @@ func startRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name 
 			say("%s", helpers.CreateWarning(w))
 		}
 		say("%s", helpers.CreateInfo(fmt.Sprintf("%s failed; restarting it as %s", prev.Name, decision.Target)))
-		run := buildRun(t, decision.Target, ns, "restart", resolved.Params, prev.Name)
-		if _, err := createRun(c, dc, run); err != nil && !errors.Is(err, errRunExists) {
+		if _, err := createRun(c, dc, spec.build(decision.Target, spec.RestartTrigger, prev.Name)); err != nil && !errors.Is(err, errRunExists) {
 			return runOutcome{}, err
 		}
 		target = decision.Target
 	default:
-		run := buildRun(t, base, ns, "manual", resolved.Params, "")
-		if _, err := createRun(c, dc, run); err != nil && !errors.Is(err, errRunExists) {
+		if _, err := createRun(c, dc, spec.build(base, spec.Trigger, "")); err != nil && !errors.Is(err, errRunExists) {
 			return runOutcome{}, err
 		}
 		say("%s", helpers.CreateSuccess(fmt.Sprintf("Started %s in %s", base, ns)))
@@ -222,7 +258,16 @@ func showExisting(c context.Context, dc dynamic.Interface, ns, name string, say 
 func sayHint(say func(string, ...interface{}), row runRow) {
 	switch row.Phase {
 	case phaseFailed:
-		say("%s", helpers.CreateMuted(fmt.Sprintf("`adhar batch restart %s` re-executes only the failed steps; `adhar batch logs %s` shows why", row.Name, row.Name)))
+		// An ops command or a smoke run is retried by asking for it again: a
+		// `restart` builds a business run and would drop the command (ops.go).
+		switch row.Trigger {
+		case triggerOps:
+			say("%s", helpers.CreateMuted(fmt.Sprintf("repeating the command with --wait retries it as the next -r<n>; `adhar batch logs %s` shows why", row.Name)))
+		case triggerSmoke:
+			say("%s", helpers.CreateMuted(fmt.Sprintf("`adhar batch run %s --smoke --wait` retries it as the next -r<n>; `adhar batch logs %s` shows why", row.BatchJob, row.Name)))
+		default:
+			say("%s", helpers.CreateMuted(fmt.Sprintf("`adhar batch restart %s` re-executes only the failed steps; `adhar batch logs %s` shows why", row.Name, row.Name)))
+		}
 	case phaseStopped:
 		say("%s", helpers.CreateMuted(fmt.Sprintf("`adhar batch resume %s` continues it from its last commit", row.Name)))
 	}

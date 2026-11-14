@@ -70,6 +70,78 @@ spec:
         - record: adhar:namespace_cost_usd:monthly_projected
           expr: adhar:namespace_cost_usd:hourly_total * 730
 
+    # ── what batch runs cost (design 0025 §11.2, PLAT-3.9) ──────────────────
+    #
+    # Batch is attributed by OpenCost's OWN cost model, not by requests: a run is
+    # what OpenCost allocates to its pods (container_*_allocation, max of request
+    # and usage) at its node's price, the figure the Observability / Cost
+    # dashboard's namespace table shows. Requests would be wrong here in a way
+    # they are not for a long-running service: kube-state-metrics keeps
+    # reporting a container's requests for as long as its pod object exists, and
+    # a finished run's pod stays until its Job's TTL. Measured 2026-11-14: 126
+    # Succeeded pods carried 159 request series, and OpenCost's allocation none.
+    #
+    # Pods are tied to their BatchJob by the adhar.io/batch-job label every run
+    # pod carries (kube_pod_labels, from kube-state-metrics' allowlist and from
+    # OpenCost's own copy) and to their run by kube_pod_owner: a Kubernetes Job
+    # and a Volcano Job are both owner_kind "Job". Teams come from the
+    # namespace's adhar.io/organisation and adhar.io/team labels, which
+    # OpenCost's kube_namespace_labels carries. A namespace without them is
+    # left out of the team roll-up only.
+    #
+    # Each rule is evaluated every 60 s, so what a job or a run SPENT over a
+    # range is sum_over_time(<hourly series>[range]) / 60, in USD. A run shorter
+    # than one evaluation can fall between two and cost nothing here: that is a
+    # minute of its pods at most. Read by the Batch row of Observability / Cost
+    # (kube-prometheus dash_observability.py). OpenCost's own API attributes the
+    # same pods with aggregate=label:adhar_io_batch_job.
+    - name: adhar.cost.batch
+      interval: 60s
+      rules:
+        - record: adhar:batch_run_pod:info
+          expr: |
+            label_replace(label_replace(
+              max by (namespace, pod, label_adhar_io_batch_job, owner_name) (
+                kube_pod_labels{label_adhar_io_batch_job!=""}
+                * on (namespace, pod) group_left (owner_name)
+                max by (namespace, pod, owner_name) (kube_pod_owner{job="kube-state-metrics", owner_kind="Job"})
+              ),
+            "batch_job", "$1", "label_adhar_io_batch_job", "(.+)"),
+            "run", "$1", "owner_name", "(.+)")
+        - record: adhar:batch_run_cost_usd:hourly
+          labels: {component: cpu}
+          expr: |
+            sum by (namespace, batch_job, run) (
+              sum by (namespace, pod, node) (container_cpu_allocation{job="opencost"})
+              * on (node) group_left () avg by (node) (node_cpu_hourly_cost{job="opencost"})
+              * on (namespace, pod) group_left (batch_job, run) adhar:batch_run_pod:info
+            )
+        # Allocation in BYTES against a per-GiB-hour price, as above.
+        - record: adhar:batch_run_cost_usd:hourly
+          labels: {component: ram}
+          expr: |
+            sum by (namespace, batch_job, run) (
+              sum by (namespace, pod, node) (container_memory_allocation_bytes{job="opencost"}) / 1024 / 1024 / 1024
+              * on (node) group_left () avg by (node) (node_ram_hourly_cost{job="opencost"})
+              * on (namespace, pod) group_left (batch_job, run) adhar:batch_run_pod:info
+            )
+        - record: adhar:batch_job_cost_usd:hourly
+          expr: sum by (namespace, batch_job, component) (adhar:batch_run_cost_usd:hourly)
+        - record: adhar:batch_job_cost_usd:hourly_total
+          expr: sum by (namespace, batch_job) (adhar:batch_run_cost_usd:hourly)
+        - record: adhar:namespace_team:info
+          expr: |
+            label_replace(label_replace(
+              max by (namespace, label_adhar_io_organisation, label_adhar_io_team) (kube_namespace_labels{label_adhar_io_team!=""}),
+            "team", "$1", "label_adhar_io_team", "(.+)"),
+            "organisation", "$1", "label_adhar_io_organisation", "(.+)")
+        - record: adhar:batch_team_cost_usd:hourly_total
+          expr: |
+            sum by (organisation, team) (
+              adhar:batch_job_cost_usd:hourly_total
+              * on (namespace) group_left (organisation, team) adhar:namespace_team:info
+            )
+
     # ── what teams are allowed to spend ─────────────────────────────────────
     #
     # Budgets are declared HERE rather than in a ConfigMap, because Prometheus

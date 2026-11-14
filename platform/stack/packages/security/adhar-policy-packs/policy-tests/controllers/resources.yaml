@@ -1,0 +1,60 @@
+# Each pack fix of 2026-11-14 both ways (see batch-runs/kyverno-test.yaml): the rules
+# still refuse what they exist to refuse.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: service-in-a-team-namespace, namespace: shop-dev, labels: { app.kubernetes.io/name: shop, adhar.io/owner: payments } }
+spec:
+  selector: { matchLabels: { app: shop } }
+  template:
+    metadata: { labels: { app: shop } }
+    spec:
+      containers:
+        - { name: shop, image: "harbor-core.adhar-system.svc.cluster.local/library/shop:1.2.3" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: service-in-default, namespace: default, labels: { app.kubernetes.io/name: shop, adhar.io/owner: payments } }
+spec:
+  selector: { matchLabels: { app: shop } }
+  template:
+    metadata: { labels: { app: shop } }
+    spec:
+      containers:
+        - { name: shop, image: "harbor.adhar.localtest.me/library/shop:1.2.3" }
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: job-owned-by-a-team, namespace: shop-dev, labels: { app.kubernetes.io/name: importer, adhar.io/team: payments } }
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111" }
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: job-owned-by-nobody, namespace: shop-dev, labels: { app.kubernetes.io/name: importer } }
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "registry.example.com/importer:1.0.0" }
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: job-with-a-team-but-no-name, namespace: shop-dev, labels: { adhar.io/team: payments } }
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - { name: batch, image: "harbor-core.adhar-system.svc.cluster.local.evil.example/importer:1.0.0" }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: pod-in-default, namespace: default }
+spec:
+  containers:
+    - { name: x, image: "harbor.adhar.localtest.me/library/x:1.0.0" }

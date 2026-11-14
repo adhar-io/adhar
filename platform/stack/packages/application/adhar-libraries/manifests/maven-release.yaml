@@ -250,6 +250,13 @@ spec:
         # Keep the local repository on the shared workspace so later stages
         # (test, publish) reuse what build resolved instead of re-downloading.
         - {name: MAVEN_OPTS, value: "-Dmaven.repo.local=$(workspaces.source.path)/.m2"}
+        # adhar-kit-batch's tests carry Spring Cloud AWS's S3 starter, whose
+        # protocol resolver builds an S3 client on EVERY resource lookup —
+        # classpath:… schema scripts included — and that client refuses to start
+        # without a region. A laptop has one in ~/.aws; this pod has none, so 65
+        # batch tests failed on "Unable to load region" (2026-11-14). The tests
+        # talk to RustFS/Testcontainers, never AWS: any region will do.
+        - {name: AWS_REGION, value: us-east-1}
       workingDir: $(workspaces.source.path)/src
       script: |
         #!/usr/bin/env bash

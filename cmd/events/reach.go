@@ -103,7 +103,7 @@ func probe(ctx context.Context, c *http.Client, base string) error {
 	case resp.StatusCode == http.StatusNotFound:
 		return fmt.Errorf("no event bridge on this cluster (the API server has no Service %s/%s)\n"+
 			"  The event bus is opt-in: enable the kafka-operator package, which declares\n"+
-			"  the bridge and the five adhar.* topics",
+			"  the bridge and the six adhar.* topics",
 			globals.AdharSystemNamespace, bridgeService)
 	case resp.StatusCode >= 500:
 		// The bridge is up; Kafka is not reachable from it. Distinguished

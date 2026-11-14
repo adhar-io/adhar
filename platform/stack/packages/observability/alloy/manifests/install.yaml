@@ -123,7 +123,25 @@ data:
     \ {\n\tgrpc {\n\t\tendpoint = \"127.0.0.1:14317\"\n\t}\n\toutput {\n\t\tlogs =\
     \ [otelcol.exporter.loki.otel_engine_logs.input]\n\t}\n}\n\n// OTLP logs \u2192\
     \ Loki, same stream labels as the pod-log tailer.\notelcol.exporter.loki \"otel_engine_logs\"\
-    \ {\n\tforward_to = [loki.write.hub.receiver]\n}"
+    \ {\n\tforward_to = [loki.write.hub.receiver]\n}\n\n// ---------------------------------------------------------------\n\
+    // Rules that must be evaluated where the series live (design 0025\n// section\
+    \ 11.3, PLAT-3.5). The in-cluster Prometheus evaluates every\n// PrometheusRule\
+    \ except those labelled adhar.io/rules-target: mimir\n// (kube-prometheus ruleSelector);\
+    \ this loads exactly those into the\n// hub's Mimir ruler, because their series\
+    \ (the OTLP metrics batch\n// runs push, which reach Mimir only) never exist in\
+    \ Prometheus. One\n// agent of the cluster syncs (the component honours clustering),\
+    \ every\n// sync_interval and on every PrometheusRule change.\n//\n// The ruler\
+    \ API sits behind the same gateway as the push endpoint\n// (HUB_MIMIR_URL), which\
+    \ supplies the tenant. Each cluster owns its own\n// Mimir rule namespaces (prefix\
+    \ adhar-<cluster>), because the loader\n// deletes every rule group under its\
+    \ prefix that its cluster does not\n// declare, and every query is pinned to that\
+    \ cluster's series.\n// ---------------------------------------------------------------\n\
+    mimir.rules.kubernetes \"hub\" {\n\taddress                = string.trim_suffix(sys.env(\"\
+    HUB_MIMIR_URL\"), \"/api/v1/push\")\n\tmimir_namespace_prefix = string.format(\"\
+    adhar-%s\", sys.env(\"HUB_CLUSTER_NAME\"))\n\n\trule_selector {\n\t\tmatch_labels\
+    \ = {\n\t\t\t\"adhar.io/rules-target\" = \"mimir\",\n\t\t}\n\t}\n\n\textra_query_matchers\
+    \ {\n\t\tmatcher {\n\t\t\tname       = \"cluster\"\n\t\t\tmatch_type = \"=\"\n\
+    \t\t\tvalue      = sys.env(\"HUB_CLUSTER_NAME\")\n\t\t}\n\t}\n}"
 ---
 apiVersion: v1
 data:

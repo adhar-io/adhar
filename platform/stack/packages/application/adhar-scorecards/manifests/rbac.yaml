@@ -81,6 +81,18 @@ rules:
   - apiGroups: ["aquasecurity.github.io"]
     resources: ["vulnerabilityreports"]
     verbs: ["get", "list"]
+  # Batch applications (design 0025, PLAT-3.7): the BatchJobs, the alerts composed
+  # for them, and their runs (restart proofs; the run history when Prometheus does
+  # not answer). Listed only in the application namespaces.
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["batchjobs", "databases"]
+    verbs: ["get", "list"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["prometheusrules"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch", "batch.volcano.sh"]
+    resources: ["jobs"]
+    verbs: ["get", "list"]
   # Efficiency: live pod CPU/memory usage from metrics-server, compared with
   # what the containers request.
   - apiGroups: ["metrics.k8s.io"]

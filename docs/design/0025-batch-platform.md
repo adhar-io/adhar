@@ -147,7 +147,7 @@ Delivery is phased; each phase ships on its own (§15):
 | Control plane | memory **97%** (`kube-apiserver` 9,022 MiB); 354 CRDs (16.4 MB JSON) |
 | Scheduling APIs | `scheduling.k8s.io/v1` only (the 1.37 beta Workload/PodGroup API is off) |
 | PriorityClasses | `adhar-node-bound` 900000, `adhar-critical-path` 800000, `kpack-control-plane` 10000, `kpack-build-high-priority` 1000, `kpack-build-low-priority` 1 (Never). **No batch class.** |
-| Environment namespaces | LimitRange default 500m/512Mi (request 100m/128Mi); ResourceQuota 16 CPU / 32 GiB / 100 pods; ingress-only default deny |
+| Environment namespaces | LimitRange default 500m/512Mi (request 100m/128Mi); ResourceQuota 4 CPU / 8 GiB / 20 pods by default (`cpuQuota`/`memoryQuota`/`podQuota` on the Environment; D25); ingress-only default deny |
 | Relevant installed | CNPG 1.30.0 (PG 18.4) · Strimzi 1.2.0 / Kafka 4.3.1 with `KafkaBridge/adhar-events` · Kyverno 1.19.0 · Argo CD v3.5.1 · Kargo v1.11.4 · KEDA 2.20.2 · Crossplane v2.4.2 · KSM v2.20.0 · Karmada hub v1.19.0 with **0 DataPlanes** · RustFS · Alloy/Mimir/Loki/Tempo (production profile) |
 | Batch-relevant facts | CronJob-created Jobs carry `batch.kubernetes.io/cronjob-scheduled-timestamp`. The RustFS root credential Secret `root-creds` exists in `dev`, `test` and `prod`. |
 
@@ -776,7 +776,7 @@ podReplacementPolicy: Failed      # the only value permitted with a failure poli
 | `JdbcItemReaderBuilder` / `JpaItemReaderBuilder` (existing) | 0 | Page size from `adhar.batch.page.size`, no longer hard-coded 50 (K8) |
 | `KeysetPagingItemReaderBuilder` | 1 | Stable order on a unique key, which is what restart needs |
 | `PostgresUpsertItemWriterBuilder` | 1 | `INSERT … ON CONFLICT (<keys>) DO UPDATE` — exactly-once output with a unique key |
-| `S3ItemReaderBuilder` / `S3ItemWriterBuilder` | 1 (after spike) | Spring Cloud AWS 4.x `Resource` against the RustFS endpoint, path-style. The spike (KIT-1.5a) must pass before it ships. Multi-object reads by prefix. `staged()` commit in P3. |
+| `S3ItemReaderBuilder` / `S3ItemWriterBuilder` | 1 (after spike) | Spring Cloud AWS 4.x `Resource` against the RustFS endpoint, path-style. The endpoint, path-style, region and credentials default to the platform's RustFS through `AdharS3EnvironmentPostProcessor` (D26). The spike (KIT-1.5a) must pass before it ships. Multi-object reads by prefix. `staged()` commit in P3. |
 | `JsonLinesItemReaderBuilder` / `JsonLinesItemWriterBuilder` | 1 | Until 6.1's `JsonLineMapper`/`JsonLineAggregator` [S63] |
 | Kafka, fixed-width, XML presets | 3 | Classes already in `spring-batch-infrastructure` 6.0.4 |
 | Iceberg / Parquet | 4 | Reads via Trino JDBC; bulk writes through the Iceberg API to the RustFS catalogue, never row by row through Trino |
@@ -1218,7 +1218,7 @@ spec:
                     image: { type: string }                             # Kargo pins it (kustomizeconfig)
                     imagePullSecrets: { type: array, items: { type: string } }    # default [harbor-dockercfg]
                     mode: { type: string, enum: [single, partitioned], default: single }
-                    workers: { type: integer, minimum: 1, maximum: 64, default: 4 }
+                    workers: { type: integer, minimum: 1, maximum: 64, default: 2 }
                     gridSize: { type: integer, minimum: 1, maximum: 1024 }        # default 4 × workers
                     scheduler: { type: string, enum: [auto, volcano, kubernetes], default: auto }
                     schedule:
@@ -1742,7 +1742,7 @@ skeleton/
 
 ### 9.2 `springboot-batch-partitioned` (Phase 2)
 
-- Same anatomy. `BatchJob` has `mode: partitioned`, `workers` (default 4) and `gridSize`.
+- Same anatomy. `BatchJob` has `mode: partitioned`, `workers` (default 2, D25) and `gridSize`.
 - One `@Configuration` with manager and worker beans conditional on `ADHAR_BATCH_ROLE` (§5.10).
 - `SqlKeyRangePartitioner` over the business table.
 - **`PartitionedJobIT`** runs one manager and two worker contexts against one Testcontainers Postgres. It kills a worker mid-partition, restarts, and asserts that only unfinished partitions re-ran and the row count is exact.
@@ -1970,7 +1970,7 @@ Design 0026 makes Argo Workflows the orchestration engine and lists `adhar-batch
   - **Prod's share** is the larger of the floor (the largest example gang, 4500m / 7Gi) and a quarter of the ceiling (D17): 5500m / 7Gi on the reference cluster, so three teams' prod leaves fit under the root. A fourth team's prod leaf is `QueueRejected`, and its jobs run on the native path with `QueueFits=False`. A platform team with more batch teams than that raises the ceiling or lowers the share explicitly; a share below the floor means the example gang can no longer reclaim.
   - Memory gets the smaller fraction because memory, not CPU, is what runs out.
   - The platform team sets the real value in config.
-  - Without Volcano (P1), the ceiling is the namespace ResourceQuota (16 CPU / 32 GiB per environment namespace) and the team allowance.
+  - Without Volcano (P1), the ceiling is the namespace ResourceQuota (4 CPU / 8 GiB per environment namespace by default, D25) and the team allowance.
 - **JVM sizing.**
   - The Paketo memory calculator sizes heap = limit − fixed regions. Fixed regions at the default 250 threads come to ≈567 MB.
   - With 50 threads, a 64 MB code cache and a Spring Batch metaspace of ≈150 MB *(estimate)*, the fixed regions are ≈280 MB. A 1536Mi limit leaves ≈1.2 GiB of heap.
@@ -2172,6 +2172,8 @@ The implementation plan runs several tasks in parallel, in different repositorie
 | D22 | **§4.3, §10.3 and §16.2 describe the queue policies as built** (DEC-8, default). Two policies, `adhar-batch-queue-default` (mutate) and `adhar-batch-queue-binding` (validate), in `core/adhar-batch/manifests/volcano/kyverno-queue.yaml`, synced by their own ApplicationSet element `adhar-batch-volcano`, enabled exactly where `volcano` is. Leaves are keyed on the namespace label `adhar.io/tier`, not `adhar.io/environment`. | Kyverno refuses a policy naming a kind the cluster does not serve, and `adhar-batch` is enabled everywhere; a policy mixing mutate and validate rules double-reports in the kyverno CLI; and an environment named `staging` has no leaf of its own. |
 | D23 | **The Queues view is a tab of Develop → Batch** (DEC-9, user decision), in the Develop module, shown only while discovery shows Volcano (§7.1). | The people who read a team's queues are its builders, beside its jobs. As a Platform-module view it would also need a vite expose and host-route wiring for no reader. |
 | D24 | **In-service scheduling on Quartz is a second engine of `BatchScheduler`, not a replacement** (§5.20). `adhar.batch.scheduler.engine: simple \| quartz`, default `simple`. The Quartz engine runs a clustered JDBC job store in the application's own database, in the batch schema (`<schema>.QRTZ_`, a separate kit Flyway stream), launches through `BatchOperator` with the same `JobParametersResolver`, slot identity and naming v1 as the platform, maps D5 calendars onto a kit Quartz calendar, and reports its schedules to the Console and CLI through a ConfigMap in the service's namespace. Two points fixed in verification (2026-11-14): a runtime trigger's identity has no slot of its own, so `fireNow` carries only the caller's parameters and `fireAt` is keyed on the requested instant (§5.20.5 rules 5–8); and an interval trigger's slots are the kit's grid `start + n × every`, never Quartz's `startTime`, which a `RESCHEDULE_NOW` misfire moves. | The user asked for Quartz beside Volcano. A backend switch deprecates nothing (D9), keeps the common case free of eleven tables, and keeps one identity function, so a service can change engine without losing a JobInstance. |
+| D25 | **Environment quota stays 4 CPU / 8 GiB / 20 pods; a partitioned run defaults to 2 workers** (user decision, 2026-11-14). The design had said 16 CPU / 32 GiB / 100 pods; the code has always composed 4 / 8Gi / 20, and the user chose to keep it. `workers` therefore defaults to 2, not 4: a default partitioned run is a 1-CPU manager plus two 1-CPU workers, 3 CPU and 3 × 1536Mi, which fits with room for the application's own pods. A larger run states `workers` and, where needed, raises the Environment's `cpuQuota`/`memoryQuota`; a shape over the quota is refused at compose time (§6.4) rather than left Pending. | At 4 workers the default partitioned run asked for 5 CPU and was refused by every default environment. |
+| D26 | **Spring Cloud AWS defaults to the platform's object store, RustFS** (user decision, 2026-11-14: "should use rustfs buckets if required"). When `spring-cloud-aws-starter-s3` is on an application's classpath, a kit `EnvironmentPostProcessor` (`AdharS3EnvironmentPostProcessor`, beside `BatchRuntimeEnvironmentPostProcessor`) supplies, only for keys the application has not set: `spring.cloud.aws.s3.endpoint` = `ADHAR_S3_ENDPOINT`, else `http://rustfs.adhar-system.svc.cluster.local:9000` when running in a cluster (`KUBERNETES_SERVICE_HOST` set); `spring.cloud.aws.s3.path-style-access-enabled=true`; `spring.cloud.aws.region.static` = `ADHAR_S3_REGION`, else `us-east-1` — ALWAYS, in or out of a cluster, because Spring Cloud AWS's `S3ProtocolResolver` builds the client on every resource lookup and a missing region crashes the first `classpath:` read, not the first S3 call; and `spring.cloud.aws.credentials.access-key/secret-key` from `ADHAR_S3_ACCESS_KEY` / `ADHAR_S3_SECRET_KEY`. Explicit `spring.cloud.aws.*` always wins, so an application that really talks to AWS sets its own. Consumers get the `ADHAR_S3_*` env from a `Bucket`'s connection Secret (`<name>-bucket`: endpoint, bucket, region) plus the credential it references (`root-creds`, R5): the templates' object-storage option and a BatchJob's bucket reference map them; a team never writes an endpoint. | The kit's S3 readers/writers were built and tested against RustFS (KIT-1.5a), yet nothing pointed an application at it: adding the starter defaulted to real AWS, and in a pod with no AWS region it failed every `classpath:` lookup (65 kit tests in CI, 2026-11-14). |
 
 ---
 

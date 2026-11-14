@@ -62,6 +62,14 @@ data:
   environment_order: "prod,test,dev"
   # recovery_time passes when the workload is fully ready again within this.
   chaos_recovery_max_seconds: "120"
+  # Batch applications (design 0025): batch_success_rate passes when at least this
+  # share of the runs that ended in the last batch_window_days succeeded.
+  batch_success_rate_min_pct: "95"
+  batch_window_days: "7"
+  # batch_restart_test: the newest restart of each job proves it for this long. The
+  # scorer records it (ConfigMap adhar-scorecards-batch-restarts), so the proof
+  # outlives the restart run, which is deleted 7 days after it ends.
+  batch_restart_max_age_days: "30"
 
   # ---- Resilience runner (adhar-resilience-runner CronJob) -----------------
   # Environments it may test, in order of preference. NEVER add prod here

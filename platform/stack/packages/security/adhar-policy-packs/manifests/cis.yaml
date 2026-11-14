@@ -384,6 +384,12 @@ metadata:
     app.kubernetes.io/part-of: policy-packs
   annotations:
     policies.kyverno.io/title: "CIS: Disallow Default Namespace"
+    # No autogen: the Pod rule reads metadata.namespace, and autogen moves a Pod
+    # pattern under spec.template, where a pod template never has a namespace — so
+    # every Deployment, Job and CronJob in every namespace failed the generated
+    # rule (found running the composed batch runs through the pack, 2026-11-14).
+    # Controllers are checked by validate-controller-namespace instead.
+    pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/category: "Policy Pack: CIS"
     policies.kyverno.io/severity: medium
     policies.kyverno.io/subject: Pod

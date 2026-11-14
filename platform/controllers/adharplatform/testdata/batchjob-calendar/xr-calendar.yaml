@@ -1,0 +1,27 @@
+# The design's scheduled example (0025 §6.3) with every Phase-3 field: a business
+# calendar of its own namespace (D5), retention (D4), a smoke run for test (D6), a
+# dependency and a deadline the batch observer acts on (§12, §11.4).
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: importer
+  namespace: prod
+spec:
+  parameters:
+    job: importJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schedule: { cron: "30 1 * * *", timeZone: Asia/Singapore, calendar: settlement-days }
+    parameters:
+      - { name: businessDate, type: date, source: schedule }
+      - { name: source, type: string, default: inbound/records.csv, pattern: "^[a-zA-Z0-9/._-]+$" }
+      - { name: dryRun, type: boolean, identifying: false, default: "false" }
+    resources: { cpu: "1", memory: 1536Mi }
+    priority: critical
+    database: { secretRef: importer-db-app }
+    envFrom: [ { secretRef: { name: importer-inbound-bucket } } ]
+    sla: { maxDuration: 3h, finishBy: "06:30", timeZone: Asia/Singapore }
+    retention: { days: 30, keepLast: 10 }
+    smoke:
+      parameters: { businessDate: "2026-11-03", source: smoke/records.csv, dryRun: "true" }
+    dependsOn:
+      - { batchJob: extract }

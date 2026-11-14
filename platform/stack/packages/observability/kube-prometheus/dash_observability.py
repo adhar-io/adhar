@@ -404,7 +404,7 @@ def cost():
              f'max by (persistentvolume) (kube_persistentvolume_capacity_bytes{{{KSM}}}) / 1073741824))')
     d = Dash(UIDS["cost"], "Observability / Cost",
              "What the cluster costs and who spends it, from OpenCost's list prices: nodes (CPU and RAM), persistent "
-             "volumes and load balancers, allocated per namespace and workload, and what is reserved but idle. "
+             "volumes and load balancers, allocated per namespace, workload and batch run, and what is reserved but idle. "
              "Values read 0 where OpenCost has no price for the cloud. Replaces OpenCost / Overview and OpenCost / "
              "Namespace.",
              tags("Observability", "cost", "opencost"),
@@ -480,6 +480,39 @@ def cost():
                [T(f'sum(container_memory_allocation_bytes{{{OC}}})', "allocated"),
                 T('sum(node_namespace_pod_container:container_memory_working_set_bytes)', "used")],
                unit="bytes", overrides=[ov_dashed("allocated")]), 12))
+
+    # Batch (design 0025 §11.2, PLAT-3.9): the adhar.cost.batch recording rules of
+    # adhar-cost-governance, OpenCost's allocation of each run's pods at node prices.
+    # Recorded every 60 s, so spend over the range is sum_over_time(...) / 60.
+    def spent(series, by):
+        return f'sum by ({by}) (sum_over_time({series}[$__range])) / 60'
+    d.row("Batch")
+    d.line(8,
+           (table("Batch spend by team", "What each team's batch runs cost over the time range: OpenCost's "
+                  "allocation of their pods at node prices. Teams come from the namespace's adhar.io/team label.",
+                  [spent("adhar:batch_team_cost_usd:hourly_total", "organisation, team")],
+                  [("organisation", "Organisation", None, None), ("team", "Team", None, None),
+                   ("Value #A", "Spent", "currencyUSD", {"decimals": 2})],
+                  sort=("Spent", True)), 8),
+           (table("Batch spend by job", "CPU and memory cost of every BatchJob's runs over the time range.",
+                  [spent('adhar:batch_job_cost_usd:hourly{component="cpu"}', "namespace, batch_job"),
+                   spent('adhar:batch_job_cost_usd:hourly{component="ram"}', "namespace, batch_job"),
+                   spent("adhar:batch_job_cost_usd:hourly_total", "namespace, batch_job")],
+                  [("namespace", "Namespace", None, None), ("batch_job", "BatchJob", None, None),
+                   ("Value #A", "CPU", "currencyUSD", {"decimals": 2}),
+                   ("Value #B", "Memory", "currencyUSD", {"decimals": 2}),
+                   ("Value #C", "Spent", "currencyUSD", {"decimals": 2})],
+                  sort=("Spent", True)), 16))
+    d.line(8,
+           (table("Cost per run", "Each run (its Job or Volcano Job) over the time range, so a run that suddenly "
+                  "costs twice its predecessors stands out.",
+                  [spent("adhar:batch_run_cost_usd:hourly", "namespace, batch_job, run")],
+                  [("namespace", "Namespace", None, None), ("batch_job", "BatchJob", None, None),
+                   ("run", "Run", None, None), ("Value #A", "Spent", "currencyUSD", {"decimals": 3})],
+                  sort=("Spent", True)), 16),
+           (ts("Batch cost per hour by team", "The hourly rate of every team's running batch, stacked.",
+               [T('sum by (team) (adhar:batch_team_cost_usd:hourly_total)', "{{team}}")],
+               unit="currencyUSD", stack=True, decimals=3), 8))
     return d
 
 

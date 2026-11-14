@@ -181,6 +181,12 @@ adhar batch hold importer --reason "upstream feed late"  # suspend the schedule 
 adhar batch release importer
 adhar batch queues --team acme-payments                  # the team's Volcano queues: used/deserved/capability, gangs waiting
 adhar batch schedules --env prod                         # in-service (Quartz) schedules: triggers, next fire, last run, replicas
+adhar batch backfill importer --from 2026-11-01 --to 2026-11-07 --parallel 2 --wait   # one run per business date
+adhar batch history importer --since 7d                  # runs, holds, missed slots, deadlines from adhar.batch (90 days)
+adhar batch dlq importer --replay --wait                 # dead letters per execution; replay them through an ops Job
+adhar batch abandon importer-09932cb3                    # mark its execution ABANDONED (ops Job)
+adhar batch recover importer-09932cb3 --execution 412    # recover an execution a dead owner left STARTED (ops Job)
+adhar batch run importer -n test --smoke --wait -o json  # the smoke run a promotion into test waits for
 ```
 
 A run is named for its identifying parameters (`<job>-<hash8>`), so starting the
@@ -213,6 +219,28 @@ is marked as stalled (unless the trigger is paused, complete or in error, which
 do not fire), and a report of a version this CLI does not know is shown
 as written (`raw` in `-o json`) rather than guessed at. The view is read-only: an
 in-service run is not a Kubernetes object, so it has no run, stop, restart or hold.
+
+Day-2 operations (design 0025 Phase 3). `backfill <job> --from D --to D` creates
+one run per business date, each named for its identity, so repeating it starts
+only what has not run (a completed date is left alone, a failed one restarted as
+`-r<n>`). On the native path the runs are created suspended and released in date
+order, never more than `--parallel` in flight, while the command waits; interrupted,
+the rest stay suspended until the same command runs again. On Volcano every run is
+created at once and the job's queue throttles them. `abandon`, `recover` and
+`dlq --replay` act on a Spring Batch execution without the CLI touching the job's
+database: each starts an ops Job from the run template with `ADHAR_BATCH_COMMAND`
+and `ADHAR_BATCH_EXECUTION_ID`, named `<job>-ops-<verb>-<executionId>`, which
+`adhar-batch-run-integrity` admits like any run; the execution defaults to the one
+the run's summary names, and a failed ops Job is retried by repeating the command
+with `--wait` (never by `restart`, which refuses ops and smoke runs). `dlq` counts
+dead letters from the summaries of the runs the cluster holds and from the end
+events on `adhar.batch` for older ones. `history` reads the job's `adhar.batch`
+events (subject `<namespace>/<job>`) through the platform's event bridge, as
+`adhar events list` does; `dlq` without the bridge still counts the runs.
+`run --smoke` is the verification run of a test promotion (D6): the parameters are
+the BatchJob's `spec.parameters.smoke`, the run is `<job>-smoke-<sha7>` for the
+digest in the run template, and it waits for the template to carry the BatchJob's
+image, so a new build is never passed on the previous build's smoke run.
 
 The full guide — declaring a `BatchJob`, exit codes, alerts, delivery — is
 [BATCH.md](BATCH.md).

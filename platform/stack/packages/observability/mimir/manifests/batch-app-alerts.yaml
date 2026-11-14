@@ -1,0 +1,158 @@
+# The batch alerts whose series live ONLY in Mimir (design 0025 §11.3, PLAT-3.5):
+# BatchNoProgress and BatchDeadLetterGrowing on the kit's OTLP meters, and
+# BatchDeadlineEndangered / BatchDeadlineMissed on the batch observer's SLA gauges.
+# A run pod pushes its meters over OTLP to Alloy, which remote-writes them to Mimir
+# and nowhere else, so the in-cluster Prometheus could never fire these. The label
+# below is what routes the rule: kube-prometheus's ruleSelector leaves out exactly
+# adhar.io/rules-target: mimir, and observability/alloy's mimir.rules.kubernetes
+# loads exactly that into the Mimir ruler (one replica, values.yaml), whose
+# notifier sends to the platform Alertmanager like every other rule
+# (TestPrometheusAndTheMimirRulerPartitionThePrometheusRules).
+#
+# The loader pins every selector below to cluster="<HUB_CLUSTER_NAME>", so every
+# aggregation keeps `cluster`: a recorded series without it would never match its
+# own alert's (rewritten) selector (TestMimirBatchRulesKeepTheClusterLabel).
+#
+# Once, cluster-wide, like the Volcano queue alerts: the composition's per-BatchJob
+# PrometheusRule <name>-batch keeps the Prometheus-evaluated alerts of §11.3.
+#
+# Series names are the OTLP translation, verified at the reader (Alloy v1.21.3's
+# OpenTelemetry Engine into a Prometheus remote-write receiver, 2026-11-14), never
+# derived from the Micrometer names:
+#   adhar.batch.last.commit (unit seconds) -> adhar_batch_last_commit_seconds
+#   adhar.batch.run                        -> adhar_batch_run
+#   adhar.batch.items.dead.lettered        -> adhar_batch_items_dead_lettered_total
+# The Micrometer `job` tag (the Spring Batch job) does not survive: the exporter
+# overwrites `job` with "<service.namespace>/<service.name>". A run is identified
+# by the resource attributes the BatchJob composition sets
+# (OTEL_RESOURCE_ATTRIBUTES): k8s_namespace_name, k8s_pod_name, adhar_batch_job,
+# adhar_application, deployment_environment_name. Two are matched before they
+# exist, so that adding them to the composition is the whole change: adhar_team
+# (team routing) and adhar_batch_alerts="false" (alerts.enabled: false).
+# Until then these alerts carry no `team` and take Alertmanager's default route.
+#
+# The deadline gauges are the batch observer's (platform/controllers/batch, §11.4),
+# scraped into Mimir from the manager pod. They carry the same label names as the
+# OTLP series, because a scraped `namespace` label would be renamed to
+# exported_namespace by the target's own:
+#   adhar_batch_deadline_seconds_remaining      seconds until sla.finishBy for the
+#                                               business date not yet succeeded;
+#                                               negative once it has passed, gone
+#                                               once that date succeeds
+#   adhar_batch_deadline_projected_slack_seconds the deadline minus the expected end
+#                                               (start or next schedule + p90 of the
+#                                               last 20 durations); negative means
+#                                               the run is not expected to make it
+# labelled k8s_namespace_name, adhar_batch_job, adhar_application,
+# adhar_environment, adhar_team and business_date. Daylight-saving time is the
+# observer's, in Go with the IANA zone, never PromQL's. Both halves are read from
+# where they live, never restated: the names and labels from the observer's own
+# prometheus.New* calls (TestTheMimirDeadlineRulesReadExactlyTheObserversGauges),
+# the scrape from the manager Deployment and Alloy's annotated_pods
+# (TestTheObserversGaugesReachMimirThroughAlloysPodScrape) — Alloy scrapes /metrics
+# on every DECLARED container port and honours neither prometheus.io/port nor /path.
+#
+# Severity `auto`, as on the composed rules: critical in prod, warning elsewhere.
+# promtool tests: platform/controllers/adharplatform/testdata/batch-app-alerts/.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: adhar-batch-app
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    adhar.io/rules-target: mimir
+    adhar.io/component: batch
+    app.kubernetes.io/name: adhar-batch
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    # One label vocabulary for every alert below, matching the composed rules':
+    # namespace, adhar_batch_job, adhar_application, adhar_environment, team.
+    - name: adhar.batch.app.recording
+      rules:
+        # The newest committed chunk of each run pod, across its steps. Per pod, so
+        # one stalled partition worker is seen while the others commit; across
+        # steps, so a step that finished hours ago does not read as stuck.
+        - record: adhar_batch:last_commit_seconds:pod
+          expr: |
+            label_replace(label_replace(label_replace(
+              max by (cluster, k8s_namespace_name, k8s_pod_name, adhar_batch_job, adhar_application, deployment_environment_name, adhar_team) (
+                adhar_batch_last_commit_seconds{adhar_batch_job!="", adhar_batch_alerts!="false"}
+              ),
+            "namespace", "$1", "k8s_namespace_name", "(.+)"),
+            "adhar_environment", "$1", "deployment_environment_name", "(.+)"),
+            "team", "$1", "adhar_team", "(.+)")
+        # A run of the job is executing somewhere. Partition workers publish no run
+        # gauge of their own, so this is per job, not per pod; a service running a
+        # job in embedded mode is not a BatchJob and carries no adhar_batch_job.
+        - record: adhar_batch:running:job
+          expr: |
+            label_replace(
+              max by (cluster, k8s_namespace_name, adhar_batch_job) (adhar_batch_run{adhar_batch_job!=""}),
+            "namespace", "$1", "k8s_namespace_name", "(.+)")
+        - record: adhar_batch:dead_lettered:increase10m
+          expr: |
+            label_replace(label_replace(label_replace(
+              sum by (cluster, k8s_namespace_name, adhar_batch_job, adhar_application, deployment_environment_name, adhar_team, step) (
+                increase(adhar_batch_items_dead_lettered_total{adhar_batch_job!="", adhar_batch_alerts!="false"}[10m])
+              ),
+            "namespace", "$1", "k8s_namespace_name", "(.+)"),
+            "adhar_environment", "$1", "deployment_environment_name", "(.+)"),
+            "team", "$1", "adhar_team", "(.+)")
+        - record: adhar_batch:deadline_seconds_remaining
+          expr: |
+            label_replace(label_replace(
+              max by (cluster, k8s_namespace_name, adhar_batch_job, adhar_application, adhar_environment, adhar_team, business_date) (
+                adhar_batch_deadline_seconds_remaining
+              ),
+            "namespace", "$1", "k8s_namespace_name", "(.+)"),
+            "team", "$1", "adhar_team", "(.+)")
+        - record: adhar_batch:deadline_projected_slack_seconds
+          expr: |
+            label_replace(label_replace(
+              max by (cluster, k8s_namespace_name, adhar_batch_job, adhar_application, adhar_environment, adhar_team, business_date) (
+                adhar_batch_deadline_projected_slack_seconds
+              ),
+            "namespace", "$1", "k8s_namespace_name", "(.+)"),
+            "team", "$1", "adhar_team", "(.+)")
+
+    - name: adhar.batch.app.alerts
+      rules:
+        - alert: BatchNoProgress
+          expr: |
+            label_replace(label_replace(
+              (time() - adhar_batch:last_commit_seconds:pod > 1800)
+              and on (cluster, namespace, adhar_batch_job) (adhar_batch:running:job > 0),
+            "severity", "warning", "", ""), "severity", "critical", "adhar_environment", "prod")
+          annotations:
+            summary: "A run of BatchJob {{ $labels.namespace }}/{{ $labels.adhar_batch_job }} has committed nothing for 30 minutes"
+            description: "Pod {{ $labels.k8s_pod_name }} last committed a chunk {{ $value | humanizeDuration }} ago while its run is still executing: a step is stuck on a lock, a remote call or a full disk, or it is a long non-chunk step after a chunk step. Its thread dump and log say which (`adhar batch logs`); activeDeadlineSeconds stays the hard stop."
+        - alert: BatchDeadLetterGrowing
+          expr: |
+            label_replace(label_replace(
+              adhar_batch:dead_lettered:increase10m > 0,
+            "severity", "warning", "", ""), "severity", "critical", "adhar_environment", "prod")
+          for: 15m
+          annotations:
+            summary: "BatchJob {{ $labels.namespace }}/{{ $labels.adhar_batch_job }} keeps dead-lettering items in step {{ $labels.step }}"
+            description: "Step {{ $labels.step }} has dead-lettered items in every 10-minute window for 15 minutes ({{ $value | humanize }} in the last 10): the skip policy keeps the run alive while the input is rejected. Fix the source and replay with `adhar batch dlq`."
+        - alert: BatchDeadlineEndangered
+          expr: |
+            label_replace(label_replace(
+              -adhar_batch:deadline_projected_slack_seconds > 0
+              and on (cluster, namespace, adhar_batch_job, business_date) adhar_batch:deadline_seconds_remaining > 0,
+            "severity", "warning", "", ""), "severity", "critical", "adhar_environment", "prod")
+          annotations:
+            summary: "BatchJob {{ $labels.namespace }}/{{ $labels.adhar_batch_job }} is expected to miss its deadline for {{ $labels.business_date }}"
+            description: "At its usual pace (p90 of its last 20 runs) the run for {{ $labels.business_date }} ends {{ $value | humanizeDuration }} after sla.finishBy. The batch observer published io.adhar.batch.deadline.endangered with the same numbers."
+        - alert: BatchDeadlineMissed
+          expr: |
+            label_replace(label_replace(
+              adhar_batch:deadline_seconds_remaining <= 0,
+            "severity", "warning", "", ""), "severity", "critical", "adhar_environment", "prod")
+          annotations:
+            summary: "BatchJob {{ $labels.namespace }}/{{ $labels.adhar_batch_job }} missed its deadline for {{ $labels.business_date }}"
+            description: "sla.finishBy passed with no successful run for {{ $labels.business_date }}. The alert resolves once that date succeeds; `adhar batch runs` shows where the run is."

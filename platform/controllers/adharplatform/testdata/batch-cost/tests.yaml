@@ -1,0 +1,84 @@
+# promtool unit tests for the adhar.cost.batch group of
+# observability/adhar-cost-governance/manifests/rules.yaml. TestBatchCostRulesPassTheirRuleTests
+# writes the PrometheusRule's groups to rules.yaml beside a copy of this file.
+# Series are shaped as OpenCost and kube-state-metrics publish them into the
+# in-cluster Prometheus (job labels as the two ServiceMonitors leave them); the
+# join was checked against the live cluster's series on 2026-11-14.
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+tests:
+  # One running run of acme-payments-prod/settlement on node n1 (2 cores, 4 GiB
+  # allocated at $0.03 per core-hour and $0.004 per GiB-hour), a finished run of
+  # the same job whose pod still exists, and a service pod in the same namespace.
+  - interval: 1m
+    input_series:
+      - series: 'node_cpu_hourly_cost{job="opencost",node="n1",instance_type="m6i.xlarge"}'
+        values: '0.03x70'
+      - series: 'node_ram_hourly_cost{job="opencost",node="n1",instance_type="m6i.xlarge"}'
+        values: '0.004x70'
+      # The running run: allocation, both copies of its labels, its Job.
+      - series: 'container_cpu_allocation{job="opencost",namespace="acme-payments-prod",pod="settlement-1a2b3c4d-k7m2p",container="batch",node="n1"}'
+        values: '2x70'
+      - series: 'container_memory_allocation_bytes{job="opencost",namespace="acme-payments-prod",pod="settlement-1a2b3c4d-k7m2p",container="batch",node="n1"}'
+        values: '4294967296x70'
+      - series: 'kube_pod_labels{job="kube-state-metrics",namespace="acme-payments-prod",pod="settlement-1a2b3c4d-k7m2p",uid="u1",label_adhar_io_batch_job="settlement",label_adhar_io_application="payments",label_adhar_io_environment="prod"}'
+        values: '1x70'
+      - series: 'kube_pod_labels{job="opencost",namespace="acme-payments-prod",pod="settlement-1a2b3c4d-k7m2p",label_adhar_io_batch_job="settlement",label_adhar_io_workload="batch",label_batch_kubernetes_io_job_name="settlement-1a2b3c4d"}'
+        values: '1x70'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="acme-payments-prod",pod="settlement-1a2b3c4d-k7m2p",uid="u1",owner_kind="Job",owner_name="settlement-1a2b3c4d",owner_is_controller="true"}'
+        values: '1x70'
+      # Yesterday's run: its pod object is kept until the TTL, OpenCost allocates it nothing.
+      - series: 'kube_pod_labels{job="kube-state-metrics",namespace="acme-payments-prod",pod="settlement-9e8f7a6b-q4r5s",uid="u2",label_adhar_io_batch_job="settlement"}'
+        values: '1x70'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="acme-payments-prod",pod="settlement-9e8f7a6b-q4r5s",uid="u2",owner_kind="Job",owner_name="settlement-9e8f7a6b",owner_is_controller="true"}'
+        values: '1x70'
+      # A service in the same namespace is not batch.
+      - series: 'container_cpu_allocation{job="opencost",namespace="acme-payments-prod",pod="payments-api-5d6c7b-x1y2z",container="app",node="n1"}'
+        values: '1x70'
+      - series: 'kube_namespace_labels{job="opencost",namespace="acme-payments-prod",label_adhar_io_organisation="acme",label_adhar_io_team="payments",label_adhar_io_environment="prod"}'
+        values: '1x70'
+    promql_expr_test:
+      - expr: adhar:batch_run_cost_usd:hourly
+        eval_time: 30m
+        exp_samples:
+          - labels: 'adhar:batch_run_cost_usd:hourly{component="cpu",namespace="acme-payments-prod",batch_job="settlement",run="settlement-1a2b3c4d"}'
+            value: 0.06
+          - labels: 'adhar:batch_run_cost_usd:hourly{component="ram",namespace="acme-payments-prod",batch_job="settlement",run="settlement-1a2b3c4d"}'
+            value: 0.016
+      - expr: adhar:batch_job_cost_usd:hourly_total
+        eval_time: 30m
+        exp_samples:
+          - labels: 'adhar:batch_job_cost_usd:hourly_total{namespace="acme-payments-prod",batch_job="settlement"}'
+            value: 0.076
+      - expr: adhar:batch_team_cost_usd:hourly_total
+        eval_time: 30m
+        exp_samples:
+          - labels: 'adhar:batch_team_cost_usd:hourly_total{organisation="acme",team="payments"}'
+            value: 0.076
+      # What the dashboard's Batch row reads: an hour of the run cost one hour of its rate.
+      - expr: sum by (namespace, batch_job) (sum_over_time(adhar:batch_job_cost_usd:hourly_total[1h])) / 60
+        eval_time: 60m
+        exp_samples:
+          - labels: '{namespace="acme-payments-prod",batch_job="settlement"}'
+            value: 0.076
+
+  # A namespace with no team label is attributed per job, and left out per team.
+  - interval: 1m
+    input_series:
+      - series: 'node_cpu_hourly_cost{job="opencost",node="n1"}'
+        values: '0.03x10'
+      - series: 'container_cpu_allocation{job="opencost",namespace="scratch",pod="adhoc-0a1b2c3d-z9y8x",container="batch",node="n1"}'
+        values: '1x10'
+      - series: 'kube_pod_labels{job="kube-state-metrics",namespace="scratch",pod="adhoc-0a1b2c3d-z9y8x",uid="u3",label_adhar_io_batch_job="adhoc"}'
+        values: '1x10'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="scratch",pod="adhoc-0a1b2c3d-z9y8x",uid="u3",owner_kind="Job",owner_name="adhoc-0a1b2c3d",owner_is_controller="true"}'
+        values: '1x10'
+    promql_expr_test:
+      - expr: adhar:batch_job_cost_usd:hourly_total
+        eval_time: 5m
+        exp_samples:
+          - labels: 'adhar:batch_job_cost_usd:hourly_total{namespace="scratch",batch_job="adhoc"}'
+            value: 0.03
+      - expr: adhar:batch_team_cost_usd:hourly_total
+        eval_time: 5m
+        exp_samples: []

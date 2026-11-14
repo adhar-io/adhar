@@ -125,6 +125,36 @@ spec:
             {{- $resolved = append $resolved (dict "name" $en "tier" $et "namespace" $ens "autoPromote" $auto "access" $access "cpu" (default $cpu (get $e "cpuQuota")) "mem" (default $mem (get $e "memoryQuota")) "pods" (default $pods (get $e "podQuota"))) -}}
             {{- end -}}
             {{- $labels := dict "platform.adhar.io/self-service" "true" "adhar.io/organisation" $org "adhar.io/team" $team "adhar.io/project" $name -}}
+            {{- /* The smoke runs (design 0025 D6, A3.7). In a TEST-tier environment every
+                   BatchJob of a verified application that declares `smoke` is run once per
+                   build, as `adhar batch run <job> --smoke --wait`, and a build whose smoke
+                   run fails is not verified there, so it never reaches prod. The BatchJobs
+                   are read from the environment's namespace (requested below), because they
+                   arrive from the application's own repository, not from this Project; a
+                   BatchJob first appears with the first promotion into test, so that first
+                   promotion is verified without its smoke run. The CLI is the platform's
+                   own image, read from the controller-manager Deployment, so the gate runs
+                   the CLI of the release the cluster runs. */ -}}
+            {{- $smokeByEnv := dict -}}
+            {{- $smokeAny := false -}}
+            {{- $cliImage := "" -}}
+            {{- range (default (list) (getExtraResources . "batchCLI")) -}}
+            {{-   range (dig "resource" "spec" "template" "spec" "containers" (list) .) }}{{ if eq (get . "name") "manager" }}{{ $cliImage = get . "image" }}{{ end }}{{ end -}}
+            {{- end -}}
+            {{- range $re := $resolved -}}
+            {{-   if eq $re.tier "test" -}}
+            {{-     $found := list -}}
+            {{-     range (default (list) (getExtraResources $ (printf "batchjobs-%s" $re.name))) -}}
+            {{-       $bj := default (dict) .resource -}}
+            {{-       $bjp := dig "spec" "parameters" (dict) $bj -}}
+            {{-       $bjApp := get $bjp "application" | default (dig "metadata" "name" "" $bj) -}}
+            {{-       if and (eq (dig "metadata" "namespace" "" $bj) $re.namespace) (not (dig "metadata" "deletionTimestamp" "" $bj)) (hasKey $bjp "smoke") (has $bjApp $verifyApps) -}}
+            {{-         $found = append $found (dict "name" (dig "metadata" "name" "" $bj) "app" $bjApp "deadline" (int (dig "timeouts" "activeDeadlineSeconds" 21600 $bjp))) -}}
+            {{-       end -}}
+            {{-     end -}}
+            {{-     if $found }}{{ $_ := set $smokeByEnv $re.name $found }}{{ $smokeAny = true }}{{ end -}}
+            {{-   end -}}
+            {{- end -}}
             {{- /*
               A project named after its ORGANISATION shares the organisation's
               home namespace, so composing these three objects here would be a
@@ -315,6 +345,24 @@ spec:
                 apiVersion: platform.adhar.io/v1alpha1
                 kind: Application
                 matchLabels: {}
+              {{- $testEnvs := list }}
+              {{- range $resolved }}{{ if eq .tier "test" }}{{ $testEnvs = append $testEnvs . }}{{ end }}{{ end }}
+              {{- if and $verifyApps $testEnvs }}
+              {{- range $testEnvs }}
+              # The BatchJobs of a test-tier environment, for their smoke runs (D6).
+              {{ printf "batchjobs-%s" .name }}:
+                apiVersion: platform.adhar.io/v1alpha1
+                kind: BatchJob
+                matchLabels: {}
+                namespace: {{ .namespace | quote }}
+              {{- end }}
+              # The image whose CLI runs them: the release this cluster runs.
+              batchCLI:
+                apiVersion: apps/v1
+                kind: Deployment
+                matchName: adhar-controller-manager
+                namespace: adhar-system
+              {{- end }}
             ---
             # Kargo: the project's promotion pipeline container. Warehouses are
             # added per application (Application); the Stages are the project's
@@ -474,6 +522,58 @@ spec:
                   roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-resilience-gate}
                   subjects:
                     - {kind: ServiceAccount, name: adhar-resilience-gate, namespace: {{ $name }}}
+            {{- if $smokeAny }}
+            ---
+            # The smoke gate's identity (D6). Kargo creates its Job here, as it does the
+            # resilience gate's; the Job runs as this ServiceAccount, which may operate
+            # batch runs in the test-tier environments that have a smoke run and nowhere
+            # else: adhar-batch-operator (core/adhar-batch) to read the run template and
+            # create the run, `view` for its pods and their termination summary. The run
+            # it creates is checked by adhar-batch-run-integrity like anyone's, with this
+            # ServiceAccount stamped as its actor.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: batch-smoke-sa
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ServiceAccount
+                  metadata:
+                    name: adhar-batch-smoke
+                    namespace: {{ $name }}
+                    labels: { adhar.io/project: {{ $name | quote }} }
+            {{- range $resolved }}
+            {{- if get $smokeByEnv .name }}
+            {{- $sens := .namespace }}
+            {{- $sen := .name }}
+            {{- range $role := list "adhar-batch-operator" "view" }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ printf "batch-smoke-%s-%s" (ternary "operator" "view" (eq $role "adhar-batch-operator")) $sen }}
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ printf "adhar-batch-smoke-%s" (ternary "operator" "view" (eq $role "adhar-batch-operator")) }}
+                    namespace: {{ $sens }}
+                    labels: { adhar.io/project: {{ $name | quote }}, adhar.io/environment: {{ $sen | quote }} }
+                  roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $role }}}
+                  subjects:
+                    - {kind: ServiceAccount, name: adhar-batch-smoke, namespace: {{ $name }}}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             ---
             # The identity a Release uses to submit a Promotion. A Promotion must be
             # CREATED (a POST): Kargo's webhook renames every Promotion to
@@ -967,6 +1067,66 @@ spec:
                                           done
                                           kubectl -n adhar-system logs "job/$J" --tail=80 2>/dev/null || true
                                           [ "$ok" = 1 ]
+                      {{- end }}
+                      {{- /* THE SMOKE RUN (design 0025 D6): one Job metric per BatchJob of this
+                             application that declares `smoke`, in test only. It is exactly
+                             `adhar batch run <job> -n <ns> --smoke --wait -o json`: the run is
+                             <job>-smoke-<first 7 hex of the template's image digest> with the
+                             job's smoke.parameters and trigger `smoke`, admitted by
+                             adhar-batch-run-integrity like any client's run, and the CLI exits
+                             with the run's code (0 includes skipped). A re-verified build reuses
+                             its run. The gate Job carries no adhar.io/batch-job label: it is the
+                             client, not a run, and the integrity policy must not compare it. */ -}}
+                      {{- range $s := (get $smokeByEnv $en | default (list)) }}
+                      {{- if eq (get $s "app") $app }}
+                      - name: {{ quote (printf "%s-smoke-run" (get $s "name")) }}
+                        provider:
+                          job:
+                            metadata:
+                              labels: {adhar.io/batch-smoke: {{ quote (get $s "name") }}, adhar.io/application: {{ quote $app }}, adhar.io/environment: {{ quote $en }}}
+                            spec:
+                              backoffLimit: 0
+                              # The run's own deadline, plus the CLI's ten minutes of patience
+                              # for a pod that is still being scheduled, plus five.
+                              activeDeadlineSeconds: {{ add (get $s "deadline") 900 }}
+                              ttlSecondsAfterFinished: 3600
+                              template:
+                                spec:
+                                  serviceAccountName: adhar-batch-smoke
+                                  restartPolicy: Never
+                                  enableServiceLinks: false
+                                  securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+                                  containers:
+                                    {{- if $cliImage }}
+                                    - name: smoke
+                                      image: {{ quote $cliImage }}
+                                      args: ["batch", "run", {{ quote (get $s "name") }}, "-n", {{ quote $ens }}, "--smoke", "--wait", "-o", "json"]
+                                      env:
+                                        - {name: HOME, value: /tmp}
+                                      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+                                      resources:
+                                        requests: {cpu: 10m, memory: 64Mi}
+                                        limits: {cpu: 500m, memory: 256Mi}
+                                      volumeMounts:
+                                        - {name: tmp, mountPath: /tmp}
+                                    {{- else }}
+                                    # No controller-manager Deployment to take the CLI from: the
+                                    # gate fails closed and says so, rather than passing a build
+                                    # whose smoke run never ran.
+                                    - name: smoke
+                                      image: alpine/k8s:1.31.1
+                                      command: ["sh", "-c"]
+                                      args: [{{ quote (printf "echo 'the smoke run of %s cannot start: no adhar-system/adhar-controller-manager Deployment to take the adhar CLI image from'; exit 1" (get $s "name")) }}]
+                                      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+                                      resources:
+                                        requests: {cpu: 10m, memory: 16Mi}
+                                        limits: {cpu: 100m, memory: 64Mi}
+                                      volumeMounts:
+                                        - {name: tmp, mountPath: /tmp}
+                                    {{- end }}
+                                  volumes:
+                                    - {name: tmp, emptyDir: {sizeLimit: 64Mi}}
+                      {{- end }}
                       {{- end }}
                       {{- end }}
             {{- end }}

@@ -3,6 +3,7 @@ package adharplatform
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -79,6 +80,23 @@ func TestStageStackRendersTemplates(t *testing.T) {
 	})
 }
 
+// argoVariable is a `{{…}}` an Argo Workflows template is MEANT to carry after
+// seeding: an Argo variable or an `{{=expr}}` expression, which a .yaml.tmpl
+// in the step catalogue escapes ({{`{{inputs.parameters.x}}`}}) precisely so it
+// reaches Argo intact (design 0026 §5.7, 0025 §12.1).
+var argoVariable = regexp.MustCompile(`^\{\{(=|(inputs|outputs|workflow|steps|tasks|item|pod|node|retries|lastRetry)[.}])`)
+
+// survivingDirective returns the first `{{…}}` in rendered that is not an Argo
+// variable, or "".
+func survivingDirective(rendered string) string {
+	for _, m := range regexp.MustCompile(`\{\{[^}]*\}?\}?`).FindAllString(rendered, -1) {
+		if !argoVariable.MatchString(m) {
+			return m
+		}
+	}
+	return ""
+}
+
 // TestStackTemplatesRender renders every *.tmpl shipped in platform/stack for
 // the local and a cloud topology (with and without DNS-01) and checks the
 // output is valid YAML with no directive left behind.
@@ -119,8 +137,8 @@ func TestStackTemplatesRender(t *testing.T) {
 		for _, tpl := range templates {
 			rel, _ := filepath.Rel(stack, tpl)
 			rendered := read(t, filepath.Join(out, strings.TrimSuffix(rel, stackTemplateSuffix)))
-			if strings.Contains(rendered, "{{") {
-				t.Errorf("%s [%s/%s]: template directive survived rendering", rel, spec.Host, spec.DNSProvider)
+			if d := survivingDirective(rendered); d != "" {
+				t.Errorf("%s [%s/%s]: template directive survived rendering: %s", rel, spec.Host, spec.DNSProvider, d)
 			}
 			for i, doc := range strings.Split(rendered, "\n---") {
 				if strings.TrimSpace(doc) == "" {

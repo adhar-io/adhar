@@ -1,0 +1,189 @@
+# adhar-batch-steps — start a BatchJob run from a workflow and wait for it
+# (docs/design/0025 §12.1, D10; the catalogue rules are docs/design/0026 §5.7).
+#
+# Argo orchestrates, Volcano schedules, and a BatchJob run is a step: a workflow
+# reaches its team's batch jobs through this ONE template instead of creating
+# Jobs itself, so every run it starts is the run `adhar batch run` would start —
+# built from ConfigMap <job>-run, its parameters checked against
+# parameters.json, named <job>-<hash8> for its identifying parameters (naming
+# v1), and admitted by adhar-batch-run-integrity like any non-schedule trigger.
+#
+#   templateRef: {name: adhar-batch-steps, template: run, clusterScope: true}
+#   arguments: {parameters: [{name: batchJob, value: importer},
+#                            {name: parameters, value: '{"businessDate": "2026-11-03"}'}]}
+#
+# The step IS `adhar batch run <batchJob> -n <ns> --wait -o json`, run from the
+# platform image (stackTemplateData.PlatformImage, rendered at seed time, so
+# the step and the control plane are one release). Its behaviour is the
+# CLI's, unchanged:
+#   - a run of that name that completed  -> succeed, nothing re-runs (A3.8)
+#   - one still running                  -> wait for it
+#   - one that failed                    -> restart it as the next -r<n>
+#   - one that is stopped                -> fail, status Stopped, exit 4
+# The step's exit code is the run's (0 includes SKIPPED), so a run that exits 3
+# fails its step with exitCode 3 (§5.7). A retry of the step itself (pod lost,
+# OnError) is safe for the same reason: the name is the identity. One edge needs
+# the retry count: a pod lost AFTER its run failed but before the step reported
+# it would, on the retry, find a failed run and restart it as -r1. So a retry
+# (ADHAR_BATCH_STEP_RETRY > 0) that finds a failed run THIS workflow started
+# (adhar.io/batch-workflow) reports that failure instead of restarting it; a
+# fresh attempt (`argo retry`, a new workflow) restarts as usual.
+#
+# The image has no shell, so what a command line cannot carry travels in the
+# environment, read by `adhar batch run` (cmd/batch):
+#   ADHAR_BATCH_STEP_WORKFLOW    the workflow's name: the run is labelled
+#                                adhar.io/batch-trigger=workflow and annotated
+#                                adhar.io/batch-workflow=<workflow>
+#   ADHAR_BATCH_STEP_PARAMETERS  the `parameters` input, a JSON object of the
+#                                job's parameters (what -p key=value would set)
+#   ADHAR_BATCH_STEP_OUTPUTS     a directory the CLI writes one file per output
+#                                into; Argo reads them even when the step fails
+#   ADHAR_BATCH_STEP_RETRY       Argo's retry count for this step, 0 on the
+#                                first attempt (see the edge case above)
+# stdout is the same -o json document, available as outputs.result.
+#
+# Identity: the step runs as the WORKFLOW's ServiceAccount (`adhar-workflow`
+# by default, 0026 §5.6), never one named here, and Kyverno stamps it as the
+# run's actor. It needs create/get/list/watch/delete on jobs and get on
+# batchjobs (adhar-workflow-launcher) plus get on configmaps and pods (the
+# `view` binding) in the job's namespace.
+#
+# Queues: the RUN waits in its BatchJob's queue; this pod carries none of the
+# batch labels (adhar.io/batch-job, adhar.io/workload) and no scheduler name, so
+# it is never counted as a run's pod, gated by a batch quota or queued by Volcano.
+#
+# Deadline: --timeout defaults to the BatchJob's activeDeadlineSeconds plus ten
+# minutes. The workflow's own activeDeadlineSeconds (6 h by default) still
+# applies to the whole workflow; a longer job needs a longer workflow deadline.
+#
+# Only Argo CD writes ClusterWorkflowTemplates (adhar-cwt-platform-only).
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterWorkflowTemplate
+metadata:
+  name: adhar-batch-steps
+  labels:
+    app.kubernetes.io/part-of: adhar-platform
+    adhar.io/catalog: "true"
+    adhar.io/catalog-tags: batch
+  annotations:
+    workflows.argoproj.io/title: Batch steps
+    workflows.argoproj.io/description: >-
+      Start a run of a BatchJob and wait for its exit status (design 0025 §12.1).
+spec:
+  templates:
+    - name: run
+      metadata:
+        labels:
+          adhar.io/batch-step: run
+        annotations:
+          adhar.io/node-kind: batch-job
+          workflows.argoproj.io/title: Run a batch job
+          workflows.argoproj.io/description: >-
+            Starts a run of a BatchJob, named for its identifying parameters, and waits
+            for it. A completed run of the same parameters is not run again; a failed one
+            restarts from its last commit. Fails with the run's exit code.
+      inputs:
+        parameters:
+          - name: batchJob
+            description: The BatchJob to run, in `namespace`.
+          - name: namespace
+            description: The BatchJob's namespace; the workflow's own by default.
+            default: "{{`{{workflow.namespace}}`}}"
+          - name: parameters
+            description: The job's parameters as a JSON object, e.g. {"businessDate":"2026-11-03"}.
+            default: "{}"
+          - name: wait
+            description: Wait for the run to end and carry its exit code (false only starts it).
+            default: "true"
+            enum: ["true", "false"]
+          - name: timeout
+            description: >-
+              Give up waiting after this long (a Go duration). 0s: the BatchJob's
+              activeDeadlineSeconds plus ten minutes. The run itself keeps going.
+            default: "0s"
+      retryStrategy:
+        # Only a lost pod (OnError), never a run's verdict: an exit code is the
+        # run's answer, and asking again would only read it again.
+        retryPolicy: OnError
+        limit: 2
+        backoff:
+          duration: 15s
+          factor: 2
+      container:
+        image: {{ .PlatformImage }}
+        imagePullPolicy: IfNotPresent
+        command: [/adhar]
+        args:
+          - batch
+          - run
+          - "{{`{{inputs.parameters.batchJob}}`}}"
+          - -n
+          - "{{`{{inputs.parameters.namespace}}`}}"
+          - "--wait={{`{{inputs.parameters.wait}}`}}"
+          - "--timeout={{`{{inputs.parameters.timeout}}`}}"
+          - -o
+          - json
+        env:
+          - name: ADHAR_BATCH_STEP_WORKFLOW
+            value: "{{`{{workflow.name}}`}}"
+          - name: ADHAR_BATCH_STEP_PARAMETERS
+            value: "{{`{{inputs.parameters.parameters}}`}}"
+          - name: ADHAR_BATCH_STEP_OUTPUTS
+            value: /tmp/adhar-batch-step
+          - name: ADHAR_BATCH_STEP_RETRY
+            value: "{{`{{retries}}`}}"
+          # The root filesystem is read-only; anything the CLI caches goes here.
+          - name: HOME
+            value: /tmp
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+      outputs:
+        parameters:
+          - name: run
+            description: The run's name (<batchJob>-<hash8>, or its -r<n> restart).
+            valueFrom:
+              path: /tmp/adhar-batch-step/run
+              default: ""
+          - name: status
+            description: Succeeded, Failed or Stopped (Running when wait is false).
+            valueFrom:
+              path: /tmp/adhar-batch-step/status
+              default: Unknown
+          - name: exitCode
+            description: The run's exit code (design 0025 §5.7).
+            valueFrom:
+              path: /tmp/adhar-batch-step/exitCode
+              default: ""
+          - name: executionId
+            description: The Spring Batch job execution id, when the run reported one.
+            valueFrom:
+              path: /tmp/adhar-batch-step/executionId
+              default: ""
+          - name: summary
+            description: The run's termination summary (design 0025 §5.13), as JSON.
+            valueFrom:
+              path: /tmp/adhar-batch-step/summary
+              default: "{}"

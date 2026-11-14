@@ -1,0 +1,48 @@
+# A run the BatchJob composition renders passes the CIS and SOC2 packs, as a composed
+# service does (design 0025 §10.3, PLAT-3.6). resources.yaml is the composition's
+# golden renders (GENERATED; see its header and composed-runs/ in core/adhar-batch).
+# Running them through the packs found three defects that failed EVERY workload, not
+# only batch: the default-namespace Pod rule's autogen read a namespace off the pod
+# template; the owner rule accepted adhar.io/owner only, which nothing the control
+# plane composes carries (the hierarchy's owner is adhar.io/team); and the registry
+# allowlist did not know Harbor by its in-cluster name. The pods of a Volcano run are
+# not autogen'd (Volcano's kinds are not built-in controllers); the two rules that
+# match by kind name alone check the Volcano Job and CronJob too. plane-isolation is
+# left out: it refuses every application workload on the control plane until the
+# split-planes migration, a batch run exactly as a service.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: batch-runs
+policies:
+  - ../../manifests/cis.yaml
+  - ../../manifests/soc2.yaml
+resources:
+  - resources.yaml
+results:
+  - { policy: cis-disallow-privileged-containers, rule: autogen-privileged-containers, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-disallow-privileged-containers, rule: autogen-cronjob-privileged-containers, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-disallow-host-namespaces, rule: autogen-host-namespaces, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-disallow-host-namespaces, rule: autogen-cronjob-host-namespaces, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-disallow-host-path, rule: autogen-host-path, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-disallow-host-path, rule: autogen-cronjob-host-path, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-require-run-as-nonroot, rule: autogen-run-as-non-root, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-require-run-as-nonroot, rule: autogen-cronjob-run-as-non-root, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-disallow-privilege-escalation, rule: autogen-privilege-escalation, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-disallow-privilege-escalation, rule: autogen-cronjob-privilege-escalation, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-require-drop-all-capabilities, rule: autogen-require-drop-all, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-require-drop-all-capabilities, rule: autogen-cronjob-require-drop-all, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-require-resource-requests-limits, rule: autogen-require-requests-limits, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-require-resource-requests-limits, rule: autogen-cronjob-require-requests-limits, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: cis-restrict-seccomp-runtimedefault, rule: autogen-check-seccomp-runtimedefault, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: cis-restrict-seccomp-runtimedefault, rule: autogen-cronjob-check-seccomp-runtimedefault, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: soc2-require-pinned-images, rule: autogen-require-digest-or-tag, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: soc2-require-pinned-images, rule: autogen-cronjob-require-digest-or-tag, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: soc2-restrict-image-registries, rule: autogen-allowed-registries, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: soc2-restrict-image-registries, rule: autogen-cronjob-allowed-registries, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: soc2-require-pod-probes, rule: autogen-require-liveness-readiness, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: skip }
+  - { policy: soc2-require-pod-probes, rule: autogen-cronjob-require-liveness-readiness, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: skip }
+  - { policy: cis-disallow-default-namespace, rule: validate-controller-namespace, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run, volcano-cron-run, volcano-gang-run], result: pass }
+  - { policy: cis-disallow-default-namespace, rule: validate-controller-namespace, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native, volcano-cron-schedule-volcano], result: pass }
+  - { policy: soc2-require-workload-labels, rule: require-app-and-owner-labels, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run, volcano-cron-run, volcano-gang-run], result: pass }
+  - { policy: soc2-require-workload-labels, rule: require-app-and-owner-labels, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native, volcano-cron-schedule-volcano], result: pass }

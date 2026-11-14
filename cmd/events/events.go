@@ -38,13 +38,14 @@ var EventsCmd = &cobra.Command{
 	Long: `Read the CloudEvents the platform publishes to Kafka.
 
 Every notable thing the platform does is published once, as a CloudEvent, onto
-one of five topics by domain:
+one of six topics by domain:
 
   adhar.platform   platform and component lifecycle
   adhar.cluster    nodes, scaling and data planes
   adhar.tenancy    organisations, teams and projects
   adhar.delivery   GitOps, packages and pipelines
   adhar.ai         agent runs
+  adhar.batch      batch runs, holds, missed slots and deadlines
 
 This is the record of what HAPPENED, in order, which neither ` + "`kubectl get events`" + `
 (namespaced, short-lived) nor ` + "`adhar get status`" + ` (a snapshot) can answer.

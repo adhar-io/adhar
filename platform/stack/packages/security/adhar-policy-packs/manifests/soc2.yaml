@@ -73,9 +73,11 @@ metadata:
     policies.kyverno.io/subject: Pod,Deployment
     policies.kyverno.io/description: >-
       Every workload must be attributable to an application and an owner for
-      audit trails and incident routing: the labels `app.kubernetes.io/name`
-      and `adhar.io/owner` are required (the golden-path templates set both).
-      Audit mode: violations are reported, not blocked.
+      audit trails and incident routing: the label `app.kubernetes.io/name`,
+      and an owner as `adhar.io/owner` (the golden-path templates set it) or as
+      the hierarchy's `adhar.io/team`, which every object the control plane
+      composes carries (a BatchJob's runs and schedules among them). Audit
+      mode: violations are reported, not blocked.
 spec:
   validationFailureAction: Audit
   background: true
@@ -103,13 +105,20 @@ spec:
                 - local-path-storage
       validate:
         message: >-
-          The labels `app.kubernetes.io/name` and `adhar.io/owner` are
-          required on workload controllers.
-        pattern:
-          metadata:
-            labels:
-              app.kubernetes.io/name: "?*"
-              adhar.io/owner: "?*"
+          The label `app.kubernetes.io/name` and an owner (`adhar.io/owner`, or
+          the hierarchy's `adhar.io/team`) are required on workload controllers.
+        # The team is the owner ADR-0026's hierarchy records on everything a
+        # composition emits; requiring adhar.io/owner alone failed every composed
+        # run and schedule, which no team can label (the composition owns them).
+        anyPattern:
+          - metadata:
+              labels:
+                app.kubernetes.io/name: "?*"
+                adhar.io/owner: "?*"
+          - metadata:
+              labels:
+                app.kubernetes.io/name: "?*"
+                adhar.io/team: "?*"
 ---
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -169,6 +178,12 @@ spec:
                   - key: "{{ element.image }}"
                     operator: NotEquals
                     value: "harbor.*"
+                  # The same Harbor by its in-cluster Service, which is how the
+                  # control plane names images it composes (a BatchJob's runs).
+                  # "harbor.*" does not match "harbor-core.…".
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "harbor-core.adhar-system.svc.cluster.local/*"
                   - key: "{{ element.image }}"
                     operator: NotEquals
                     value: "ghcr.io/*"

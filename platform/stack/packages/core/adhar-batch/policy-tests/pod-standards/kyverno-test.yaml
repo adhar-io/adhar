@@ -1,4 +1,6 @@
-# Audit in Phase 1; each rule both ways, and nothing that is not a batch run.
+# Enforce since Phase 3 (PLAT-3.6); each rule both ways, and nothing that is not a batch
+# run. The CronJob twins exist because autogen gives a Job rule no CronJob rule: a
+# schedule that breaks a standard is refused when it is defined, not at every fire.
 apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata:
@@ -23,3 +25,16 @@ results:
   - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [volcano-single], result: pass }
   - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [volcano-single-native-class], result: fail }
   - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [good], result: skip }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-has-a-deadline-and-a-ttl, kind: CronJob, resources: [schedule-good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-has-a-deadline-and-a-ttl, kind: CronJob, resources: [schedule-bad, schedule-no-ttl], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-has-a-deadline-and-a-ttl, kind: CronJob, resources: [schedule-not-batch], result: skip }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-pod-never-restarts-and-uses-a-batch-class, kind: CronJob, resources: [schedule-good, schedule-volcano-native-class], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-pod-never-restarts-and-uses-a-batch-class, kind: CronJob, resources: [schedule-bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-pod-never-restarts-and-uses-a-batch-class, kind: CronJob, resources: [schedule-not-batch], result: skip }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-volcano-run-pod-uses-a-volcano-class, kind: CronJob, resources: [schedule-volcano-native-class], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-volcano-run-pod-uses-a-volcano-class, kind: CronJob, resources: [schedule-good], result: skip }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-mounts-no-persistent-volume, kind: CronJob, resources: [schedule-good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-mounts-no-persistent-volume, kind: CronJob, resources: [schedule-bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-containers-memory-request-equals-its-limit, kind: CronJob, resources: [schedule-good], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-containers-memory-request-equals-its-limit, kind: CronJob, resources: [schedule-bad], result: fail }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-containers-memory-request-equals-its-limit, kind: CronJob, resources: [schedule-not-batch], result: skip }

@@ -76,3 +76,92 @@ spec:
       restartPolicy: Never
       containers:
         - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }
+---
+# Enforce (Phase 3): the CronJob twins. A schedule whose job template is a batch run,
+# right in everything.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: schedule-good, namespace: dev }
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate:
+    metadata: { labels: { adhar.io/workload: batch } }
+    spec:
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          priorityClassName: adhar-batch
+          restartPolicy: Never
+          volumes: [ { name: tmp, emptyDir: {} } ]
+          containers:
+            - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }
+---
+# Wrong in every standard, and labelled only on its job template: the label the
+# scheduled Jobs inherit is the one that makes it a batch schedule.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: schedule-bad, namespace: dev }
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate:
+    metadata: { labels: { adhar.io/workload: batch } }
+    spec:
+      template:
+        spec:
+          priorityClassName: adhar-critical-path
+          restartPolicy: OnFailure
+          volumes: [ { name: data, persistentVolumeClaim: { claimName: data } } ]
+          containers:
+            - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 512Mi }, limits: { memory: 1Gi } } }
+---
+# Everything right but the TTL.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: schedule-no-ttl, namespace: dev }
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate:
+    metadata: { labels: { adhar.io/workload: batch } }
+    spec:
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          priorityClassName: adhar-batch
+          restartPolicy: Never
+          containers:
+            - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }
+---
+# A scheduled single run on Volcano, on a native Never class.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: schedule-volcano-native-class, namespace: dev }
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate:
+    metadata: { labels: { adhar.io/workload: batch } }
+    spec:
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          schedulerName: volcano
+          priorityClassName: adhar-batch
+          restartPolicy: Never
+          containers:
+            - { name: batch, image: "docker.io/library/busybox:1.36", resources: { requests: { memory: 1536Mi }, limits: { memory: 1536Mi } } }
+---
+# A CronJob labelled batch on ITSELF but whose job template is not a batch run: its
+# Jobs are not batch runs either, so none of the standards apply.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: schedule-not-batch, namespace: dev, labels: { adhar.io/workload: batch } }
+spec:
+  schedule: "30 1 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - { name: x, image: "docker.io/library/busybox:1.36" }

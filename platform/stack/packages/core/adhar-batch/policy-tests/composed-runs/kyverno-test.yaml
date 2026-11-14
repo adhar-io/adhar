@@ -1,0 +1,37 @@
+# What the BatchJob composition renders passes the pod standards it is Enforced
+# against (design 0025 §10.3, PLAT-3.6): every branch's run template and schedule,
+# taken from the golden renders (resources.yaml is GENERATED; see its header). A
+# composition change that breaks a standard fails here, before Kyverno refuses the
+# change's runs on a cluster. The Volcano policy is loaded from queue-binding's copy
+# without matchConditions (the CLI cannot load them); only the pod standards are
+# asserted.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: composed-runs
+policies:
+  - ../../manifests/kyverno-pod-standards.yaml
+  - ../queue-binding/policy-under-test.yaml
+resources:
+  - resources.yaml
+results:
+  - { policy: adhar-batch-pod-standards, rule: a-run-has-a-deadline-and-a-ttl, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-pod-never-restarts-in-place-and-uses-a-batch-class, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-mounts-no-persistent-volume, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-run-containers-memory-request-equals-its-limit, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run, volcano-single-run], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [volcano-single-run], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-volcano-scheduled-run-pod-uses-a-volcano-class, kind: Job, resources: [native-partitioned-run, native-single-run, volcano-absent-run], result: skip }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-has-a-deadline-and-a-ttl, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-pod-never-restarts-and-uses-a-batch-class, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-mounts-no-persistent-volume, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-run-containers-memory-request-equals-its-limit, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native, volcano-single-schedule-native], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-volcano-run-pod-uses-a-volcano-class, kind: CronJob, resources: [volcano-single-schedule-native], result: pass }
+  - { policy: adhar-batch-pod-standards, rule: a-scheduled-volcano-run-pod-uses-a-volcano-class, kind: CronJob, resources: [native-single-schedule-native, volcano-absent-schedule-native], result: skip }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-run-has-a-deadline-and-a-ttl, kind: Job, resources: [volcano-cron-run, volcano-gang-run], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-run-never-restarts-in-place-and-uses-a-batch-class, kind: Job, resources: [volcano-cron-run, volcano-gang-run], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-run-mounts-no-persistent-volume, kind: Job, resources: [volcano-cron-run, volcano-gang-run], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-run-containers-memory-request-equals-its-limit, kind: Job, resources: [volcano-cron-run, volcano-gang-run], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-schedule-has-a-deadline-and-a-ttl, kind: CronJob, resources: [volcano-cron-schedule-volcano], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-schedule-never-restarts-and-uses-a-batch-class, kind: CronJob, resources: [volcano-cron-schedule-volcano], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-schedule-mounts-no-persistent-volume, kind: CronJob, resources: [volcano-cron-schedule-volcano], result: pass }
+  - { policy: adhar-batch-volcano-pod-standards, rule: a-volcano-schedule-memory-request-equals-its-limit, kind: CronJob, resources: [volcano-cron-schedule-volcano], result: pass }

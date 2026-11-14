@@ -1,0 +1,111 @@
+# promtool unit tests for observability/mimir/manifests/batch-app-alerts.yaml.
+# TestMimirBatchAlertsPassTheirRuleTests writes the PrometheusRule's groups to
+# rules.yaml beside a copy of this file and runs `promtool test rules`.
+# The OTLP series are shaped exactly as Alloy v1.21.3's OpenTelemetry Engine
+# remote-writes a run pod's Micrometer meters (verified at the reader, 2026-11-14):
+# the Micrometer `job` tag is overwritten by "<service.namespace>/<service.name>",
+# and every resource attribute of the BatchJob composition is a label. The ruler
+# sees the same series with cluster="management" pinned by Alloy's loader.
+# Timestamps start at the Unix epoch, so a gauge of epoch seconds reads as 0 at t=0.
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+tests:
+  # A prod run: pod -a5k2p commits on its second step every minute, while the first
+  # step's gauge stays where that step ended. Pod -w9x4z (a partition worker,
+  # which publishes no run gauge) committed once and stalled.
+  - interval: 1m
+    input_series:
+      - series: 'adhar_batch_run{job="acme-payments-prod/settlement",trigger="schedule",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="settlement-6f2c8d1e-a5k2p",adhar_batch_job="settlement",adhar_application="payments",deployment_environment_name="prod",service_name="settlement",service_namespace="acme-payments-prod"}'
+        values: '1x60'
+      - series: 'adhar_batch_last_commit_seconds{job="acme-payments-prod/settlement",step="loadStep",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="settlement-6f2c8d1e-a5k2p",adhar_batch_job="settlement",adhar_application="payments",deployment_environment_name="prod",service_name="settlement",service_namespace="acme-payments-prod"}'
+        values: '0x60'
+      - series: 'adhar_batch_last_commit_seconds{job="acme-payments-prod/settlement",step="postStep",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="settlement-6f2c8d1e-a5k2p",adhar_batch_job="settlement",adhar_application="payments",deployment_environment_name="prod",service_name="settlement",service_namespace="acme-payments-prod"}'
+        values: '0+60x60'
+      - series: 'adhar_batch_last_commit_seconds{job="acme-payments-prod/settlement",step="partitionStep",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="settlement-6f2c8d1e-w9x4z",adhar_batch_job="settlement",adhar_application="payments",deployment_environment_name="prod",service_name="settlement",service_namespace="acme-payments-prod"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: BatchNoProgress
+        exp_alerts: []
+      # Only the stalled worker: the other pod's newest commit is a minute old.
+      - eval_time: 40m
+        alertname: BatchNoProgress
+        exp_alerts:
+          - exp_labels: {severity: critical, cluster: management, namespace: acme-payments-prod, k8s_namespace_name: acme-payments-prod, k8s_pod_name: settlement-6f2c8d1e-w9x4z, adhar_batch_job: settlement, adhar_application: payments, deployment_environment_name: prod, adhar_environment: prod}
+            exp_annotations:
+              summary: "A run of BatchJob acme-payments-prod/settlement has committed nothing for 30 minutes"
+              description: "Pod settlement-6f2c8d1e-w9x4z last committed a chunk 40m 0s ago while its run is still executing: a step is stuck on a lock, a remote call or a full disk, or it is a long non-chunk step after a chunk step. Its thread dump and log say which (`adhar batch logs`); activeDeadlineSeconds stays the hard stop."
+
+  # The run has ended (gauge 0, the registry's last flush), a job with alerts
+  # disabled, and a service running a job in embedded mode (no adhar_batch_job):
+  # none of them raises BatchNoProgress, however old their last commit.
+  - interval: 1m
+    input_series:
+      - series: 'adhar_batch_run{job="acme-payments-prod/reconcile",trigger="schedule",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="reconcile-1a2b3c4d-q8r7s",adhar_batch_job="reconcile",deployment_environment_name="prod"}'
+        values: '0x60'
+      - series: 'adhar_batch_last_commit_seconds{job="acme-payments-prod/reconcile",step="s",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="reconcile-1a2b3c4d-q8r7s",adhar_batch_job="reconcile",deployment_environment_name="prod"}'
+        values: '0x60'
+      - series: 'adhar_batch_run{job="acme-payments-dev/quiet",trigger="manual",cluster="management",k8s_namespace_name="acme-payments-dev",k8s_pod_name="quiet-9z8y7x6w-a1b2c",adhar_batch_job="quiet",adhar_batch_alerts="false",deployment_environment_name="dev"}'
+        values: '1x60'
+      - series: 'adhar_batch_last_commit_seconds{job="acme-payments-dev/quiet",step="s",cluster="management",k8s_namespace_name="acme-payments-dev",k8s_pod_name="quiet-9z8y7x6w-a1b2c",adhar_batch_job="quiet",adhar_batch_alerts="false",deployment_environment_name="dev"}'
+        values: '0x60'
+      - series: 'adhar_batch_run{job="acme-payments-prod/orders",trigger="embedded",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="orders-7d9f-xk2lp"}'
+        values: '1x60'
+      - series: 'adhar_batch_last_commit_seconds{job="acme-payments-prod/orders",step="s",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="orders-7d9f-xk2lp"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: BatchNoProgress
+        exp_alerts: []
+
+  # A dev job of a team (adhar_team set by the composition): routed by `team`, at
+  # warning severity. It dead-letters every minute; a prod job dead-lettered once.
+  - interval: 1m
+    input_series:
+      - series: 'adhar_batch_items_dead_lettered_total{job="acme-payments-dev/importer",step="importStep",cluster="management",k8s_namespace_name="acme-payments-dev",k8s_pod_name="importer-0c1d2e3f-m4n5o",adhar_batch_job="importer",adhar_application="payments",deployment_environment_name="dev",adhar_team="payments"}'
+        values: '5+5x40'
+      - series: 'adhar_batch_items_dead_lettered_total{job="acme-payments-prod/importer",step="importStep",cluster="management",k8s_namespace_name="acme-payments-prod",k8s_pod_name="importer-0c1d2e3f-p6q7r",adhar_batch_job="importer",adhar_application="payments",deployment_environment_name="prod",adhar_team="payments"}'
+        values: '0x4 3x35'
+    alert_rule_test:
+      # Pending, not yet 15 minutes.
+      - eval_time: 10m
+        alertname: BatchDeadLetterGrowing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: BatchDeadLetterGrowing
+        exp_alerts:
+          - exp_labels: {severity: warning, cluster: management, namespace: acme-payments-dev, k8s_namespace_name: acme-payments-dev, adhar_batch_job: importer, adhar_application: payments, deployment_environment_name: dev, adhar_environment: dev, adhar_team: payments, team: payments, step: importStep}
+            exp_annotations:
+              summary: "BatchJob acme-payments-dev/importer keeps dead-lettering items in step importStep"
+              description: "Step importStep has dead-lettered items in every 10-minute window for 15 minutes (50 in the last 10): the skip policy keeps the run alive while the input is rejected. Fix the source and replay with `adhar batch dlq`."
+
+  # The observer's gauges for a prod job due at t=60m: the expected end is ten
+  # minutes past it, so it is endangered until the deadline passes, then missed.
+  - interval: 1m
+    input_series:
+      - series: 'adhar_batch_deadline_seconds_remaining{job="prometheus.scrape.annotated_pods",namespace="adhar-system",pod="adhar-controller-manager-5c7d9-abcde",cluster="management",k8s_namespace_name="acme-payments-prod",adhar_batch_job="settlement",adhar_application="payments",adhar_environment="prod",adhar_team="payments",business_date="2026-11-14"}'
+        values: '3600-60x70'
+      - series: 'adhar_batch_deadline_projected_slack_seconds{job="prometheus.scrape.annotated_pods",namespace="adhar-system",pod="adhar-controller-manager-5c7d9-abcde",cluster="management",k8s_namespace_name="acme-payments-prod",adhar_batch_job="settlement",adhar_application="payments",adhar_environment="prod",adhar_team="payments",business_date="2026-11-14"}'
+        values: '-600x70'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BatchDeadlineEndangered
+        exp_alerts:
+          - exp_labels: {severity: critical, cluster: management, namespace: acme-payments-prod, k8s_namespace_name: acme-payments-prod, adhar_batch_job: settlement, adhar_application: payments, adhar_environment: prod, adhar_team: payments, team: payments, business_date: "2026-11-14"}
+            exp_annotations:
+              summary: "BatchJob acme-payments-prod/settlement is expected to miss its deadline for 2026-11-14"
+              description: "At its usual pace (p90 of its last 20 runs) the run for 2026-11-14 ends 10m 0s after sla.finishBy. The batch observer published io.adhar.batch.deadline.endangered with the same numbers."
+      - eval_time: 5m
+        alertname: BatchDeadlineMissed
+        exp_alerts: []
+      # Past the deadline: missed, and no longer "endangered".
+      - eval_time: 65m
+        alertname: BatchDeadlineEndangered
+        exp_alerts: []
+      - eval_time: 65m
+        alertname: BatchDeadlineMissed
+        exp_alerts:
+          - exp_labels: {severity: critical, cluster: management, namespace: acme-payments-prod, k8s_namespace_name: acme-payments-prod, adhar_batch_job: settlement, adhar_application: payments, adhar_environment: prod, adhar_team: payments, team: payments, business_date: "2026-11-14"}
+            exp_annotations:
+              summary: "BatchJob acme-payments-prod/settlement missed its deadline for 2026-11-14"
+              description: "sla.finishBy passed with no successful run for 2026-11-14. The alert resolves once that date succeeds; `adhar batch runs` shows where the run is."

@@ -98859,20 +98859,20 @@ spec:
   listenLocal: false
   enableOTLPReceiver: false
   enableAdminAPI: false
-  enableFeatures:
-  - exemplar-storage
   exemplars:
     maxSize: 100000
+  enableFeatures:
+  - exemplar-storage
+  resources:
+    limits:
+      memory: 8Gi
+    requests:
+      cpu: 500m
+      memory: 3Gi
   retention: 10d
   tsdb:
     outOfOrderTimeWindow: 0s
   walCompression: true
-  resources:
-    requests:
-      cpu: 500m
-      memory: 3Gi
-    limits:
-      memory: 8Gi
   routePrefix: /
   serviceAccountName: prometheus-kube-prometheus-prometheus
   serviceMonitorSelector: {}
@@ -98889,7 +98889,12 @@ spec:
     seccompProfile:
       type: RuntimeDefault
   ruleNamespaceSelector: {}
-  ruleSelector: {}
+  ruleSelector:
+    matchExpressions:
+    - key: adhar.io/rules-target
+      operator: NotIn
+      values:
+      - mimir
   scrapeConfigSelector: {}
   scrapeConfigNamespaceSelector: {}
   affinity:

@@ -1,0 +1,63 @@
+# promtool unit tests for observability/mimir/manifests/ruler-alerts.yaml. Series
+# are shaped as a Mimir 3.2.0 ruler publishes them with the batch groups loaded
+# (rule_group is "<rule path>/<tenant>/<url-encoded Mimir namespace>;<group>"),
+# plus the job label servicemonitor.yaml's relabelling gives the ruler.
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+tests:
+  # Healthy: running, both batch groups loaded, an Alertmanager discovered, no errors.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="adhar-system/ruler",namespace="adhar-system",pod="mimir-ruler-7c9d-x2k4m"}'
+        values: '1x60'
+      - series: 'cortex_prometheus_rule_group_rules{job="adhar-system/ruler",user="anonymous",rule_group="/data/anonymous/adhar-management%2Fadhar-system%2Fadhar-batch-app%2F0d9e6f1c-7a2b-4c3d-9e8f-1a2b3c4d5e6f;adhar.batch.app.alerts"}'
+        values: '4x60'
+      - series: 'cortex_prometheus_notifications_alertmanagers_discovered{job="adhar-system/ruler",user="anonymous"}'
+        values: '1x60'
+      - series: 'cortex_prometheus_notifications_errors_total{job="adhar-system/ruler",user="anonymous",alertmanager="http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093/api/v2/alerts"}'
+        values: '0x60'
+      - series: 'cortex_prometheus_notifications_dropped_total{job="adhar-system/ruler",user="anonymous",alertmanager="http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093/api/v2/alerts"}'
+        values: '0x60'
+    alert_rule_test:
+      - {eval_time: 45m, alertname: MimirRulerDown, exp_alerts: []}
+      - {eval_time: 45m, alertname: MimirBatchRulesNotLoaded, exp_alerts: []}
+      - {eval_time: 45m, alertname: MimirRulerCannotNotify, exp_alerts: []}
+
+  # The ruler was never scraped, so nothing it would publish exists either.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="adhar-system/ingester"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: MimirRulerDown
+        exp_alerts:
+          - exp_labels: {severity: warning, source: mimir}
+            exp_annotations:
+              summary: "The Mimir ruler is not running"
+              description: "No alert on a series that lives only in Mimir is evaluated, BatchNoProgress, BatchDeadLetterGrowing and the batch deadline alerts among them. `kubectl -n adhar-system describe deploy mimir-ruler`."
+      - eval_time: 45m
+        alertname: MimirBatchRulesNotLoaded
+        exp_alerts:
+          - exp_labels: {severity: warning, source: mimir}
+            exp_annotations:
+              summary: "The batch alerts are not loaded into the Mimir ruler"
+              description: "The ruler has no adhar.batch.app.alerts group from PrometheusRule adhar-system/adhar-batch-app, so BatchNoProgress, BatchDeadLetterGrowing and the deadline alerts cannot fire. Alloy's mimir.rules.kubernetes loads it: check that component in the Alloy UI (port 12345) and its log for the ruler API's answer."
+
+  # Running but sending into the void: every notification fails.
+  - interval: 1m
+    input_series:
+      - series: 'cortex_prometheus_notifications_alertmanagers_discovered{job="adhar-system/ruler",user="anonymous"}'
+        values: '1x60'
+      - series: 'cortex_prometheus_notifications_errors_total{job="adhar-system/ruler",user="anonymous",alertmanager="http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093/api/v2/alerts"}'
+        values: '0+2x60'
+      - series: 'cortex_prometheus_notifications_dropped_total{job="adhar-system/ruler",user="anonymous",alertmanager="http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093/api/v2/alerts"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MimirRulerCannotNotify
+        exp_alerts:
+          - exp_labels: {severity: warning, source: mimir}
+            exp_annotations:
+              summary: "The Mimir ruler cannot deliver its alerts"
+              description: "It has no Alertmanager to send to, or its sends fail or are dropped: alerts it fires never reach OnCall. Its alertmanager_url is the platform Alertmanager (mimir/values.yaml); check that prometheus-kube-prometheus-alertmanager answers on 9093."

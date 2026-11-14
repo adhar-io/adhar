@@ -34,16 +34,18 @@
 #     Design 0025 §10.3 names one Mutate + Enforce policy; it is two because a
 #     policy mixing mutate and validate rules reports each validate rule twice in the
 #     kyverno CLI, so its tests could not tell a pass from a skip (2026-11-14).
-#   adhar-batch-volcano-pod-standards (Audit, Enforce in Phase 3): the batch pod
-#     standards of kyverno-pod-standards.yaml, written for spec.tasks[*].template
-#     because Kyverno's autogen covers only the built-in controllers [S89].
+#   adhar-batch-volcano-pod-standards (Enforce since Phase 3, PLAT-3.6): the batch
+#     pod standards of kyverno-pod-standards.yaml, written for spec.tasks[*].template
+#     because Kyverno's autogen covers only the built-in controllers [S89], and
+#     again for a Volcano CronJob's job template, so a schedule that breaks one is
+#     refused when it is defined rather than at every fire.
 #
 # FAILURE POLICY (user decision DEC-4, 2026-11-14; Kyverno's global
 # forceFailurePolicyIgnore is off, so each policy's own value is what the webhook
 # gets). adhar-batch-queue-binding fails CLOSED: while Kyverno is down a person's
 # Volcano run is refused, never admitted onto an unchecked queue. The defaulting
 # policy and the pod standards fail open: a run the default could not fix is refused
-# by the binding anyway, and a standards finding is an audit. The controllers that
+# by the binding anyway, and the standards are not a tenancy boundary. The controllers that
 # execute an admitted run never reach the binding's webhook (matchConditions), so an
 # outage stops no scheduled run: Volcano's own, and Kubernetes' CronJob and Job
 # controllers creating the Jobs and pods of a batch/v1 CronJob or Job (a scheduled
@@ -695,6 +697,15 @@ spec:
 # templates under spec.tasks. A Volcano Job has no Job-level deadline, so the
 # deadline is each task's pod activeDeadlineSeconds; spec.volumes is refused as a
 # whole because Volcano creates a PersistentVolumeClaim for each entry.
+#
+# Enforce since Phase 3, with the native policy's two additions and for the same
+# reasons (kyverno-pod-standards.yaml): the CronJob twins, on a Volcano CronJob's
+# spec.jobTemplate, because volcano-controllers creates the scheduled Jobs and a
+# Job it cannot create is a missed schedule nobody was told about at definition
+# time; and allowExistingViolations stated, so a run admitted while this audited
+# can still be stopped and resumed. Nobody is excluded by username: Volcano's
+# controllers create Jobs only from CronJobs these twins admitted. failurePolicy
+# stays Ignore (D18).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -704,11 +715,12 @@ metadata:
     policies.kyverno.io/title: "Batch: Volcano run pod standards"
     policies.kyverno.io/category: Batch
     policies.kyverno.io/severity: medium
-    policies.kyverno.io/subject: Job
+    policies.kyverno.io/subject: Job, CronJob
     policies.kyverno.io/description: >-
       A Volcano batch run sets memory request = limit, restartPolicy Never and a
       batch PriorityClass on every task, mounts no PersistentVolumeClaim, and has a
-      TTL and a per-task deadline.
+      TTL and a per-task deadline. A Volcano CronJob whose job template is a batch
+      run is held to the same.
 spec:
   background: true
   webhookConfiguration:
@@ -723,7 +735,8 @@ spec:
                 matchLabels:
                   adhar.io/workload: batch
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A Volcano batch run needs ttlSecondsAfterFinished and activeDeadlineSeconds on every task's pod (design 0025 INV-1).
         # "?*", not ">=0": Kyverno reads a MISSING field as passing a numeric
         # comparison, so ">=0" admits a run with no TTL at all.
@@ -737,7 +750,8 @@ spec:
     - name: a-volcano-run-never-restarts-in-place-and-uses-a-batch-class
       match: *volcanoRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         # The Volcano classes (DEC-1): Volcano v1.16 refuses every reclaimer and
         # preemptor whose class is preemptionPolicy Never, so a run on adhar-batch
         # could neither take back prod's share nor be ranked within its queue.
@@ -753,7 +767,8 @@ spec:
     - name: a-volcano-run-mounts-no-persistent-volume
       match: *volcanoRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A Volcano batch run may not claim volumes (spec.volumes) or mount a PersistentVolumeClaim; a node-local volume pins a preemptible pod to one node.
         pattern:
           spec:
@@ -766,10 +781,85 @@ spec:
     - name: a-volcano-run-containers-memory-request-equals-its-limit
       match: *volcanoRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A Volcano batch run's memory request must equal its limit in every task; a run overcommitted on memory is the one the kernel kills.
         foreach:
           - list: "request.object.spec.tasks[].template.spec.containers[]"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.resources.requests.memory || '' }}"
+                    operator: NotEquals
+                    value: "{{ element.resources.limits.memory || 'absent' }}"
+    # ---- the Volcano CronJob twins: the same four, on spec.jobTemplate ------------
+    # Matched by the job template's label, which the scheduled Jobs inherit.
+    - name: a-volcano-schedule-has-a-deadline-and-a-ttl
+      match: &volcanoSchedules
+        any:
+          - resources:
+              kinds: ["batch.volcano.sh/v1alpha1/CronJob"]
+      preconditions: &volcanoBatchTemplate
+        all:
+          - key: "{{ request.object.spec.jobTemplate.metadata.labels.\"adhar.io/workload\" || '' }}"
+            operator: Equals
+            value: batch
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A Volcano batch CronJob's job template needs ttlSecondsAfterFinished and activeDeadlineSeconds on every task's pod (design 0025 INV-1), or every run it starts is refused.
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                ttlSecondsAfterFinished: "?*"
+                tasks:
+                  - template:
+                      spec:
+                        activeDeadlineSeconds: ">0"
+    - name: a-volcano-schedule-never-restarts-and-uses-a-batch-class
+      match: *volcanoSchedules
+      preconditions: *volcanoBatchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A Volcano batch CronJob's runs need the PriorityClass adhar-batch-volcano or adhar-batch-volcano-critical, and restartPolicy Never on every task (Volcano's policies restart the gang).
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                priorityClassName: "adhar-batch-volcano | adhar-batch-volcano-critical"
+                tasks:
+                  - template:
+                      spec:
+                        restartPolicy: Never
+                        =(priorityClassName): "adhar-batch-volcano | adhar-batch-volcano-critical"
+    - name: a-volcano-schedule-mounts-no-persistent-volume
+      match: *volcanoSchedules
+      preconditions: *volcanoBatchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A Volcano batch CronJob's runs may not claim volumes (spec.volumes) or mount a PersistentVolumeClaim; a node-local volume pins a preemptible pod to one node.
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                X(volumes): "null"
+                tasks:
+                  - template:
+                      spec:
+                        =(volumes):
+                          - X(persistentVolumeClaim): "null"
+    - name: a-volcano-schedule-memory-request-equals-its-limit
+      match: *volcanoSchedules
+      preconditions: *volcanoBatchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A Volcano batch CronJob's run memory request must equal its limit in every task; a run overcommitted on memory is the one the kernel kills.
+        foreach:
+          - list: "request.object.spec.jobTemplate.spec.tasks[].template.spec.containers[]"
             deny:
               conditions:
                 any:

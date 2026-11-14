@@ -947,13 +947,8 @@ func installInClusterController(b *LocalProvisioner) error {
 		return err
 	}
 
-	image := b.options.ControllerImage
-	if image == "" {
-		image = defaultControllerImage()
-	}
-
 	return controllers.EnsureControllerManager(ctx, kubeClient, controllers.ManagerConfig{
-		Image:        image,
+		Image:        b.controllerImage(),
 		Namespace:    globals.AdharSystemNamespace,
 		PlatformName: b.options.Name,
 	})
@@ -1075,9 +1070,23 @@ func (b *LocalProvisioner) ReconcileCRDs(ctx context.Context, kubeClient client.
 	return nil
 }
 
+// controllerImage is the image the in-cluster manager runs: --controller-image,
+// else the release matching this CLI build. One rule for the Deployment and for
+// the workflow steps seeded before it exists (seedPlatformImage).
+func (b *LocalProvisioner) controllerImage() string {
+	if b.options.ControllerImage != "" {
+		return b.options.ControllerImage
+	}
+	return defaultControllerImage()
+}
+
 // RunControllers starts the platform controllers on the given manager, signalling
 // completion or errors over exitCh.
 func (b *LocalProvisioner) RunControllers(ctx context.Context, mgr manager.Manager, exitCh chan error, tmpDir string) error {
+	// The stack is seeded by this in-process manager, before
+	// installInClusterController creates the Deployment, so the catalogue's
+	// workflow steps are told now which image that Deployment will run.
+	seedPlatformImage(b.controllerImage())
 	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.AppsTimeout, b.options.TemplateData, tmpDir, b.options.StackDir)
 }
 

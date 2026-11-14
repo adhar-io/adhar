@@ -18,6 +18,7 @@ taken only where Volcano runs (see *Scheduler*).
 | CronJob (batch/v1), resource `schedule-native` | `<name>` | `schedule.cron` is set, and the run is not a gang | once observed |
 | CronJob (batch.volcano.sh/v1alpha1), resource `schedule-volcano` | `<name>` | `schedule.cron` is set, and the run is a gang (`mode: partitioned` on Volcano) | once observed |
 | PrometheusRule | `<name>-batch` | `alerts.enabled` (default) | once observed |
+| ConfigMap, the **calendar copy** | `<name>-calendar` | `schedule.calendar` names a calendar that resolves (or, while it does not, a copy made before exists and is kept) | once observed |
 
 Statusless kinds publish no `Ready` condition and `function-auto-ready` would hold
 the XR unready forever because of one, so each carries
@@ -50,6 +51,7 @@ the API server adds to a Job on its way in (`fieldRef.apiVersion`,
 | ConfigMap `adhar-system/adhar-batch-scheduler` | The scheduler descriptor (D7): `scheduler`, `gang`. See *Scheduler*. |
 | CRDs `jobs.batch.volcano.sh`, `cronjobs.batch.volcano.sh`, `queues.scheduling.volcano.sh` | A descriptor without them is not Volcano: composing, or requiring, a kind the cluster does not serve fails the whole reconcile. |
 | Queue `<organisation>-<team>-<tier>` | Asked for only where Volcano runs and the namespace has a tier: the leaf the run is bound to, its owner labels, its state and its `deserved` share (QueueFits). |
+| ConfigMap `<schedule.calendar>` in the XR's namespace, then in `adhar-system` (D5) | The business calendar. The first one labelled `adhar.io/batch-calendar: "true"` with a non-empty `calendar.yaml` wins; none is `PrerequisitesReady=False` (`CalendarUnresolvable`), schedule suspended. Its content is the runner's to judge (an invalid file is exit 2): a template cannot parse YAML without failing the reconcile on a typo. `core/adhar-batch` ships `weekdays`. |
 | ResourceQuota `<namespace>-quota` (`mode: partitioned` only) | The gang-fit refusal: every key of `spec.hard` it sets among `requests.cpu`, `limits.cpu`, `requests.memory`, `limits.memory`, `cpu`, `memory` and `pods`. |
 
 ## Every parameter and what it becomes
@@ -74,6 +76,7 @@ Defaults are the XRD's. "Run" means both the CronJob's `jobTemplate` and
 | `schedule.startingDeadlineSeconds` | `CronJob.spec.startingDeadlineSeconds` (the misfire window). |
 | `schedule.concurrencyPolicy` | `CronJob.spec.concurrencyPolicy`. `Replace` is refused. |
 | `schedule.suspend` | `CronJob.spec.suspend` (OR'd with the hold and with missing prerequisites); `ScheduleReady` reason `SuspendedInGit`. |
+| `schedule.calendar` | D5: the calendar copied into ConfigMap `<name>-calendar` (annotation `adhar.io/batch-calendar-source: <namespace>/<name>`, no calendar label of its own), mounted read-only on every run pod as volume `calendar` at `/etc/adhar/batch/calendar` (`optional: true`: a calendar that never resolved has no copy, and a run started from the template anyway finds no file and exits 2 rather than sitting in FailedMount until its deadline), and `ADHAR_BATCH_CALENDAR=/etc/adhar/batch/calendar/calendar.yaml`; `status.calendar` names the source. On a day that is not a business day the runner exits 0 `skipped` (reason `calendar`) for the triggers `schedule`, `dependency` and `backfill`. |
 | `parameters` | `parameters.json` in the run template, every default written out so a client needs no schema. `source: schedule` and `identifying` are what the runner and the run name (§8.3, `naming: v1`) read. |
 | `resources` | The run container's `resources`. |
 | `resources.cpu` | `requests.cpu`. |
@@ -107,10 +110,18 @@ Defaults are the XRD's. "Run" means both the CronJob's `jobTemplate` and
 | `serviceAccountName` | The run pod's ServiceAccount instead of the composed `<name>-batch`, which is then not composed. The RoleBinding still grants it the runner's Role. |
 | `sla` | Alert thresholds, not a hard stop. |
 | `sla.maxDuration` | Threshold of `BatchRunTooLong`, in seconds; defaults to `timeouts.activeDeadlineSeconds`. |
+| `sla.finishBy` | Nothing composed: the batch observer reads it from the BatchJob (§11.4) and emits `deadline.endangered` / `deadline.missed`. |
+| `sla.timeZone` | The zone of `sla.finishBy` (observer); default `schedule.timeZone`, else UTC. |
 | `alerts` | The PrometheusRule. |
 | `alerts.enabled` | `false` composes no PrometheusRule. |
 | `alerts.staleAfter` | Threshold of `BatchNoRecentSuccess`. |
 | `alerts.severity` | Label `severity` on every alert; `auto` is `critical` in `prod`, `warning` elsewhere. |
+| `dependsOn` | Nothing composed: the batch observer starts a `dependency` run once every listed job has succeeded (for the same business date unless `sameBusinessDate: false`, §12). Naming the job itself is refused, and so is any dependency of a job with no business-date parameter for the observer to set (`businessDate`, else a `date` the schedule supplies), because the date is the dependency run's identity. |
+| `retention` | D4, the JobRepository's housekeeping, done by the runner after a completed run. |
+| `retention.days` | `ADHAR_BATCH_RETENTION_DAYS` on every run (default 90). Not client-settable: the integrity policy compares it. |
+| `retention.keepLast` | `ADHAR_BATCH_RETENTION_KEEP_LAST` on every run (default 30). |
+| `smoke` | D6: the Project composition's test-environment verification runs `<name>-smoke-<sha7>` through `adhar batch run --smoke` (metric `<name>-smoke-run`). Nothing is composed here. |
+| `smoke.parameters` | The smoke run's values; a name the job does not declare in `parameters` is refused, and so is a set the CLI would refuse (below). |
 | `organisation` | Never needed: the namespace's label decides. A value that disagrees is ignored and reported on `Placement` (reason `ParameterOverridden`). |
 | `team` | As `organisation`. |
 | `project` | As `organisation`. |
@@ -124,7 +135,8 @@ seccomp, all capabilities dropped; `parallelism: 1`, `completions: 1`,
 `podReplacementPolicy: Failed` and the `podFailurePolicy` of §5.7 (a
 `DisruptionTarget` is ignored, exit codes 2, 3, 4, 6 and 7 fail the Job); the env
 `ADHAR_BATCH_NAME`, `ADHAR_BATCH_ROLE`, `ADHAR_BATCH_TRIGGER`, `ADHAR_BATCH_PARAMS`
-(`"{}"` until a client sets it), `ADHAR_BATCH_K8S_JOB` and `ADHAR_BATCH_ACTOR` (field
+(`"{}"` until a client sets it), `ADHAR_BATCH_RETENTION_DAYS` and `_KEEP_LAST` (their
+defaults when `retention` is unset), `ADHAR_BATCH_K8S_JOB` and `ADHAR_BATCH_ACTOR` (field
 refs), `POD_NAME`, `POD_UID`, `NODE_NAME`, `ADHAR_ENVIRONMENT`, and OTLP to Alloy
 (`OTEL_EXPORTER_OTLP_ENDPOINT`, `http/protobuf`, `OTEL_METRICS_EXPORTER=otlp`).
 
@@ -148,7 +160,15 @@ that is accepted and breaks at run time in the middle of a night:
   `limits.cpu`, `requests.memory`, `limits.memory`, bare `cpu`/`memory`, `pods`): a
   gang that could never start (its leaf admits it, its pods are created and the last
   are forbidden, holding the rest of the quota), or an Indexed Job that would start
-  only some workers.
+  only some workers;
+- `smoke.parameters` naming a parameter the job does not declare;
+- `dependsOn` naming the job itself, or on a job with no business-date parameter
+  (`businessDate`, else a `date` the schedule supplies) for the observer to set;
+- a run the platform starts that the CLI and the observer would refuse: the smoke
+  run (only `smoke.parameters`) or a dependency run (only the business date), when
+  another parameter is required with no default, is schedule-supplied and not a date,
+  or is given a value outside `allowed` or not of its `type`
+  (`TestPlatformStartedRunsOnlyUseParametersTheyCanFill`).
 
 `TestBatchJobRefusals` pins every message.
 
@@ -156,7 +176,7 @@ that is accepted and breaks at run time in the middle of a night:
 
 | Condition | Meaning |
 |---|---|
-| `PrerequisitesReady` | `Met`, or `PriorityClassMissing` / `SchedulerUnavailable` / `QueueUnavailable` with the schedule suspended. Argo CD reports `False` as Degraded. |
+| `PrerequisitesReady` | `Met` (naming the calendar's source when there is one), or `PriorityClassMissing` / `SchedulerUnavailable` / `QueueUnavailable` / `CalendarUnresolvable` with the schedule suspended. Argo CD reports `False` as Degraded. |
 | `QueueFits` | DEC-3, a warning (Argo CD does not read it): `NativeScheduler`; `Fits` (the leaf); `LeafQueueUnavailable` — the leaf is missing (Volcano refused a prod leaf the batch ceiling cannot admit), another team's, closed, or the namespace has no tier, so `auto` runs natively instead of being denied; `ExceedsCapability` — a run larger than the leaf's `capability` in any dimension, which Volcano never admits (its PodGroup stays `Pending` and `BatchGangQueueRejected` fires); checked first, on every tier; `ExceedsDeserved` — a prod run larger than the leaf's `deserved` in every dimension it declares, which starts only on idle room and can never reclaim. Also appended to `status.message`. |
 | `SchedulerSwitch` | `Settled`, or `WaitingForRuns` while a schedule's kind switch waits for the run in flight (see *Scheduler*). |
 | `TemplateReady` | `Published` once `<name>-run` is observed. |
@@ -164,7 +184,7 @@ that is accepted and breaks at run time in the middle of a night:
 | `Held` | `True`/`OnHold` while the XR carries `adhar.io/batch-hold`. |
 | `Placement` | Where the job runs and why; `ParameterOverridden` when a placement parameter disagreed with the namespace; carries the cadence note. |
 
-`status.scheduler`, `queue` (on Volcano), `runTemplate`, `cronJob`, `lastScheduleTime`,
+`status.scheduler`, `queue` (on Volcano), `runTemplate`, `cronJob`, `calendar`, `lastScheduleTime`,
 `lastSuccessfulTime` and `activeRuns` are copied from the resolved values and the
 observed CronJob; `status.held.{reason,since}` from the annotation; `status.message`
 is the one-line summary the CLI prints.
@@ -233,6 +253,10 @@ the quota check, the gang alerts against the stack's series, Crossplane's grants
 render per branch (`testdata/batchjob-volcano/golden-*.yaml`; `ADHAR_UPDATE_GOLDEN=1`
 rewrites them) and a real `crossplane render` of every branch.
 `volcano_composition_capability_test.go`: QueueFits `ExceedsCapability`.
+`calendar_composition_test.go`: the calendar lookup order, copy, mount and env, the kept
+copy while a source is gone, retention on every run, the Phase-3 refusals, and a real
+`crossplane render` of a calendar job; `smoke_gate_test.go`: the Project composition's
+smoke metric.
 `volcano_composition_quota_test.go`: the gang fit on every quota key, the CPU limit on every
 run pod and its refusal, and (opt-in, `ADHAR_LIVE_DRY_RUN=1`) a server dry run of the run
 pods against an environment's LimitRange.

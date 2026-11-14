@@ -12,7 +12,7 @@
 # topic is created on first publish — with ONE partition and the broker's
 # default retention. These topics want their own retention (a week of platform
 # history is useful; a week of every agent run is not) and their own partition
-# count, so they are declared. `platform/events/taxonomy.go` lists the same five
+# count, so they are declared. `platform/events/taxonomy.go` lists the same six
 # and `TestTheEventTopicsAreDeclaredInTheStack` holds the two halves together.
 #
 # Topics are named `adhar.<domain>` and the Go taxonomy derives the topic from
@@ -123,6 +123,30 @@ spec:
     # durable record of what an agent concluded belongs in its own store, not
     # in the bus.
     retention.ms: "259200000"
+    cleanup.policy: delete
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: adhar.batch
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+    adhar.io/component: events
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Three partitions. The record key is `<namespace>/<batchjob>`, so one job's
+  # runs stay ordered on one partition (design 0025 §12).
+  partitions: 3
+  replicas: 1
+  config:
+    # Ninety days, audit-grade like adhar.tenancy: who ran which business date,
+    # and how it ended, is asked about at month and quarter end — long after a
+    # run's Job has been deleted by its TTL (seven days) and its history limit.
+    retention.ms: "7776000000"
     cleanup.policy: delete
     compression.type: producer
 ---

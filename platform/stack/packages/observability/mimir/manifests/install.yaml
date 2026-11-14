@@ -148,6 +148,27 @@ spec:
       app.kubernetes.io/component: query-scheduler
   maxUnavailable: 1
 ---
+# Source: mimir-distributed/templates/ruler/ruler-pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mimir-ruler
+  labels:
+    helm.sh/chart: mimir-distributed-6.2.0
+    app.kubernetes.io/name: mimir
+    app.kubernetes.io/instance: mimir
+    app.kubernetes.io/component: ruler
+    app.kubernetes.io/version: "3.2.0"
+    app.kubernetes.io/managed-by: Helm
+  namespace: "adhar-system"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+      app.kubernetes.io/instance: mimir
+      app.kubernetes.io/component: ruler
+  maxUnavailable: 1
+---
 # Source: mimir-distributed/templates/store-gateway/store-gateway-pdb.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -433,7 +454,7 @@ data:
     query_scheduler:
       max_outstanding_requests_per_tenant: 800
     ruler:
-      alertmanager_url: dnssrvnoa+http://_http-metrics._tcp.mimir-alertmanager-headless.adhar-system.svc.cluster.local./alertmanager
+      alertmanager_url: http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093
       enable_api: true
       rule_path: /data
     ruler_storage:
@@ -830,6 +851,35 @@ spec:
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-scheduler
 ---
+# Source: mimir-distributed/templates/ruler/ruler-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir-ruler
+  labels:
+    helm.sh/chart: mimir-distributed-6.2.0
+    app.kubernetes.io/name: mimir
+    app.kubernetes.io/instance: mimir
+    app.kubernetes.io/component: ruler
+    app.kubernetes.io/part-of: memberlist
+    app.kubernetes.io/version: "3.2.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    {}
+  namespace: "adhar-system"
+spec:
+  type: ClusterIP
+  internalTrafficPolicy: Cluster
+  ports:
+    - port: 8080
+      protocol: TCP
+      name: http-metrics
+      targetPort: http-metrics
+  selector:
+    app.kubernetes.io/name: mimir
+    app.kubernetes.io/instance: mimir
+    app.kubernetes.io/component: ruler
+---
 # Source: mimir-distributed/templates/store-gateway/store-gateway-svc-headless.yaml
 apiVersion: v1
 kind: Service
@@ -937,7 +987,7 @@ spec:
         app.kubernetes.io/component: distributor
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1181,7 +1231,7 @@ spec:
         app.kubernetes.io/component: querier
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -1305,7 +1355,7 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: query-frontend
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1427,7 +1477,7 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: query-scheduler
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -1508,6 +1558,134 @@ spec:
         - name: active-queries
           emptyDir: {}
 ---
+# Source: mimir-distributed/templates/ruler/ruler-dep.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mimir-ruler
+  labels:
+    helm.sh/chart: mimir-distributed-6.2.0
+    app.kubernetes.io/name: mimir
+    app.kubernetes.io/instance: mimir
+    app.kubernetes.io/component: ruler
+    app.kubernetes.io/part-of: memberlist
+    app.kubernetes.io/version: "3.2.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    {}
+  namespace: "adhar-system"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+      app.kubernetes.io/instance: mimir
+      app.kubernetes.io/component: ruler
+  strategy:
+    rollingUpdate:
+      maxSurge: 50%
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: mimir-distributed-6.2.0
+        app.kubernetes.io/name: mimir
+        app.kubernetes.io/instance: mimir
+        app.kubernetes.io/version: "3.2.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: ruler
+        app.kubernetes.io/part-of: memberlist
+      annotations:
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
+      namespace: "adhar-system"
+    spec:
+      serviceAccountName: mimir
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ruler
+          image: docker.io/grafana/mimir:3.2.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-target=ruler"
+            - "-config.expand-env=true"
+            - "-config.file=/etc/mimir/mimir.yaml"
+            - "-distributor.remote-timeout=10s"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mimir
+            - name: runtime-config
+              mountPath: /var/mimir
+            - name: storage
+              mountPath: "/data"
+            - name: active-queries
+              mountPath: /active-query-tracker
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+            - name: memberlist
+              containerPort: 7946
+              protocol: TCP
+          livenessProbe:
+            null
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 45
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 25m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          env:
+            []
+          envFrom:
+            - secretRef:
+                name: mimir-s3-credentials
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: mimir
+            app.kubernetes.io/instance: mimir
+            app.kubernetes.io/component: ruler
+      terminationGracePeriodSeconds: 600
+      volumes:
+        - name: config
+          configMap:
+            name: mimir-config
+            items:
+              - key: "mimir.yaml"
+                path: "mimir.yaml"
+        - name: runtime-config
+          configMap:
+            name: mimir-runtime
+        - name: storage
+          emptyDir: {}
+        - name: active-queries
+          emptyDir: {}
+---
 # Source: mimir-distributed/templates/compactor/compactor-statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
@@ -1557,7 +1735,7 @@ spec:
         app.kubernetes.io/component: compactor
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1689,7 +1867,7 @@ spec:
         app.kubernetes.io/component: ingester
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1827,7 +2005,7 @@ spec:
         app.kubernetes.io/component: store-gateway
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: 1ec101cbaff354f63742630afc08e6cefd7290dcbb1ed0a73fc833680b11a8d6
+        checksum/config: cf14768f5d927cb11a966d13d2c22e8f4de8bc9425d82b6bcf6a6c6ffb4d34ba
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir

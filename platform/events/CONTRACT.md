@@ -78,6 +78,7 @@ ordering — splitting a domain across topics throws away the order between
 | `adhar.tenancy` | organisations, teams, projects | 90 days |
 | `adhar.delivery` | GitOps, packages, pipelines | 14 days |
 | `adhar.ai` | agent runs | 3 days |
+| `adhar.batch` | the runs of BatchJobs: requested, started, ended, lost; holds, missed slots, deadlines | 90 days |
 
 Retention is declared per topic rather than inherited. The cluster has
 `auto.create.topics.enable: true`, so publishing to an undeclared topic
@@ -85,6 +86,66 @@ Retention is declared per topic rather than inherited. The cluster has
 retention — no error, just a stream kept for the wrong length of time.
 `TestTheEventTopicsAreDeclaredInTheStack` holds the Go taxonomy and the
 `KafkaTopic` objects together.
+
+## The `adhar.batch` domain
+
+Published by the **batch observer** (`platform/controllers/batch`, design 0025
+§12), which reads the run objects (Jobs and Volcano Jobs labelled
+`adhar.io/workload=batch`), their pods' termination summaries and the
+`BatchJob`s. The kit never publishes to the bus itself: a tenant pod holds no
+write path to the bridge and cannot forge an event, and a run that dies without
+a word (OOM, SIGKILL, a lost node) still produces one.
+
+`subject` is `<namespace>/<batchjob>` — the record key, so one job's events stay
+in order on one partition. `adharcorrelationid` is the **run's UID** (the
+BatchJob's UID for a hold or a missed slot with no run). The hierarchy
+extensions come from the **namespace's** labels, never from the run.
+
+| Type | When |
+|---|---|
+| `io.adhar.batch.run.requested` | A run appeared with a trigger other than `schedule` (manual, restart, backfill, dependency, workflow, ops, smoke); `data.run.actor` is who |
+| `io.adhar.batch.run.started` | The run's first attempt is Running (published before its end even when nobody saw it run) |
+| `io.adhar.batch.run.succeeded` | Job Complete / Volcano Completed, with the summary's counts |
+| `io.adhar.batch.run.failed` | Job Failed / Volcano Failed or Terminated; `data.outcome` has the exit code and the reason (`BackoffLimitExceeded`, `DeadlineExceeded`, the kit's reason) |
+| `io.adhar.batch.run.skipped` | Exit 0 with the kit's `outcome: skipped` (`already-complete`, `duplicate`, `calendar`) — **instead of** succeeded |
+| `io.adhar.batch.run.stopped` / `run.resumed` | Each suspend / unsuspend (Volcano: Aborted / back to Pending or Running) |
+| `io.adhar.batch.run.lost` | One **attempt** ended with no summary — `data.pod` and `data.outcome` (`OOMKilled` + 137, `NodeLost`, `PodVanished`) — or the run was deleted before it ended (`Vanished`), or it was deleted while no observer was running, so how it ended is not known (`Unobserved`; it satisfies no `dependsOn`). Per attempt, so an OOM kill followed by a successful retry is `lost` then `succeeded` |
+| `io.adhar.batch.schedule.held` / `schedule.released` | The `adhar.io/batch-hold` annotation appeared / went |
+| `io.adhar.batch.schedule.missed` | A cron slot passed ten minutes ago (`BatchScheduleMissed`'s grace) with no run |
+| `io.adhar.batch.deadline.endangered` | The expected end (start, or the slot, + p90 of the last 20 durations) passes `sla.finishBy` — **before** the deadline |
+| `io.adhar.batch.deadline.missed` | `sla.finishBy` passed without a success |
+
+`data` (every field optional for a consumer): `batchJob`, `namespace`,
+`application`; `run{name,kind,uid,trigger,actor,scheduler,queue}`;
+`springBatch{job,instanceId,executionId,status,businessDate,identifying}` with
+`sensitive` parameters masked as `••••••`; `counts{read,written,skipped,deadLettered}`;
+`start`, `end`, `durationSeconds`; `outcome{reason,exitCode,message}`; and, by
+type, `pod`, `schedule{cron,timeZone,slot,holdReason,heldSince}`,
+`deadline{finishBy,timeZone,deadline,slot,expectedEnd,p90Seconds,slackSeconds}`,
+`dependency{businessDate,after}` (on the `run.requested` of a run `dependsOn` started).
+
+**Exactly once per transition, across restarts.** What has been said about each
+job is kept in `ConfigMap <batchjob>-observer` beside it (owned by the
+BatchJob), written **before** the events are handed to the publisher: a crash
+between the two loses an event, which this contract allows, and never sends one
+twice. The first look at a job (no record yet) records its history without
+publishing it. Nothing is written on the run objects.
+
+**`dependsOn` does not use the bus.** It is decided from Kubernetes objects and
+that record, so it works where Kafka is off (the local profile) and through a
+bus outage. A dependency run a full ResourceQuota refuses is kept in the record
+of the job whose success called for it and retried (30 s doubling to 10 min, for
+up to 26 h) until it starts; a refusal that cannot pass by itself (run
+integrity, a LimitRange) is a Warning Event on the dependent BatchJob.
+
+**The SLA is also two gauges**, served by the manager and read by the Mimir
+ruler (`observability/mimir/manifests/batch-app-alerts.yaml`):
+`adhar_batch_deadline_seconds_remaining` (finishBy less now, per business date
+not yet succeeded; negative once passed) and
+`adhar_batch_deadline_projected_slack_seconds` (finishBy less the expected end,
+for the deadline being forecast). Both are labelled `k8s_namespace_name`,
+`adhar_batch_job`, `adhar_application`, `adhar_environment`, `adhar_team` and
+`business_date`, the hierarchy again from the namespace.
 
 ## The rule that matters most
 

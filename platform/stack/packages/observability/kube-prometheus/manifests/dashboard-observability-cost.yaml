@@ -29,7 +29,7 @@ data:
           }
         ]
       },
-      "description": "What the cluster costs and who spends it, from OpenCost's list prices: nodes (CPU and RAM), persistent volumes and load balancers, allocated per namespace and workload, and what is reserved but idle. Values read 0 where OpenCost has no price for the cloud. Replaces OpenCost / Overview and OpenCost / Namespace.",
+      "description": "What the cluster costs and who spends it, from OpenCost's list prices: nodes (CPU and RAM), persistent volumes and load balancers, allocated per namespace, workload and batch run, and what is reserved but idle. Values read 0 where OpenCost has no price for the cloud. Replaces OpenCost / Overview and OpenCost / Namespace.",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
@@ -1696,6 +1696,528 @@ data:
                 "w": 12,
                 "x": 12,
                 "y": 15
+              }
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "type": "row",
+          "title": "Batch",
+          "collapsed": true,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 7
+          },
+          "panels": [
+            {
+              "type": "table",
+              "title": "Batch spend by team",
+              "description": "What each team's batch runs cost over the time range: OpenCost's allocation of their pods at node prices. Teams come from the namespace's adhar.io/team label.",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "sum by (organisation, team) (sum_over_time(adhar:batch_team_cost_usd:hourly_total[$__range])) / 60",
+                  "legendFormat": "",
+                  "range": false,
+                  "instant": true,
+                  "editorMode": "code",
+                  "format": "table",
+                  "refId": "A"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "merge",
+                  "options": {}
+                },
+                {
+                  "id": "organize",
+                  "options": {
+                    "excludeByName": {
+                      "Time": true,
+                      "__name__": true
+                    },
+                    "renameByName": {
+                      "organisation": "Organisation",
+                      "team": "Team",
+                      "Value #A": "Spent"
+                    },
+                    "indexByName": {
+                      "organisation": 0,
+                      "team": 1,
+                      "Value #A": 2
+                    },
+                    "includeByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "align": "auto",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": false,
+                    "filterable": true
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      }
+                    ]
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Spent"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 2
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "sm",
+                "footer": {
+                  "show": false,
+                  "reducer": [
+                    "sum"
+                  ],
+                  "fields": "",
+                  "countRows": false
+                },
+                "sortBy": [
+                  {
+                    "displayName": "Spent",
+                    "desc": true
+                  }
+                ]
+              },
+              "id": 21,
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 8
+              }
+            },
+            {
+              "type": "table",
+              "title": "Batch spend by job",
+              "description": "CPU and memory cost of every BatchJob's runs over the time range.",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "sum by (namespace, batch_job) (sum_over_time(adhar:batch_job_cost_usd:hourly{component=\"cpu\"}[$__range])) / 60",
+                  "legendFormat": "",
+                  "range": false,
+                  "instant": true,
+                  "editorMode": "code",
+                  "format": "table",
+                  "refId": "A"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "sum by (namespace, batch_job) (sum_over_time(adhar:batch_job_cost_usd:hourly{component=\"ram\"}[$__range])) / 60",
+                  "legendFormat": "",
+                  "range": false,
+                  "instant": true,
+                  "editorMode": "code",
+                  "format": "table",
+                  "refId": "B"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "sum by (namespace, batch_job) (sum_over_time(adhar:batch_job_cost_usd:hourly_total[$__range])) / 60",
+                  "legendFormat": "",
+                  "range": false,
+                  "instant": true,
+                  "editorMode": "code",
+                  "format": "table",
+                  "refId": "C"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "merge",
+                  "options": {}
+                },
+                {
+                  "id": "organize",
+                  "options": {
+                    "excludeByName": {
+                      "Time": true,
+                      "__name__": true
+                    },
+                    "renameByName": {
+                      "namespace": "Namespace",
+                      "batch_job": "BatchJob",
+                      "Value #A": "CPU",
+                      "Value #B": "Memory",
+                      "Value #C": "Spent"
+                    },
+                    "indexByName": {
+                      "namespace": 0,
+                      "batch_job": 1,
+                      "Value #A": 2,
+                      "Value #B": 3,
+                      "Value #C": 4
+                    },
+                    "includeByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "align": "auto",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": false,
+                    "filterable": true
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      }
+                    ]
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "CPU"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 2
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Memory"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 2
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Spent"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 2
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "sm",
+                "footer": {
+                  "show": false,
+                  "reducer": [
+                    "sum"
+                  ],
+                  "fields": "",
+                  "countRows": false
+                },
+                "sortBy": [
+                  {
+                    "displayName": "Spent",
+                    "desc": true
+                  }
+                ]
+              },
+              "id": 22,
+              "gridPos": {
+                "h": 8,
+                "w": 16,
+                "x": 8,
+                "y": 8
+              }
+            },
+            {
+              "type": "table",
+              "title": "Cost per run",
+              "description": "Each run (its Job or Volcano Job) over the time range, so a run that suddenly costs twice its predecessors stands out.",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "sum by (namespace, batch_job, run) (sum_over_time(adhar:batch_run_cost_usd:hourly[$__range])) / 60",
+                  "legendFormat": "",
+                  "range": false,
+                  "instant": true,
+                  "editorMode": "code",
+                  "format": "table",
+                  "refId": "A"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "merge",
+                  "options": {}
+                },
+                {
+                  "id": "organize",
+                  "options": {
+                    "excludeByName": {
+                      "Time": true,
+                      "__name__": true
+                    },
+                    "renameByName": {
+                      "namespace": "Namespace",
+                      "batch_job": "BatchJob",
+                      "run": "Run",
+                      "Value #A": "Spent"
+                    },
+                    "indexByName": {
+                      "namespace": 0,
+                      "batch_job": 1,
+                      "run": 2,
+                      "Value #A": 3
+                    },
+                    "includeByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "align": "auto",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": false,
+                    "filterable": true
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      }
+                    ]
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Spent"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 3
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "sm",
+                "footer": {
+                  "show": false,
+                  "reducer": [
+                    "sum"
+                  ],
+                  "fields": "",
+                  "countRows": false
+                },
+                "sortBy": [
+                  {
+                    "displayName": "Spent",
+                    "desc": true
+                  }
+                ]
+              },
+              "id": 23,
+              "gridPos": {
+                "h": 8,
+                "w": 16,
+                "x": 0,
+                "y": 16
+              }
+            },
+            {
+              "type": "timeseries",
+              "title": "Batch cost per hour by team",
+              "description": "The hourly rate of every team's running batch, stacked.",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                  },
+                  "expr": "sum by (team) (adhar:batch_team_cost_usd:hourly_total)",
+                  "legendFormat": "{{team}}",
+                  "range": true,
+                  "instant": false,
+                  "editorMode": "code",
+                  "refId": "A"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "currencyUSD",
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "drawStyle": "line",
+                    "lineInterpolation": "smooth",
+                    "lineWidth": 2,
+                    "fillOpacity": 18,
+                    "gradientMode": "opacity",
+                    "showPoints": "never",
+                    "pointSize": 4,
+                    "spanNulls": 60000,
+                    "axisBorderShow": false,
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "insertNulls": false,
+                    "stacking": {
+                      "mode": "normal",
+                      "group": "A"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    },
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      }
+                    ]
+                  },
+                  "decimals": 3
+                },
+                "overrides": []
+              },
+              "options": {
+                "legend": {
+                  "showLegend": true,
+                  "displayMode": "table",
+                  "placement": "bottom",
+                  "calcs": [
+                    "mean",
+                    "max",
+                    "lastNotNull"
+                  ],
+                  "sortBy": "Last *",
+                  "sortDesc": true
+                },
+                "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+                }
+              },
+              "id": 24,
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 16
               }
             }
           ]

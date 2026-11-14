@@ -49,6 +49,17 @@ spec:
       labels:
         app.kubernetes.io/name: adhar-controller-manager
         adhar.io/component: controller-manager
+      # The batch observer's SLA gauges (adhar_batch_deadline_*, design 0025
+      # §11.4) are read by the Mimir ruler, not Prometheus
+      # (observability/mimir/manifests/batch-app-alerts.yaml). Alloy's
+      # annotated_pods scrape is what carries a pod's metrics into Mimir, so
+      # this annotation — not a PodMonitor, which only the in-cluster
+      # Prometheus reads — is what lets BatchDeadlineEndangered and
+      # BatchDeadlineMissed fire at all.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: adhar-controller-manager
       # The manager hosts the node autoscaler: it is the thing that adds a
@@ -96,6 +107,10 @@ spec:
             # build configuration (see ManagerConfig.PlatformName).
             - --platform-name={{ .PlatformName }}
             - --namespace={{ .Namespace }}
+            # The flag's default is "0" (off), which is right for the CLI's
+            # in-process manager and wrong here: the SLA gauges are only
+            # served while this is set (see the scrape annotation above).
+            - --metrics-bind-address=:8080
           env:
             # The node autoscaler drives the cloud provider through the same
             # helpers the CLI uses, and those keep per-cluster state (the
@@ -110,7 +125,7 @@ spec:
             # where Kafka is not enabled — retry HTTP against a Service that
             # does not exist, once per reconcile, forever. The address is the
             # Service Strimzi creates for KafkaBridge/adhar-events, declared in
-            # the kafka-operator package alongside the five adhar.* topics.
+            # the kafka-operator package alongside the six adhar.* topics.
             #
             # If that package is disabled the name does not resolve, every
             # publish fails, and they are counted and discarded — a reconcile
@@ -122,6 +137,11 @@ spec:
             # security/adhar-tenant-quotas can target it by name.
             - name: webhook
               containerPort: 9443
+              protocol: TCP
+            # controller-runtime's metrics endpoint: the batch observer's SLA
+            # gauges beside the manager's own workqueue and client metrics.
+            - name: metrics
+              containerPort: 8080
               protocol: TCP
           # Probe windows sized for a loaded single-node cluster (ADR-0012):
           # a healthy manager can take seconds to answer under convergence load.

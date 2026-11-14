@@ -1,0 +1,2341 @@
+# GENERATED from platform/controllers/adharplatform/testdata/batchjob-volcano/golden-*.yaml by
+# TestComposedBatchRunsFixtureIsTheGoldenRenders (ADHAR_UPDATE_GOLDEN=1 rewrites it):
+# every run template and CronJob the BatchJob composition renders, one per branch.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    adhar.io/application: reconciler
+    adhar.io/batch-job: reconciler
+    adhar.io/batch-role: indexed
+    adhar.io/batch-trigger: manual
+    adhar.io/component: app
+    adhar.io/environment: dev
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: reconciler
+  name: native-partitioned-run
+  namespace: dev
+spec:
+  activeDeadlineSeconds: 21600
+  backoffLimit: 2
+  completionMode: Indexed
+  completions: 5
+  parallelism: 5
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - status: "True"
+        type: DisruptionTarget
+    - action: FailJob
+      onExitCodes:
+        containerName: batch
+        operator: In
+        values:
+        - 2
+        - 3
+        - 4
+        - 6
+        - 7
+  podReplacementPolicy: Failed
+  successPolicy:
+    rules:
+    - succeededIndexes: "0"
+  template:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      labels:
+        adhar.io/application: reconciler
+        adhar.io/batch-job: reconciler
+        adhar.io/batch-role: indexed
+        adhar.io/batch-trigger: manual
+        adhar.io/component: app
+        adhar.io/environment: dev
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: reconciler
+    spec:
+      containers:
+      - env:
+        - name: ADHAR_BATCH_JOB
+          value: reconcileJob
+        - name: ADHAR_BATCH_NAME
+          value: reconciler
+        - name: ADHAR_BATCH_ROLE
+          value: indexed
+        - name: ADHAR_BATCH_TRIGGER
+          value: manual
+        - name: ADHAR_BATCH_PARAMS
+          value: '{}'
+        - name: ADHAR_BATCH_TIME_ZONE
+          value: UTC
+        - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+          value: batch
+        - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+          value: 90s
+        - name: ADHAR_BATCH_RETENTION_DAYS
+          value: "90"
+        - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+          value: "30"
+        - name: ADHAR_BATCH_PARTITION_TRANSPORT
+          value: jdbc
+        - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+          value: "32"
+        - name: ADHAR_BATCH_PARTITION_TIMEOUT
+          value: 21300s
+        - name: JOB_COMPLETION_INDEX
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        - name: ADHAR_BATCH_K8S_JOB
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+        - name: ADHAR_BATCH_ACTOR
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['adhar.io/batch-actor']
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.uid
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: ADHAR_ENVIRONMENT
+          value: dev
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            secretKeyRef:
+              key: jdbc-uri
+              name: reconciler-db-app
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: reconciler-db-app
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: reconciler-db-app
+        - name: BPL_JVM_THREAD_COUNT
+          value: "50"
+        - name: JAVA_TOOL_OPTIONS
+          value: -XX:ReservedCodeCacheSize=64M
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4318
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: OTEL_METRICS_EXPORTER
+          value: otlp
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=dev,deployment.environment=dev,service.namespace=dev,k8s.namespace.name=dev,k8s.pod.name=$(POD_NAME),adhar.application=reconciler,adhar.batch.job=reconciler
+        - name: OTEL_SERVICE_NAME
+          value: reconciler
+        image: harbor-core.adhar-system.svc.cluster.local/library/reconciler:1.0.0
+        name: batch
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1536Mi
+          requests:
+            cpu: "1"
+            memory: 1536Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      enableServiceLinks: false
+      imagePullSecrets:
+      - name: harbor-dockercfg
+      priorityClassName: adhar-batch
+      restartPolicy: Never
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: reconciler-batch
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - emptyDir:
+          sizeLimit: 1Gi
+        name: tmp
+  ttlSecondsAfterFinished: 604800
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    adhar.io/application: importer
+    adhar.io/batch-job: importer
+    adhar.io/batch-role: single
+    adhar.io/batch-trigger: manual
+    adhar.io/component: app
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: importer
+  name: native-single-run
+  namespace: prod
+spec:
+  activeDeadlineSeconds: 21600
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - status: "True"
+        type: DisruptionTarget
+    - action: FailJob
+      onExitCodes:
+        containerName: batch
+        operator: In
+        values:
+        - 2
+        - 3
+        - 4
+        - 6
+        - 7
+  podReplacementPolicy: Failed
+  template:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      labels:
+        adhar.io/application: importer
+        adhar.io/batch-job: importer
+        adhar.io/batch-role: single
+        adhar.io/batch-trigger: manual
+        adhar.io/component: app
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: importer
+    spec:
+      containers:
+      - env:
+        - name: ADHAR_BATCH_JOB
+          value: importJob
+        - name: ADHAR_BATCH_NAME
+          value: importer
+        - name: ADHAR_BATCH_ROLE
+          value: single
+        - name: ADHAR_BATCH_TRIGGER
+          value: manual
+        - name: ADHAR_BATCH_PARAMS
+          value: '{}'
+        - name: ADHAR_BATCH_TIME_ZONE
+          value: Asia/Singapore
+        - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+          value: batch
+        - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+          value: 90s
+        - name: ADHAR_BATCH_RETENTION_DAYS
+          value: "90"
+        - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+          value: "30"
+        - name: ADHAR_BATCH_K8S_JOB
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+        - name: ADHAR_BATCH_ACTOR
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['adhar.io/batch-actor']
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.uid
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: ADHAR_ENVIRONMENT
+          value: prod
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            secretKeyRef:
+              key: jdbc-uri
+              name: importer-db-app
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: importer-db-app
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: importer-db-app
+        - name: BPL_JVM_THREAD_COUNT
+          value: "50"
+        - name: JAVA_TOOL_OPTIONS
+          value: -XX:ReservedCodeCacheSize=64M
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4318
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: OTEL_METRICS_EXPORTER
+          value: otlp
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=importer,adhar.batch.job=importer
+        - name: OTEL_SERVICE_NAME
+          value: importer
+        envFrom:
+        - secretRef:
+            name: importer-inbound-bucket
+        image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        name: batch
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1536Mi
+          requests:
+            cpu: "1"
+            memory: 1536Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      enableServiceLinks: false
+      imagePullSecrets:
+      - name: harbor-dockercfg
+      priorityClassName: adhar-batch-critical
+      restartPolicy: Never
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: importer-batch
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - emptyDir:
+          sizeLimit: 1Gi
+        name: tmp
+  ttlSecondsAfterFinished: 604800
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    adhar.io/application: importer
+    adhar.io/batch-job: importer
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: importer
+  name: native-single-schedule-native
+  namespace: prod
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+      labels:
+        adhar.io/application: importer
+        adhar.io/batch-job: importer
+        adhar.io/batch-role: single
+        adhar.io/batch-trigger: schedule
+        adhar.io/component: app
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: importer
+    spec:
+      activeDeadlineSeconds: 21600
+      backoffLimit: 2
+      completions: 1
+      parallelism: 1
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - status: "True"
+            type: DisruptionTarget
+        - action: FailJob
+          onExitCodes:
+            containerName: batch
+            operator: In
+            values:
+            - 2
+            - 3
+            - 4
+            - 6
+            - 7
+      podReplacementPolicy: Failed
+      template:
+        metadata:
+          annotations:
+            adhar.io/batch-actor: ""
+            cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+          labels:
+            adhar.io/application: importer
+            adhar.io/batch-job: importer
+            adhar.io/batch-role: single
+            adhar.io/batch-trigger: schedule
+            adhar.io/component: app
+            adhar.io/environment: prod
+            adhar.io/organisation: acme
+            adhar.io/plane: workload
+            adhar.io/project: shop
+            adhar.io/team: payments
+            adhar.io/workload: batch
+            app.kubernetes.io/name: importer
+        spec:
+          containers:
+          - env:
+            - name: ADHAR_BATCH_JOB
+              value: importJob
+            - name: ADHAR_BATCH_NAME
+              value: importer
+            - name: ADHAR_BATCH_ROLE
+              value: single
+            - name: ADHAR_BATCH_TRIGGER
+              value: schedule
+            - name: ADHAR_BATCH_PARAMS
+              value: '{}'
+            - name: ADHAR_BATCH_TIME_ZONE
+              value: Asia/Singapore
+            - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+              value: batch
+            - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+              value: 90s
+            - name: ADHAR_BATCH_RETENTION_DAYS
+              value: "90"
+            - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+              value: "30"
+            - name: ADHAR_BATCH_K8S_JOB
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+            - name: ADHAR_BATCH_ACTOR
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['adhar.io/batch-actor']
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.uid
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: ADHAR_ENVIRONMENT
+              value: prod
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: jdbc-uri
+                  name: importer-db-app
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: importer-db-app
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: importer-db-app
+            - name: BPL_JVM_THREAD_COUNT
+              value: "50"
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:ReservedCodeCacheSize=64M
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://alloy.adhar-system.svc.cluster.local:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_METRICS_EXPORTER
+              value: otlp
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=importer,adhar.batch.job=importer
+            - name: OTEL_SERVICE_NAME
+              value: importer
+            envFrom:
+            - secretRef:
+                name: importer-inbound-bucket
+            image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+            name: batch
+            resources:
+              limits:
+                cpu: "1"
+                memory: 1536Mi
+              requests:
+                cpu: "1"
+                memory: 1536Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+          enableServiceLinks: false
+          imagePullSecrets:
+          - name: harbor-dockercfg
+          priorityClassName: adhar-batch-critical
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: importer-batch
+          terminationGracePeriodSeconds: 120
+          volumes:
+          - emptyDir:
+              sizeLimit: 1Gi
+            name: tmp
+      ttlSecondsAfterFinished: 604800
+  schedule: 30 1 * * *
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  suspend: false
+  timeZone: Asia/Singapore
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    adhar.io/application: settlement
+    adhar.io/batch-job: settlement
+    adhar.io/batch-role: indexed
+    adhar.io/batch-trigger: manual
+    adhar.io/component: app
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/scale-up: "true"
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: settlement
+  name: volcano-absent-run
+  namespace: prod
+spec:
+  activeDeadlineSeconds: 21600
+  backoffLimit: 2
+  completionMode: Indexed
+  completions: 5
+  parallelism: 5
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - status: "True"
+        type: DisruptionTarget
+    - action: FailJob
+      onExitCodes:
+        containerName: batch
+        operator: In
+        values:
+        - 2
+        - 3
+        - 4
+        - 6
+        - 7
+  podReplacementPolicy: Failed
+  successPolicy:
+    rules:
+    - succeededIndexes: "0"
+  template:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      labels:
+        adhar.io/application: settlement
+        adhar.io/batch-job: settlement
+        adhar.io/batch-role: indexed
+        adhar.io/batch-trigger: manual
+        adhar.io/component: app
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/scale-up: "true"
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: settlement
+    spec:
+      containers:
+      - env:
+        - name: ADHAR_BATCH_JOB
+          value: settlementJob
+        - name: ADHAR_BATCH_NAME
+          value: settlement
+        - name: ADHAR_BATCH_ROLE
+          value: indexed
+        - name: ADHAR_BATCH_TRIGGER
+          value: manual
+        - name: ADHAR_BATCH_PARAMS
+          value: '{}'
+        - name: ADHAR_BATCH_TIME_ZONE
+          value: Asia/Singapore
+        - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+          value: batch
+        - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+          value: 90s
+        - name: ADHAR_BATCH_RETENTION_DAYS
+          value: "90"
+        - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+          value: "30"
+        - name: ADHAR_BATCH_PARTITION_TRANSPORT
+          value: jdbc
+        - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+          value: "16"
+        - name: ADHAR_BATCH_PARTITION_TIMEOUT
+          value: 21300s
+        - name: JOB_COMPLETION_INDEX
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        - name: ADHAR_BATCH_K8S_JOB
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+        - name: ADHAR_BATCH_ACTOR
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['adhar.io/batch-actor']
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.uid
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: ADHAR_ENVIRONMENT
+          value: prod
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            secretKeyRef:
+              key: jdbc-uri
+              name: settlement-db-app
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: settlement-db-app
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: settlement-db-app
+        - name: BPL_JVM_THREAD_COUNT
+          value: "50"
+        - name: JAVA_TOOL_OPTIONS
+          value: -XX:ReservedCodeCacheSize=64M
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4318
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: OTEL_METRICS_EXPORTER
+          value: otlp
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=settlement,adhar.batch.job=settlement
+        - name: OTEL_SERVICE_NAME
+          value: settlement
+        image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+        name: batch
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      enableServiceLinks: false
+      imagePullSecrets:
+      - name: harbor-dockercfg
+      priorityClassName: adhar-batch-critical
+      restartPolicy: Never
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: settlement-batch
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - emptyDir:
+          sizeLimit: 1Gi
+        name: tmp
+  ttlSecondsAfterFinished: 604800
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    adhar.io/application: settlement
+    adhar.io/batch-job: settlement
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: settlement
+  name: volcano-absent-schedule-native
+  namespace: prod
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+      labels:
+        adhar.io/application: settlement
+        adhar.io/batch-job: settlement
+        adhar.io/batch-role: indexed
+        adhar.io/batch-trigger: schedule
+        adhar.io/component: app
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/scale-up: "true"
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: settlement
+    spec:
+      activeDeadlineSeconds: 21600
+      backoffLimit: 2
+      completionMode: Indexed
+      completions: 5
+      parallelism: 5
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - status: "True"
+            type: DisruptionTarget
+        - action: FailJob
+          onExitCodes:
+            containerName: batch
+            operator: In
+            values:
+            - 2
+            - 3
+            - 4
+            - 6
+            - 7
+      podReplacementPolicy: Failed
+      successPolicy:
+        rules:
+        - succeededIndexes: "0"
+      template:
+        metadata:
+          annotations:
+            adhar.io/batch-actor: ""
+            cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+          labels:
+            adhar.io/application: settlement
+            adhar.io/batch-job: settlement
+            adhar.io/batch-role: indexed
+            adhar.io/batch-trigger: schedule
+            adhar.io/component: app
+            adhar.io/environment: prod
+            adhar.io/organisation: acme
+            adhar.io/plane: workload
+            adhar.io/project: shop
+            adhar.io/scale-up: "true"
+            adhar.io/team: payments
+            adhar.io/workload: batch
+            app.kubernetes.io/name: settlement
+        spec:
+          containers:
+          - env:
+            - name: ADHAR_BATCH_JOB
+              value: settlementJob
+            - name: ADHAR_BATCH_NAME
+              value: settlement
+            - name: ADHAR_BATCH_ROLE
+              value: indexed
+            - name: ADHAR_BATCH_TRIGGER
+              value: schedule
+            - name: ADHAR_BATCH_PARAMS
+              value: '{}'
+            - name: ADHAR_BATCH_TIME_ZONE
+              value: Asia/Singapore
+            - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+              value: batch
+            - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+              value: 90s
+            - name: ADHAR_BATCH_RETENTION_DAYS
+              value: "90"
+            - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+              value: "30"
+            - name: ADHAR_BATCH_PARTITION_TRANSPORT
+              value: jdbc
+            - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+              value: "16"
+            - name: ADHAR_BATCH_PARTITION_TIMEOUT
+              value: 21300s
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            - name: ADHAR_BATCH_K8S_JOB
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+            - name: ADHAR_BATCH_ACTOR
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['adhar.io/batch-actor']
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.uid
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: ADHAR_ENVIRONMENT
+              value: prod
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: jdbc-uri
+                  name: settlement-db-app
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: settlement-db-app
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: settlement-db-app
+            - name: BPL_JVM_THREAD_COUNT
+              value: "50"
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:ReservedCodeCacheSize=64M
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://alloy.adhar-system.svc.cluster.local:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_METRICS_EXPORTER
+              value: otlp
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=settlement,adhar.batch.job=settlement
+            - name: OTEL_SERVICE_NAME
+              value: settlement
+            image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+            name: batch
+            resources:
+              limits:
+                cpu: 500m
+                memory: 1Gi
+              requests:
+                cpu: 500m
+                memory: 1Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+          enableServiceLinks: false
+          imagePullSecrets:
+          - name: harbor-dockercfg
+          priorityClassName: adhar-batch-critical
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: settlement-batch
+          terminationGracePeriodSeconds: 120
+          volumes:
+          - emptyDir:
+              sizeLimit: 1Gi
+            name: tmp
+      ttlSecondsAfterFinished: 604800
+  schedule: 0 2 * * *
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  suspend: false
+  timeZone: Asia/Singapore
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  labels:
+    adhar.io/application: settlement
+    adhar.io/batch-job: settlement
+    adhar.io/batch-trigger: manual
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/scale-up: "true"
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: settlement
+  name: volcano-cron-run
+  namespace: prod
+spec:
+  maxRetry: 3
+  minAvailable: 5
+  plugins:
+    env: []
+  policies:
+  - action: TerminateJob
+    exitCode: 2
+  - action: TerminateJob
+    exitCode: 3
+  - action: TerminateJob
+    exitCode: 4
+  - action: TerminateJob
+    exitCode: 6
+  - action: TerminateJob
+    exitCode: 7
+  - action: RestartJob
+    events:
+    - PodEvicted
+    - PodFailed
+  priorityClassName: adhar-batch-volcano-critical
+  queue: acme-payments-prod
+  schedulerName: volcano
+  tasks:
+  - minAvailable: 1
+    name: manager
+    policies:
+    - action: CompleteJob
+      events:
+      - TaskCompleted
+    replicas: 1
+    template:
+      metadata:
+        annotations:
+          adhar.io/batch-actor: ""
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        labels:
+          adhar.io/application: settlement
+          adhar.io/batch-job: settlement
+          adhar.io/batch-role: manager
+          adhar.io/batch-trigger: manual
+          adhar.io/component: app
+          adhar.io/environment: prod
+          adhar.io/organisation: acme
+          adhar.io/plane: workload
+          adhar.io/project: shop
+          adhar.io/scale-up: "true"
+          adhar.io/team: payments
+          adhar.io/workload: batch
+          app.kubernetes.io/name: settlement
+      spec:
+        activeDeadlineSeconds: 21600
+        containers:
+        - env:
+          - name: ADHAR_BATCH_JOB
+            value: settlementJob
+          - name: ADHAR_BATCH_NAME
+            value: settlement
+          - name: ADHAR_BATCH_ROLE
+            value: manager
+          - name: ADHAR_BATCH_TRIGGER
+            value: manual
+          - name: ADHAR_BATCH_PARAMS
+            value: '{}'
+          - name: ADHAR_BATCH_TIME_ZONE
+            value: Asia/Singapore
+          - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+            value: batch
+          - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+            value: 90s
+          - name: ADHAR_BATCH_RETENTION_DAYS
+            value: "90"
+          - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+            value: "30"
+          - name: ADHAR_BATCH_PARTITION_TRANSPORT
+            value: jdbc
+          - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+            value: "16"
+          - name: ADHAR_BATCH_PARTITION_TIMEOUT
+            value: 21300s
+          - name: ADHAR_BATCH_K8S_JOB
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.labels['volcano.sh/job-name']
+          - name: ADHAR_BATCH_ACTOR
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.annotations['adhar.io/batch-actor']
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.uid
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ADHAR_ENVIRONMENT
+            value: prod
+          - name: SPRING_DATASOURCE_URL
+            valueFrom:
+              secretKeyRef:
+                key: jdbc-uri
+                name: settlement-db-app
+          - name: SPRING_DATASOURCE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: settlement-db-app
+          - name: SPRING_DATASOURCE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: settlement-db-app
+          - name: BPL_JVM_THREAD_COUNT
+            value: "50"
+          - name: JAVA_TOOL_OPTIONS
+            value: -XX:ReservedCodeCacheSize=64M
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://alloy.adhar-system.svc.cluster.local:4318
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: http/protobuf
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=settlement,adhar.batch.job=settlement
+          - name: OTEL_SERVICE_NAME
+            value: settlement
+          image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+          name: batch
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+        enableServiceLinks: false
+        imagePullSecrets:
+        - name: harbor-dockercfg
+        priorityClassName: adhar-batch-volcano-critical
+        restartPolicy: Never
+        schedulerName: volcano
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        serviceAccountName: settlement-batch
+        terminationGracePeriodSeconds: 120
+        volumes:
+        - emptyDir:
+            sizeLimit: 1Gi
+          name: tmp
+  - minAvailable: 4
+    name: worker
+    replicas: 4
+    template:
+      metadata:
+        annotations:
+          adhar.io/batch-actor: ""
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        labels:
+          adhar.io/application: settlement
+          adhar.io/batch-job: settlement
+          adhar.io/batch-role: worker
+          adhar.io/batch-trigger: manual
+          adhar.io/component: app
+          adhar.io/environment: prod
+          adhar.io/organisation: acme
+          adhar.io/plane: workload
+          adhar.io/project: shop
+          adhar.io/scale-up: "true"
+          adhar.io/team: payments
+          adhar.io/workload: batch
+          app.kubernetes.io/name: settlement
+      spec:
+        activeDeadlineSeconds: 21600
+        containers:
+        - env:
+          - name: ADHAR_BATCH_JOB
+            value: settlementJob
+          - name: ADHAR_BATCH_NAME
+            value: settlement
+          - name: ADHAR_BATCH_ROLE
+            value: worker
+          - name: ADHAR_BATCH_TRIGGER
+            value: manual
+          - name: ADHAR_BATCH_PARAMS
+            value: '{}'
+          - name: ADHAR_BATCH_TIME_ZONE
+            value: Asia/Singapore
+          - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+            value: batch
+          - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+            value: 90s
+          - name: ADHAR_BATCH_RETENTION_DAYS
+            value: "90"
+          - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+            value: "30"
+          - name: ADHAR_BATCH_PARTITION_TRANSPORT
+            value: jdbc
+          - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+            value: "16"
+          - name: ADHAR_BATCH_PARTITION_TIMEOUT
+            value: 21300s
+          - name: ADHAR_BATCH_K8S_JOB
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.labels['volcano.sh/job-name']
+          - name: ADHAR_BATCH_ACTOR
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.annotations['adhar.io/batch-actor']
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.uid
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ADHAR_ENVIRONMENT
+            value: prod
+          - name: SPRING_DATASOURCE_URL
+            valueFrom:
+              secretKeyRef:
+                key: jdbc-uri
+                name: settlement-db-app
+          - name: SPRING_DATASOURCE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: settlement-db-app
+          - name: SPRING_DATASOURCE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: settlement-db-app
+          - name: BPL_JVM_THREAD_COUNT
+            value: "50"
+          - name: JAVA_TOOL_OPTIONS
+            value: -XX:ReservedCodeCacheSize=64M
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://alloy.adhar-system.svc.cluster.local:4318
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: http/protobuf
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=settlement,adhar.batch.job=settlement
+          - name: OTEL_SERVICE_NAME
+            value: settlement
+          image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+          name: batch
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+        enableServiceLinks: false
+        imagePullSecrets:
+        - name: harbor-dockercfg
+        priorityClassName: adhar-batch-volcano-critical
+        restartPolicy: Never
+        schedulerName: volcano
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        serviceAccountName: settlement-batch
+        terminationGracePeriodSeconds: 120
+        volumes:
+        - emptyDir:
+            sizeLimit: 1Gi
+          name: tmp
+  ttlSecondsAfterFinished: 604800
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  labels:
+    adhar.io/application: settlement
+    adhar.io/batch-job: settlement
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: settlement
+  name: volcano-cron-schedule-volcano
+  namespace: prod
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+      labels:
+        adhar.io/application: settlement
+        adhar.io/batch-job: settlement
+        adhar.io/batch-trigger: schedule
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/scale-up: "true"
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: settlement
+    spec:
+      maxRetry: 3
+      minAvailable: 5
+      plugins:
+        env: []
+      policies:
+      - action: TerminateJob
+        exitCode: 2
+      - action: TerminateJob
+        exitCode: 3
+      - action: TerminateJob
+        exitCode: 4
+      - action: TerminateJob
+        exitCode: 6
+      - action: TerminateJob
+        exitCode: 7
+      - action: RestartJob
+        events:
+        - PodEvicted
+        - PodFailed
+      priorityClassName: adhar-batch-volcano-critical
+      queue: acme-payments-prod
+      schedulerName: volcano
+      tasks:
+      - minAvailable: 1
+        name: manager
+        policies:
+        - action: CompleteJob
+          events:
+          - TaskCompleted
+        replicas: 1
+        template:
+          metadata:
+            annotations:
+              adhar.io/batch-actor: ""
+              cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+            labels:
+              adhar.io/application: settlement
+              adhar.io/batch-job: settlement
+              adhar.io/batch-role: manager
+              adhar.io/batch-trigger: schedule
+              adhar.io/component: app
+              adhar.io/environment: prod
+              adhar.io/organisation: acme
+              adhar.io/plane: workload
+              adhar.io/project: shop
+              adhar.io/scale-up: "true"
+              adhar.io/team: payments
+              adhar.io/workload: batch
+              app.kubernetes.io/name: settlement
+          spec:
+            activeDeadlineSeconds: 21600
+            containers:
+            - env:
+              - name: ADHAR_BATCH_JOB
+                value: settlementJob
+              - name: ADHAR_BATCH_NAME
+                value: settlement
+              - name: ADHAR_BATCH_ROLE
+                value: manager
+              - name: ADHAR_BATCH_TRIGGER
+                value: schedule
+              - name: ADHAR_BATCH_PARAMS
+                value: '{}'
+              - name: ADHAR_BATCH_TIME_ZONE
+                value: Asia/Singapore
+              - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+                value: batch
+              - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+                value: 90s
+              - name: ADHAR_BATCH_RETENTION_DAYS
+                value: "90"
+              - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+                value: "30"
+              - name: ADHAR_BATCH_PARTITION_TRANSPORT
+                value: jdbc
+              - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+                value: "16"
+              - name: ADHAR_BATCH_PARTITION_TIMEOUT
+                value: 21300s
+              - name: ADHAR_BATCH_K8S_JOB
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.labels['volcano.sh/job-name']
+              - name: ADHAR_BATCH_ACTOR
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.annotations['adhar.io/batch-actor']
+              - name: POD_NAME
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.name
+              - name: POD_UID
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.uid
+              - name: NODE_NAME
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: spec.nodeName
+              - name: ADHAR_ENVIRONMENT
+                value: prod
+              - name: SPRING_DATASOURCE_URL
+                valueFrom:
+                  secretKeyRef:
+                    key: jdbc-uri
+                    name: settlement-db-app
+              - name: SPRING_DATASOURCE_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    key: username
+                    name: settlement-db-app
+              - name: SPRING_DATASOURCE_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: password
+                    name: settlement-db-app
+              - name: BPL_JVM_THREAD_COUNT
+                value: "50"
+              - name: JAVA_TOOL_OPTIONS
+                value: -XX:ReservedCodeCacheSize=64M
+              - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                value: http://alloy.adhar-system.svc.cluster.local:4318
+              - name: OTEL_EXPORTER_OTLP_PROTOCOL
+                value: http/protobuf
+              - name: OTEL_METRICS_EXPORTER
+                value: otlp
+              - name: OTEL_RESOURCE_ATTRIBUTES
+                value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=settlement,adhar.batch.job=settlement
+              - name: OTEL_SERVICE_NAME
+                value: settlement
+              image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+              name: batch
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1Gi
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+              volumeMounts:
+              - mountPath: /tmp
+                name: tmp
+            enableServiceLinks: false
+            imagePullSecrets:
+            - name: harbor-dockercfg
+            priorityClassName: adhar-batch-volcano-critical
+            restartPolicy: Never
+            schedulerName: volcano
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            serviceAccountName: settlement-batch
+            terminationGracePeriodSeconds: 120
+            volumes:
+            - emptyDir:
+                sizeLimit: 1Gi
+              name: tmp
+      - minAvailable: 4
+        name: worker
+        replicas: 4
+        template:
+          metadata:
+            annotations:
+              adhar.io/batch-actor: ""
+              cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+            labels:
+              adhar.io/application: settlement
+              adhar.io/batch-job: settlement
+              adhar.io/batch-role: worker
+              adhar.io/batch-trigger: schedule
+              adhar.io/component: app
+              adhar.io/environment: prod
+              adhar.io/organisation: acme
+              adhar.io/plane: workload
+              adhar.io/project: shop
+              adhar.io/scale-up: "true"
+              adhar.io/team: payments
+              adhar.io/workload: batch
+              app.kubernetes.io/name: settlement
+          spec:
+            activeDeadlineSeconds: 21600
+            containers:
+            - env:
+              - name: ADHAR_BATCH_JOB
+                value: settlementJob
+              - name: ADHAR_BATCH_NAME
+                value: settlement
+              - name: ADHAR_BATCH_ROLE
+                value: worker
+              - name: ADHAR_BATCH_TRIGGER
+                value: schedule
+              - name: ADHAR_BATCH_PARAMS
+                value: '{}'
+              - name: ADHAR_BATCH_TIME_ZONE
+                value: Asia/Singapore
+              - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+                value: batch
+              - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+                value: 90s
+              - name: ADHAR_BATCH_RETENTION_DAYS
+                value: "90"
+              - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+                value: "30"
+              - name: ADHAR_BATCH_PARTITION_TRANSPORT
+                value: jdbc
+              - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+                value: "16"
+              - name: ADHAR_BATCH_PARTITION_TIMEOUT
+                value: 21300s
+              - name: ADHAR_BATCH_K8S_JOB
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.labels['volcano.sh/job-name']
+              - name: ADHAR_BATCH_ACTOR
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.annotations['adhar.io/batch-actor']
+              - name: POD_NAME
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.name
+              - name: POD_UID
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.uid
+              - name: NODE_NAME
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: spec.nodeName
+              - name: ADHAR_ENVIRONMENT
+                value: prod
+              - name: SPRING_DATASOURCE_URL
+                valueFrom:
+                  secretKeyRef:
+                    key: jdbc-uri
+                    name: settlement-db-app
+              - name: SPRING_DATASOURCE_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    key: username
+                    name: settlement-db-app
+              - name: SPRING_DATASOURCE_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: password
+                    name: settlement-db-app
+              - name: BPL_JVM_THREAD_COUNT
+                value: "50"
+              - name: JAVA_TOOL_OPTIONS
+                value: -XX:ReservedCodeCacheSize=64M
+              - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                value: http://alloy.adhar-system.svc.cluster.local:4318
+              - name: OTEL_EXPORTER_OTLP_PROTOCOL
+                value: http/protobuf
+              - name: OTEL_METRICS_EXPORTER
+                value: otlp
+              - name: OTEL_RESOURCE_ATTRIBUTES
+                value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=settlement,adhar.batch.job=settlement
+              - name: OTEL_SERVICE_NAME
+                value: settlement
+              image: harbor-core.adhar-system.svc.cluster.local/library/settlement@sha256:2222222222222222222222222222222222222222222222222222222222222222
+              name: batch
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1Gi
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+              volumeMounts:
+              - mountPath: /tmp
+                name: tmp
+            enableServiceLinks: false
+            imagePullSecrets:
+            - name: harbor-dockercfg
+            priorityClassName: adhar-batch-volcano-critical
+            restartPolicy: Never
+            schedulerName: volcano
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            serviceAccountName: settlement-batch
+            terminationGracePeriodSeconds: 120
+            volumes:
+            - emptyDir:
+                sizeLimit: 1Gi
+              name: tmp
+      ttlSecondsAfterFinished: 604800
+  schedule: 0 2 * * *
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  suspend: false
+  timeZone: Asia/Singapore
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  labels:
+    adhar.io/application: reconciler
+    adhar.io/batch-job: reconciler
+    adhar.io/batch-trigger: manual
+    adhar.io/environment: dev
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: reconciler
+  name: volcano-gang-run
+  namespace: dev
+spec:
+  maxRetry: 3
+  minAvailable: 5
+  plugins:
+    env: []
+  policies:
+  - action: TerminateJob
+    exitCode: 2
+  - action: TerminateJob
+    exitCode: 3
+  - action: TerminateJob
+    exitCode: 4
+  - action: TerminateJob
+    exitCode: 6
+  - action: TerminateJob
+    exitCode: 7
+  - action: RestartJob
+    events:
+    - PodEvicted
+    - PodFailed
+  priorityClassName: adhar-batch-volcano
+  queue: acme-payments-dev
+  schedulerName: volcano
+  tasks:
+  - minAvailable: 1
+    name: manager
+    policies:
+    - action: CompleteJob
+      events:
+      - TaskCompleted
+    replicas: 1
+    template:
+      metadata:
+        annotations:
+          adhar.io/batch-actor: ""
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        labels:
+          adhar.io/application: reconciler
+          adhar.io/batch-job: reconciler
+          adhar.io/batch-role: manager
+          adhar.io/batch-trigger: manual
+          adhar.io/component: app
+          adhar.io/environment: dev
+          adhar.io/organisation: acme
+          adhar.io/plane: workload
+          adhar.io/project: shop
+          adhar.io/team: payments
+          adhar.io/workload: batch
+          app.kubernetes.io/name: reconciler
+      spec:
+        activeDeadlineSeconds: 21600
+        containers:
+        - env:
+          - name: ADHAR_BATCH_JOB
+            value: reconcileJob
+          - name: ADHAR_BATCH_NAME
+            value: reconciler
+          - name: ADHAR_BATCH_ROLE
+            value: manager
+          - name: ADHAR_BATCH_TRIGGER
+            value: manual
+          - name: ADHAR_BATCH_PARAMS
+            value: '{}'
+          - name: ADHAR_BATCH_TIME_ZONE
+            value: UTC
+          - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+            value: batch
+          - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+            value: 90s
+          - name: ADHAR_BATCH_RETENTION_DAYS
+            value: "90"
+          - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+            value: "30"
+          - name: ADHAR_BATCH_PARTITION_TRANSPORT
+            value: jdbc
+          - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+            value: "32"
+          - name: ADHAR_BATCH_PARTITION_TIMEOUT
+            value: 21300s
+          - name: ADHAR_BATCH_K8S_JOB
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.labels['volcano.sh/job-name']
+          - name: ADHAR_BATCH_ACTOR
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.annotations['adhar.io/batch-actor']
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.uid
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ADHAR_ENVIRONMENT
+            value: dev
+          - name: SPRING_DATASOURCE_URL
+            valueFrom:
+              secretKeyRef:
+                key: jdbc-uri
+                name: reconciler-db-app
+          - name: SPRING_DATASOURCE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: reconciler-db-app
+          - name: SPRING_DATASOURCE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: reconciler-db-app
+          - name: BPL_JVM_THREAD_COUNT
+            value: "50"
+          - name: JAVA_TOOL_OPTIONS
+            value: -XX:ReservedCodeCacheSize=64M
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://alloy.adhar-system.svc.cluster.local:4318
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: http/protobuf
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: deployment.environment.name=dev,deployment.environment=dev,service.namespace=dev,k8s.namespace.name=dev,k8s.pod.name=$(POD_NAME),adhar.application=reconciler,adhar.batch.job=reconciler
+          - name: OTEL_SERVICE_NAME
+            value: reconciler
+          image: harbor-core.adhar-system.svc.cluster.local/library/reconciler:1.0.0
+          name: batch
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+        enableServiceLinks: false
+        imagePullSecrets:
+        - name: harbor-dockercfg
+        priorityClassName: adhar-batch-volcano
+        restartPolicy: Never
+        schedulerName: volcano
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        serviceAccountName: reconciler-batch
+        terminationGracePeriodSeconds: 120
+        volumes:
+        - emptyDir:
+            sizeLimit: 1Gi
+          name: tmp
+  - minAvailable: 4
+    name: worker
+    replicas: 4
+    template:
+      metadata:
+        annotations:
+          adhar.io/batch-actor: ""
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        labels:
+          adhar.io/application: reconciler
+          adhar.io/batch-job: reconciler
+          adhar.io/batch-role: worker
+          adhar.io/batch-trigger: manual
+          adhar.io/component: app
+          adhar.io/environment: dev
+          adhar.io/organisation: acme
+          adhar.io/plane: workload
+          adhar.io/project: shop
+          adhar.io/team: payments
+          adhar.io/workload: batch
+          app.kubernetes.io/name: reconciler
+      spec:
+        activeDeadlineSeconds: 21600
+        containers:
+        - env:
+          - name: ADHAR_BATCH_JOB
+            value: reconcileJob
+          - name: ADHAR_BATCH_NAME
+            value: reconciler
+          - name: ADHAR_BATCH_ROLE
+            value: worker
+          - name: ADHAR_BATCH_TRIGGER
+            value: manual
+          - name: ADHAR_BATCH_PARAMS
+            value: '{}'
+          - name: ADHAR_BATCH_TIME_ZONE
+            value: UTC
+          - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+            value: batch
+          - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+            value: 90s
+          - name: ADHAR_BATCH_RETENTION_DAYS
+            value: "90"
+          - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+            value: "30"
+          - name: ADHAR_BATCH_PARTITION_TRANSPORT
+            value: jdbc
+          - name: ADHAR_BATCH_PARTITION_GRIDSIZE
+            value: "32"
+          - name: ADHAR_BATCH_PARTITION_TIMEOUT
+            value: 21300s
+          - name: ADHAR_BATCH_K8S_JOB
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.labels['volcano.sh/job-name']
+          - name: ADHAR_BATCH_ACTOR
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.annotations['adhar.io/batch-actor']
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.uid
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: ADHAR_ENVIRONMENT
+            value: dev
+          - name: SPRING_DATASOURCE_URL
+            valueFrom:
+              secretKeyRef:
+                key: jdbc-uri
+                name: reconciler-db-app
+          - name: SPRING_DATASOURCE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: reconciler-db-app
+          - name: SPRING_DATASOURCE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: reconciler-db-app
+          - name: BPL_JVM_THREAD_COUNT
+            value: "50"
+          - name: JAVA_TOOL_OPTIONS
+            value: -XX:ReservedCodeCacheSize=64M
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://alloy.adhar-system.svc.cluster.local:4318
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: http/protobuf
+          - name: OTEL_METRICS_EXPORTER
+            value: otlp
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: deployment.environment.name=dev,deployment.environment=dev,service.namespace=dev,k8s.namespace.name=dev,k8s.pod.name=$(POD_NAME),adhar.application=reconciler,adhar.batch.job=reconciler
+          - name: OTEL_SERVICE_NAME
+            value: reconciler
+          image: harbor-core.adhar-system.svc.cluster.local/library/reconciler:1.0.0
+          name: batch
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+            requests:
+              cpu: "1"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+        enableServiceLinks: false
+        imagePullSecrets:
+        - name: harbor-dockercfg
+        priorityClassName: adhar-batch-volcano
+        restartPolicy: Never
+        schedulerName: volcano
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        serviceAccountName: reconciler-batch
+        terminationGracePeriodSeconds: 120
+        volumes:
+        - emptyDir:
+            sizeLimit: 1Gi
+          name: tmp
+  ttlSecondsAfterFinished: 604800
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    adhar.io/application: importer
+    adhar.io/batch-job: importer
+    adhar.io/batch-role: single
+    adhar.io/batch-trigger: manual
+    adhar.io/component: app
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: importer
+  name: volcano-single-run
+  namespace: prod
+spec:
+  activeDeadlineSeconds: 21600
+  backoffLimit: 2
+  completions: 1
+  parallelism: 1
+  podFailurePolicy:
+    rules:
+    - action: Ignore
+      onPodConditions:
+      - status: "True"
+        type: DisruptionTarget
+    - action: FailJob
+      onExitCodes:
+        containerName: batch
+        operator: In
+        values:
+        - 2
+        - 3
+        - 4
+        - 6
+        - 7
+  podReplacementPolicy: Failed
+  template:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        scheduling.volcano.sh/queue-name: acme-payments-prod
+      labels:
+        adhar.io/application: importer
+        adhar.io/batch-job: importer
+        adhar.io/batch-role: single
+        adhar.io/batch-trigger: manual
+        adhar.io/component: app
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: importer
+    spec:
+      containers:
+      - env:
+        - name: ADHAR_BATCH_JOB
+          value: importJob
+        - name: ADHAR_BATCH_NAME
+          value: importer
+        - name: ADHAR_BATCH_ROLE
+          value: single
+        - name: ADHAR_BATCH_TRIGGER
+          value: manual
+        - name: ADHAR_BATCH_PARAMS
+          value: '{}'
+        - name: ADHAR_BATCH_TIME_ZONE
+          value: Asia/Singapore
+        - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+          value: batch
+        - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+          value: 90s
+        - name: ADHAR_BATCH_RETENTION_DAYS
+          value: "90"
+        - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+          value: "30"
+        - name: ADHAR_BATCH_K8S_JOB
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+        - name: ADHAR_BATCH_ACTOR
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['adhar.io/batch-actor']
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.uid
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: ADHAR_ENVIRONMENT
+          value: prod
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            secretKeyRef:
+              key: jdbc-uri
+              name: importer-db-app
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: importer-db-app
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: importer-db-app
+        - name: BPL_JVM_THREAD_COUNT
+          value: "50"
+        - name: JAVA_TOOL_OPTIONS
+          value: -XX:ReservedCodeCacheSize=64M
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://alloy.adhar-system.svc.cluster.local:4318
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: OTEL_METRICS_EXPORTER
+          value: otlp
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=importer,adhar.batch.job=importer
+        - name: OTEL_SERVICE_NAME
+          value: importer
+        envFrom:
+        - secretRef:
+            name: importer-inbound-bucket
+        image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        name: batch
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1536Mi
+          requests:
+            cpu: "1"
+            memory: 1536Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      enableServiceLinks: false
+      imagePullSecrets:
+      - name: harbor-dockercfg
+      priorityClassName: adhar-batch-volcano-critical
+      restartPolicy: Never
+      schedulerName: volcano
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: importer-batch
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - emptyDir:
+          sizeLimit: 1Gi
+        name: tmp
+  ttlSecondsAfterFinished: 604800
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    adhar.io/application: importer
+    adhar.io/batch-job: importer
+    adhar.io/environment: prod
+    adhar.io/organisation: acme
+    adhar.io/plane: workload
+    adhar.io/project: shop
+    adhar.io/team: payments
+    adhar.io/workload: batch
+    app.kubernetes.io/name: importer
+  name: volcano-single-schedule-native
+  namespace: prod
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      annotations:
+        adhar.io/batch-actor: ""
+      labels:
+        adhar.io/application: importer
+        adhar.io/batch-job: importer
+        adhar.io/batch-role: single
+        adhar.io/batch-trigger: schedule
+        adhar.io/component: app
+        adhar.io/environment: prod
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: importer
+    spec:
+      activeDeadlineSeconds: 21600
+      backoffLimit: 2
+      completions: 1
+      parallelism: 1
+      podFailurePolicy:
+        rules:
+        - action: Ignore
+          onPodConditions:
+          - status: "True"
+            type: DisruptionTarget
+        - action: FailJob
+          onExitCodes:
+            containerName: batch
+            operator: In
+            values:
+            - 2
+            - 3
+            - 4
+            - 6
+            - 7
+      podReplacementPolicy: Failed
+      template:
+        metadata:
+          annotations:
+            adhar.io/batch-actor: ""
+            cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+            scheduling.volcano.sh/queue-name: acme-payments-prod
+          labels:
+            adhar.io/application: importer
+            adhar.io/batch-job: importer
+            adhar.io/batch-role: single
+            adhar.io/batch-trigger: schedule
+            adhar.io/component: app
+            adhar.io/environment: prod
+            adhar.io/organisation: acme
+            adhar.io/plane: workload
+            adhar.io/project: shop
+            adhar.io/team: payments
+            adhar.io/workload: batch
+            app.kubernetes.io/name: importer
+        spec:
+          containers:
+          - env:
+            - name: ADHAR_BATCH_JOB
+              value: importJob
+            - name: ADHAR_BATCH_NAME
+              value: importer
+            - name: ADHAR_BATCH_ROLE
+              value: single
+            - name: ADHAR_BATCH_TRIGGER
+              value: schedule
+            - name: ADHAR_BATCH_PARAMS
+              value: '{}'
+            - name: ADHAR_BATCH_TIME_ZONE
+              value: Asia/Singapore
+            - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+              value: batch
+            - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+              value: 90s
+            - name: ADHAR_BATCH_RETENTION_DAYS
+              value: "90"
+            - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+              value: "30"
+            - name: ADHAR_BATCH_K8S_JOB
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+            - name: ADHAR_BATCH_ACTOR
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['adhar.io/batch-actor']
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.uid
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: ADHAR_ENVIRONMENT
+              value: prod
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: jdbc-uri
+                  name: importer-db-app
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: importer-db-app
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: importer-db-app
+            - name: BPL_JVM_THREAD_COUNT
+              value: "50"
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:ReservedCodeCacheSize=64M
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://alloy.adhar-system.svc.cluster.local:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_METRICS_EXPORTER
+              value: otlp
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment.name=prod,deployment.environment=prod,service.namespace=prod,k8s.namespace.name=prod,k8s.pod.name=$(POD_NAME),adhar.application=importer,adhar.batch.job=importer
+            - name: OTEL_SERVICE_NAME
+              value: importer
+            envFrom:
+            - secretRef:
+                name: importer-inbound-bucket
+            image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+            name: batch
+            resources:
+              limits:
+                cpu: "1"
+                memory: 1536Mi
+              requests:
+                cpu: "1"
+                memory: 1536Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+          enableServiceLinks: false
+          imagePullSecrets:
+          - name: harbor-dockercfg
+          priorityClassName: adhar-batch-volcano-critical
+          restartPolicy: Never
+          schedulerName: volcano
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: importer-batch
+          terminationGracePeriodSeconds: 120
+          volumes:
+          - emptyDir:
+              sizeLimit: 1Gi
+            name: tmp
+      ttlSecondsAfterFinished: 604800
+  schedule: 30 1 * * *
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  suspend: false
+  timeZone: Asia/Singapore

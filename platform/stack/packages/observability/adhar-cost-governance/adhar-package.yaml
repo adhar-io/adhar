@@ -6,7 +6,7 @@ kind: AdharPackage
 name: adhar-cost-governance
 category: observability
 version: "0.1.0"
-description: Turns OpenCost's metrics into governance — recorded per-namespace cost, declared budgets, and alerts at 80% and 100% of budget. Read by `adhar cost` so showback and alerting agree on one number.
+description: Turns OpenCost's metrics into governance — recorded per-namespace cost, per-BatchJob, per-run and per-team batch cost, declared budgets, and alerts at 80% and 100% of budget. Read by `adhar cost` and the Cost dashboard so showback and alerting agree on one number.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar

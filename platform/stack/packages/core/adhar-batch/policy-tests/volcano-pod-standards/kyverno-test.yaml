@@ -51,3 +51,59 @@ results:
   kind: Job
   resources: [overcommits-memory]
   result: fail
+# Enforce (Phase 3): the Volcano CronJob twins.
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-has-a-deadline-and-a-ttl
+  kind: CronJob
+  resources: [schedule-standard]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-has-a-deadline-and-a-ttl
+  kind: CronJob
+  resources: [schedule-bad, schedule-no-task-deadline]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-has-a-deadline-and-a-ttl
+  kind: CronJob
+  resources: [schedule-not-batch]
+  result: skip
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-never-restarts-and-uses-a-batch-class
+  kind: CronJob
+  resources: [schedule-standard]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-never-restarts-and-uses-a-batch-class
+  kind: CronJob
+  resources: [schedule-bad]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-never-restarts-and-uses-a-batch-class
+  kind: CronJob
+  resources: [schedule-not-batch]
+  result: skip
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-mounts-no-persistent-volume
+  kind: CronJob
+  resources: [schedule-standard]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-mounts-no-persistent-volume
+  kind: CronJob
+  resources: [schedule-bad, schedule-mounts-a-pvc]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-memory-request-equals-its-limit
+  kind: CronJob
+  resources: [schedule-standard]
+  result: pass
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-memory-request-equals-its-limit
+  kind: CronJob
+  resources: [schedule-bad]
+  result: fail
+- policy: adhar-batch-volcano-pod-standards
+  rule: a-volcano-schedule-memory-request-equals-its-limit
+  kind: CronJob
+  resources: [schedule-not-batch]
+  result: skip

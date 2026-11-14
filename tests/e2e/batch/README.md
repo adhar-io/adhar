@@ -109,6 +109,21 @@ Job, and `CheckVolcanoGang`/`CheckIndexedFallback` then hold the composition to 
 through, the Unschedulable and PodScheduled wording, the queue-binding refusal text, the Queue
 status keys, Volcano's eviction event wording, and whether its eviction carries DisruptionTarget.
 
+## Phase 3: the workflow step (`Test_BatchWorkflowStep`, A3.8, PLAT-3.10)
+
+`workflow_step_e2e_test.go` drives the catalogue step `adhar-batch-steps/run` (design §12.1)
+from an Argo Workflow in `dev`, against the Phase-1 app:
+
+| Subtest | What it proves |
+|---|---|
+| two-step workflow | batch step → HTTP check (gated on the step's `status` output). The run is `<app>-<hash8>`, labelled `adhar.io/batch-trigger: workflow` and annotated `adhar.io/batch-workflow`, and the outputs carry `run`, `status`, `exitCode`, `executionId` and the summary. One execution |
+| the same workflow again | same `run` and `executionId`, no new Job, still one execution |
+| a failing run | a poisoned row fails the run; the step fails with `exitCode` equal to the run's exit code (5 with the sample job, which has no non-retryable path; §12.1 states it for 3), and the run is NOT restarted as `-r1` |
+
+It skips, with the reason, unless the cluster serves `ClusterWorkflowTemplate adhar-batch-steps`
+(argo-workflows is off in the local profile) and `ServiceAccount dev/adhar-workflow` (design
+0026 W1). Run it like the rest of the package, with `-run Test_BatchWorkflowStep`.
+
 ## What it will catch on a first run (2026-11-14)
 
 The suite is written to the design, not to today's template. Until the kit's runner lands

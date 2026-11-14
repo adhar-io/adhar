@@ -1,6 +1,31 @@
-# What a run pod must look like (design 0025 §10.3). Audit in Phase 1, Enforce in
-# Phase 3 once real jobs have been seen against it: the composition already renders
-# every one of these, so a finding here means somebody wrote a run by hand.
+# What a run pod must look like (design 0025 §10.3). Audit in Phase 1, Enforce since
+# Phase 3 (PLAT-3.6): the composition renders every one of these (the composed-runs
+# suite runs the golden renders through this policy), so a refusal here means
+# somebody wrote a run by hand.
+#
+# Enforce needed three things Audit did not:
+#   * CronJob twins of every rule. Kyverno autogen expands a POD rule onto
+#     controllers; a rule that matches Jobs gets no CronJob rule (kyverno v1.19.0
+#     applied 0 rules to a violating CronJob, 2026-11-14). Without the twins a
+#     CronJob that breaks a standard is admitted, and every Job its schedule
+#     creates is refused at fire time: the failure moves from the definition, where
+#     Crossplane or the author sees it, to 01:30, where only BatchScheduleMissed
+#     does. The twins match on the JOB TEMPLATE's label, which is what the
+#     scheduled Jobs inherit, not on the CronJob's own.
+#   * allowExistingViolations: true, stated rather than inherited. A Job or
+#     CronJob admitted while this policy audited can still be suspended, resumed
+#     (`adhar batch stop|resume`) and held: an UPDATE is refused only when it
+#     makes an object that complied stop complying. Kyverno's default has been
+#     true since 1.13; stating it keeps a release that changes it from turning
+#     every stop of an old run into a refusal.
+#   * failurePolicy stays Ignore (D18): a Kyverno outage admits a run unchecked
+#     against these standards, which is what a standards policy costs. Run
+#     integrity, which IS the boundary, fails closed.
+#
+# Nobody is excluded by username, unlike run integrity: the CronJob controller's
+# Jobs derive from a CronJob these twins admitted, so excluding it would only
+# matter for a CronJob created before Phase 3 that breaks a standard, and that run
+# should be refused and seen.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -10,11 +35,13 @@ metadata:
     policies.kyverno.io/title: "Batch: run pod standards"
     policies.kyverno.io/category: Batch
     policies.kyverno.io/severity: medium
-    policies.kyverno.io/subject: Job
+    policies.kyverno.io/subject: Job, CronJob
     policies.kyverno.io/description: >-
       A batch run sets memory request = limit, restartPolicy Never and a batch
       PriorityClass, mounts no PersistentVolumeClaim (a node-local volume pins a
-      preemptible pod to one node) and has a deadline and a TTL.
+      preemptible pod to one node) and has a deadline and a TTL. A CronJob whose
+      job template is a batch run is held to the same, so its schedule never
+      creates a run this policy refuses.
 spec:
   background: true
   webhookConfiguration:
@@ -29,7 +56,8 @@ spec:
                 matchLabels:
                   adhar.io/workload: batch
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A batch run needs activeDeadlineSeconds and ttlSecondsAfterFinished (design 0025 INV-1).
         # "?*", not ">=0": Kyverno reads a MISSING field as passing a numeric
         # comparison, so ">=0" admitted a run with no TTL at all (kyverno v1.19.0,
@@ -41,7 +69,8 @@ spec:
     - name: a-run-pod-never-restarts-in-place-and-uses-a-batch-class
       match: *batchRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A batch run pod needs restartPolicy Never and a batch PriorityClass (adhar-batch or adhar-batch-critical; adhar-batch-volcano or adhar-batch-volcano-critical when it names schedulerName volcano).
         pattern:
           spec:
@@ -56,7 +85,8 @@ spec:
     - name: a-volcano-scheduled-run-pod-uses-a-volcano-class
       match: *batchRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A batch run pod that names schedulerName volcano needs the PriorityClass adhar-batch-volcano or adhar-batch-volcano-critical (Volcano refuses to reclaim or preempt for a preemptionPolicy Never class).
         pattern:
           spec:
@@ -67,7 +97,8 @@ spec:
     - name: a-run-mounts-no-persistent-volume
       match: *batchRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A batch run pod may not mount a PersistentVolumeClaim; a node-local volume pins a preemptible pod to one node.
         pattern:
           spec:
@@ -78,10 +109,95 @@ spec:
     - name: a-run-containers-memory-request-equals-its-limit
       match: *batchRuns
       validate:
-        failureAction: Audit
+        failureAction: Enforce
+        allowExistingViolations: true
         message: A batch run's memory request must equal its limit; a run overcommitted on memory is the one the kernel kills.
         foreach:
           - list: request.object.spec.template.spec.containers
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.resources.requests.memory || '' }}"
+                    operator: NotEquals
+                    value: "{{ element.resources.limits.memory || 'absent' }}"
+    # ---- the CronJob twins: the same five, on spec.jobTemplate --------------------
+    # Every CronJob is matched and the precondition picks the batch ones by the job
+    # template's label: a selector reads only the CronJob's own labels, and a CronJob
+    # labelled on its template alone still creates batch runs.
+    - name: a-scheduled-run-has-a-deadline-and-a-ttl
+      match: &batchSchedules
+        any:
+          - resources:
+              kinds: ["batch/v1/CronJob"]
+      preconditions: &batchTemplate
+        all:
+          - key: "{{ request.object.spec.jobTemplate.metadata.labels.\"adhar.io/workload\" || '' }}"
+            operator: Equals
+            value: batch
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A batch CronJob's job template needs activeDeadlineSeconds and ttlSecondsAfterFinished (design 0025 INV-1), or every run it starts is refused.
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                activeDeadlineSeconds: ">0"
+                ttlSecondsAfterFinished: "?*"
+    - name: a-scheduled-run-pod-never-restarts-and-uses-a-batch-class
+      match: *batchSchedules
+      preconditions: *batchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A batch CronJob's run pod needs restartPolicy Never and a batch PriorityClass (adhar-batch or adhar-batch-critical; adhar-batch-volcano or adhar-batch-volcano-critical when it names schedulerName volcano).
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    restartPolicy: Never
+                    priorityClassName: "adhar-batch | adhar-batch-critical | adhar-batch-volcano | adhar-batch-volcano-critical"
+    - name: a-scheduled-volcano-run-pod-uses-a-volcano-class
+      match: *batchSchedules
+      preconditions: *batchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A batch CronJob whose run pod names schedulerName volcano needs the PriorityClass adhar-batch-volcano or adhar-batch-volcano-critical (Volcano refuses to reclaim or preempt for a preemptionPolicy Never class).
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    (schedulerName): volcano
+                    priorityClassName: "adhar-batch-volcano | adhar-batch-volcano-critical"
+    - name: a-scheduled-run-mounts-no-persistent-volume
+      match: *batchSchedules
+      preconditions: *batchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A batch CronJob's run pod may not mount a PersistentVolumeClaim; a node-local volume pins a preemptible pod to one node.
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    =(volumes):
+                      - X(persistentVolumeClaim): "null"
+    - name: a-scheduled-run-containers-memory-request-equals-its-limit
+      match: *batchSchedules
+      preconditions: *batchTemplate
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: true
+        message: A batch CronJob's run memory request must equal its limit; a run overcommitted on memory is the one the kernel kills.
+        foreach:
+          - list: request.object.spec.jobTemplate.spec.template.spec.containers
             deny:
               conditions:
                 any:

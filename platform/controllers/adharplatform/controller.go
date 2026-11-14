@@ -102,6 +102,10 @@ type AdharPlatformReconciler struct {
 	TempDir          string
 	StackDir         string // Path to the platform/stack directory on the host filesystem
 	RepoMap          *utils.RepoMap
+	// PlatformImage is the adhar image catalogue workflow steps run
+	// (`{{ .PlatformImage }}`, platform_image.go); "" falls back to
+	// ADHAR_PLATFORM_IMAGE, then the deployed manager's image.
+	PlatformImage string
 
 	// KnowledgeBundle overrides the bundle reconcileKnowledgeBundle publishes;
 	// nil (the normal case) publishes this binary's own, knowledge.Current().
@@ -1267,8 +1271,12 @@ const stackTemplateSuffix = ".tmpl"
 //     443 LB), and bare host references follow.
 //
 // Returns the staged directory to copy from and a cleanup func.
-func (r *AdharPlatformReconciler) stageStack(srcDir string) (string, func(), error) {
-	return stageStack(srcDir, r.Config, domain.ResolveTXTOwnerID(r.Config))
+func (r *AdharPlatformReconciler) stageStack(ctx context.Context, srcDir string) (string, func(), error) {
+	return stageStackWith(srcDir, stackTemplateData{
+		BuildCustomizationSpec: r.Config,
+		txtOwnerID:             domain.ResolveTXTOwnerID(r.Config),
+		platformImage:          r.resolvePlatformImage(ctx),
+	})
 }
 
 // StageStack renders a stack directory for the given platform spec exactly as
@@ -1287,16 +1295,24 @@ func StageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, fu
 // a single record. Staging itself stays pure — the owner arrives as an argument
 // so that rendering the stack never depends on name resolution, and only the
 // bootstrap and upgrade entry points above pay for the probe.
+//
+// The platform image is another (platform_image.go): the image catalogue steps
+// run, which only the process that installed the manager knows.
 type stackTemplateData struct {
 	v1alpha1.BuildCustomizationSpec
-	txtOwnerID string
+	txtOwnerID    string
+	platformImage string
 }
 
 func (d stackTemplateData) TXTOwnerID() string { return d.txtOwnerID }
 
 func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec, txtOwnerID string) (string, func(), error) {
+	return stageStackWith(srcDir, stackTemplateData{BuildCustomizationSpec: spec, txtOwnerID: txtOwnerID})
+}
+
+func stageStackWith(srcDir string, data stackTemplateData) (string, func(), error) {
 	noop := func() {}
-	data := stackTemplateData{BuildCustomizationSpec: spec, txtOwnerID: txtOwnerID}
+	spec := data.BuildCustomizationSpec
 	host := spec.Host
 	rewriteHost := host != "" && host != globals.DefaultHostName
 	tmp, err := os.MkdirTemp("", "adhar-stack-")
@@ -1364,7 +1380,7 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 	logger := log.FromContext(ctx)
 	logger.Info("Populating repository", "repo", repoName, "source", localSourceDir)
 
-	stagedSrc, cleanupStage, err := r.stageStack(localSourceDir)
+	stagedSrc, cleanupStage, err := r.stageStack(ctx, localSourceDir)
 	if err != nil {
 		return fmt.Errorf("staging %s with domain: %w", repoName, err)
 	}

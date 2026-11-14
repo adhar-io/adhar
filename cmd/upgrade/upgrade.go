@@ -286,7 +286,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		{Label: "environments", Detail: "cloning from Gitea"},
 	}, !verbose)
 	diffTracker.Start()
-	changes, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, platform.Spec.Provider, stackDir, tmpDir, diffTracker)
+	changes, err := diffStack(ctx, kubeClient, reconciler, platform.Spec.BuildCustomization, platform.Spec.Provider, stackDir, tmpDir, diffTracker)
 	diffTracker.Stop()
 	if err != nil {
 		return fmt.Errorf("computing stack diff: %w", err)
@@ -525,7 +525,7 @@ func historyDepth(repo string) int {
 	return 10
 }
 
-func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.BuildCustomizationSpec, provider v1alpha1.EnvironmentProvider, stackDir, tmpDir string, tracker *helpers.StageTracker) (stackChanges, error) {
+func diffStack(ctx context.Context, kubeClient client.Client, reconciler *adharplatform.AdharPlatformReconciler, cfg v1alpha1.BuildCustomizationSpec, provider v1alpha1.EnvironmentProvider, stackDir, tmpDir string, tracker *helpers.StageTracker) (stackChanges, error) {
 	creds, err := utils.GetSecretByName(ctx, kubeClient, utils.GiteaNamespace, utils.GiteaAdminSecret)
 	if err != nil {
 		return nil, fmt.Errorf("reading gitea credentials: %w", err)
@@ -557,9 +557,11 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 		}
 
 		// Compare against the stack as it would be seeded (templates rendered,
-		// host convention rewritten), not the raw checkout.
+		// host convention rewritten), not the raw checkout — by the reconciler
+		// that pushes it, so the platform image a catalogue step names is the
+		// one the push will write (adharplatform.StageStackAsSeeded).
 		tracker.SetDetail(i, "comparing")
-		staged, cleanup, err := adharplatform.StageStack(filepath.Join(stackDir, repo), cfg)
+		staged, cleanup, err := reconciler.StageStackAsSeeded(ctx, filepath.Join(stackDir, repo))
 		if err != nil {
 			return fail(fmt.Errorf("staging %s: %w", repo, err))
 		}

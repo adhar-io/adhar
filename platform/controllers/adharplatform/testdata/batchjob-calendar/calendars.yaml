@@ -1,0 +1,25 @@
+# Two calendars of the same name: the namespace's own wins (D5).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settlement-days
+  namespace: prod
+  labels: { adhar.io/batch-calendar: "true" }
+data:
+  calendar.yaml: |
+    name: settlement-days
+    timeZone: Asia/Singapore
+    weekendDays: [SATURDAY, SUNDAY]
+    holidays: ["2026-12-25", "2027-01-01"]
+    businessDays: ["2026-12-26"]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settlement-days
+  namespace: adhar-system
+  labels: { adhar.io/batch-calendar: "true" }
+data:
+  calendar.yaml: |
+    name: settlement-days
+    holidays: []

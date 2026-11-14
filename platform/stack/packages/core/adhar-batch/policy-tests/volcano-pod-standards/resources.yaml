@@ -591,3 +591,299 @@ spec:
             limits:
               memory: 1536Mi
         activeDeadlineSeconds: 21600
+---
+# Enforce (Phase 3): the Volcano CronJob twins. The standard run as a schedule, and
+# schedules that break the standards; the last is not a batch schedule (its job
+# template carries no adhar.io/workload: batch), so no standard applies.
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: schedule-standard
+  namespace: shop-prod
+spec:
+  schedule: 0 2 * * *
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      schedulerName: volcano
+      queue: acme-payments-prod
+      priorityClassName: adhar-batch-volcano-critical
+      minAvailable: 5
+      maxRetry: 3
+      ttlSecondsAfterFinished: 604800
+      tasks:
+      - name: manager
+        replicas: 1
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+            activeDeadlineSeconds: 21600
+      - name: worker
+        replicas: 4
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+            activeDeadlineSeconds: 21600
+    metadata:
+      labels:
+        adhar.io/workload: batch
+        adhar.io/batch-job: settlement
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: schedule-bad
+  namespace: shop-prod
+spec:
+  schedule: 0 2 * * *
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      schedulerName: volcano
+      queue: acme-payments-prod
+      priorityClassName: adhar-batch
+      minAvailable: 5
+      maxRetry: 3
+      tasks:
+      - name: manager
+        replicas: 1
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: OnFailure
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 3Gi
+            activeDeadlineSeconds: 21600
+      - name: worker
+        replicas: 4
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: OnFailure
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 3Gi
+            activeDeadlineSeconds: 21600
+      volumes:
+      - mountPath: /data
+        volumeClaimName: data
+    metadata:
+      labels:
+        adhar.io/workload: batch
+        adhar.io/batch-job: settlement
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: schedule-no-task-deadline
+  namespace: shop-prod
+spec:
+  schedule: 0 2 * * *
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      schedulerName: volcano
+      queue: acme-payments-prod
+      priorityClassName: adhar-batch-volcano-critical
+      minAvailable: 5
+      maxRetry: 3
+      ttlSecondsAfterFinished: 604800
+      tasks:
+      - name: manager
+        replicas: 1
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+            activeDeadlineSeconds: 21600
+      - name: worker
+        replicas: 4
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+    metadata:
+      labels:
+        adhar.io/workload: batch
+        adhar.io/batch-job: settlement
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: schedule-mounts-a-pvc
+  namespace: shop-prod
+spec:
+  schedule: 0 2 * * *
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      schedulerName: volcano
+      queue: acme-payments-prod
+      priorityClassName: adhar-batch-volcano-critical
+      minAvailable: 5
+      maxRetry: 3
+      ttlSecondsAfterFinished: 604800
+      tasks:
+      - name: manager
+        replicas: 1
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+            activeDeadlineSeconds: 21600
+      - name: worker
+        replicas: 4
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+            activeDeadlineSeconds: 21600
+            volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: data
+    metadata:
+      labels:
+        adhar.io/workload: batch
+        adhar.io/batch-job: settlement
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: CronJob
+metadata:
+  name: schedule-not-batch
+  namespace: shop-prod
+spec:
+  schedule: 0 2 * * *
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      schedulerName: volcano
+      queue: acme-payments-prod
+      priorityClassName: adhar-batch
+      minAvailable: 5
+      maxRetry: 3
+      tasks:
+      - name: manager
+        replicas: 1
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: OnFailure
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 3Gi
+            activeDeadlineSeconds: 21600
+      - name: worker
+        replicas: 4
+        template:
+          metadata:
+            labels:
+              adhar.io/workload: batch
+          spec:
+            restartPolicy: OnFailure
+            containers:
+            - name: batch
+              image: docker.io/library/busybox:1.36
+              resources:
+                requests:
+                  cpu: '1'
+                  memory: 1536Mi
+                limits:
+                  memory: 3Gi
+            activeDeadlineSeconds: 21600
+      volumes:
+      - mountPath: /data
+        volumeClaimName: data

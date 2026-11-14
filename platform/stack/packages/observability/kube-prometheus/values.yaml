@@ -4314,7 +4314,19 @@ prometheus:
     ## PrometheusRules to be selected for target discovery.
     ## If {}, select all PrometheusRules
     ##
-    ruleSelector: {}
+    ## ADHAR: every PrometheusRule EXCEPT those labelled
+    ## adhar.io/rules-target: mimir, which observability/alloy loads into the
+    ## Mimir ruler instead (design 0025 §11.3, PLAT-3.5). Their series (the
+    ## OTLP metrics batch runs push) reach Mimir only, so evaluated here they
+    ## would never fire; NotIn also matches a rule with no such label, so the
+    ## two selectors partition the rules and none is evaluated twice
+    ## (TestPrometheusAndTheMimirRulerPartitionThePrometheusRules).
+    ruleSelector:
+      matchExpressions:
+        - key: adhar.io/rules-target
+          operator: NotIn
+          values:
+            - mimir
     ## Example which select all PrometheusRules resources
     ## with label "prometheus" with values any of "example-rules" or "example-rules-2"
     # ruleSelector:

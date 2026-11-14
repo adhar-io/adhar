@@ -20,10 +20,11 @@ serve, so anything naming a `batch.volcano.sh` or `scheduling.volcano.sh` kind l
 | `kyverno-critical-prod-only.yaml` | `adhar-batch-critical`, `adhar-batch-volcano-critical` and `adhar.io/scale-up` only in prod namespaces. Enforce. |
 | `kyverno-volcano-classes.yaml` | The two Volcano classes only on pods that name `schedulerName: volcano`, the one way kube-scheduler could otherwise preempt for a batch pod. |
 | `kyverno-hold-only.yaml` | Anyone but Argo CD and Crossplane may change only a BatchJob's `adhar.io/batch-hold` annotation. Enforce. |
-| `kyverno-pod-standards.yaml` | Memory request = limit, `restartPolicy: Never`, a batch class, no PVC, a deadline and a TTL. Audit in Phase 1, Enforce in Phase 3. |
+| `kyverno-pod-standards.yaml` | Memory request = limit, `restartPolicy: Never`, a batch class, no PVC, a deadline and a TTL. Enforce since Phase 3 (`failurePolicy: Ignore`, D18; `allowExistingViolations: true`, so a run admitted under Audit can still be stopped and resumed), on Jobs and, through a CronJob twin of every rule, on a CronJob whose job template is a batch run: autogen gives a Job rule no CronJob rule, and without the twins a bad schedule would be refused at every fire instead of when it is defined. |
 | `alerts.yaml` | `BatchRunAdmittedUnchecked` (the API server admitted a run without asking the integrity webhook) and `BatchRunIntegrityUnenforced` (Kyverno's admission controller is gone). |
 | `dashboard-batch.yaml` | Grafana's Delivery → Batch: the fleet's runs, failures and holds. |
-| `volcano/kyverno-queue.yaml` | `adhar-batch-queue-default` (mutate) puts a Volcano run on its namespace's leaf `<organisation>-<team>-<tier>`; `adhar-batch-queue-binding` (Enforce, `failurePolicy: Fail`) denies any other queue, another team's leaf, a Volcano Job plugin other than `env`, and the `scheduling.k8s.io/group-name` annotation on a pod Volcano does not schedule; a batch/v1 Job or CronJob whose pod template names `schedulerName: volcano` (a single run on Volcano) is defaulted and must name its team's leaf; `volcano.sh/preemptable` with any value not read as true is denied on every Volcano run, template, PodGroup and pod (it would escape prod's reclaim); the Job/CronJob controllers are excluded only for objects a batch/v1 Job or CronJob owns, so scheduled single runs do not wait for Kyverno; `adhar-batch-volcano-pod-standards` (Audit) holds Volcano runs to the pod standards and the Volcano classes. |
+| `calendars.yaml` | The platform's business calendars (design D5): `weekdays` (Saturday and Sunday off, no holidays). A BatchJob names one in `schedule.calendar`; the composition looks in the job's namespace first and then here, copies it beside the job and mounts it into every run. Teams add their own in their overlays: a ConfigMap labelled `adhar.io/batch-calendar: "true"` with a `calendar.yaml`. |
+| `volcano/kyverno-queue.yaml` | `adhar-batch-queue-default` (mutate) puts a Volcano run on its namespace's leaf `<organisation>-<team>-<tier>`; `adhar-batch-queue-binding` (Enforce, `failurePolicy: Fail`) denies any other queue, another team's leaf, a Volcano Job plugin other than `env`, and the `scheduling.k8s.io/group-name` annotation on a pod Volcano does not schedule; a batch/v1 Job or CronJob whose pod template names `schedulerName: volcano` (a single run on Volcano) is defaulted and must name its team's leaf; `volcano.sh/preemptable` with any value not read as true is denied on every Volcano run, template, PodGroup and pod (it would escape prod's reclaim); the Job/CronJob controllers are excluded only for objects a batch/v1 Job or CronJob owns, so scheduled single runs do not wait for Kyverno; `adhar-batch-volcano-pod-standards` (Enforce since Phase 3, with Volcano CronJob twins, `failurePolicy: Ignore`) holds Volcano runs to the pod standards and the Volcano classes. |
 | `volcano/kyverno-prod-only.yaml` | `adhar-batch-volcano-prod-only`: the Volcano half of the prod-only rule. `adhar.io/scale-up: "true"` (which Volcano copies onto the PodGroup the autoscaler trusts) and `adhar-batch-volcano-critical` only on Volcano Jobs, CronJob job templates and PodGroups in prod namespaces. Enforce. |
 | `volcano/kyverno-run-integrity.yaml` | `adhar-batch-run-integrity-volcano`: the Volcano half of run integrity. A Volcano Job labelled `adhar.io/batch-job`, started by anyone but Volcano's controllers, must match `ConfigMap <batch-job>-run` in every task, as a native run must. Enforce, `failurePolicy: Fail`. `adhar-batch-volcano-prod-jobs-name-a-batchjob`: in prod, a person's Volcano Job must name a BatchJob at all. |
 | `volcano/rbac.yaml` | Lets Kyverno's admission controller read Volcano Queues, by aggregation, for the binding policy's team check. |
@@ -54,7 +55,7 @@ states its own `failurePolicy`:
   username, and the queue binding also the Job/CronJob controllers for the objects a
   batch/v1 Job or CronJob owns (a scheduled single run on Volcano).
 - **`Ignore`**: every other policy here (and in the rest of the stack). A scheduled run
-  during an outage just has no actor stamp, and the pod standards are not audited.
+  during an outage just has no actor stamp, and the pod standards are not checked.
 
 `BatchRunAdmittedUnchecked` alerts on the API server's fail-open counter. With the three
 policies at `Fail` it should never fire; if it does, a fail-open override is back.
@@ -66,5 +67,11 @@ exercised both ways. `run-integrity/resources.yaml` is generated by
 `generate-resources.sh` from the Job a client creates from the run template, as the API
 server hands it to admission, so every default the policy must tolerate is in it.
 `queue-binding/`, `volcano-pod-standards/`, `volcano-prod-only/` and `volcano-run-integrity/` hold the Volcano policies' suites (A2.5). `volcano-run-integrity/run-template.json` is the composition's run template for the partitioned example, and `generate-resources.sh` builds every variant from it.
+`composed-runs/` runs every run template and schedule the BatchJob composition renders
+(its golden renders, one per branch) through both pod-standards policies, so a
+composition change that breaks a standard fails before Kyverno refuses its runs.
+`resources.yaml` there is generated: `ADHAR_UPDATE_GOLDEN=1 go test
+./platform/controllers/adharplatform/` rewrites it with the goldens, and
+`TestComposedBatchRunsFixtureIsTheGoldenRenders` fails while it differs.
 `TestAdharBatchReadmeListsEveryManifest` keeps the table above in step with
 `manifests/`.

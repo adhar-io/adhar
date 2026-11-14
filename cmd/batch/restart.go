@@ -65,6 +65,16 @@ func restartRun(c context.Context, dc dynamic.Interface, ns, name string) (creat
 		return false, nil, err
 	}
 	batchJob := run.GetLabels()[labelBatchJob]
+	// A restart is built from the template's PARAMETERS, so restarting an ops
+	// Job would drop its ADHAR_BATCH_COMMAND and run the business job, and a
+	// smoke run would leave its <job>-smoke-<sha7> chain. Both are retried by
+	// asking for them again, which carries D2.
+	if isOpsRun(run) {
+		return false, nil, fmt.Errorf("%s is an ops Job (%s); repeat the command with --wait to retry it as the next -r<n>", name, envOf(run, envCommand))
+	}
+	if run.GetLabels()[labelTrigger] == triggerSmoke {
+		return false, nil, fmt.Errorf("%s is a smoke run; `adhar batch run %s --smoke --wait` retries it as the next -r<n>", name, batchJob)
+	}
 	rows, _, err := runsOfJob(c, dc, ns, batchJob)
 	if err != nil {
 		return false, nil, err

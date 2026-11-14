@@ -1,0 +1,30 @@
+# The 2026-11-14 pack fixes (batch-runs/kyverno-test.yaml says why), each both ways:
+# the default-namespace check no longer fails every controller on a namespace read
+# off its pod template, and still refuses the default namespace; the owner rule
+# accepts the hierarchy's adhar.io/team and still refuses a workload with neither
+# owner nor name; the registry allowlist knows Harbor's in-cluster Service, and a host
+# that only starts with that name is still foreign.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: controllers
+policies:
+  - ../../manifests/cis.yaml
+  - ../../manifests/soc2.yaml
+resources:
+  - resources.yaml
+results:
+  - { policy: cis-disallow-default-namespace, rule: validate-controller-namespace, kind: Deployment, resources: [service-in-a-team-namespace], result: pass }
+  - { policy: cis-disallow-default-namespace, rule: validate-controller-namespace, kind: Deployment, resources: [service-in-default], result: fail }
+  # The Pod rule has no autogen twin any more: a generated one reads a namespace off the
+  # pod template and failed every controller. Kyverno reports a rule it did not
+  # generate as Excluded, which hack/policy-test.sh accepts only for an expected skip;
+  # with autogen back, this row reads a fail.
+  - { policy: cis-disallow-default-namespace, rule: autogen-validate-pod-namespace, kind: Deployment, resources: [service-in-a-team-namespace], result: skip }
+  - { policy: cis-disallow-default-namespace, rule: validate-pod-namespace, kind: Pod, resources: [pod-in-default], result: fail }
+  - { policy: soc2-require-workload-labels, rule: require-app-and-owner-labels, kind: Deployment, resources: [service-in-a-team-namespace], result: pass }
+  - { policy: soc2-require-workload-labels, rule: require-app-and-owner-labels, kind: Job, resources: [job-owned-by-a-team], result: pass }
+  - { policy: soc2-require-workload-labels, rule: require-app-and-owner-labels, kind: Job, resources: [job-owned-by-nobody, job-with-a-team-but-no-name], result: fail }
+  - { policy: soc2-restrict-image-registries, rule: autogen-allowed-registries, kind: Deployment, resources: [service-in-a-team-namespace, service-in-default], result: pass }
+  - { policy: soc2-restrict-image-registries, rule: autogen-allowed-registries, kind: Job, resources: [job-owned-by-a-team], result: pass }
+  - { policy: soc2-restrict-image-registries, rule: autogen-allowed-registries, kind: Job, resources: [job-owned-by-nobody, job-with-a-team-but-no-name], result: fail }

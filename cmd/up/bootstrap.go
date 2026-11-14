@@ -484,6 +484,17 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			sizing.CeilingCPU, sizing.CeilingMemory, sizing.ProdDeservedCPU, sizing.ProdDeservedMemory, sizing.Derived)
 	}
 
+	// The manager image is decided BEFORE the in-process manager starts, because
+	// that manager seeds the stack and the catalogue's workflow steps run this
+	// same image (seedPlatformImage). The image is CHECKED, not assumed: see
+	// helpers.ResolveControllerImage for what a version tag with no published
+	// image did to a live cluster.
+	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	image := helpers.ResolveControllerImage(resolveCtx, controllerImage, defaultControllerImage(),
+		helpers.ControllerImageExists, func(msg string) { logger.Warnf("%s", msg) }, func(msg string) { logger.Debugf("%s", msg) })
+	resolveCancel()
+	seedPlatformImage(image)
+
 	exitCh := make(chan error)
 	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsBudget, templateData, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)
@@ -588,10 +599,8 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// Production posture: continuous reconciliation via the adhar-controlplane manager.
 	installCtx, installCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer installCancel()
-	// The image is CHECKED, not assumed: see helpers.ResolveControllerImage for
-	// what a version tag with no published image did to a live cluster.
-	image := helpers.ResolveControllerImage(installCtx, controllerImage, defaultControllerImage(),
-		helpers.ControllerImageExists, func(msg string) { logger.Warnf("%s", msg) }, func(msg string) { logger.Debugf("%s", msg) })
+	// `image` was resolved before the manager started: the one the stack's
+	// workflow steps were seeded with.
 	if err := controllers.EnsureControllerManager(installCtx, kubeClient, controllers.ManagerConfig{
 		Image:        image,
 		Namespace:    globals.AdharSystemNamespace,

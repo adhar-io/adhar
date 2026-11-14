@@ -36,6 +36,14 @@ data:
     | (($gamedayf // [{}])[0] // {}) as $gameDays
     | (($vulnsf // [{}])[0] // {}) as $vulnsBy
     | (($metricsf // [{}])[0] // {}) as $metricsBy
+    # Batch inputs are read through $ARGS.named: optional, so a caller that passes
+    # none (an older score.sh, a fixture) gets no batch signals rather than a jq
+    # compile error on an undefined variable.
+    | ((($ARGS.named.batchf // [{}])[0] // {}).byKey // {}) as $batchBy
+    | ((($ARGS.named.batchf // [{}])[0] // {}).prometheus // false) as $batchProm
+    | ($ARGS.named.batchminpct // 95) as $batchminpct
+    | ($ARGS.named.batchwindow // 7) as $batchwindow
+    | ($ARGS.named.batchrestartdays // 30) as $batchrestartdays
     | ($trusted | split(",") | map(select(. != ""))) as $trustedRegs
     | ($envorder | split(",")) as $order
     |
@@ -136,6 +144,10 @@ data:
       (if $hasPol then ($pol.pass / ($pol.pass + $pol.fail)) else 0 end) as $passRate |
       ($app.sync == "Synced") as $synced |
       (if $hasOwn then (($app.own.routes // 0) > 0) else ($routeNs[$ns] // false) end) as $exposed |
+      # A batch application (design 0025): BatchJobs and no long-running workload.
+      # It serves nothing, so an HTTPRoute is not applicable to it, and neither is
+      # the resilience runner's load test or pod-delete (it tests Services).
+      ((($app.own.batch // []) | length) > 0 and ($wl | length) == 0) as $batchOnly |
       (any($wl[]?; .kind == "StatefulSet")) as $hasSts |
       ([ ($app.own.cnpg // [])[] | $cnpgByKey[.] // empty ]) as $cnpgOwn |
       (if $hasOwn then $cnpgOwn
@@ -144,7 +156,7 @@ data:
       ($hasSts or (($cnpgHere | length) > 0)) as $stateful |
       ( ($sched.all or ($sched.nsSet[$ns] // false)) or (any($cnpgHere[]?; .backup)) ) as $backupOk |
       {
-        name: $name, namespace: $ns, stateful: $stateful,
+        name: $name, namespace: $ns, stateful: $stateful, batchOnly: $batchOnly,
         health: $app.health, sync: $app.sync, wl: $wl, cs: $cs, hasC: $hasC,
         signals: [
           sig("argocd_healthy";    "reliability";   true;      b($healthy);  null),
@@ -153,7 +165,7 @@ data:
           sig("image_not_latest";  "security";      $hasC;     b($imgOk);    null),
           sig("kyverno_pass_rate"; "security";      $hasPol;   $passRate;    null),
           sig("argocd_synced";     "observability"; true;      b($synced);   null),
-          sig("httproute_exposed"; "observability"; true;      b($exposed);  null),
+          sig("httproute_exposed"; "observability"; ($batchOnly | not); b($exposed); null),
           sig("backup";            "operations";    $stateful; b($backupOk); null)
         ]
       };
@@ -251,7 +263,7 @@ data:
       ];
 
     # ---- what the resilience runner proved ---------------------------------------
-    def evidence_signals($ev):
+    def evidence_signals($ev; $batchOnly):
       ($ev.testedAtEpoch // 0) as $at |
       (($now - $at) <= ($evdays * 86400)) as $fresh |
       ($ev.performance // null) as $perf |
@@ -260,7 +272,7 @@ data:
       (($perf.thresholdP95Ms // $p95default)) as $p95t |
       ($ev.pending // "awaiting the first automated run") as $pending |
       [
-        sig("load_test"; "performance"; true;
+        sig("load_test"; "performance"; ($batchOnly | not) or $perf != null;
             b($perf != null and $perf.status == "passed" and $fresh);
             if $perf == null then $pending
             elif ($perf.status == "error") then "load test could not run: \($perf.detail // "unknown error")"
@@ -275,7 +287,7 @@ data:
             b($slo != null and $slo.errorRatio != null and $slo.errorRatio <= $budget);
             if $slo == null or $slo.errorRatio == null then "no request metrics yet"
             else "5xx \(pct($slo.errorRatio)) of \($slo.requests | floor) requests over 24h in \($slo.environment) (budget \(pct($budget)) for \($target)%)" end)),
-        sig("chaos_pod_delete"; "resilience"; ($chaos == null or $chaos.status != "unavailable");
+        sig("chaos_pod_delete"; "resilience"; (if $chaos == null then ($batchOnly | not) else $chaos.status != "unavailable" end);
             b($chaos != null and $chaos.status == "passed" and $fresh);
             if $chaos == null then $pending
             elif ($chaos.status == "passed" or $chaos.status == "failed")
@@ -340,6 +352,74 @@ data:
                  + (if ($now - epoch($gd.latest.at)) > ($evdays * 86400) then " — STALE, older than \($evdays) days" else "" end) end)
       ];
 
+    # ---- batch jobs (design 0025 §15 Phase 3, PLAT-3.7) --------------------------
+    # What a BatchJob needs before it runs unattended, from what batch.jq projected:
+    # a restart that was proven, the composed alerts, a JobRepository on a platform
+    # Postgres, a deadline on every schedule, and the last window's success rate.
+    # Graded on the most-promoted environment's BatchJobs (the restart proof on any
+    # environment's: it is proven in test); an application with no BatchJob gets
+    # none of these signals at all, so a service's ledger does not change.
+    def batch_signals($rep; $group; $ev):
+      ([ ($rep.own.batch // [])[] | $batchBy[.] // empty ]) as $here |
+      ([ $group[] | (.own.batch // [])[] | $batchBy[.] // empty ]) as $all |
+      (if ($here | length) > 0 then $here else $all end) as $jobs |
+      if ($jobs | length) == 0 then [] else
+      ($jobs[0].namespace) as $env |
+      ([ $jobs[] | .name ] | unique) as $names |
+      # restart: per job, the newest restart run that ended, on any environment —
+      # kept, or recorded by an earlier scorer run after its run was deleted — and
+      # it proves the restart while it is younger than batch_restart_max_age_days.
+      ([ $names[] | . as $n | ([ $all[] | select(.name == $n) | .restarts[] ] | sort_by(.at // 0) | last) as $r
+         | {name: $n, run: $r} ]) as $restarts |
+      ($ev.batchRestart // null) as $rt |
+      ($rt != null and $rt.status == "passed" and ($now - ($rt.testedAtEpoch // 0)) <= ($evdays * 86400)) as $rtPassed |
+      ([ $restarts[] | select($rtPassed | not)
+         | if .run == null then "\(.name) (never restarted)"
+           elif .run.o != "succeeded" then "\(.name) (its newest restart, \(.run.name), failed \(ago(.run.at // 0)))"
+           elif ($now - (.run.at // 0)) > ($batchrestartdays * 86400) then "\(.name) (last proven by \(.run.name) \(ago(.run.at)), older than \($batchrestartdays) days)"
+           else empty end ]) as $unproven |
+      ([ $jobs[] | select(.alertsEnabled | not) | .name ]) as $silenced |
+      ([ $jobs[] | select(.alertsEnabled and ((.alerts | index("BatchRunFailed")) == null
+                    or (.scheduled and (.alerts | index("BatchNoRecentSuccess")) == null))) | .name ]) as $noAlerts |
+      ([ $jobs[] | select(.database.cluster == null) | "\(.name) (\(.database.secret))" ]) as $notPlatformPg |
+      ([ $jobs[] | select(.scheduled) ]) as $scheduled |
+      ([ $scheduled[] | select((.finishBy // "") == "") | .name ]) as $noDeadline |
+      ([ $jobs[].outcomes.succeeded ] | add // 0) as $ok |
+      ([ $jobs[].outcomes.failed ] | add // 0) as $failed |
+      ($ok + $failed) as $total |
+      (if $total > 0 then $ok / $total * 100 else null end) as $rate |
+      # A schedule that ran nothing in the window, though it is older than the window
+      # and neither held nor suspended, has stopped: that is a 0% job, not one with
+      # no evidence. Only Prometheus can say so; the runs still kept cannot (the TTL
+      # removes them), so without it nothing is called stopped.
+      ([ $scheduled[] | select($batchProm and (.paused | not)
+           and .createdAt != null and .createdAt <= ($now - $batchwindow * 86400)
+           and (.outcomes.succeeded + .outcomes.failed) == 0) | .name ]) as $stopped |
+      [
+        sig("batch_restart_test"; "resilience"; true; b(($unproven | length) == 0);
+            if ($unproven | length) == 0 then
+              (if $rtPassed then "the batch restart test passed in \($rt.environment // "test"), \(ago($rt.testedAtEpoch))"
+               else "a restarted run completed for every job: \([ $restarts[] | "\(.run.name) (\(ago(.run.at // 0)))" ] | join(", "))" end)
+            else "no restart proven for \($unproven | join(", ")): kill a run mid-way in test and restart it (adhar batch restart); it must finish from its last commit" end),
+        sig("batch_alerts"; "observability"; true; b(($silenced | length) == 0 and ($noAlerts | length) == 0);
+            if ($silenced | length) > 0 then "alerts.enabled is false on \($silenced | join(", ")): a failed or missed run pages nobody"
+            elif ($noAlerts | length) > 0 then "no composed BatchRunFailed (and, on a schedule, BatchNoRecentSuccess) for \($noAlerts | join(", ")) in \($env)"
+            else "BatchRunFailed\(if ($scheduled | length) > 0 then " and BatchNoRecentSuccess" else "" end) are composed for every job in \($env)" end),
+        sig("batch_jdbc_repository"; "reliability"; true; b(($notPlatformPg | length) == 0);
+            if ($notPlatformPg | length) == 0 then "every JobRepository is on a platform Postgres: \([ $jobs[] | "\(.name) on \(if .database.provider != null then "Database \(.database.cluster) (\(.database.provider))" else .database.cluster end)\(if .database.backup then " (backed up)" else "" end)" ] | join(", "))"
+            else "the JobRepository of \($notPlatformPg | join(", ")) is neither a CloudNativePG cluster nor a platform Database on a cloud Postgres in \($env): restart from the last commit depends on a database the platform neither runs nor backs up" end),
+        sig("batch_deadline"; "operations"; (($scheduled | length) > 0); b(($noDeadline | length) == 0);
+            if ($noDeadline | length) == 0 then "every schedule has a deadline: \([ $scheduled[] | "\(.name) by \(.finishBy)" ] | join(", "))"
+            else "no sla.finishBy on \($noDeadline | join(", ")): nothing warns before a late run misses the business's deadline" end),
+        sig("batch_success_rate"; "reliability"; ($total > 0 or ($stopped | length) > 0);
+            b($rate != null and $rate >= $batchminpct and ($stopped | length) == 0);
+            if ($stopped | length) > 0 then "no run of \($stopped | join(", ")) finished in the last \($batchwindow) days in \($env), though it is scheduled and neither held nor suspended"
+              + (if $total > 0 then "; \($ok) of \($total) runs of the others succeeded" else "" end)
+            elif $total == 0 then "no run finished in the last \($batchwindow) days in \($env)"
+            else "\($ok) of \($total) runs succeeded over \($batchwindow) days in \($env) (\($rate | floor)%, at least \($batchminpct)% required)"
+              + (if $batchProm then "" else "; Prometheus did not answer, so only the runs still kept are counted" end) end)
+      ] end;
+
     # ---- assemble ------------------------------------------------------------------
     # Applications only — the same set the Service Catalog lists. Platform
     # packages are not graded: they are the platform's own concern, not a
@@ -367,7 +447,7 @@ data:
             health: $b.health,
             sync: $b.sync,
             evidence: ($ev | {environment, image, testedAt, target, performance, chaos, chaosSuite, slo, pending} | with_entries(select(.value != null))),
-            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + ($b | supply_efficiency($rep.env // $rep.ns)) + evidence_signals($ev) + team_signals($appName)),
+            signals: ($b.signals + ($b | static_resilience($rep.env // $rep.ns)) + ($b | supply_efficiency($rep.env // $rep.ns)) + evidence_signals($ev; $b.batchOnly) + team_signals($appName) + batch_signals($rep; $group; $ev)),
         perfCenter: ($perfCenter[$appName] // null),
         gameDays: ($gameDays[$appName] // null)
           }
@@ -385,6 +465,135 @@ data:
                        then ([ $services[].score ] | add) / ($services | length) | floor
                        else 0 end),
         services: ($services | sort_by(.score) | reverse)
+      }
+  batch.jq: |
+    # The batch evidence (design 0025 §15 Phase 3, PLAT-3.7), projected per BatchJob
+    # for score.jq's batch signals. Run by score.sh with -n; every input is one
+    # document (--slurpfile, hence the [0] unwraps) and may be empty or an error:
+    #   $bjf      BatchJobs (platform.adhar.io) in the application namespaces
+    #   $rulesf   PrometheusRules labelled adhar.io/batch-job (the composed <name>-batch)
+    #   $runsf    batch/v1 Jobs labelled adhar.io/batch-job (the runs still kept)
+    #   $vcrunsf  Volcano Jobs labelled adhar.io/batch-job (gang runs)
+    #   $cnpgf    CNPG Clusters, for which Secret is a platform Postgres's
+    #   $promf    {native: {succeeded, failed}, volcano: {succeeded, failed}}: raw
+    #             Prometheus /api/v1/query answers, null where Prometheus did not answer
+    # and, optional (read through $ARGS.named, so a caller passing neither still runs):
+    #   dbf       Database XRs (platform.adhar.io), for which Secret is a cloud Postgres's
+    #   restartsf the scorer's own record of each BatchJob's newest restart that ended
+    #             ({"<ns>/<batchjob>": {name, o, at}}, ConfigMap adhar-scorecards-batch-restarts)
+    # Output: {byKey: {"<ns>/<batchjob>": {...}}, prometheus: bool, lastRestarts: {...}}.
+    (($bjf // [{}])[0].items // []) as $bjs
+    | (($rulesf // [{}])[0].items // []) as $rules
+    | (($runsf // [{}])[0].items // []) as $runs
+    | (($vcrunsf // [{}])[0].items // []) as $vcruns
+    | (($cnpgf // [{}])[0].items // []) as $cnpg
+    | (($promf // [{}])[0] // {}) as $prom
+    | ((($ARGS.named.dbf // [{}])[0] // {}).items // []) as $dbs
+    | (($ARGS.named.restartsf // [{}])[0] // {} | if type == "object" then . else {} end) as $recorded
+    | ($now - ($windowdays * 86400)) as $since
+    |
+    def epoch($t): (($t // "") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // null);
+    def bj($o): ($o.metadata.labels["adhar.io/batch-job"] // "");
+    # A run's outcome and when it reached it: a batch/v1 Job by its Complete or
+    # Failed condition, a Volcano Job by its phase.
+    def outcome:
+      if .apiVersion == "batch/v1" then
+        ([ (.status.conditions // [])[] | select(.status == "True" and (.type == "Complete" or .type == "Failed")) ] | first) as $c
+        | if $c == null then null
+          else {o: (if $c.type == "Complete" then "succeeded" else "failed" end),
+                at: epoch($c.lastTransitionTime // .status.completionTime)} end
+      else
+        (.status.state.phase // "") as $p
+        | if $p == "Completed" then {o: "succeeded", at: epoch(.status.state.lastTransitionTime)}
+          elif ($p == "Failed" or $p == "Terminated" or $p == "Aborted") then {o: "failed", at: epoch(.status.state.lastTransitionTime)}
+          else null end
+      end;
+    # Prometheus answers, "<ns>/<batchjob>" -> count; null when it did not answer.
+    def counts($r; $lbl):
+      if ($r | type) == "object" and $r.status == "success"
+      then reduce ($r.data.result // [])[] as $x ({}; .["\($x.metric.namespace)/\($x.metric[$lbl] // "")"] = ($x.value[1] | tonumber))
+      else null end;
+    (counts($prom.native.succeeded; "label_adhar_io_batch_job")) as $ns_ok
+    | (counts($prom.native.failed; "label_adhar_io_batch_job")) as $ns_fail
+    # Volcano's series exist only where Volcano runs; a query that answered with
+    # nothing and one that was never asked both read as no gang runs.
+    | (counts($prom.volcano.succeeded; "batch_job") // {}) as $vc_ok
+    | (counts($prom.volcano.failed; "batch_job") // {}) as $vc_fail
+    | ($ns_ok != null and $ns_fail != null) as $promOk
+    | ([ ($runs + $vcruns)[] | . as $r | outcome as $x | select($x != null)
+         | {key: "\($r.metadata.namespace)/\(bj($r))", name: $r.metadata.name,
+            trigger: ($r.metadata.labels["adhar.io/batch-trigger"] // ""), o: $x.o, at: $x.at} ]) as $finished
+    # The Secrets that ARE a platform Postgres: CNPG publishes <cluster>-app unless
+    # the cluster bootstraps from a Secret of its own, which it then uses.
+    | (reduce $cnpg[] as $c ({};
+        ($c.spec.bootstrap.initdb.secret.name // "\($c.metadata.name)-app") as $s
+        | .["\($c.metadata.namespace)/\($s)"] = {cluster: $c.metadata.name, backup: ($c.spec.backup != null)})) as $pgSecrets
+    # A Database XR on a CLOUD Postgres is a platform Postgres too: the platform
+    # composes it and the cloud runs and backs it up. Its connection Secret is what
+    # the composition writes (writeConnectionSecretToRef, else <name>-db in
+    # adhar-system). Only the PostgreSQL cloud compositions count — Azure's is SQL
+    # Server — and the local one is not listed: it composes a CNPG Cluster, which
+    # the reduce above already matched. A compositionRef, when set, decides alone.
+    | {"database-aws-rds-postgresql": "aws", "database-gcp-cloudsql": "gcp"} as $pgCompositions
+    | ([ $pgCompositions[] ]) as $pgProviders
+    | (reduce $dbs[] as $d ($pgSecrets;
+        ($d.spec.crossplane.compositionRef.name // $d.spec.compositionRef.name // "") as $ref
+        | ($d.spec.crossplane.compositionSelector.matchLabels.provider // $d.spec.compositionSelector.matchLabels.provider // "local") as $sel
+        | (if $ref != "" then $pgCompositions[$ref] elif ($pgProviders | index($sel)) != null then $sel else null end) as $provider
+        | if $provider == null or (($d.spec.parameters.engine // "postgresql") != "postgresql") then .
+          else ($d.spec.writeConnectionSecretToRef // {}) as $w
+            | .["\($w.namespace // "adhar-system")/\($w.name // "\($d.metadata.name)-db")"] =
+                {cluster: $d.metadata.name, provider: $provider, backup: ($d.spec.parameters.enableBackup != false)} end)) as $pgSecrets
+    | (reduce $bjs[] as $b ({};
+          ($b.metadata.namespace) as $ns | ($b.metadata.name) as $name | "\($ns)/\($name)" as $k
+          | ($b.spec.parameters // {}) as $p
+          | ([ $finished[] | select(.key == $k) ]) as $mine
+          | ([ $mine[] | select(.at != null and .at >= $since) ]) as $recent
+          | .[$k] = {
+              name: $name, namespace: $ns,
+              scheduled: ((($p.schedule // {}).cron // "") != ""),
+              # A schedule that is held or declared suspended is not expected to run;
+              # one older than the window that is neither, and ran nothing, stopped.
+              paused: ((($b.metadata.annotations // {}) | has("adhar.io/batch-hold"))
+                       or (($p.schedule // {}).suspend == true)),
+              createdAt: epoch($b.metadata.creationTimestamp),
+              finishBy: (($p.sla // {}).finishBy // null),
+              alertsEnabled: ((($p.alerts // {}).enabled) != false),
+              alerts: ([ $rules[] | select(.metadata.namespace == $ns and bj(.) == $name)
+                         | (.spec.groups // [])[] | (.rules // [])[] | .alert // empty ] | unique),
+              database: ((($p.database // {}).secretRef // "") as $s
+                         | {secret: $s} + ($pgSecrets["\($ns)/\($s)"] // {cluster: null, backup: false})),
+              # Restart runs (trigger restart: `adhar batch restart`, or `adhar batch
+              # run --wait` restarting a failed run as -r<n>) that reached an end —
+              # the ones still kept, plus the newest the scorer recorded before: a
+              # run is deleted ttlSecondsAfterFinished (7 days) after it ends, and
+              # the proof of a restart must not go with it. A record older than this
+              # BatchJob (deleted and created again) proves nothing about it.
+              restarts: (([ $mine[] | select(.trigger == "restart") ]) as $kept
+                         | ($recorded[$k] // null) as $r
+                         | $kept + (if $r != null and ($r.at | type) == "number" and ($r.o == "succeeded" or $r.o == "failed")
+                                       and ([ $kept[] | .name ] | index($r.name)) == null
+                                       and $r.at >= (epoch($b.metadata.creationTimestamp) // 0)
+                                    then [{name: $r.name, trigger: "restart", o: $r.o, at: $r.at, recorded: true}] else [] end)
+                         | sort_by(.at // 0)),
+              outcomes: (if $promOk
+                         then {source: "prometheus",
+                               succeeded: (($ns_ok[$k] // 0) + ($vc_ok[$k] // 0)),
+                               failed: (($ns_fail[$k] // 0) + ($vc_fail[$k] // 0))}
+                         else {source: "runs",
+                               succeeded: ([ $recent[] | select(.o == "succeeded") ] | length),
+                               failed: ([ $recent[] | select(.o == "failed") ] | length)} end)
+            })) as $byKey
+    | {
+        prometheus: $promOk,
+        byKey: $byKey,
+        # What score.sh records for the next run: each BatchJob's newest restart
+        # that ended, failed ones included — a failed restart must not be
+        # forgotten in favour of an older success once its run is deleted.
+        lastRestarts: ($byKey | to_entries
+          | map(.value.restarts as $rs | select(($rs | length) > 0 and ($rs | last | .at) != null)
+                | {key: .key, value: ($rs | last | {name, o, at})})
+          | from_entries)
       }
   score.sh: |
     #!/usr/bin/env bash
@@ -461,11 +670,12 @@ data:
       "$WORKDIR/apps.raw" >"$WORKDIR/apps.filtered" && mv "$WORKDIR/apps.filtered" "$WORKDIR/apps.raw"
     APP_NS="$(jq -r '[ .items[] | .spec.destination.namespace // empty ] | unique | .[]' "$WORKDIR/apps.raw")"
     echo "adhar-scorecard: $(jq '.items | length' "$WORKDIR/apps.raw") application environment(s) in: $(printf "%s " $APP_NS)"
-    # fetch_ns <resource> <name>: like fetch, over the application namespaces.
+    # fetch_ns <resource> <name> [selector]: like fetch, over the application
+    # namespaces, optionally only objects carrying a label.
     fetch_ns() {
       : >"$WORKDIR/$2.ndjson"
       for ns in $APP_NS; do
-        kubectl -n "$ns" get "$1" -o json 2>/dev/null | jq -c '(.items // [])[]' >>"$WORKDIR/$2.ndjson" || true
+        kubectl -n "$ns" get "$1" ${3:+-l "$3"} -o json 2>/dev/null | jq -c '(.items // [])[]' >>"$WORKDIR/$2.ndjson" || true
       done
       jq -s '{items: .}' "$WORKDIR/$2.ndjson" >"$WORKDIR/$2.raw" 2>/dev/null || echo '{"items":[]}' >"$WORKDIR/$2.raw"
       rm -f "$WORKDIR/$2.ndjson"
@@ -488,6 +698,77 @@ data:
     fetch_ns poddisruptionbudgets.policy pdbs
     # Trivy Operator's per-workload vulnerability reports (absent without it).
     fetch_ns vulnerabilityreports.aquasecurity.github.io vulns
+
+    # Batch (design 0025, PLAT-3.7): the BatchJobs applications deliver, the alerts
+    # the composition renders for each, their runs, the Postgres clusters the
+    # JobRepository can live on, and seven days of run outcomes from Prometheus —
+    # the runs themselves are no history: a CronJob keeps its last three of each.
+    # Collected only from the application namespaces, like everything else.
+    fetch_ns batchjobs.platform.adhar.io batchjobs
+    fetch_ns prometheusrules.monitoring.coreos.com batchrules adhar.io/batch-job
+    fetch_ns jobs.batch batchruns adhar.io/batch-job
+    fetch_ns jobs.batch.volcano.sh vcbatchruns adhar.io/batch-job
+    # Database XRs: a JobRepository on a cloud Postgres the platform composes.
+    fetch_ns databases.platform.adhar.io databases
+    PROM="${PROMETHEUS_URL:-http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090}"
+    BATCH_WINDOW_DAYS=$(readcfg batch_window_days 7)
+    BATCH_RESTART_DAYS=$(readcfg batch_restart_max_age_days 30)
+    # The newest restart of each BatchJob, as the scorer last saw it: a restart run
+    # is deleted 7 days after it ends (ttlSecondsAfterFinished), and the proof must
+    # outlive it. Only a ConfigMap that is ABSENT starts a fresh record; one that
+    # could not be read leaves RESTARTS_OK=0, and the record is then not rewritten,
+    # so a transient API error cannot erase every proof.
+    RESTARTS_CM="${OUT_CM}-batch-restarts"
+    RESTARTS_OK=1
+    if kubectl -n "$OUT_NS" get configmap "$RESTARTS_CM" -o json >"$WORKDIR/restarts.raw" 2>"$WORKDIR/restarts.err"; then
+      jq -c '(.data["restarts.json"] // "{}") | (fromjson? // {}) | if type == "object" then . else {} end' \
+        "$WORKDIR/restarts.raw" >"$WORKDIR/restarts.json" 2>/dev/null || { echo '{}' >"$WORKDIR/restarts.json"; RESTARTS_OK=0; }
+    elif grep -q NotFound "$WORKDIR/restarts.err"; then
+      echo '{}' >"$WORKDIR/restarts.json"
+    else
+      echo '{}' >"$WORKDIR/restarts.json"; RESTARTS_OK=0
+      echo "adhar-scorecard: could not read ${OUT_NS}/${RESTARTS_CM}; restart proofs are not updated this run"
+    fi
+    rm -f "$WORKDIR/restarts.raw" "$WORKDIR/restarts.err"
+    promraw() {  # promraw <query> -> the raw API answer, or null
+      curl -fsS --max-time 30 --data-urlencode "query=$1" "$PROM/api/v1/query" 2>/dev/null || echo null
+    }
+    # A run counts once, by name, at the outcome it reached in the window: kube-state-
+    # metrics' series outlive the deleted Job in Prometheus, which is what makes them
+    # history. Indexed (partitioned) Jobs complete as a whole, so Complete, never the
+    # succeeded-pod count, is the success.
+    W="${BATCH_WINDOW_DAYS}d"
+    BJ='max by (namespace, job_name, label_adhar_io_batch_job) (max_over_time(kube_job_labels{label_adhar_io_batch_job!=""}['"$W"']))'
+    jq -n -c \
+      --argjson nok "$(promraw "count by (namespace, label_adhar_io_batch_job) ((max by (namespace, job_name) (max_over_time(kube_job_complete{condition=\"true\"}[$W])) > 0) * on (namespace, job_name) group_left (label_adhar_io_batch_job) $BJ)")" \
+      --argjson nfail "$(promraw "count by (namespace, label_adhar_io_batch_job) ((max by (namespace, job_name) (max_over_time(kube_job_failed{condition=\"true\"}[$W])) > 0) * on (namespace, job_name) group_left (label_adhar_io_batch_job) $BJ)")" \
+      --argjson vok "$(promraw "count by (namespace, batch_job) (max by (namespace, vcjob, batch_job) (max_over_time(kube_volcano_job_status_phase{phase=\"Completed\",batch_job!=\"\"}[$W])) > 0)")" \
+      --argjson vfail "$(promraw "count by (namespace, batch_job) (max by (namespace, vcjob, batch_job) (max_over_time(kube_volcano_job_status_phase{phase=~\"Failed|Terminated|Aborted\",batch_job!=\"\"}[$W])) > 0)")" \
+      '{native: {succeeded: $nok, failed: $nfail}, volcano: {succeeded: $vok, failed: $vfail}}' \
+      >"$WORKDIR/batchprom.json" 2>/dev/null || echo '{}' >"$WORKDIR/batchprom.json"
+    jq -n -c -f "$SCRIPT_DIR/batch.jq" \
+      --slurpfile bjf "$WORKDIR/batchjobs.raw" --slurpfile rulesf "$WORKDIR/batchrules.raw" \
+      --slurpfile runsf "$WORKDIR/batchruns.raw" --slurpfile vcrunsf "$WORKDIR/vcbatchruns.raw" \
+      --slurpfile cnpgf "$WORKDIR/cnpg.raw" --slurpfile promf "$WORKDIR/batchprom.json" \
+      --slurpfile dbf "$WORKDIR/databases.raw" --slurpfile restartsf "$WORKDIR/restarts.json" \
+      --argjson now "$(date -u +%s)" --argjson windowdays "$BATCH_WINDOW_DAYS" \
+      >"$WORKDIR/batch.json" 2>/dev/null || echo '{}' >"$WORKDIR/batch.json"
+    rm -f "$WORKDIR/batchjobs.raw" "$WORKDIR/batchrules.raw" "$WORKDIR/batchruns.raw" "$WORKDIR/vcbatchruns.raw" "$WORKDIR/batchprom.json" "$WORKDIR/databases.raw"
+    # Merged, never replaced: a BatchJob missing from this run's listing (an API
+    # hiccup the fetch swallows) keeps its record. A record older than the proof
+    # window decides nothing any more and is dropped, which bounds the ConfigMap.
+    if [ "$RESTARTS_OK" = 1 ] && jq -e 'has("lastRestarts")' "$WORKDIR/batch.json" >/dev/null 2>&1; then
+      jq -n -c --slurpfile prev "$WORKDIR/restarts.json" --slurpfile cur "$WORKDIR/batch.json" \
+            --argjson now "$(date -u +%s)" --argjson days "$BATCH_RESTART_DAYS" \
+        '($prev[0] + $cur[0].lastRestarts) | with_entries(select((.value.at | type) == "number" and .value.at >= ($now - $days * 86400)))' \
+        >"$WORKDIR/restarts.next" 2>/dev/null \
+        && kubectl create configmap "$RESTARTS_CM" -n "$OUT_NS" --from-file=restarts.json="$WORKDIR/restarts.next" \
+             --dry-run=client -o yaml | kubectl apply -f - >/dev/null \
+        && kubectl -n "$OUT_NS" label configmap "$RESTARTS_CM" adhar.io/component=scorecards \
+             app.kubernetes.io/managed-by=adhar-scorecard-scorer app.kubernetes.io/part-of=adhar --overwrite >/dev/null \
+        || echo "adhar-scorecard: could not record restart proofs in ${OUT_NS}/${RESTARTS_CM}"
+    fi
+    rm -f "$WORKDIR/restarts.json" "$WORKDIR/restarts.next"
 
     # Evidence from the resilience runner (load test, chaos, live SLO). It is
     # runtime data the runner writes; absent until its first run.
@@ -560,6 +841,8 @@ data:
           wl:     [ $rs[] | select(.kind == "Deployment" or .kind == "StatefulSet" or .kind == "DaemonSet" or .kind == "Rollout")
                     | "\(.namespace // "")/\(.kind)/\(.name)" ],
           routes: ([ $rs[] | select(.kind == "HTTPRoute") ] | length),
+          batch:  [ $rs[] | select(.kind == "BatchJob" and ((.group // "") == "platform.adhar.io"))
+                    | "\(.namespace // "")/\(.name)" ],
           cnpg:   [ $rs[] | select(.kind == "Cluster" and ((.group // "") == "postgresql.cnpg.io"))
                     | "\(.namespace // "")/\(.name)" ] } } ]}'
 
@@ -659,6 +942,7 @@ data:
       --slurpfile gamedayf "$WORKDIR/gameday.json" \
       --slurpfile vulnsf "$WORKDIR/vulns.json" \
       --slurpfile metricsf "$WORKDIR/metrics.json" \
+      --slurpfile batchf "$WORKDIR/batch.json" \
       --argjson wrel "$W_REL" --argjson wsec "$W_SEC" \
       --argjson wobs "$W_OBS" --argjson wops "$W_OPS" \
       --argjson wperf "$W_PERF" --argjson wres "$W_RES" \
@@ -667,6 +951,8 @@ data:
       --argjson ga "$G_A" --argjson gb "$G_B" --argjson gc "$G_C" --argjson gd "$G_D" \
       --argjson evdays "$EVIDENCE_DAYS" --argjson p95default "$P95_DEFAULT" \
       --argjson recoverymax "$RECOVERY_MAX" --arg envorder "$ENV_ORDER" \
+      --argjson batchminpct "$(readcfg batch_success_rate_min_pct 95)" --argjson batchwindow "$BATCH_WINDOW_DAYS" \
+      --argjson batchrestartdays "$BATCH_RESTART_DAYS" \
       --argjson now "$(date -u +%s)" \
       --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$WORKDIR/summary.json"
 

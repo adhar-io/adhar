@@ -9,6 +9,7 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/controllers/adharplatform"
 	"adhar-io/adhar/platform/controllers/autoscaler"
+	batchobserver "adhar-io/adhar/platform/controllers/batch"
 	"adhar-io/adhar/platform/controllers/custompackage"
 	"adhar-io/adhar/platform/controllers/dataplane"
 	"adhar-io/adhar/platform/events"
@@ -118,6 +119,26 @@ func RunControllers(
 		RESTConfig: mgr.GetConfig(),
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create node autoscaler controller")
+	}
+
+	// The batch observer (design 0025 §12): adhar.batch events, dependsOn and
+	// the finishBy SLA. Only in the long-running manager — a bootstrap process
+	// that exits on sync must not own a duty that starts runs, and two
+	// observers would both act on one transition. It watches Jobs and pods
+	// from the start and adds its BatchJob and Volcano watches only once
+	// discovery shows those CRDs, so it is safe on a cluster that has neither.
+	// Its own publisher, so its events carry the observer as their source.
+	if !exitOnSync {
+		batchBus := events.NewFromEnv(cfg.Host, "batch-observer")
+		go func() {
+			<-ctx.Done()
+			flush, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			batchBus.Close(flush)
+		}()
+		if err := (&batchobserver.Reconciler{Events: batchBus}).SetupWithManager(mgr); err != nil {
+			logger.Error(err, "unable to create batch observer")
+		}
 	}
 
 	// Start our manager in another goroutine

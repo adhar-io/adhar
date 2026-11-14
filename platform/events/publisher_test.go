@@ -255,6 +255,10 @@ func TestEveryEventTypeRoutesToADeclaredTopic(t *testing.T) {
 		TypeRepositoryPushed, TypePackageSynced, TypePackageDegraded, TypeCustomPackageReady,
 		TypePipelineSucceeded, TypePipelineFailed,
 		TypeAgentRunStarted, TypeAgentRunFinished, TypeAgentRunRefused,
+		TypeBatchRunRequested, TypeBatchRunStarted, TypeBatchRunSucceeded, TypeBatchRunFailed,
+		TypeBatchRunStopped, TypeBatchRunResumed, TypeBatchRunSkipped, TypeBatchRunLost,
+		TypeBatchScheduleHeld, TypeBatchScheduleReleased, TypeBatchScheduleMissed,
+		TypeBatchDeadlineEndangered, TypeBatchDeadlineMissed,
 	}
 	for _, typ := range all {
 		topic, ok := TopicFor(typ)

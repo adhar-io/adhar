@@ -68,6 +68,17 @@ mimir:
       sharding_ring:
         replication_factor: 1
         zone_awareness_enabled: false
+    # The ruler evaluates the rules Alloy's mimir.rules.kubernetes loads from
+    # PrometheusRules labelled adhar.io/rules-target: mimir (alloy/values.yaml):
+    # alerts on series that live ONLY here, chiefly the OTLP metrics batch runs
+    # push (design 0025 §11.3, PLAT-3.5). The in-cluster Prometheus never
+    # receives those, so a rule on them evaluated there would never fire. The
+    # chart points the ruler at Mimir's own Alertmanager, which is off below;
+    # its alerts go to the platform Alertmanager instead, so they are routed
+    # by team to Grafana OnCall exactly like every PrometheusRule Prometheus
+    # evaluates (Mimir's notifier speaks the Alertmanager v2 API).
+    ruler:
+      alertmanager_url: http://prometheus-kube-prometheus-alertmanager.adhar-system.svc.cluster.local:9093
 
 ingester:
   replicas: 1
@@ -117,8 +128,25 @@ compactor:
     requests:
       cpu: 25m
       memory: 256Mi
+# One ruler (PLAT-3.5), evaluating in-process against the ingesters and the
+# store-gateway: the rule set is a handful of batch groups, which needs neither
+# the remote-evaluation query path nor more than one replica. The chart's 1 GiB
+# memory ballast exists to smooth GC on a large ruler at start-up; on this one
+# it would only be a reservation the scheduler cannot see.
 ruler:
-  enabled: false
+  enabled: true
+  replicas: 1
+  memBallastSizeBytes: 0
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  # The chart sets no timeout, so the kubelet's 1 s default applies: less than a
+  # loaded node needs to answer (TestNoProbeShipsAOneSecondTimeout).
+  readinessProbe:
+    timeoutSeconds: 5
 alertmanager:
   enabled: false
 overrides_exporter:
@@ -127,6 +155,11 @@ rollout_operator:
   enabled: false
 gateway:
   replicas: 1
+  # The chart ships timeoutSeconds: 1 (TestNoProbeShipsAOneSecondTimeout). This
+  # was a hand-edit in manifests/install.yaml until 2026-11-14, which a
+  # regeneration would have reverted.
+  readinessProbe:
+    timeoutSeconds: 5
   resources:
     requests:
       cpu: 25m

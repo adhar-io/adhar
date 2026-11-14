@@ -1,0 +1,32 @@
+# The platform's business calendars (design 0025 D5). A BatchJob names one in
+# `schedule.calendar`; the composition looks in the job's own namespace first and
+# then here, copies the one it finds into ConfigMap <job>-calendar beside the job,
+# and mounts it into every run at /etc/adhar/batch/calendar/calendar.yaml
+# (ADHAR_BATCH_CALENDAR). On a date that is not a business day a scheduled,
+# dependency or backfill run exits 0 as skipped, reason `calendar`.
+#
+# A calendar is a ConfigMap labelled adhar.io/batch-calendar: "true" holding the key
+# calendar.yaml:
+#   name          the calendar's name (the ConfigMap's)
+#   timeZone      optional; the job's schedule.timeZone when unset
+#   weekendDays   default [SATURDAY, SUNDAY]
+#   holidays      ISO dates that are not business days
+#   businessDays  ISO dates that ARE, overriding weekendDays (a working Saturday)
+# Teams author their own in their overlays (a ConfigMap in the environment
+# namespace, which wins over a platform one of the same name). The kit parses the
+# file (BusinessCalendar, shared by the runner and the in-service Quartz engine); a
+# missing or invalid file is exit 2, never a silent run.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weekdays
+  namespace: adhar-system
+  labels:
+    adhar.io/batch-calendar: "true"
+    adhar.io/component: batch
+data:
+  calendar.yaml: |
+    name: weekdays
+    weekendDays: [SATURDAY, SUNDAY]
+    holidays: []
+    businessDays: []

@@ -988,8 +988,10 @@ func TestBatchJobComposedKindsAreGrantedToCrossplane(t *testing.T) {
 	}
 }
 
-// D3: the schema is strict and carries only what the composition renders: Phase 1's
-// fields and Phase 2's partitioned shape, nothing of Phase 3.
+// D3: the schema is strict and carries only what the platform renders: Phase 1's
+// fields, Phase 2's partitioned shape, and Phase 3's calendar, retention, smoke run,
+// dependencies and deadline (each one rendered by the composition, the Project
+// composition or the batch observer; calendar_composition_test.go holds them).
 func TestBatchJobXRDCarriesThePhaseOneFields(t *testing.T) {
 	docs := readYAMLDocs(t, filepath.Join(controlPlaneDir(t), "xrd/batchjob.xrd.yaml"))
 	if len(docs) != 1 {
@@ -1018,25 +1020,35 @@ func TestBatchJobXRDCarriesThePhaseOneFields(t *testing.T) {
 		}
 	}
 	for _, f := range []string{"dependsOn", "retention", "smoke"} {
-		if params[f] != nil {
-			t.Errorf("parameter %s arrives with a later phase (D3): an earlier control plane must reject it, not ignore it", f)
+		if params[f] == nil {
+			t.Errorf("parameter %s is missing; Phase 3 renders it (D3)", f)
 		}
 	}
 	for path, fields := range map[string][]string{
-		"schedule": {"calendar"}, "sla": {"finishBy", "timeZone"},
+		"schedule": {"calendar"}, "sla": {"finishBy", "timeZone"}, "retention": {"days", "keepLast"}, "smoke": {"parameters"},
 	} {
 		sub, _ := dig(params, path, "properties").(map[string]any)
 		for _, f := range fields {
-			if sub[f] != nil {
-				t.Errorf("%s.%s arrives with a later phase (D3)", path, f)
+			if sub[f] == nil {
+				t.Errorf("%s.%s is missing; Phase 3 renders it (D3)", path, f)
 			}
 		}
+	}
+	// D4's defaults are the runner's contract, and finishBy is read as HH:MM.
+	if fmt.Sprint(dig(params, "retention", "properties", "days", "default")) != "90" || fmt.Sprint(dig(params, "retention", "properties", "keepLast", "default")) != "30" {
+		t.Errorf("retention defaults = %v", dig(params, "retention", "properties"))
+	}
+	if dig(params, "sla", "properties", "finishBy", "pattern") != "^([01][0-9]|2[0-3]):[0-5][0-9]$" {
+		t.Errorf("sla.finishBy pattern = %v", dig(params, "sla", "properties", "finishBy", "pattern"))
+	}
+	if fmt.Sprint(dig(params, "dependsOn", "items", "required")) != "[batchJob]" {
+		t.Errorf("dependsOn items require %v", dig(params, "dependsOn", "items", "required"))
 	}
 	if fmt.Sprint(dig(params, "schedule", "properties", "concurrencyPolicy", "enum")) != "[Forbid Allow]" {
 		t.Errorf("concurrencyPolicy enum = %v", dig(params, "schedule", "properties", "concurrencyPolicy", "enum"))
 	}
 	status := dig(v0, "schema", "openAPIV3Schema", "properties", "status", "properties").(map[string]any)
-	for _, f := range []string{"scheduler", "queue", "runTemplate", "cronJob", "lastScheduleTime", "lastSuccessfulTime", "activeRuns", "held", "message"} {
+	for _, f := range []string{"scheduler", "queue", "runTemplate", "cronJob", "calendar", "lastScheduleTime", "lastSuccessfulTime", "activeRuns", "held", "message"} {
 		if status[f] == nil {
 			t.Errorf("status.%s is not in the schema; the composition writes it and the API server would prune it", f)
 		}

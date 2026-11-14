@@ -90,6 +90,10 @@ composed:
                 value: batch
               - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
                 value: 90s
+              - name: ADHAR_BATCH_RETENTION_DAYS
+                value: "90"
+              - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+                value: "30"
               - name: ADHAR_BATCH_K8S_JOB
                 valueFrom:
                   fieldRef:
@@ -360,6 +364,10 @@ composed:
                   value: batch
                 - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
                   value: 90s
+                - name: ADHAR_BATCH_RETENTION_DAYS
+                  value: "90"
+                - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+                  value: "30"
                 - name: ADHAR_BATCH_K8S_JOB
                   valueFrom:
                     fieldRef:

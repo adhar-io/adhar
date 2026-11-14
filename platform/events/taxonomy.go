@@ -60,6 +60,29 @@ const (
 	TypeAgentRunStarted  = "io.adhar.ai.run.started"
 	TypeAgentRunFinished = "io.adhar.ai.run.finished"
 	TypeAgentRunRefused  = "io.adhar.ai.run.refused"
+
+	// Batch — the runs of BatchJobs, published by the batch observer
+	// (platform/controllers/batch, design 0025 §12). Subject `<namespace>/<batchjob>`,
+	// so one job's events share a partition and keep their order; the correlation
+	// id is the run's UID. A run has at most one of succeeded / failed / skipped:
+	// `skipped` is a run that exited 0 because there was nothing to do
+	// (already-complete, duplicate, calendar), and `lost` is one ATTEMPT that
+	// ended with no summary (OOM kill, SIGKILL, a node lost) or a run deleted
+	// before it ended — it is emitted per lost attempt, so a run that was
+	// OOM-killed and then succeeded carries both.
+	TypeBatchRunRequested       = "io.adhar.batch.run.requested"
+	TypeBatchRunStarted         = "io.adhar.batch.run.started"
+	TypeBatchRunSucceeded       = "io.adhar.batch.run.succeeded"
+	TypeBatchRunFailed          = "io.adhar.batch.run.failed"
+	TypeBatchRunStopped         = "io.adhar.batch.run.stopped"
+	TypeBatchRunResumed         = "io.adhar.batch.run.resumed"
+	TypeBatchRunSkipped         = "io.adhar.batch.run.skipped"
+	TypeBatchRunLost            = "io.adhar.batch.run.lost"
+	TypeBatchScheduleHeld       = "io.adhar.batch.schedule.held"
+	TypeBatchScheduleReleased   = "io.adhar.batch.schedule.released"
+	TypeBatchScheduleMissed     = "io.adhar.batch.schedule.missed"
+	TypeBatchDeadlineEndangered = "io.adhar.batch.deadline.endangered"
+	TypeBatchDeadlineMissed     = "io.adhar.batch.deadline.missed"
 )
 
 // The topics. One per DOMAIN, not one per type: a consumer interested in
@@ -73,6 +96,7 @@ const (
 	TopicTenancy  = "adhar.tenancy"
 	TopicDelivery = "adhar.delivery"
 	TopicAI       = "adhar.ai"
+	TopicBatch    = "adhar.batch"
 )
 
 // Topics is every topic the platform publishes to, which the manifests must
@@ -80,7 +104,7 @@ const (
 // drift: a type routed to a topic that does not exist is accepted by the bridge
 // and then silently auto-created with the broker's defaults (one partition, the
 // broker's retention), which is not what any of these want.
-var Topics = []string{TopicPlatform, TopicCluster, TopicTenancy, TopicDelivery, TopicAI}
+var Topics = []string{TopicPlatform, TopicCluster, TopicTenancy, TopicDelivery, TopicAI, TopicBatch}
 
 // TopicFor routes an event type to its topic by DOMAIN — the second segment of
 // the type. Deriving it rather than keeping a map means a new event type is

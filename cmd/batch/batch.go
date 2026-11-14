@@ -55,10 +55,18 @@ const (
 	annotationActor     = "adhar.io/batch-actor"
 	annotationScheduled = "batch.kubernetes.io/cronjob-scheduled-timestamp"
 
-	envParams    = "ADHAR_BATCH_PARAMS"
-	envTrigger   = "ADHAR_BATCH_TRIGGER"
-	envRestartOf = "ADHAR_BATCH_RESTART_OF"
-	envTimeZone  = "ADHAR_BATCH_TIME_ZONE"
+	envParams      = "ADHAR_BATCH_PARAMS"
+	envTrigger     = "ADHAR_BATCH_TRIGGER"
+	envRestartOf   = "ADHAR_BATCH_RESTART_OF"
+	envTimeZone    = "ADHAR_BATCH_TIME_ZONE"
+	envCommand     = "ADHAR_BATCH_COMMAND"
+	envExecutionID = "ADHAR_BATCH_EXECUTION_ID"
+
+	// The triggers of the Phase-3 runs a client starts (§5.5 RunTrigger, in
+	// lower case as the label and the variable carry them).
+	triggerBackfill = "backfill"
+	triggerSmoke    = "smoke"
+	triggerOps      = "ops"
 
 	// batchContainer is the container the runner lives in (§6.4).
 	batchContainer = "batch"
@@ -113,6 +121,12 @@ wait in and their gang, stop and resume become Volcano commands, and
 A service that schedules jobs inside itself on the kit's Quartz engine reports
 them in a ConfigMap; ` + "`schedules`" + ` lists those reports, read-only.
 
+Day-2 operations: ` + "`backfill`" + ` runs a job once per business date, at most
+--parallel at a time; ` + "`abandon`" + `, ` + "`recover`" + ` and ` + "`dlq --replay`" + ` act on a Spring Batch
+execution through an ops Job built from the run template; ` + "`history`" + ` reads the
+job's adhar.batch events (90 days) through the platform's event bridge; and
+` + "`run --smoke`" + ` is the verification run a promotion into test waits for.
+
 A BatchJob lives in an environment namespace. Name it with -n, or with --env
 and --project, which resolve the namespace from the Project's environments.
 
@@ -125,7 +139,10 @@ Examples:
   adhar batch restart importer-09932cb3         # the same identity, only the failed steps
   adhar batch hold importer --reason "upstream feed late"
   adhar batch queues --team acme-payments       # the team's Volcano queues and their usage
-  adhar batch schedules --env prod              # in-service (Quartz) schedules the services report`,
+  adhar batch schedules --env prod              # in-service (Quartz) schedules the services report
+  adhar batch backfill importer --from 2026-11-01 --to 2026-11-07 --parallel 2
+  adhar batch history importer --since 7d       # runs, holds and deadlines from the event stream
+  adhar batch dlq importer --replay --wait      # re-process the dead-lettered items`,
 }
 
 func init() {
@@ -134,7 +151,8 @@ func init() {
 	BatchCmd.PersistentFlags().StringVar(&projectFlag, "project", defaultProject, "Project whose environments --env names")
 	BatchCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "table", "Output format (table, json, yaml)")
 
-	BatchCmd.AddCommand(listCmd, describeCmd, runsCmd, runCmd, logsCmd, stopCmd, resumeCmd, restartCmd, holdCmd, releaseCmd, queuesCmd, schedulesCmd)
+	BatchCmd.AddCommand(listCmd, describeCmd, runsCmd, runCmd, logsCmd, stopCmd, resumeCmd, restartCmd, holdCmd, releaseCmd, queuesCmd, schedulesCmd,
+		backfillCmd, abandonCmd, recoverCmd, dlqCmd, historyCmd)
 	silenceUsageOnceParsed(BatchCmd)
 }
 
