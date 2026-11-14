@@ -363,11 +363,13 @@ func TestBatchJobRunPodContract(t *testing.T) {
 	if dig(c, "securityContext", "allowPrivilegeEscalation") != false || fmt.Sprint(dig(c, "securityContext", "capabilities", "drop")) != "[ALL]" {
 		t.Errorf("container securityContext = %v", c["securityContext"])
 	}
-	// Request = limit on memory, no CPU limit unless asked (INV/§6.4).
+	// Request = limit on memory (INV/§6.4); the CPU limit is the request unless cpuLimit
+	// raises it: left off, the environment's LimitRange defaults it to 500m, and the API
+	// server rejects a pod whose 1-CPU request is above that.
 	if dig(c, "resources", "requests", "memory") != "1536Mi" || dig(c, "resources", "limits", "memory") != "1536Mi" {
 		t.Errorf("memory request/limit = %v", c["resources"])
 	}
-	if dig(c, "resources", "requests", "cpu") != "1" || dig(c, "resources", "limits", "cpu") != nil {
+	if dig(c, "resources", "requests", "cpu") != "1" || dig(c, "resources", "limits", "cpu") != "1" {
 		t.Errorf("cpu request/limit = %v", c["resources"])
 	}
 	env := bjEnv(t, c)

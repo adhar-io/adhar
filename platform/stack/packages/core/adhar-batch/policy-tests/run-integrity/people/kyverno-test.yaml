@@ -128,6 +128,11 @@ results:
   - policy: adhar-batch-run-integrity
     rule: a-run-matches-its-template
     kind: Job
+    resources: [deny-resource-claim, deny-host-users, deny-volume-device]
+    result: fail
+  - policy: adhar-batch-run-integrity
+    rule: a-run-matches-its-template
+    kind: Job
     resources: [deny-node-name]
     result: fail
   - policy: adhar-batch-run-integrity

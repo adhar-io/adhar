@@ -1,0 +1,17 @@
+# Volcano's controllers (a Volcano CronJob's Jobs) are a platform service account, not a person.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-prod-jobs-controllers
+policies:
+  - ../../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: ../../controllers/user.yaml
+results:
+  - policy: adhar-batch-volcano-prod-jobs-name-a-batchjob
+    rule: a-persons-volcano-job-in-prod-names-a-batchjob
+    kind: Job
+    resources: [one-off-in-prod]
+    result: skip

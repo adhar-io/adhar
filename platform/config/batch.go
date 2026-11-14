@@ -124,6 +124,10 @@ func ResolveBatchScheduler(s *BatchSettings, maxWorkers int, workerCPUMilli, wor
 		}
 		if out.Cmp(*ceiling) > 0 {
 			out = ceiling.DeepCopy()
+			// DEC-3: the share is never below the largest gang unless the whole
+			// ceiling is, and then the operator hears it here rather than from a
+			// prod gang that can never be admitted.
+			warnings = append(warnings, fmt.Sprintf("the batch ceiling %s is below %s, the largest gang the batch design's examples use (design 0025 D17), so %s is the whole ceiling and a prod gang that size never fits: add workers or set globalSettings.batch.capacity", ceiling.String(), f.String(), field))
 		}
 		return &out, nil
 	}

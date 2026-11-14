@@ -13,9 +13,12 @@ metadata:
   namespace: team-payments
 spec:
   crossplane:
+    # Two Compositions carry policy.adhar.io/engine: kyverno; `provider: local`
+    # names compliancepolicy-local (TestExampleCompositionSelectorsSelectOneComposition).
     compositionSelector:
       matchLabels:
         policy.adhar.io/engine: kyverno
+        provider: local
   parameters:
     displayName: Payments PCI guardrails
     policyEngine: kyverno

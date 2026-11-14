@@ -1,0 +1,23 @@
+# A template that names a digest admits exactly that digest: the digest a client may
+# add is only the supply-chain pin of a TAG.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-run-integrity-pinned-template
+policies:
+  - ../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: values.yaml
+userinfo: ../people/user.yaml
+results:
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [pinned-template-run]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [pinned-template-other-digest, run-ok]
+    result: fail

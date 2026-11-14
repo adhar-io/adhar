@@ -147,6 +147,8 @@ metadata:
 spec:
   hard: { requests.cpu: "16", requests.memory: 32Gi, limits.cpu: "16", limits.memory: 32Gi, pods: "100" }
 ---
+# CPU as an environment's quota sets it on the live cluster (16); memory held at
+# 8Gi so the gang-fit cases reach it with small runs.
 apiVersion: v1
 kind: ResourceQuota
 metadata:

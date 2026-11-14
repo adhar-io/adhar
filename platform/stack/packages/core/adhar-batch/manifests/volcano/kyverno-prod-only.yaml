@@ -9,8 +9,8 @@
 #
 # In manifests/volcano/ because it names Volcano kinds, which Kyverno refuses where
 # Volcano is not installed (see kyverno-queue.yaml). failurePolicy Ignore, like its
-# native half (DEC-4: only adhar-batch-queue-binding and adhar-batch-run-integrity
-# fail closed).
+# native half (DEC-4: only adhar-batch-queue-binding and adhar-batch-run-integrity,
+# native and Volcano, fail closed).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:

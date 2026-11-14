@@ -98,6 +98,9 @@ func runToggle(cmd *cobra.Command, names []string, on bool) error {
 		verb = "disable"
 	}
 
+	// Companions travel with the package they complete (volcano ↔ adhar-batch-volcano).
+	names, addedCompanions := withCompanions(names, known)
+
 	// Which files. Enabling locally implies enabling in production, since the local
 	// core must remain a subset; disabling in production implies disabling locally
 	// for the same reason.
@@ -122,6 +125,10 @@ func runToggle(cmd *cobra.Command, names []string, on bool) error {
 	fmt.Println()
 	fmt.Printf("  %s %s in the %s profile (detected from %s)\n\n",
 		strings.ToUpper(verb[:1])+verb[1:], strings.Join(names, ", "), p.name, source)
+	if len(addedCompanions) > 0 {
+		fmt.Printf("  %s %s added: it is the other half of the package, switched on and off with it.\n\n",
+			helpers.IconDegraded, strings.Join(addedCompanions, ", "))
+	}
 
 	// Report the consequences before asking.
 	for _, n := range names {

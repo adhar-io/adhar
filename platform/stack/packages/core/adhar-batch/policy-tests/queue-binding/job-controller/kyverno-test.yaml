@@ -1,0 +1,58 @@
+# Kubernetes' Job and CronJob controllers creating the pods of a batch/v1 Job and
+# the Jobs of a batch/v1 CronJob: their templates were checked on the Job or
+# CronJob, so a scheduled single run on Volcano does not wait for Kyverno. Only what
+# they create for a batch/v1 owner is skipped: a pod owned by a ReplicaSet or a
+# Volcano Job, or by nothing, is checked as anyone's.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: queue-binding-job-controller}
+policies: [../policy-under-test.yaml]
+resources: [../resources.yaml, ../resources-batch.yaml]
+variables: values.yaml
+userinfo: user.yaml
+results:
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [job-pod-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [replicaset-pod-team-b-queue, volcano-job-pod-team-b-queue, volcano-pod-team-b-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-pod-is-scheduled-by-volcano
+  kind: Pod
+  resources: [job-pod-group-name-kube-scheduler]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-pod-is-scheduled-by-volcano
+  kind: Pod
+  resources: [annotated-kube-scheduler-pod]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Pod
+  resources: [job-pod-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Pod
+  resources: [job-pod-not-preemptable]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Pod
+  resources: [volcano-pod-not-preemptable]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [job-made-by-cron-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [single-team-b-queue]
+  result: fail

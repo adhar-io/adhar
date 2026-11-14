@@ -1,0 +1,11 @@
+# ConfigMap <batch-job>-run does not exist: the policy's apiCall falls back to "".
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: volcano-run-integrity-no-template
+policies:
+  - name: adhar-batch-run-integrity-volcano
+    rules:
+      - name: a-volcano-run-matches-its-template
+        values:
+          templateYaml: ""

@@ -31,7 +31,8 @@
 #     root queue's capability (the batch ceiling), per axis; an axis the
 #     allowance omits or sets to 0 is the ceiling's, as the quota webhook reads it.
 #   • only prod declares `deserved` (the descriptor's prodDeservedCPU/Memory,
-#     2 / 4Gi by default, never above the leaf's capability) and is not
+#     4500m / 7Gi — design D17's floor — when it names none, never above the
+#     leaf's capability) and is not
 #     reclaimable; dev and test are reclaimable, so prod reclaims from them.
 #   • BatchQueuesReady reports them. When Volcano's queue webhook refuses one —
 #     typically the ceiling cannot admit another prod `deserved` share — the
@@ -205,7 +206,11 @@ spec:
             {{-     range (default (list) (getExtraResources $ "tenantQuotas")) }}{{ $quotas = dig "resource" "data" (dict) . }}{{ end -}}
             {{-     $allowanceRaw := "" -}}
             {{-     if hasKey $quotas $name }}{{ $allowanceRaw = get $quotas $name }}{{ else if hasKey $quotas "default" }}{{ $allowanceRaw = get $quotas "default" }}{{ end -}}
-            {{-     $deserved := dict "cpu" (get $desc "prodDeservedCPU" | default "2") "memory" (get $desc "prodDeservedMemory" | default "4Gi") -}}
+            {{- /* A descriptor without the prod share (one seeded before the seed rendered
+                   it) falls back to D17's floor, the largest gang the design's examples
+                   use (platform/config BatchGangFloorCPU/Memory), never to a share no
+                   such gang could reclaim. TestTeamProdShareFallbackIsTheGangFloor. */ -}}
+            {{-     $deserved := dict "cpu" (get $desc "prodDeservedCPU" | default "4500m") "memory" (get $desc "prodDeservedMemory" | default "7Gi") -}}
             {{-     $inputs := dict -}}
             {{-     range $axis := list "cpu" "memory" -}}
             {{- /* The allowance's `key: value` lines, read as platform/webhooks ParseAllowance reads them. */ -}}

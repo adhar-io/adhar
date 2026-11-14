@@ -38,10 +38,12 @@ func TestBatchSchedulerIsSizedFromTheCluster(t *testing.T) {
 			// larger than the ceiling, so the share is the ceiling.
 			name: "a small cluster: the share is clamped to the ceiling", maxWorkers: 2, cpuMilli: 3500, memBytes: 13 * gib / 2,
 			ceilCPU: "2", ceilMem: "2Gi", prodCPU: "2", prodMem: "2Gi", derived: true,
+			wantWarning: "never fits",
 		},
 		{
 			name: "a cluster too small for one whole CPU still gets one", maxWorkers: 1, cpuMilli: 1500, memBytes: 3 * gib,
 			ceilCPU: "1", ceilMem: "1Gi", prodCPU: "1", prodMem: "1Gi", derived: true,
+			wantWarning: "never fits",
 		},
 		{
 			name: "an unmeasured cluster takes the reference ceiling", maxWorkers: 0,

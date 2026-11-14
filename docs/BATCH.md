@@ -107,10 +107,12 @@ env.
 and Volcano controllers by username, so scheduled runs never wait on Kyverno (Kyverno
 v1.19 propagates that condition, verified live on 2026-11-14). Retry a manual run once
 Kyverno is back. The platform's Kyverno no longer forces every policy to fail open
-(design D18): the two batch policies that guard run integrity and queue binding fail
-closed, and every other policy in the stack says `Ignore` itself, so nothing else in
-the stack changed. The `ClusterPolicy`s a `Policy` or `CompliancePolicy` composes do not
-state it yet, so until they do they fail closed too (design 0025 §10.3, §19).
+(design D18): the batch policies that guard run integrity (its native and Volcano
+halves, `adhar-batch-run-integrity` and `adhar-batch-run-integrity-volcano`) and queue
+binding fail closed, and every other policy in the stack, including the `ClusterPolicy`s
+a `Policy` or `CompliancePolicy` composes, says `Ignore` itself, so nothing else
+changed. A scheduled single run on Volcano does not wait either: the queue binding skips
+the Job and CronJob controllers for the objects a Job or CronJob owns.
 `BatchRunAdmittedUnchecked` still alerts on the API server's fail-open counter
 (`core/adhar-batch/manifests/alerts.yaml`), now as a guard that a fail-open override has
 not come back, and `BatchRunIntegrityUnenforced` warns while the admission controller
@@ -246,9 +248,11 @@ schedules itself.
 prod shares, sized from the cluster. A `BatchJob` whose leaf is missing or was refused
 (a team beyond that number, say) gets `QueueFits=False` with reason
 `LeafQueueUnavailable`, and on `scheduler: auto` keeps running on plain Kubernetes until
-it is fixed. A run larger than its leaf's share in every dimension gets reason
+it is fixed. A run larger than its leaf's whole capability in any dimension gets reason
+`ExceedsCapability`: Volcano never admits it, so shrink it or raise the allowance. A
+run larger than its leaf's share in every dimension gets reason
 `ExceedsDeserved`: it starts only when the batch tree has idle room and can never take
-capacity back from dev or test. Either message names the leaf, the numbers and the
+capacity back from dev or test. Each message names the leaf, the numbers and the
 remedy (a smaller run, a larger prod share from the platform team in
 `globalSettings.batch`, or `scheduler: kubernetes`). The job is never denied silently.
 
@@ -315,7 +319,12 @@ adhar:
 - **A replica dies mid-run:** another replica picks the run up and resumes it from its
   last commit.
 - **From your own code:** `BatchTriggers.fireNow(job, params)` stores a one-shot trigger
-  named after the run, so asking twice for the same parameters runs once.
+  named after the run, so asking twice for the same parameters runs once, even after the
+  first has finished. Its identity is only the parameters you pass: give a `businessDate`
+  explicitly, and a job with no identifying parameter is refused, because it could only
+  ever run once. Use `fireAt(job, instant, params)` for a run keyed on a time.
+- **Interval triggers** keep to a fixed grid, `start` (default the Unix epoch) plus
+  multiples of `every`, so after a missed slot the next fires land back on :00, :05, …
 - **Seeing it:** the service writes its schedules to `ConfigMap <name>-batch-schedules`
   in its namespace. The Console shows them under **Develop → Batch → Jobs**, read-only,
   and `adhar batch schedules` lists them. The template's option **In-service batch jobs
@@ -347,8 +356,14 @@ of it.
   not by editing a Job.
 - **Exit 2 on a scheduled run** — the runner could not resolve the scheduled time. A
   project that adds egress policies must allow the API server.
-- **`QueueFits=False`** — the run's leaf queue is missing or refused, or a prod gang is
-  larger than its leaf's share; the message says which and what to change.
+- **`QueueFits=False`** — the run's leaf queue is missing or refused
+  (`LeafQueueUnavailable`), the run is larger than its leaf's capability
+  (`ExceedsCapability`), or a prod run is larger than its leaf's share
+  (`ExceedsDeserved`); the message says which and what to change.
+- **A partitioned `BatchJob` refused at compose time** — its shape (one manager plus N
+  workers) asks for more than a key of the namespace's `ResourceQuota` (`requests.cpu`,
+  `limits.memory`, `pods`, …); the message names every key that is over. A
+  `cpuLimit` below a CPU request is refused the same way.
 - **`BatchQueuesReady=False` on the `Team`** — `QueueRejected` means the root queue had no
   room for another prod share; `QueueNameTaken` means another team's
   `<organisation>-<team>` spells the same name.

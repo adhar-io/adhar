@@ -7,7 +7,8 @@ import (
 // `adhar batch` is a Develop command beside `function` (design 0025 §8.2):
 // registered on the root and placed in that group, with the Phase-1 verbs, the
 // Phase-2 `queues` (core/volcano ships; the command is discovery-guarded, so a
-// cluster without Volcano is told so) and none of the Phase-3 ones, which
+// cluster without Volcano is told so), the Addendum-Q `schedules` (CLI-Q.1: the
+// in-service schedule reports, read-only) and none of the Phase-3 ones, which
 // arrive with the observer and the events they need.
 func TestBatchIsRegisteredUnderDevelopWithThePhaseOneVerbs(t *testing.T) {
 	var found bool
@@ -23,9 +24,9 @@ func TestBatchIsRegisteredUnderDevelopWithThePhaseOneVerbs(t *testing.T) {
 		for _, sub := range c.Commands() {
 			have[sub.Name()] = true
 		}
-		for _, want := range []string{"list", "describe", "runs", "run", "logs", "stop", "resume", "restart", "hold", "release", "queues"} {
+		for _, want := range []string{"list", "describe", "runs", "run", "logs", "stop", "resume", "restart", "hold", "release", "queues", "schedules"} {
 			if !have[want] {
-				t.Errorf("adhar batch lacks the Phase-1/2 verb %q", want)
+				t.Errorf("adhar batch lacks the Phase-1/2/Q verb %q", want)
 			}
 		}
 		for _, later := range []string{"backfill", "abandon", "recover", "dlq", "history"} {

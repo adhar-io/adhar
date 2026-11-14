@@ -31,6 +31,12 @@ policies:
   - name: default-a-volcano-cronjob-to-its-team-queue
     values:
       ns: *id001
+  - name: default-a-volcano-scheduled-job-to-its-team-queue
+    values:
+      ns: *id001
+  - name: default-a-volcano-scheduled-cronjob-to-its-team-queue
+    values:
+      ns: *id001
   - name: default-a-volcano-pod-to-its-team-queue
     values:
       ns: *id001
@@ -49,6 +55,15 @@ policies:
     values:
       ns: *id001
   - name: a-group-name-pod-is-scheduled-by-volcano
+    values:
+      ns: *id001
+  - name: a-volcano-scheduled-job-names-its-team-queue
+    values:
+      ns: *id001
+  - name: a-group-name-template-is-scheduled-by-volcano
+    values:
+      ns: *id001
+  - name: a-volcano-run-stays-preemptable
     values:
       ns: *id001
   - name: a-volcano-job-uses-the-env-plugin-only

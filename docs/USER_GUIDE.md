@@ -180,6 +180,7 @@ adhar batch restart importer-09932cb3                    # the same identity as 
 adhar batch hold importer --reason "upstream feed late"  # suspend the schedule without a commit
 adhar batch release importer
 adhar batch queues --team acme-payments                  # the team's Volcano queues: used/deserved/capability, gangs waiting
+adhar batch schedules --env prod                         # in-service (Quartz) schedules: triggers, next fire, last run, replicas
 ```
 
 A run is named for its identifying parameters (`<job>-<hash8>`), so starting the
@@ -199,6 +200,20 @@ and `restart` still creates the next `-r<n>`. `adhar batch queues` lists the
 queues); `--team` reads one team's three by name, which is what a team member may
 do. On a cluster without Volcano every command behaves as before and `queues`
 says there are none.
+
+A service that schedules jobs inside itself on the kit's Quartz engine (design
+0025 §5.20) publishes them as `ConfigMap <scheduler>-batch-schedules` in its
+namespace. `adhar batch schedules [-n NS | --env E [--project P] | -A]
+[-o table|json|yaml]` lists those reports: per service, each trigger with its
+schedule, time zone, calendar, misfire policy, state and next fire, each job's
+last run, and the replicas checked in. It needs list on ConfigMaps in the
+namespace and reads nothing in the service's database. A report cut to fit its
+256 KiB limit says it is truncated, a next fire more than ten minutes in the past
+is marked as stalled (unless the trigger is paused, complete or in error, which
+do not fire), and a report of a version this CLI does not know is shown
+as written (`raw` in `-o json`) rather than guessed at. The view is read-only: an
+in-service run is not a Kubernetes object, so it has no run, stop, restart or hold.
+
 The full guide — declaring a `BatchJob`, exit codes, alerts, delivery — is
 [BATCH.md](BATCH.md).
 

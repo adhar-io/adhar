@@ -106,36 +106,74 @@ func TestQueueBindingComputesTheLeavesTheTeamComposes(t *testing.T) {
 	}
 }
 
-// Volcano's controllers are excluded by username in the webhook AND in every rule's
-// preconditions, as kyverno-run-integrity.yaml does; nothing is excluded by label.
-// The binding fails closed and the defaulting fails open (DEC-4, 2026-11-14): a run
-// the default could not fix during an outage is refused by the binding anyway. The
-// binding's second matchCondition only narrows the webhook to what Volcano schedules
-// (TestFailClosedPoliciesReachOnlyWhatTheyCheck proves what it lets through).
-func TestQueueBindingExcludesOnlyVolcanosControllers(t *testing.T) {
+// The controllers that execute an admitted run are excluded by username in the
+// webhook AND in every rule's preconditions, as kyverno-run-integrity.yaml does;
+// nothing is excluded by label. Volcano's controllers everywhere; Kubernetes' Job
+// and CronJob controllers (2026-11-14) only from the binding's rules that see what
+// they create (pods, batch/v1 Jobs), and only for objects whose controller owner is
+// a batch/v1 Job or CronJob, whose template the binding checked: without that, a
+// scheduled single run on Volcano waits for Kyverno, and with the username alone
+// `system:kube-controller-manager` (every controller, without per-controller
+// credentials) would carry a Deployment's pods past the checks. The binding fails
+// closed and the defaulting fails open (DEC-4): a run the default could not fix
+// during an outage is refused by the binding anyway. The binding's last
+// matchCondition only narrows the webhook to what Volcano schedules
+// (TestFailClosedPoliciesReachOnlyWhatTheyCheck proves what all three let through,
+// and policy-tests/queue-binding/{job-controller,kube-controller-manager} what the
+// preconditions do).
+func TestQueueBindingExcludesOnlyTheControllersThatRunWhatItAdmitted(t *testing.T) {
 	const sa = "system:serviceaccount:adhar-system:volcano-controllers"
+	jobControllers := []string{"system:serviceaccount:kube-system:job-controller", "system:serviceaccount:kube-system:cronjob-controller", "system:kube-controller-manager"}
 	failure := map[string]string{"adhar-batch-queue-default": "Ignore", "adhar-batch-queue-binding": "Fail"}
-	scope := map[string][]string{"adhar-batch-queue-default": nil, "adhar-batch-queue-binding": {"only-what-volcano-schedules"}}
+	conditions := map[string][]string{
+		"adhar-batch-queue-default": {"not-volcanos-own-controllers"},
+		"adhar-batch-queue-binding": {"not-volcanos-own-controllers", "not-the-job-controllers-own-runs", "only-what-volcano-schedules"},
+	}
+	// The owner test, in CEL (webhook) and JMESPath (preconditions).
+	ownerCEL := "r.apiVersion == 'batch/v1' && (r.kind == 'Job' || r.kind == 'CronJob') && has(r.controller) && r.controller"
+	ownerJMES := "request.object.metadata.ownerReferences[?apiVersion == 'batch/v1' && (kind == 'Job' || kind == 'CronJob') && controller]"
 	for _, name := range []string{"adhar-batch-queue-default", "adhar-batch-queue-binding"} {
 		p := queuePolicies(t)[name]
 		mc := toSlice(dig(p, "spec", "webhookConfiguration", "matchConditions"))
-		if len(mc) != 1+len(scope[name]) || !strings.Contains(toString(mc[0].(map[string]any)["expression"]), "request.userInfo.username != '"+sa+"'") {
-			t.Errorf("%s matchConditions = %v", name, mc)
+		var names []string
+		for _, c := range mc {
+			names = append(names, toString(c.(map[string]any)["name"]))
 		}
-		for i, want := range scope[name] {
-			if i+1 < len(mc) && mc[i+1].(map[string]any)["name"] != want {
-				t.Errorf("%s matchConditions[%d] is %v, want %s", name, i+1, mc[i+1].(map[string]any)["name"], want)
+		if strings.Join(names, ",") != strings.Join(conditions[name], ",") {
+			t.Errorf("%s matchConditions are %v, want %v", name, names, conditions[name])
+			continue
+		}
+		if !strings.Contains(toString(mc[0].(map[string]any)["expression"]), "request.userInfo.username != '"+sa+"'") {
+			t.Errorf("%s matchConditions[0] = %v", name, mc[0])
+		}
+		if name == "adhar-batch-queue-binding" {
+			expr := strings.Join(strings.Fields(toString(mc[1].(map[string]any)["expression"])), " ")
+			for _, u := range jobControllers {
+				if !strings.Contains(expr, "'"+u+"'") {
+					t.Errorf("%s/not-the-job-controllers-own-runs does not name %s", name, u)
+				}
+			}
+			if !strings.Contains(expr, ownerCEL) || !strings.HasPrefix(expr, "!(") {
+				t.Errorf("%s/not-the-job-controllers-own-runs does not require the controller owner to be a batch/v1 Job or CronJob: %s", name, expr)
 			}
 		}
 		if got := dig(p, "spec", "webhookConfiguration", "failurePolicy"); got != failure[name] {
 			t.Errorf("%s failurePolicy = %v, want %s (DEC-4: the binding fails closed so a person's run cannot slip past an outage; the default fails open)", name, got, failure[name])
 		}
 		for _, r := range policyRules(p) {
-			ok := false
+			ok, jobs := false, false
 			for _, c := range toSlice(dig(r, "preconditions", "all")) {
 				m := c.(map[string]any)
 				if m["key"] == "{{ request.userInfo.username }}" && m["operator"] == "NotEquals" && m["value"] == sa {
 					ok = true
+				}
+				key := strings.Join(strings.Fields(toString(m["key"])), " ")
+				named := true
+				for _, u := range jobControllers {
+					named = named && strings.Contains(key, "'"+u+"'")
+				}
+				if named && strings.Contains(key, "request.userInfo.username") && strings.Contains(key, ownerJMES) && m["operator"] == "Equals" && m["value"] == false {
+					jobs = true
 				}
 			}
 			if !ok {
@@ -143,6 +181,18 @@ func TestQueueBindingExcludesOnlyVolcanosControllers(t *testing.T) {
 			}
 			if dig(r, "exclude") != nil {
 				t.Errorf("%s/%s excludes %v; only the controllers' username may skip it", name, r["name"], r["exclude"])
+			}
+			// The binding's rules that see pods or batch/v1 Jobs hold the Job
+			// controllers' exclusion too; no other rule does.
+			sees := false
+			for _, a := range toSlice(dig(r, "match", "any")) {
+				for _, k := range toSlice(dig(a.(map[string]any), "resources", "kinds")) {
+					sees = sees || k == "Pod" || k == "batch/v1/Job"
+				}
+			}
+			want := name == "adhar-batch-queue-binding" && sees
+			if jobs != want {
+				t.Errorf("%s/%s: excludes the Job and CronJob controllers' own runs in its preconditions = %v, want %v", name, r["name"], jobs, want)
 			}
 		}
 	}

@@ -1,0 +1,294 @@
+# A person (or the CLI, or the Console acting as one) starting a Volcano run: every
+# run- variant is one a client builds from the template, every deny- variant changes
+# what a client may not.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-run-integrity-people
+policies:
+  - ../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-ok]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-before-volcanos-webhook]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-defaults-left-to-volcano]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-with-params]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-restart]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-pinned-by-supply-chain]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-canonicalised-quantity]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-image]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-manager-image]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-other-digest]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-command]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-args]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-extra-env]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-changed-env]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-db-secret]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-envfrom]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-sidecar]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-init]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-service-account]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-volume]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-job-volume]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-tmp-swapped]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-tmp-size]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-privileged]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-host-network]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-resource-claim, deny-host-users, deny-volume-device]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-node-name]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-memory]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-cpu]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-cpu-limit]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-extra-resource]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-priority]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-pod-scheduler]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-replicas]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-min-available]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-extra-task]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-task-policies]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-job-policies]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-plugins]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-max-retry]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-ttl]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-deadline]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-queue]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-scale-up-label]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-dropped-identity]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-evictable]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-not-preemptable]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-task-not-preemptable]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-task-not-preemptable-label]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-job-not-preemptable-label]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-revocable-zone]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-forged-schedule-label]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-no-template]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [pinned-template-run]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [pinned-template-other-digest]
+    result: pass
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-forged-gang]
+    result: fail

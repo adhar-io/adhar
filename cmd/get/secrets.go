@@ -529,7 +529,6 @@ func displaySecretEntries(entries []SecretEntry, label string) error {
 		return helpers.PrintYAML(entries)
 	}
 
-	fmt.Println()
 	logger.Info(fmt.Sprintf("Found %d credential(s) for %s\n", len(entries), label))
 
 	// The shared aligned table (cmd/helpers/table.go): one implementation for

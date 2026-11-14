@@ -647,7 +647,7 @@ func TestQueueFitsWarnsBeforeADenial(t *testing.T) {
 // §6.4: a gang larger than the environment's quota could never start (on Volcano) or
 // would start only part of itself (natively).
 func TestPartitionedRunMustFitTheQuota(t *testing.T) {
-	xr := vcXR(t, "xr-partitioned.yaml") // dev-quota limits.memory 8Gi
+	xr := vcXR(t, "xr-partitioned.yaml") // dev-quota memory 8Gi; every key is checked in volcano_composition_quota_test.go
 	for _, c := range []struct {
 		name    string
 		workers int
@@ -676,7 +676,7 @@ func TestPartitionedRunMustFitTheQuota(t *testing.T) {
 		if c.refused != (err != nil) {
 			t.Errorf("%s: refused = %v (%v)", c.name, err != nil, err)
 		}
-		if err != nil && (!strings.Contains(err.Error(), "dev-quota") || !strings.Contains(err.Error(), "limits.memory 8Gi")) {
+		if err != nil && (!strings.Contains(err.Error(), "dev-quota") || !strings.Contains(err.Error(), "limits.memory 14336Mi > 8Gi")) {
 			t.Errorf("%s: the refusal does not name the quota: %v", c.name, err)
 		}
 	}

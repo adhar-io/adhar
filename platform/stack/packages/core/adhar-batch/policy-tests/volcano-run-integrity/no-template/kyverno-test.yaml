@@ -1,0 +1,22 @@
+# A label naming a BatchJob that has no run template is refused, not waved through.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-run-integrity-no-template
+policies:
+  - ../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: values.yaml
+userinfo: ../people/user.yaml
+results:
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-no-template]
+    result: fail
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-ok]
+    result: fail

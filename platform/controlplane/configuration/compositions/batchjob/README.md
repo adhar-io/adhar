@@ -232,5 +232,9 @@ alerts, template ↔ CronJob equality, the exit-code failure policy, and a real
 the quota check, the gang alerts against the stack's series, Crossplane's grants, a golden
 render per branch (`testdata/batchjob-volcano/golden-*.yaml`; `ADHAR_UPDATE_GOLDEN=1`
 rewrites them) and a real `crossplane render` of every branch.
+`volcano_composition_capability_test.go`: QueueFits `ExceedsCapability`.
+`volcano_composition_quota_test.go`: the gang fit on every quota key, the CPU limit on every
+run pod and its refusal, and (opt-in, `ADHAR_LIVE_DRY_RUN=1`) a server dry run of the run
+pods against an environment's LimitRange.
 `TestBatchJobCompositionReadmeMapsEveryParameter` keeps this file and the XRD in step
 both ways.

@@ -26,9 +26,19 @@ spec:
         type: boolean
         identifying: false                # not part of the run's identity
         default: "false"
+    # Phase 2, partitioned (docs/BATCH.md "Volcano: queues and gangs"): one manager and
+    # N workers. On Volcano it is one gang, all members bound at once; without Volcano
+    # it falls back to an Indexed Job. The whole shape must fit the namespace's quota.
+    # mode: partitioned
+    # workers: 4
+    # retry:
+    #   maxRetry: 3
+    # scheduler: auto                     # kubernetes | volcano | auto
     resources:
       cpu: "1"
       memory: 1536Mi
+      # workerCpu: "1"                    # partitioned only; default: cpu / memory
+      # workerMemory: 1536Mi
     database:
       secretRef: importer-db-app          # CNPG's Secret for the application's Database
     sla:

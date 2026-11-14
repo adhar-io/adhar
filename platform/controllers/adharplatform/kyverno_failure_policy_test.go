@@ -1,6 +1,6 @@
 package adharplatform
 
-// Kyverno fails closed for exactly two policies (user decision DEC-4, 2026-11-14;
+// Kyverno fails closed for exactly three policies (user decision DEC-4, 2026-11-14;
 // design 0025 §10.3). security/kyverno no longer sets forceFailurePolicyIgnore, so
 // each policy's own failurePolicy is what its webhook is registered with, and a
 // policy that names none gets Kyverno's default: Fail. A Fail webhook that Kyverno
@@ -8,32 +8,37 @@ package adharplatform
 // whatever that policy matches (often every Pod) behind Kyverno's availability.
 //
 //   - TestEveryKyvernoPolicyStatesItsFailurePolicy walks every Kyverno policy in
-//     the stack and pins Fail on adhar-batch-run-integrity and
-//     adhar-batch-queue-binding, Ignore on every other one, stated explicitly.
+//     the stack and pins Fail on adhar-batch-run-integrity, its Volcano half
+//     adhar-batch-run-integrity-volcano (FU-8) and adhar-batch-queue-binding,
+//     Ignore on every other one, stated explicitly.
 //   - TestComposedKyvernoPoliciesStateTheirFailurePolicy does the same for the
-//     policies the control plane composes per XR.
-//   - TestFailClosedPoliciesReachOnlyWhatTheyCheck runs the two fail-closed
-//     policies' webhook matchConditions on a real API server: a webhook nobody
-//     answers, registered Fail with those conditions, must refuse a batch run and a
-//     pod Volcano schedules and admit everything else.
+//     policies the control plane composes per XR (rendered, and walked in source).
+//   - TestFailClosedPoliciesReachOnlyWhatTheyCheck runs the fail-closed policies'
+//     webhook matchConditions on a real API server: a webhook nobody answers,
+//     registered Fail with those conditions, must refuse a batch run (native or
+//     Volcano) and a pod Volcano schedules, and admit everything else.
 // Each guard was mutation-tested (the behaviour reverted, the test seen failing, the
 // behaviour restored).
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -42,8 +47,9 @@ import (
 
 // failClosedPolicies are the only Kyverno policies whose outage refuses requests.
 var failClosedPolicies = map[string]bool{
-	"adhar-batch-run-integrity": true,
-	"adhar-batch-queue-binding": true,
+	"adhar-batch-run-integrity":         true,
+	"adhar-batch-run-integrity-volcano": true,
+	"adhar-batch-queue-binding":         true,
 }
 
 func failClosedNames() []string {
@@ -163,15 +169,49 @@ func TestEveryKyvernoPolicyStatesItsFailurePolicy(t *testing.T) {
 	}
 }
 
-// The control plane composes Kyverno policies per XR (a team's Policy or
-// CompliancePolicy). They reach a cluster with a controller release, so they are
-// checked in the composition source: every Kyverno policy a composition declares
-// states failurePolicy Ignore.
+// The control plane composes Kyverno policies per XR (a team's CompliancePolicy,
+// through compositions/compliancepolicy and compositions/policy). They reach a
+// cluster with a controller release, so they are checked where they are written:
+// the go-templating composition is RENDERED for a CompliancePolicy that turns every
+// predefined policy on, and every composition source is walked policy by policy, so
+// a new composition emitting Kyverno policies is held to the same rule. Each
+// composed policy states webhookConfiguration.failurePolicy Ignore, because none of
+// them is a batch policy (DEC-4).
 func TestComposedKyvernoPoliciesStateTheirFailurePolicy(t *testing.T) {
+	// The rendered CompliancePolicy: the Objects' manifests are what Kyverno gets.
+	xr := map[string]any{
+		"apiVersion": "platform.adhar.io/v1alpha1", "kind": "CompliancePolicy",
+		"metadata": map[string]any{"name": "baseline", "namespace": "adhar-system"},
+		"spec": map[string]any{"parameters": map[string]any{"enforcementMode": "enforce"}},
+	}
+	req := map[string]any{"observed": map[string]any{"composite": map[string]any{"resource": xr}}}
+	rendered := 0
+	for _, d := range renderGoTemplate(t, req, "compositions", "compliancepolicy", "local.yaml") {
+		m, _ := dig(d, "spec", "forProvider", "manifest").(map[string]any)
+		if m == nil || !kyvernoPolicyAPI.MatchString("apiVersion: "+toString(m["apiVersion"])) {
+			continue
+		}
+		rendered++
+		name := toString(metaName(m))
+		if got := toString(dig(m, "spec", "webhookConfiguration", "failurePolicy")); got != "Ignore" {
+			t.Errorf("compositions/compliancepolicy/local.yaml composes %s with webhookConfiguration.failurePolicy %q; want Ignore (DEC-4: a policy naming none is registered Fail)", name, got)
+		}
+		if legacy := dig(m, "spec", "failurePolicy"); legacy != nil {
+			t.Errorf("compositions/compliancepolicy/local.yaml composes %s with spec.failurePolicy %v as well; Kyverno refuses both", name, legacy)
+		}
+	}
+	if rendered != 4 {
+		t.Errorf("a CompliancePolicy with every predefined policy on rendered %d Kyverno policies, want 4", rendered)
+	}
+
+	// Every composition source, one policy at a time: the text from one Kyverno
+	// apiVersion to the next must state Ignore (YAML or KCL spelling) and never Fail.
 	root := filepath.Join(stackRoot(t), "..", "controlplane", "configuration", "compositions")
-	declares := regexp.MustCompile(`(?m)^\s*apiVersion\s*[:=]\s*"?kyverno\.io/v1"?\s*$`)
-	states := regexp.MustCompile(`(?m)^\s*failurePolicy\s*[:=]\s*"?Ignore"?\s*$`)
-	var pending []string
+	declares := regexp.MustCompile(`(?m)^\s*apiVersion\s*[:=]\s*"?(kyverno\.io|policies\.kyverno\.io)/v[0-9a-z]+"?\s*$`)
+	ignore := regexp.MustCompile(`(?m)^\s*webhookConfiguration\s*[:=]\s*\{?\s*\n\s*failurePolicy\s*[:=]\s*"?Ignore"?\s*$`)
+	celIgnore := regexp.MustCompile(`(?m)^\s*failurePolicy\s*[:=]\s*"?Ignore"?\s*$`)
+	fail := regexp.MustCompile(`(?m)^\s*failurePolicy\s*[:=]\s*"?Fail"?\s*$`)
+	declared := 0
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".yaml") {
 			return err
@@ -180,20 +220,33 @@ func TestComposedKyvernoPoliciesStateTheirFailurePolicy(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if n, m := len(declares.FindAll(b, -1)), len(states.FindAll(b, -1)); n > m {
-			r, _ := filepath.Rel(root, path)
-			pending = append(pending, r+": "+strconv.Itoa(n)+" Kyverno policies, "+strconv.Itoa(m)+" state failurePolicy Ignore")
+		r, _ := filepath.Rel(root, path)
+		at := declares.FindAllSubmatchIndex(b, -1)
+		for i, m := range at {
+			end := len(b)
+			if i+1 < len(at) {
+				end = at[i+1][0]
+			}
+			block := b[m[0]:end]
+			declared++
+			states := ignore.Match(block)
+			if string(b[m[2]:m[3]]) == "policies.kyverno.io" {
+				states = celIgnore.Match(block)
+			}
+			if !states {
+				t.Errorf("%s: Kyverno policy %d of %d states no failurePolicy Ignore, so Kyverno registers it Fail and an outage refuses everything it matches (DEC-4)", r, i+1, len(at))
+			}
+			if fail.Match(block) {
+				t.Errorf("%s: Kyverno policy %d of %d says failurePolicy Fail; only %v fail closed (DEC-4)", r, i+1, len(at), failClosedNames())
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) > 0 {
-		// These compositions belong to no Phase 2 lane (stage-2 needs_followup):
-		// each composed ClusterPolicy needs `failurePolicy: Ignore` under its spec
-		// (KCL: failurePolicy = "Ignore"). Until then they are registered Fail.
-		t.Skipf("PENDING (composition owner, DEC-4): %s", strings.Join(pending, "; "))
+	if declared < 8 {
+		t.Errorf("found %d composed Kyverno policies; compliancepolicy and policy compose 4 each, so the walk is missing some", declared)
 	}
 }
 
@@ -221,7 +274,23 @@ func failClosedMatchConditions(t *testing.T, file, name string) []admissionregis
 
 func TestFailClosedPoliciesReachOnlyWhatTheyCheck(t *testing.T) {
 	batch := filepath.Join(stackPackagesDir(t), "core", "adhar-batch", "manifests")
-	env := &envtest.Environment{BinaryAssetsDirectory: envtestAssets(t)}
+	// The Volcano Job CRD core/volcano ships, so the Volcano half of run integrity is
+	// registered against the real kind.
+	var vcJobCRD *apiextensionsv1.CustomResourceDefinition
+	for _, doc := range volcanoObjects(t) {
+		if volcanoKind(doc) == "CustomResourceDefinition" && volcanoName(doc) == "jobs.batch.volcano.sh" {
+			raw, _ := json.Marshal(doc)
+			vcJobCRD = &apiextensionsv1.CustomResourceDefinition{}
+			if err := json.Unmarshal(raw, vcJobCRD); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if vcJobCRD == nil {
+		t.Fatal("core/volcano ships no jobs.batch.volcano.sh CRD")
+	}
+	env := &envtest.Environment{BinaryAssetsDirectory: envtestAssets(t),
+		CRDInstallOptions: envtest.CRDInstallOptions{CRDs: []*apiextensionsv1.CustomResourceDefinition{vcJobCRD}}}
 	cfg, err := env.Start()
 	if err != nil {
 		t.Fatalf("starting the test API server: %v", err)
@@ -245,8 +314,23 @@ func TestFailClosedPoliciesReachOnlyWhatTheyCheck(t *testing.T) {
 				Containers: []corev1.Container{{Name: "batch", Image: "docker.io/library/busybox:1.36"}}},
 		}
 	}
+	// What a controller owns: the controller ownerReference the Job and CronJob
+	// controllers set on what they create.
+	yes := true
+	ownedBy := func(apiVersion, kind string) []metav1.OwnerReference {
+		return []metav1.OwnerReference{{APIVersion: apiVersion, Kind: kind, Name: "owner", UID: "00000000-0000-0000-0000-000000000001", Controller: &yes}}
+	}
+	ownedPod := func(name string, owners []metav1.OwnerReference) *corev1.Pod {
+		p := pod(name, "volcano", map[string]string{"scheduling.volcano.sh/queue-name": "acme-payments-dev"})
+		p.OwnerReferences = owners
+		return p
+	}
+	// A job-controller pod still carrying the job tracking finalizer, which the
+	// controller removes with an UPDATE once the pod has finished.
+	tracked := ownedPod("tracked-before", ownedBy("batch/v1", "Job"))
+	tracked.Finalizers = []string{"batch.kubernetes.io/job-tracking"}
 	// Pods that exist before the webhook does, for the UPDATE cases.
-	for _, p := range []*corev1.Pod{pod("plain-before", "", nil), pod("annotated-before", "", map[string]string{"scheduling.volcano.sh/queue-name": "acme-payments-dev"})} {
+	for _, p := range []*corev1.Pod{pod("plain-before", "", nil), pod("annotated-before", "", map[string]string{"scheduling.volcano.sh/queue-name": "acme-payments-dev"}), tracked} {
 		if _, err := admin.CoreV1().Pods(ns).Create(ctx, p, metav1.CreateOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -268,15 +352,20 @@ func TestFailClosedPoliciesReachOnlyWhatTheyCheck(t *testing.T) {
 	}
 	rule := func(group, version, resource string, ops ...admissionregistrationv1.OperationType) admissionregistrationv1.RuleWithOperations {
 		return admissionregistrationv1.RuleWithOperations{Operations: ops, Rule: admissionregistrationv1.Rule{
-			APIGroups: []string{group}, APIVersions: []string{version}, Resources: []string{resource}}}
+			APIGroups: []string{group}, APIVersions: []string{version}, Resources: strings.Split(resource, ",")}}
 	}
+	queueBinding := failClosedMatchConditions(t, filepath.Join(batch, "volcano", "kyverno-queue.yaml"), "adhar-batch-queue-binding")
 	vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "kyverno-outage"},
 		Webhooks: []admissionregistrationv1.ValidatingWebhook{
-			hook("adhar-batch-queue-binding", rule("", "v1", "pods", admissionregistrationv1.Create, admissionregistrationv1.Update),
-				failClosedMatchConditions(t, filepath.Join(batch, "volcano", "kyverno-queue.yaml"), "adhar-batch-queue-binding")),
+			hook("adhar-batch-queue-binding", rule("", "v1", "pods", admissionregistrationv1.Create, admissionregistrationv1.Update), queueBinding),
+			// The same policy's batch/v1 rules (a single run on Volcano), as Kyverno
+			// registers a policy naming several groups.
+			hook("adhar-batch-queue-binding-batch", rule("batch", "v1", "jobs,cronjobs", admissionregistrationv1.Create, admissionregistrationv1.Update), queueBinding),
 			hook("adhar-batch-run-integrity", rule("batch", "v1", "jobs", admissionregistrationv1.Create),
 				failClosedMatchConditions(t, filepath.Join(batch, "kyverno-run-integrity.yaml"), "adhar-batch-run-integrity")),
+			hook("adhar-batch-run-integrity-volcano", rule("batch.volcano.sh", "v1alpha1", "jobs", admissionregistrationv1.Create),
+				failClosedMatchConditions(t, filepath.Join(batch, "volcano", "kyverno-run-integrity.yaml"), "adhar-batch-run-integrity-volcano")),
 		},
 	}
 	// The API server compiles every expression here; a CEL error is refused.
@@ -336,6 +425,35 @@ func TestFailClosedPoliciesReachOnlyWhatTheyCheck(t *testing.T) {
 	}))
 	expect("removing a pod's queue annotation", true, update("annotated-before", func(p *corev1.Pod) { p.Annotations = nil }))
 
+	// ...nor what Kubernetes' Job and CronJob controllers create for a batch/v1 Job
+	// or CronJob whose template the binding checked (a scheduled single run on
+	// Volcano). Only for that owner: `system:kube-controller-manager` is every
+	// controller without per-controller credentials.
+	const jobController, cronJobController, kcm = "system:serviceaccount:kube-system:job-controller", "system:serviceaccount:kube-system:cronjob-controller", "system:kube-controller-manager"
+	for _, controller := range []string{jobController, kcm} {
+		_, err = as(controller).CoreV1().Pods(ns).Create(ctx, ownedPod("job-pod", ownedBy("batch/v1", "Job")), dry)
+		expect(controller+" creating a pod of a batch/v1 Job on Volcano", false, err)
+		_, err = as(controller).CoreV1().Pods(ns).Create(ctx, ownedPod("unowned", nil), dry)
+		expect(controller+" creating a Volcano pod nothing owns", true, err)
+		_, err = as(controller).CoreV1().Pods(ns).Create(ctx, ownedPod("rs-pod", ownedBy("apps/v1", "ReplicaSet")), dry)
+		expect(controller+" creating a ReplicaSet's Volcano pod", true, err)
+		_, err = as(controller).CoreV1().Pods(ns).Create(ctx, ownedPod("vc-pod", ownedBy("batch.volcano.sh/v1alpha1", "Job")), dry)
+		expect(controller+" creating a Volcano Job's pod", true, err)
+	}
+	notController := ownedPod("owned-not-controlled", ownedBy("batch/v1", "Job"))
+	notController.OwnerReferences[0].Controller = nil
+	_, err = as(jobController).CoreV1().Pods(ns).Create(ctx, notController, dry)
+	expect("a Volcano pod a batch/v1 Job owns but does not control", true, err)
+	_, err = admin.CoreV1().Pods(ns).Create(ctx, ownedPod("forged-owner", ownedBy("batch/v1", "Job")), dry)
+	expect("a person's Volcano pod claiming a batch/v1 Job as its owner", true, err)
+	p, err := as(jobController).CoreV1().Pods(ns).Get(ctx, "tracked-before", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Finalizers = nil
+	_, err = as(jobController).CoreV1().Pods(ns).Update(ctx, p, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+	expect("the job-controller removing its tracking finalizer from a finished Volcano pod", false, err)
+
 	// adhar-batch-run-integrity: only batch runs wait for Kyverno.
 	job := func(name string, labels map[string]string) *batchv1.Job {
 		return &batchv1.Job{
@@ -352,4 +470,65 @@ func TestFailClosedPoliciesReachOnlyWhatTheyCheck(t *testing.T) {
 		_, err = as(controller).BatchV1().Jobs(ns).Create(ctx, job("scheduled-run", map[string]string{"adhar.io/batch-job": "settlement"}), dry)
 		expect("a scheduled run created by "+controller, false, err)
 	}
+
+	// The batch/v1 Jobs and CronJobs of a single run on Volcano: checked on their
+	// template, so they wait for Kyverno; any other Job or CronJob does not.
+	volcanoTemplate := func(t *corev1.PodTemplateSpec, scheduler string, annotations map[string]string) {
+		t.Spec.SchedulerName, t.Annotations = scheduler, annotations
+	}
+	single := job("single", nil)
+	volcanoTemplate(&single.Spec.Template, "volcano", nil)
+	_, err = admin.BatchV1().Jobs(ns).Create(ctx, single, dry)
+	expect("a person's Job whose pods Volcano schedules", true, err)
+	queued := job("queued", nil)
+	volcanoTemplate(&queued.Spec.Template, "", map[string]string{"scheduling.volcano.sh/queue-name": "acme-ledger-dev"})
+	_, err = admin.BatchV1().Jobs(ns).Create(ctx, queued, dry)
+	expect("a person's Job whose pod template names a Volcano queue", true, err)
+	grouped := job("grouped", nil)
+	volcanoTemplate(&grouped.Spec.Template, "", map[string]string{"scheduling.k8s.io/group-name": "settlement-x"})
+	_, err = admin.BatchV1().Jobs(ns).Create(ctx, grouped, dry)
+	expect("a person's Job whose pod template names a PodGroup", true, err)
+	_, err = admin.BatchV1().Jobs(ns).Create(ctx, job("plain-job", nil), dry)
+	expect("a Job kube-scheduler runs", false, err)
+	for _, controller := range []string{cronJobController, kcm} {
+		fired := job("fired", nil)
+		volcanoTemplate(&fired.Spec.Template, "volcano", map[string]string{"scheduling.volcano.sh/queue-name": "acme-payments-dev"})
+		fired.OwnerReferences = ownedBy("batch/v1", "CronJob")
+		_, err = as(controller).BatchV1().Jobs(ns).Create(ctx, fired, dry)
+		expect(controller+" creating the Job a batch/v1 CronJob on Volcano fires", false, err)
+	}
+	cronJob := func(name, scheduler string) *batchv1.CronJob {
+		c := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Spec: batchv1.CronJobSpec{Schedule: "30 1 * * *",
+			JobTemplate: batchv1.JobTemplateSpec{Spec: job(name, nil).Spec}}}
+		c.Spec.JobTemplate.Spec.Template.Spec.SchedulerName = scheduler
+		return c
+	}
+	_, err = admin.BatchV1().CronJobs(ns).Create(ctx, cronJob("single-schedule", "volcano"), dry)
+	expect("a CronJob whose pods Volcano schedules", true, err)
+	_, err = admin.BatchV1().CronJobs(ns).Create(ctx, cronJob("plain-schedule", ""), dry)
+	expect("a CronJob kube-scheduler runs", false, err)
+
+	// adhar-batch-run-integrity-volcano: only Volcano batch runs wait for Kyverno.
+	vcJobs := schema.GroupVersionResource{Group: "batch.volcano.sh", Version: "v1alpha1", Resource: "jobs"}
+	vcJob := func(name string, labels map[string]any) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "batch.volcano.sh/v1alpha1", "kind": "Job",
+			"metadata": map[string]any{"name": name, "namespace": ns, "labels": labels},
+			"spec": map[string]any{"schedulerName": "volcano", "minAvailable": int64(1), "tasks": []any{map[string]any{
+				"name": "member", "replicas": int64(1), "template": map[string]any{"spec": map[string]any{"restartPolicy": "Never",
+					"containers": []any{map[string]any{"name": "batch", "image": "docker.io/library/busybox:1.36"}}}}}}},
+		}}
+	}
+	vcCreate := func(user string, j *unstructured.Unstructured) error {
+		c := rest.CopyConfig(cfg)
+		if user != "" {
+			c.Impersonate = rest.ImpersonationConfig{UserName: user, Groups: []string{"system:masters"}}
+		}
+		_, err := dynamic.NewForConfigOrDie(c).Resource(vcJobs).Namespace(ns).Create(ctx, j, dry)
+		return err
+	}
+	expect("a Volcano Job that is not a batch run", false, vcCreate("", vcJob("gang", map[string]any{"app.kubernetes.io/name": "x"})))
+	expect("a person's Volcano batch run", true, vcCreate("", vcJob("manual-gang", map[string]any{"adhar.io/batch-job": "reconciler"})))
+	expect("a scheduled Volcano run created by Volcano's controllers", false,
+		vcCreate("system:serviceaccount:adhar-system:volcano-controllers", vcJob("scheduled-gang", map[string]any{"adhar.io/batch-job": "reconciler"})))
 }

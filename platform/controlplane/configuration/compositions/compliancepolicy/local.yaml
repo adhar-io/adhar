@@ -11,6 +11,12 @@
 # (all default on); spec.parameters.enforcementMode maps audit→Audit (report
 # only) or enforce→Enforce (block on admission). This is the same XR the Adhar
 # Console produces, so `adhar policy apply` and the Console converge here.
+#
+# Every ClusterPolicy states failurePolicy Ignore (user decision DEC-4,
+# 2026-11-14): security/kyverno no longer forces Ignore on every webhook, and a
+# policy naming none is registered Fail, so a Kyverno outage would refuse every
+# Pod in the cluster. Only core/adhar-batch's run integrity and queue binding
+# fail closed (TestComposedKyvernoPoliciesStateTheirFailurePolicy).
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -70,6 +76,8 @@ spec:
                   spec:
                     validationFailureAction: {{ $action }}
                     background: true
+                    webhookConfiguration:
+                      failurePolicy: Ignore
                     rules:
                       - name: require-cpu-memory-limits
                         match:
@@ -111,6 +119,8 @@ spec:
                   spec:
                     validationFailureAction: {{ $action }}
                     background: true
+                    webhookConfiguration:
+                      failurePolicy: Ignore
                     rules:
                       - name: disallow-privileged-containers
                         match:
@@ -156,6 +166,8 @@ spec:
                   spec:
                     validationFailureAction: {{ $action }}
                     background: true
+                    webhookConfiguration:
+                      failurePolicy: Ignore
                     rules:
                       - name: require-run-as-non-root
                         match:
@@ -197,6 +209,8 @@ spec:
                   spec:
                     validationFailureAction: {{ $action }}
                     background: true
+                    webhookConfiguration:
+                      failurePolicy: Ignore
                     rules:
                       - name: disallow-host-path
                         match:

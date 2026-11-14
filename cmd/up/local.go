@@ -270,9 +270,11 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) (err e
 	// Volcano's queues sized from the Kind node (design 0025 D17); inert while the
 	// volcano package is disabled, which it is in the local profile. A failure to
 	// read the node leaves the reference sizing, never a failed `adhar up`.
+	// Its warnings are debug-level here: a Kind node is usually below the gang floor,
+	// and warning about a scheduler the profile does not run would be noise.
 	if sizing, warnings, bErr := batchSchedulerSizing(ctx, kubeClient, nil, nil, nil); bErr == nil {
 		for _, w := range warnings {
-			logger.Warnf("%s", w)
+			logger.Debugf("%s", w)
 		}
 		withBatchSizing(&lp.options.TemplateData, sizing)
 	}

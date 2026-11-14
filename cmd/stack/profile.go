@@ -245,6 +245,42 @@ var dependencies = map[string][]string{
 	"vllm-gpu":     {"vllm"},
 }
 
+// companions are ApplicationSet elements that are one package split in two, and are
+// therefore switched on and off TOGETHER. adhar-batch-volcano holds the policies and
+// RBAC that name Volcano's kinds (queue binding, Volcano run integrity, prod-only
+// classes); it is a separate element only because Kyverno refuses a policy whose kind
+// the cluster does not serve, so it cannot sync with adhar-batch where Volcano is off.
+// Enabling volcano alone would run Volcano with no queue binding and no run integrity
+// — any team could name any queue — and enabling adhar-batch-volcano alone leaves its
+// policies refused. Unlike dependencies, which advise, a companion is added to the
+// command (design 0025 §4.3).
+var companions = map[string][]string{
+	"volcano":             {"adhar-batch-volcano"},
+	"adhar-batch-volcano": {"volcano"},
+}
+
+// withCompanions returns names plus every companion of each name that the profile
+// wires, each once and in order, and the companions it added. A companion the
+// profile does not wire is skipped: an older stack without the element still toggles.
+func withCompanions(names []string, known map[string]element) (all, added []string) {
+	seen := map[string]bool{}
+	for _, n := range names {
+		seen[n] = true
+	}
+	all = append(all, names...)
+	for _, n := range names {
+		for _, c := range companions[n] {
+			if _, wired := known[c]; !wired || seen[c] {
+				continue
+			}
+			seen[c] = true
+			all = append(all, c)
+			added = append(added, c)
+		}
+	}
+	return all, added
+}
+
 // conflictsWith returns the enabled packages that must be turned off before pkg can
 // be turned on. Hard collisions only.
 func conflictsWith(pkg string, elements []element) []string {

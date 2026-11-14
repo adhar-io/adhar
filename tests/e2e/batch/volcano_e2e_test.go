@@ -782,8 +782,11 @@ func (v *volcanoSuite) reclaim(t *testing.T) {
 
 /* ─────────────── §10.3: run integrity on Volcano ─────────────── */
 
-// forgedVolcanoRun: adhar-batch-run-integrity covers jobs.batch.volcano.sh as
-// well as jobs.batch (design §10.3): a person who may create Volcano Jobs must
+// forgedVolcanoRun: run integrity covers jobs.batch.volcano.sh as well as
+// jobs.batch (design §10.3) — the Volcano half is its own fail-closed policy,
+// adhar-batch-run-integrity-volcano (core/adhar-batch/manifests/volcano/), whose
+// name starts with the native one's, so the assertion below matches either half.
+// A person who may create Volcano Jobs must
 // not start a "run" of a BatchJob that is not its template. The gang below
 // claims the Phase-1 application but carries a busybox sleeper, so it is
 // refused — by the integrity policy, not by the queue binding (its queue is

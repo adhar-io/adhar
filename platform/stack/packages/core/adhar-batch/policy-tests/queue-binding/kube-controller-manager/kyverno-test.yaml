@@ -1,0 +1,56 @@
+# The same, as `system:kube-controller-manager`: EVERY controller's username on a
+# cluster without --use-service-account-credentials (a `provided` one may run so).
+# The ReplicaSet's pod is the reason the exclusion also needs the batch/v1 owner.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: {name: queue-binding-kube-controller-manager}
+policies: [../policy-under-test.yaml]
+resources: [../resources.yaml, ../resources-batch.yaml]
+variables: values.yaml
+userinfo: user.yaml
+results:
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [job-pod-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [replicaset-pod-team-b-queue, volcano-job-pod-team-b-queue, volcano-pod-team-b-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-pod-is-scheduled-by-volcano
+  kind: Pod
+  resources: [job-pod-group-name-kube-scheduler]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-pod-is-scheduled-by-volcano
+  kind: Pod
+  resources: [annotated-kube-scheduler-pod]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Pod
+  resources: [job-pod-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Pod
+  resources: [job-pod-not-preemptable]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Pod
+  resources: [volcano-pod-not-preemptable]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [job-made-by-cron-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [single-team-b-queue]
+  result: fail

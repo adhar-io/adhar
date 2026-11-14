@@ -1,0 +1,29 @@
+# Volcano's controllers create a Volcano CronJob's Jobs: the deployed schedule, never
+# compared with anything, so a Kyverno outage never stops a scheduled run. Its identity
+# comes from the request, never from a label.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-run-integrity-controllers
+policies:
+  - ../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [run-ok]
+    result: skip
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-image]
+    result: skip
+  - policy: adhar-batch-run-integrity-volcano
+    rule: a-volcano-run-matches-its-template
+    kind: Job
+    resources: [deny-forged-schedule-label]
+    result: skip

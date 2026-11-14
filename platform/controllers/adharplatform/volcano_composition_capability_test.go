@@ -14,8 +14,15 @@ import (
 // before the deserved-share warning, which would otherwise describe a run that
 // "starts on idle room" when it never starts. It stays a warning (DEC-3).
 func TestQueueFitsWarnsWhenARunExceedsTheLeafsCapability(t *testing.T) {
-	// The dev leaf's capability is 8 CPU / 16Gi; dev-quota allows 8Gi of memory.
+	// The dev leaf's capability is 8 CPU / 16Gi. The quota is raised past it, or the
+	// §6.4 gang-fit refusal would answer first for the runs larger than 16 CPU.
 	xr := vcXR(t, "xr-partitioned.yaml")
+	withRoom := func(cluster []map[string]any) []map[string]any {
+		return vcEdit(cluster, "dev-quota", func(d map[string]any) {
+			d["spec"].(map[string]any)["hard"] = map[string]any{"requests.cpu": "64", "limits.cpu": "64", "requests.memory": "128Gi", "limits.memory": "128Gi", "pods": "100"}
+		})
+	}
+	roomy := withRoom(vcCluster(t))
 	for _, c := range []struct {
 		name    string
 		workers int
@@ -32,7 +39,7 @@ func TestQueueFitsWarnsWhenARunExceedsTheLeafsCapability(t *testing.T) {
 		{"within the capability", 4, map[string]any{"cpu": "500m", "memory": "1Gi", "workerCpu": "1", "workerMemory": "1536Mi"},
 			"Fits", nil},
 	} {
-		docs := vcMustRender(t, bjWithParams(xr, map[string]any{"workers": c.workers, "resources": c.res}), vcCluster(t), nil)
+		docs := vcMustRender(t, bjWithParams(xr, map[string]any{"workers": c.workers, "resources": c.res}), roomy, nil)
 		got := bjCondition(t, docs, "QueueFits")
 		if got["reason"] != c.want {
 			t.Errorf("%s: QueueFits = %v, want %s", c.name, got, c.want)
@@ -56,8 +63,8 @@ func TestQueueFitsWarnsWhenARunExceedsTheLeafsCapability(t *testing.T) {
 			}
 		}
 	}
-	// Memory alone over the capability (inside the quota once the quota is raised).
-	cluster := vcEdit(vcCluster(t), "acme-payments-dev", func(d map[string]any) {
+	// Memory alone over the capability.
+	cluster := vcEdit(roomy, "acme-payments-dev", func(d map[string]any) {
 		d["spec"].(map[string]any)["capability"] = map[string]any{"cpu": "8", "memory": "4Gi"}
 	})
 	got := bjCondition(t, vcMustRender(t, xr, cluster, nil), "QueueFits") // 1Gi + 4 × 1536Mi = 7Gi
@@ -75,7 +82,7 @@ func TestQueueFitsWarnsWhenARunExceedsTheLeafsCapability(t *testing.T) {
 		t.Errorf("a prod gang over the capability: QueueFits = %v, want ExceedsCapability before ExceedsDeserved", got)
 	}
 	// The native path has no queue to exceed.
-	if got := bjCondition(t, vcMustRender(t, bjWithParams(xr, map[string]any{"workers": 16, "resources": map[string]any{"cpu": "500m", "memory": "256Mi", "workerCpu": "1", "workerMemory": "256Mi"}}), vcNoVolcano(t), nil), "QueueFits"); got["reason"] != "NativeScheduler" {
+	if got := bjCondition(t, vcMustRender(t, bjWithParams(xr, map[string]any{"workers": 16, "resources": map[string]any{"cpu": "500m", "memory": "256Mi", "workerCpu": "1", "workerMemory": "256Mi"}}), withRoom(vcNoVolcano(t)), nil), "QueueFits"); got["reason"] != "NativeScheduler" {
 		t.Errorf("natively: QueueFits = %v", got)
 	}
 }

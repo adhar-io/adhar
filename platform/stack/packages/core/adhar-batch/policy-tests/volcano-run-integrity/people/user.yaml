@@ -1,0 +1,8 @@
+# A team member, as the API server names an OIDC user.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: person
+userInfo:
+  username: oidc:alice@example.com
+  groups: [oidc:ws-team-acme.payments, system:authenticated]

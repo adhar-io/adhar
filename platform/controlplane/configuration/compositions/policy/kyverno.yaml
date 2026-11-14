@@ -1,6 +1,12 @@
 ---
 # Policy Composition using Kyverno
 # Provides compliance and security policy enforcement using Kyverno
+#
+# Every ClusterPolicy states failurePolicy Ignore (user decision DEC-4,
+# 2026-11-14): security/kyverno no longer forces Ignore on every webhook, and a
+# policy naming none is registered Fail, so a Kyverno outage would refuse every
+# Pod in the cluster. Only core/adhar-batch's run integrity and queue binding
+# fail closed (TestComposedKyvernoPoliciesStateTheirFailurePolicy).
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -60,6 +66,9 @@ spec:
                     spec = {
                         validationFailureAction = validationFailureAction
                         background = True
+                        webhookConfiguration = {
+                            failurePolicy = "Ignore"
+                        }
                         rules = [{
                             name = "require-cpu-limits"
                             match = {
@@ -128,6 +137,9 @@ spec:
                     spec = {
                         validationFailureAction = validationFailureAction
                         background = True
+                        webhookConfiguration = {
+                            failurePolicy = "Ignore"
+                        }
                         rules = [{
                             name = "disallow-privileged-containers"
                             match = {
@@ -171,6 +183,9 @@ spec:
                     spec = {
                         validationFailureAction = validationFailureAction
                         background = True
+                        webhookConfiguration = {
+                            failurePolicy = "Ignore"
+                        }
                         rules = [{
                             name = "require-run-as-non-root"
                             match = {
@@ -212,6 +227,9 @@ spec:
                     spec = {
                         validationFailureAction = validationFailureAction
                         background = True
+                        webhookConfiguration = {
+                            failurePolicy = "Ignore"
+                        }
                         rules = [{
                             name = "disallow-host-path"
                             match = {

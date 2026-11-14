@@ -1,0 +1,27 @@
+# A person's Volcano Job in prod must name a BatchJob; dev is the team's own to run anything.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volcano-prod-jobs-people
+policies:
+  - ../../policy-under-test.yaml
+resources:
+  - ../resources.yaml
+variables: ../values.yaml
+userinfo: user.yaml
+results:
+  - policy: adhar-batch-volcano-prod-jobs-name-a-batchjob
+    rule: a-persons-volcano-job-in-prod-names-a-batchjob
+    kind: Job
+    resources: [one-off-in-prod, labelled-elsewhere-in-prod]
+    result: fail
+  - policy: adhar-batch-volcano-prod-jobs-name-a-batchjob
+    rule: a-persons-volcano-job-in-prod-names-a-batchjob
+    kind: Job
+    resources: [run-in-prod]
+    result: pass
+  - policy: adhar-batch-volcano-prod-jobs-name-a-batchjob
+    rule: a-persons-volcano-job-in-prod-names-a-batchjob
+    kind: Job
+    resources: [one-off-in-dev]
+    result: skip

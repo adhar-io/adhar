@@ -21,14 +21,16 @@
 #
 #   adhar-batch-queue-default (mutate): defaults an unset (or Volcano's own
 #     `default`) queue to the namespace's leaf on a Volcano Job, a Volcano CronJob's
-#     job template, and a plain Pod that names schedulerName volcano (its
-#     `scheduling.volcano.sh/queue-name` annotation, which Volcano's PodGroup
-#     controller reads [S19]).
+#     job template, the pod template of a batch/v1 Job or CronJob whose pods Volcano
+#     schedules (a single run on Volcano), and a plain Pod that names schedulerName
+#     volcano (its `scheduling.volcano.sh/queue-name` annotation, which Volcano's
+#     PodGroup controller reads [S19]).
 #   adhar-batch-queue-binding (Enforce): denies any other queue on those and on a
 #     PodGroup written by hand, and a leaf whose Queue is not labelled as this
 #     namespace's team's — the composition refuses to adopt such a name, and this
 #     keeps a team whose `<organisation>-<team>` spells another's off the other's
-#     queue. Design 0025 §10.3 names one Mutate + Enforce policy; it is two because a
+#     queue. It also keeps every Volcano run reclaimable (volcano.sh/preemptable).
+#     Design 0025 §10.3 names one Mutate + Enforce policy; it is two because a
 #     policy mixing mutate and validate rules reports each validate rule twice in the
 #     kyverno CLI, so its tests could not tell a pass from a skip (2026-11-14).
 #   adhar-batch-volcano-pod-standards (Audit, Enforce in Phase 3): the batch pod
@@ -40,9 +42,19 @@
 # gets). adhar-batch-queue-binding fails CLOSED: while Kyverno is down a person's
 # Volcano run is refused, never admitted onto an unchecked queue. The defaulting
 # policy and the pod standards fail open: a run the default could not fix is refused
-# by the binding anyway, and a standards finding is an audit. Volcano's own
-# controllers never reach either webhook (matchConditions), so an outage stops no
-# scheduled run.
+# by the binding anyway, and a standards finding is an audit. The controllers that
+# execute an admitted run never reach the binding's webhook (matchConditions), so an
+# outage stops no scheduled run: Volcano's own, and Kubernetes' CronJob and Job
+# controllers creating the Jobs and pods of a batch/v1 CronJob or Job (a scheduled
+# single run on Volcano is one, design 0025 §6.4). Those are excluded only for what
+# they create on behalf of a batch/v1 Job or CronJob (the controller
+# ownerReference), because `system:kube-controller-manager` is EVERY controller on a
+# cluster that does not run with --use-service-account-credentials, and a
+# Deployment's pods must still be checked. What they create derives from a pod
+# template this policy already checked on the Job or CronJob, which is why those
+# templates must name the leaf themselves: during an outage the defaulting policy
+# does not run on the job-controller's pods, and a pod that names no queue would land
+# on Volcano's `default`.
 #
 # Every comparison of a client-written string is a JMESPath boolean, never a
 # string condition: conditions treat a string as a wildcard pattern, so a queue
@@ -63,15 +75,18 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
     # The pod rules are for pods that name volcano themselves; a workload's pods
-    # are mutated as they are created, never its template (no Argo CD diff).
+    # are mutated as they are created, never its template (no Argo CD diff). The
+    # one template defaulted is a Volcano-scheduled batch/v1 Job's or CronJob's,
+    # which the BatchJob composition always names, so it too never diffs.
     pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/title: "Batch: default a namespace's runs to its team's queue"
     policies.kyverno.io/category: Batch
     policies.kyverno.io/subject: Job, CronJob, Pod
     policies.kyverno.io/description: >-
-      A Volcano Job, CronJob or pod in a team's environment namespace that names no
-      queue (or Volcano's default) is put on the team's leaf queue for the
-      namespace's tier, <organisation>-<team>-<tier>.
+      A Volcano Job, CronJob or pod, or a Job or CronJob whose pods Volcano
+      schedules, in a team's environment namespace that names no queue (or
+      Volcano's default) is put on the team's leaf queue for the namespace's tier,
+      <organisation>-<team>-<tier>.
 spec:
   background: false
   webhookConfiguration:
@@ -134,6 +149,64 @@ spec:
             jobTemplate:
               spec:
                 queue: "{{ leaf }}"
+    # A batch/v1 Job or CronJob whose pods Volcano schedules (a single run on Volcano:
+    # the composition changes only the pod template, design 0025 §6.4). Defaulted on
+    # the template, because the binding below requires the template to name the leaf:
+    # the job-controller's pods are not checked again.
+    - name: default-a-volcano-scheduled-job-to-its-team-queue
+      match:
+        any:
+          - resources:
+              kinds: ["batch/v1/Job"]
+              operations: ["CREATE"]
+              namespaceSelector: *teamNamespaces
+      context: *leaf
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: NotEquals
+            value: system:serviceaccount:adhar-system:volcano-controllers
+          - key: "{{ request.object.spec.template.spec.schedulerName == 'volcano' }}"
+            operator: Equals
+            value: true
+          - key: "{{ contains(['', 'default'], request.object.spec.template.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') }}"
+            operator: Equals
+            value: true
+      mutate:
+        patchStrategicMerge:
+          spec:
+            template:
+              metadata:
+                annotations:
+                  scheduling.volcano.sh/queue-name: "{{ leaf }}"
+    - name: default-a-volcano-scheduled-cronjob-to-its-team-queue
+      match:
+        any:
+          - resources:
+              kinds: ["batch/v1/CronJob"]
+              operations: ["CREATE", "UPDATE"]
+              namespaceSelector: *teamNamespaces
+      context: *leaf
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: NotEquals
+            value: system:serviceaccount:adhar-system:volcano-controllers
+          - key: "{{ request.object.spec.jobTemplate.spec.template.spec.schedulerName == 'volcano' }}"
+            operator: Equals
+            value: true
+          - key: "{{ contains(['', 'default'], request.object.spec.jobTemplate.spec.template.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') }}"
+            operator: Equals
+            value: true
+      mutate:
+        patchStrategicMerge:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  metadata:
+                    annotations:
+                      scheduling.volcano.sh/queue-name: "{{ leaf }}"
     # A pod that names Volcano itself (not one of a Volcano Job's, which carry
     # scheduling.k8s.io/group-name and inherit the Job's queue through its PodGroup).
     - name: default-a-volcano-pod-to-its-team-queue
@@ -176,10 +249,11 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Job, CronJob, PodGroup, Pod
     policies.kyverno.io/description: >-
-      A Volcano Job, CronJob, PodGroup or pod in a team's environment namespace runs
-      on that team's leaf queue for the namespace's tier,
-      <organisation>-<team>-<tier>, and that Queue is the team's: any other is
-      denied, including another team's.
+      A Volcano Job, CronJob, PodGroup or pod, or a Job or CronJob whose pods Volcano
+      schedules, in a team's environment namespace runs on that team's leaf queue
+      for the namespace's tier, <organisation>-<team>-<tier>, and that Queue is the
+      team's: any other is denied, including another team's. No Volcano run may opt
+      out of reclaim with volcano.sh/preemptable.
 spec:
   background: false
   webhookConfiguration:
@@ -187,22 +261,46 @@ spec:
     matchConditions:
       - name: not-volcanos-own-controllers
         expression: "request.userInfo.username != 'system:serviceaccount:adhar-system:volcano-controllers'"
+      # Kubernetes' CronJob and Job controllers creating (or, removing the job
+      # tracking finalizer, updating) the Jobs and pods of a batch/v1 CronJob or Job,
+      # whose templates the rules below checked (2026-11-14). Without this a
+      # scheduled single run on Volcano waits for Kyverno. Only for objects whose
+      # CONTROLLER owner is a batch/v1 Job or CronJob: `system:kube-controller-manager`
+      # is every controller where per-controller credentials are off.
+      - name: not-the-job-controllers-own-runs
+        expression: >-
+          !(request.userInfo.username in [
+          'system:serviceaccount:kube-system:job-controller',
+          'system:serviceaccount:kube-system:cronjob-controller',
+          'system:kube-controller-manager'] &&
+          object != null && has(object.metadata.ownerReferences) &&
+          object.metadata.ownerReferences.exists(r, r.apiVersion == 'batch/v1' &&
+          (r.kind == 'Job' || r.kind == 'CronJob') && has(r.controller) && r.controller))
       # Fail closed for what Volcano schedules ONLY (DEC-4, 2026-11-14). The policy
-      # matches every Pod CREATE and UPDATE by kind, so without this a Kyverno outage
-      # would refuse every pod in the cluster. A pod is in scope when it, or the
-      # object it replaces, names schedulerName volcano or carries Volcano's queue or
-      # group annotation: exactly the pods the Pod rules below check. Volcano's own
-      # kinds are always in scope. A client can only bring a pod INTO scope this way:
-      # a pod with none of the three is one Volcano never schedules or evicts.
-      # TestFailClosedPoliciesReachOnlyWhatTheyCheck runs it on a real API server.
+      # matches every Pod, Job and CronJob CREATE and UPDATE by kind, so without this
+      # a Kyverno outage would refuse every pod and every Job in the cluster. A pod is
+      # in scope when it, or the object it replaces, names schedulerName volcano or
+      # carries Volcano's queue or group annotation: exactly the pods the Pod rules
+      # below check; a batch/v1 Job or CronJob when its pod template does. Volcano's
+      # own kinds are always in scope. A client can only bring an object INTO scope
+      # this way: a pod with none of the three is one Volcano never schedules or
+      # evicts. TestFailClosedPoliciesReachOnlyWhatTheyCheck runs it on a real API
+      # server.
       - name: only-what-volcano-schedules
         expression: >-
-          request.kind.group != '' ||
+          request.kind.group == 'batch' ?
+          [object, oldObject].exists(o, o != null &&
+          [request.kind.kind == 'CronJob' ? o.spec.jobTemplate.spec.template : o.spec.template].exists(t,
+          (has(t.spec) && has(t.spec.schedulerName) && t.spec.schedulerName == 'volcano') ||
+          (has(t.metadata) && has(t.metadata.annotations) &&
+          ('scheduling.volcano.sh/queue-name' in t.metadata.annotations ||
+          'scheduling.k8s.io/group-name' in t.metadata.annotations)))) :
+          (request.kind.group != '' ||
           [object, oldObject].exists(o, o != null && (
           (has(o.spec.schedulerName) && o.spec.schedulerName == 'volcano') ||
           (has(o.metadata.annotations) &&
           ('scheduling.volcano.sh/queue-name' in o.metadata.annotations ||
-          'scheduling.k8s.io/group-name' in o.metadata.annotations))))
+          'scheduling.k8s.io/group-name' in o.metadata.annotations)))))
   rules:
     - name: a-volcano-job-names-its-team-queue
       match:
@@ -308,6 +406,8 @@ spec:
     # included, and writes it as volcano-controllers, which this policy excludes. A
     # pod re-annotated after creation would otherwise move its whole workload onto
     # another team's queue, or (annotation removed) onto Volcano's `default`.
+    # The Job and CronJob controllers' pods are the webhook's second matchCondition,
+    # held here too: their template was checked on the Job or CronJob (below).
     - name: a-volcano-pod-names-its-team-queue
       match:
         any:
@@ -321,6 +421,12 @@ spec:
           - key: "{{ request.userInfo.username }}"
             operator: NotEquals
             value: system:serviceaccount:adhar-system:volcano-controllers
+          - &notTheJobControllersOwnRuns
+            key: >-
+              {{ contains(['system:serviceaccount:kube-system:job-controller', 'system:serviceaccount:kube-system:cronjob-controller', 'system:kube-controller-manager'], request.userInfo.username)
+              && length(request.object.metadata.ownerReferences[?apiVersion == 'batch/v1' && (kind == 'Job' || kind == 'CronJob') && controller] || `[]`) > `0` }}
+            operator: Equals
+            value: false
         any:
           - key: "{{ request.operation == 'CREATE' && (request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') != '' }}"
             operator: Equals
@@ -358,6 +464,7 @@ spec:
           - key: "{{ request.userInfo.username }}"
             operator: NotEquals
             value: system:serviceaccount:adhar-system:volcano-controllers
+          - *notTheJobControllersOwnRuns
       validate:
         failureAction: Enforce
         message: >-
@@ -374,6 +481,151 @@ spec:
               - key: "{{ (request.object.spec.schedulerName || 'default-scheduler') == 'volcano' }}"
                 operator: Equals
                 value: false
+    # A batch/v1 Job or CronJob whose pods Volcano schedules (a single run on Volcano,
+    # design 0025 §6.4), checked on its POD TEMPLATE (2026-11-14): the Job and CronJob
+    # controllers' pods and Jobs are not checked again, so a CronJob that fires during
+    # a Kyverno outage still runs. The template must NAME the leaf, not merely not
+    # name another: the defaulting policy fails open and does not run on the
+    # job-controller's pods, and a pod naming no queue lands on Volcano's `default`.
+    # Every UPDATE is checked, as for the plugins: a suspended Job's template
+    # annotations are mutable until it starts, and a CronJob's always are.
+    - name: a-volcano-scheduled-job-names-its-team-queue
+      match:
+        any:
+          - resources:
+              kinds: ["batch/v1/Job", "batch/v1/CronJob"]
+              operations: ["CREATE", "UPDATE"]
+              namespaceSelector: *teamNamespaces
+      context: &leafAndPodTemplate
+        - name: ns
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ request.namespace }}"
+            jmesPath: "metadata.labels"
+        - name: leaf
+          variable:
+            jmesPath: >-
+              join('-', [ns."adhar.io/organisation", ns."adhar.io/team", ns."adhar.io/tier"])
+        - name: podTemplate
+          variable:
+            jmesPath: "request.object.spec.jobTemplate.spec.template || request.object.spec.template || `{}`"
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: NotEquals
+            value: system:serviceaccount:adhar-system:volcano-controllers
+          - *notTheJobControllersOwnRuns
+        any:
+          - key: "{{ podTemplate.spec.schedulerName == 'volcano' }}"
+            operator: Equals
+            value: true
+          - key: "{{ length(podTemplate.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') > `0` }}"
+            operator: Equals
+            value: true
+      validate:
+        failureAction: Enforce
+        message: >-
+          Namespace {{ request.namespace }} runs batch on queue {{ leaf }} (its team's
+          leaf for its tier); this {{ request.object.kind }}'s pod template names
+          scheduling.volcano.sh/queue-name
+          {{ podTemplate.metadata.annotations."scheduling.volcano.sh/queue-name" || '(unset)' }}, not that queue.
+        deny:
+          conditions:
+            any:
+              - key: "{{ contains([leaf], podTemplate.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') }}"
+                operator: Equals
+                value: false
+    - name: a-group-name-template-is-scheduled-by-volcano
+      match:
+        any:
+          - resources:
+              kinds: ["batch/v1/Job", "batch/v1/CronJob"]
+              operations: ["CREATE", "UPDATE"]
+              namespaceSelector: *teamNamespaces
+      context: *leafAndPodTemplate
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: NotEquals
+            value: system:serviceaccount:adhar-system:volcano-controllers
+          - *notTheJobControllersOwnRuns
+      validate:
+        failureAction: Enforce
+        message: >-
+          scheduling.k8s.io/group-name is for pods Volcano schedules (schedulerName
+          volcano), and this {{ request.object.kind }}'s pod template names
+          {{ podTemplate.spec.schedulerName || 'default-scheduler' }} (design 0025 A2.7).
+          Leaf of this namespace: {{ leaf }}.
+        deny:
+          conditions:
+            all:
+              - key: "{{ length(podTemplate.metadata.annotations.\"scheduling.k8s.io/group-name\" || '') > `0` }}"
+                operator: Equals
+                value: true
+              - key: "{{ contains(['volcano'], podTemplate.spec.schedulerName || '') }}"
+                operator: Equals
+                value: false
+    # Every Volcano run stays reclaimable (design 0025 A2.4, 2026-11-14). Volcano's
+    # reclaim and preempt skip a task that is not Preemptable (reclaim.go:194), and a
+    # pod is Preemptable unless volcano.sh/preemptable, as an annotation or else a
+    # label, parses false OR does not parse at all (api/pod_info.go GetPodPreemptable).
+    # Volcano copies a Job's annotation and label onto its pods
+    # (job_controller_util.go:126), its PodGroup controller a pod's onto the PodGroup.
+    # So a dev run that set it would keep prod's share for as long as it ran. Refused
+    # on every place it reaches a pod from: the object, a Volcano Job's or CronJob's
+    # job and task templates, and a batch/v1 Job's or CronJob's pod template. On a
+    # PodGroup it is Volcano's job-level flag, which only the preemptable modes of
+    # gang and drf read (both off, values.yaml); refused there too, for one rule.
+    # Volcano run integrity compares it on a labelled run; this covers the runs it
+    # does not see (an unlabelled Volcano Job, a pod naming schedulerName volcano, a
+    # batch/v1 Job on Volcano).
+    - name: a-volcano-run-stays-preemptable
+      match:
+        any:
+          - resources:
+              kinds: ["batch.volcano.sh/v1alpha1/Job", "batch.volcano.sh/v1alpha1/CronJob", "scheduling.volcano.sh/v1beta1/PodGroup", "Pod", "batch/v1/Job", "batch/v1/CronJob"]
+              operations: ["CREATE", "UPDATE"]
+              namespaceSelector: *teamNamespaces
+      context:
+        - name: ns
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ request.namespace }}"
+            jmesPath: "metadata.labels"
+        - name: leaf
+          variable:
+            jmesPath: >-
+              join('-', [ns."adhar.io/organisation", ns."adhar.io/team", ns."adhar.io/tier"])
+        # Every value that is not one strconv.ParseBool reads as true.
+        - name: notPreemptable
+          variable:
+            jmesPath: >-
+              [request.object.metadata.annotations, request.object.metadata.labels,
+              request.object.spec.tasks[].template.metadata.annotations, request.object.spec.tasks[].template.metadata.labels,
+              request.object.spec.jobTemplate.metadata.annotations, request.object.spec.jobTemplate.metadata.labels,
+              request.object.spec.jobTemplate.spec.tasks[].template.metadata.annotations,
+              request.object.spec.jobTemplate.spec.tasks[].template.metadata.labels,
+              request.object.spec.template.metadata.annotations, request.object.spec.template.metadata.labels,
+              request.object.spec.jobTemplate.spec.template.metadata.annotations,
+              request.object.spec.jobTemplate.spec.template.metadata.labels][]."volcano.sh/preemptable"
+              | [?!contains(`["1", "t", "T", "TRUE", "true", "True"]`, @)]
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: NotEquals
+            value: system:serviceaccount:adhar-system:volcano-controllers
+          - *notTheJobControllersOwnRuns
+      validate:
+        failureAction: Enforce
+        message: >-
+          volcano.sh/preemptable {{ notPreemptable }} would keep this run out of
+          Volcano's reclaim and preempt, so the queue whose share it holds could never
+          take it back (design 0025 A2.4): Volcano runs stay preemptable. Leaf of this
+          namespace: {{ leaf }}.
+        deny:
+          conditions:
+            any:
+              - key: "{{ length(notPreemptable) }}"
+                operator: GreaterThan
+                value: 0
     # The env plugin only (design 0025 §4.5, DEC-6, 2026-11-14). The narrowed
     # volcano-controllers ClusterRole cannot write Secrets, Services, ConfigMaps or
     # NetworkPolicies, which the ssh and svc plugins (and tensorflow, mpi, pytorch and
@@ -432,12 +684,14 @@ spec:
     # The leaf itself must be this team's. `default: {}` makes a missing Queue a
     # denial with this message rather than an opaque lookup error. A pod that names
     # a queue is checked too (2026-11-14): its PodGroup is written by Volcano's
-    # controller, which this policy excludes, so the pod is the last chance.
+    # controller, which this policy excludes, so the pod is the last chance. So is a
+    # batch/v1 Job or CronJob whose pod template names one: the job-controller's pods
+    # are not checked again.
     - name: the-team-queue-belongs-to-the-team
       match:
         any:
           - resources:
-              kinds: ["batch.volcano.sh/v1alpha1/Job", "batch.volcano.sh/v1alpha1/CronJob", "scheduling.volcano.sh/v1beta1/PodGroup", "Pod"]
+              kinds: ["batch.volcano.sh/v1alpha1/Job", "batch.volcano.sh/v1alpha1/CronJob", "scheduling.volcano.sh/v1beta1/PodGroup", "Pod", "batch/v1/Job", "batch/v1/CronJob"]
               operations: ["CREATE"]
               namespaceSelector: *teamNamespaces
       context:
@@ -454,12 +708,18 @@ spec:
             urlPath: "/apis/scheduling.volcano.sh/v1beta1/queues/{{ leaf }}"
             jmesPath: "metadata.labels"
             default: {}
+        # Where a pod or a batch/v1 Job's pods name their queue: the pod itself, or
+        # the pod template.
+        - name: podTemplate
+          variable:
+            jmesPath: "request.object.spec.jobTemplate.spec.template || request.object.spec.template || request.object"
       preconditions:
         all:
           - key: "{{ request.userInfo.username }}"
             operator: NotEquals
             value: system:serviceaccount:adhar-system:volcano-controllers
-          - key: "{{ request.object.kind != 'Pod' || (request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') != '' }}"
+          - *notTheJobControllersOwnRuns
+          - key: "{{ (request.object.kind != 'Pod' && request.object.apiVersion != 'batch/v1') || (podTemplate.metadata.annotations.\"scheduling.volcano.sh/queue-name\" || '') != '' }}"
             operator: Equals
             value: true
       validate:

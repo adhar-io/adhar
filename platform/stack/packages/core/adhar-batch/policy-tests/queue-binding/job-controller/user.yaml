@@ -1,0 +1,10 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: job-controller
+userInfo:
+  username: system:serviceaccount:kube-system:job-controller
+  groups:
+  - system:serviceaccounts
+  - system:serviceaccounts:kube-system
+  - system:authenticated

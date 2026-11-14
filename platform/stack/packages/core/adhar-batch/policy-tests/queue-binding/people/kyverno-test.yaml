@@ -5,7 +5,7 @@ apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata: {name: queue-binding-people}
 policies: [../policy-under-test.yaml]
-resources: [../resources.yaml]
+resources: [../resources.yaml, ../resources-batch.yaml]
 variables: values.yaml
 userinfo: user.yaml
 results:
@@ -147,3 +147,137 @@ results:
   kind: CronJob
   resources: [cron-ssh-plugin]
   result: fail
+# A single run on Volcano: a batch/v1 Job or CronJob whose pod template names
+# schedulerName volcano. Its template is defaulted and checked, because the Job and
+# CronJob controllers' pods and Jobs are not checked again. A person's pod that
+# claims a batch/v1 Job as its owner is still checked: the exclusion is the
+# controllers' username AND the owner.
+- policy: adhar-batch-queue-default
+  rule: default-a-volcano-scheduled-job-to-its-team-queue
+  kind: Job
+  resources: [single-unset-queue]
+  patchedResources: ../patched.yaml
+  result: pass
+- policy: adhar-batch-queue-default
+  rule: default-a-volcano-scheduled-job-to-its-team-queue
+  kind: Job
+  resources: [single-own-queue, single-team-b-queue, single-wildcard-queue, plain-batch-job]
+  result: skip
+- policy: adhar-batch-queue-default
+  rule: default-a-volcano-scheduled-cronjob-to-its-team-queue
+  kind: CronJob
+  resources: [cron-single-unset-queue]
+  patchedResources: ../patched.yaml
+  result: pass
+- policy: adhar-batch-queue-default
+  rule: default-a-volcano-scheduled-cronjob-to-its-team-queue
+  kind: CronJob
+  resources: [cron-single-own-queue, cron-single-team-b-queue]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [single-own-queue, single-unset-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [single-team-b-queue, single-wildcard-queue, job-made-by-cron-team-b-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: Job
+  resources: [plain-batch-job, group-name-kube-scheduler-job]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: CronJob
+  resources: [cron-single-own-queue, cron-single-unset-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-scheduled-job-names-its-team-queue
+  kind: CronJob
+  resources: [cron-single-team-b-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-template-is-scheduled-by-volcano
+  kind: Job
+  resources: [group-name-kube-scheduler-job]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-template-is-scheduled-by-volcano
+  kind: CronJob
+  resources: [cron-group-name-kube-scheduler]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-template-is-scheduled-by-volcano
+  kind: Job
+  resources: [single-own-queue, plain-batch-job]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Job
+  resources: [single-own-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: CronJob
+  resources: [cron-single-own-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: the-team-queue-belongs-to-the-team
+  kind: Job
+  resources: [plain-batch-job]
+  result: skip
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-pod-names-its-team-queue
+  kind: Pod
+  resources: [job-pod-team-b-queue, replicaset-pod-team-b-queue]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-group-name-pod-is-scheduled-by-volcano
+  kind: Pod
+  resources: [job-pod-group-name-kube-scheduler]
+  result: fail
+# volcano.sh/preemptable (A2.4): any value that does not parse as true is refused,
+# wherever it reaches a pod from; true, or no value, is Volcano's default.
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Job
+  resources: [vc-job-not-preemptable, vc-task-label-not-preemptable, single-not-preemptable]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: CronJob
+  resources: [vc-cron-not-preemptable, vc-cron-task-not-preemptable, cron-single-not-preemptable]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: PodGroup
+  resources: [podgroup-not-preemptable]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Pod
+  resources: [volcano-pod-not-preemptable, volcano-pod-preemptable-unparseable]
+  result: fail
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Job
+  resources: [own-queue, single-own-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: CronJob
+  resources: [cron-own-queue, cron-single-own-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: PodGroup
+  resources: [podgroup-own-queue]
+  result: pass
+- policy: adhar-batch-queue-binding
+  rule: a-volcano-run-stays-preemptable
+  kind: Pod
+  resources: [volcano-pod-preemptable, volcano-pod-own-queue]
+  result: pass

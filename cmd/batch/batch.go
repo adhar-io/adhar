@@ -110,6 +110,9 @@ manager and workers start together or not at all: its runs show the queue they
 wait in and their gang, stop and resume become Volcano commands, and
 ` + "`queues`" + ` shows each team's queues and what they hold.
 
+A service that schedules jobs inside itself on the kit's Quartz engine reports
+them in a ConfigMap; ` + "`schedules`" + ` lists those reports, read-only.
+
 A BatchJob lives in an environment namespace. Name it with -n, or with --env
 and --project, which resolve the namespace from the Project's environments.
 
@@ -121,7 +124,8 @@ Examples:
   adhar batch stop importer-09932cb3            # SIGTERM at the next chunk boundary
   adhar batch restart importer-09932cb3         # the same identity, only the failed steps
   adhar batch hold importer --reason "upstream feed late"
-  adhar batch queues --team acme-payments       # the team's Volcano queues and their usage`,
+  adhar batch queues --team acme-payments       # the team's Volcano queues and their usage
+  adhar batch schedules --env prod              # in-service (Quartz) schedules the services report`,
 }
 
 func init() {
@@ -130,7 +134,26 @@ func init() {
 	BatchCmd.PersistentFlags().StringVar(&projectFlag, "project", defaultProject, "Project whose environments --env names")
 	BatchCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", "table", "Output format (table, json, yaml)")
 
-	BatchCmd.AddCommand(listCmd, describeCmd, runsCmd, runCmd, logsCmd, stopCmd, resumeCmd, restartCmd, holdCmd, releaseCmd, queuesCmd)
+	BatchCmd.AddCommand(listCmd, describeCmd, runsCmd, runCmd, logsCmd, stopCmd, resumeCmd, restartCmd, holdCmd, releaseCmd, queuesCmd, schedulesCmd)
+	silenceUsageOnceParsed(BatchCmd)
+}
+
+// silenceUsageOnceParsed stops Cobra printing a verb's usage block above an
+// error its RunE returns: by then the arguments and flags have parsed, so the
+// failure is about the cluster or the job ("needs list on configmaps", "-A reads
+// every namespace"), and forty lines of flags between the reader and that one
+// sentence bury it. A mistyped flag or a missing argument is rejected BEFORE
+// RunE and still shows usage, which is when it helps.
+func silenceUsageOnceParsed(parent *cobra.Command) {
+	for _, c := range parent.Commands() {
+		if run := c.RunE; run != nil {
+			c.RunE = func(cmd *cobra.Command, args []string) error {
+				cmd.SilenceUsage = true
+				return run(cmd, args)
+			}
+		}
+		silenceUsageOnceParsed(c)
+	}
 }
 
 func ctx(cmd *cobra.Command) context.Context {

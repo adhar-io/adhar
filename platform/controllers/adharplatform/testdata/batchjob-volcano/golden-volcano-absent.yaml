@@ -167,6 +167,7 @@ composed:
               name: batch
               resources:
                 limits:
+                  cpu: 500m
                   memory: 1Gi
                 requests:
                   cpu: 500m
@@ -450,6 +451,7 @@ composed:
                 name: batch
                 resources:
                   limits:
+                    cpu: 500m
                     memory: 1Gi
                   requests:
                     cpu: 500m

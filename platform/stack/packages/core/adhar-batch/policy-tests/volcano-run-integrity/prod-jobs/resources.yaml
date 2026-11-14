@@ -1,0 +1,20 @@
+# Volcano Jobs in prod and dev: the policy reads only the label and the namespace.
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata: { name: one-off-in-prod, namespace: prod }
+spec: { schedulerName: volcano, minAvailable: 1, tasks: [ { name: x, replicas: 1, template: { spec: { restartPolicy: Never, containers: [ { name: x, image: "docker.io/library/busybox:1.36" } ] } } } ] }
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata: { name: labelled-elsewhere-in-prod, namespace: prod, labels: { app: x } }
+spec: { schedulerName: volcano, minAvailable: 1, tasks: [ { name: x, replicas: 1, template: { spec: { restartPolicy: Never, containers: [ { name: x, image: "docker.io/library/busybox:1.36" } ] } } } ] }
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata: { name: run-in-prod, namespace: prod, labels: { adhar.io/batch-job: reconciler } }
+spec: { schedulerName: volcano, minAvailable: 1, tasks: [ { name: batch, replicas: 1, template: { spec: { restartPolicy: Never, containers: [ { name: batch, image: "docker.io/library/busybox:1.36" } ] } } } ] }
+---
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata: { name: one-off-in-dev, namespace: dev }
+spec: { schedulerName: volcano, minAvailable: 1, tasks: [ { name: x, replicas: 1, template: { spec: { restartPolicy: Never, containers: [ { name: x, image: "docker.io/library/busybox:1.36" } ] } } } ] }

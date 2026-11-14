@@ -37,6 +37,11 @@ C='.spec.template.spec.containers[0]'
   variant deny-tmp-size ".spec.template.spec.volumes[0].emptyDir.sizeLimit=\"100Gi\""
   variant deny-privileged "${C}.securityContext.privileged=true"
   variant deny-host-network ".spec.template.spec.hostNetwork=true"
+  # A DRA claim reaches devices the BatchJob never asked for.
+  variant deny-resource-claim ".spec.template.spec.resourceClaims=[{name:\"gpu\",resourceClaimTemplateName:\"someone-elses-gpu\"}] | ${C}.resources.claims=[{name:\"gpu\"}]"
+  # Fields the view lists although none reaches a new image or identity today.
+  variant deny-host-users ".spec.template.spec.hostUsers=false"
+  variant deny-volume-device "${C}.volumeDevices=[{name:\"tmp\",devicePath:\"/dev/xvdf\"}]"
   variant deny-node-name ".spec.template.spec.nodeName=\"worker-1\""
   variant deny-memory "${C}.resources.requests.memory=\"64Gi\" | ${C}.resources.limits.memory=\"64Gi\""
   variant deny-cpu "${C}.resources.requests.cpu=\"32\""

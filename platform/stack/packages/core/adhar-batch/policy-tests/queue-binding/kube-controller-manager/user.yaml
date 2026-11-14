@@ -1,0 +1,8 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: kube-controller-manager
+userInfo:
+  username: system:kube-controller-manager
+  groups:
+  - system:authenticated

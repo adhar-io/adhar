@@ -18,8 +18,9 @@
 #   propagating matchConditions (design 0025 R6). v1.19.0 propagates them (live,
 #   2026-11-14). security/kyverno's global forceFailurePolicyIgnore, which used to
 #   register this webhook Ignore and so fail OPEN for people too, is off since user
-#   decision DEC-4 (2026-11-14): this policy and adhar-batch-queue-binding are the
-#   two that fail closed, every other policy in the stack says Ignore itself
+#   decision DEC-4 (2026-11-14): this policy, its Volcano half
+#   (volcano/kyverno-run-integrity.yaml) and adhar-batch-queue-binding are the three
+#   that fail closed, every other policy in the stack says Ignore itself
 #   (TestEveryKyvernoPolicyStatesItsFailurePolicy). alerts.yaml stays R6's fallback
 #   audit alert. `system:kube-controller-manager` is
 #   the same CronJob controller on a cluster that does not run it with
@@ -29,7 +30,13 @@
 #   request.object][].{...}`, so the two sides cannot drift, and it is done in JMESPath
 #   because deny conditions treat a string as a wildcard pattern: a value holding `*`
 #   would otherwise match anything. The view holds what API-server defaulting cannot
-#   change, normalised where it can (dnsPolicy, completionMode, manualSelector).
+#   change, normalised where it can (dnsPolicy, completionMode, manualSelector). It
+#   lists what is compared, so a field a later Kubernetes release adds is admitted
+#   until it is listed here; left out on purpose are only fields the API server
+#   defaults and that reach no image, identity or device (imagePullPolicy, with the
+#   image pinned by digest; terminationMessagePath/Policy; stdinOnce) and pod
+#   priority/preemptionPolicy, which the Priority admission plugin refuses unless they
+#   are the class's.
 #
 # * Quantities and the image are compared on their own. The API server canonicalises
 #   a quantity on the way in (1.5Gi arrives as 1536Mi, 2048Mi as 2Gi), so a byte
@@ -40,8 +47,9 @@
 # A rule naming a Volcano kind (batch.volcano.sh, scheduling.volcano.sh) never goes in
 # this file: manifests/ syncs on every cluster and Kyverno refuses a policy naming a
 # kind the cluster does not serve (TestQueueBindingIsNotSyncedWithoutVolcano). The
-# Volcano half of run integrity belongs in manifests/volcano/, in a policy of its own,
-# synced by the adhar-batch-volcano element exactly where Volcano is.
+# Volcano half of run integrity is manifests/volcano/kyverno-run-integrity.yaml
+# (adhar-batch-run-integrity-volcano), synced by the adhar-batch-volcano element exactly
+# where Volcano is.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -110,12 +118,17 @@ spec:
                 affinity: affinity, tolerations: tolerations, topology: topologySpreadConstraints, hostNetwork: hostNetwork,
                 hostPID: hostPID, hostIPC: hostIPC, runtimeClassName: runtimeClassName, dnsConfig: dnsConfig,
                 dnsPolicy: dnsPolicy || 'ClusterFirst', hostAliases: hostAliases, shareProcessNamespace: shareProcessNamespace,
-                volumes: volumes[].{name: name, medium: emptyDir.medium, types: sort(keys(@))}},
+                resourceClaims: resourceClaims, volumes: volumes[].{name: name, medium: emptyDir.medium, types: sort(keys(@))},
+                deadline: activeDeadlineSeconds, schedulingGates: schedulingGates, readinessGates: readinessGates,
+                hostUsers: hostUsers, os: os, hostname: hostname, subdomain: subdomain, setHostnameAsFQDN: setHostnameAsFQDN,
+                overhead: overhead},
               containers: spec.template.spec.containers[].{name: name, command: command, args: args, workingDir: workingDir,
                 ports: ports, envFrom: envFrom, securityContext: securityContext, volumeMounts: volumeMounts, lifecycle: lifecycle,
                 livenessProbe: livenessProbe, readinessProbe: readinessProbe, startupProbe: startupProbe, stdin: stdin, tty: tty,
+                volumeDevices: volumeDevices, resizePolicy: resizePolicy, restartPolicy: restartPolicy,
+                restartPolicyRules: restartPolicyRules,
                 env: env[?!contains(`["ADHAR_BATCH_PARAMS","ADHAR_BATCH_TRIGGER","ADHAR_BATCH_RESTART_OF","ADHAR_BATCH_COMMAND","ADHAR_BATCH_EXECUTION_ID"]`, name)],
-                requestNames: sort(keys(resources.requests || `{}`)), limitNames: sort(keys(resources.limits || `{}`))}}
+                requestNames: sort(keys(resources.requests || `{}`)), limitNames: sort(keys(resources.limits || `{}`)), claims: resources.claims}}
         - name: wantImage
           variable:
             jmesPath: "tpl.spec.template.spec.containers[0].image || 'the template names no image'"
