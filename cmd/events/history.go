@@ -13,6 +13,8 @@ import (
 	"time"
 
 	platformevents "adhar-io/adhar/platform/events"
+
+	"k8s.io/client-go/rest"
 )
 
 // HistoryQuery is what another command asks of the retained event stream:
@@ -23,6 +25,10 @@ type HistoryQuery struct {
 	// Bridge is a bridge base URL the caller already reaches; empty reaches
 	// the platform's own through the API server's service proxy.
 	Bridge string
+	// Cluster is the cluster whose bridge that is: the config the caller
+	// connected with, so a command pointed at one cluster reads that cluster's
+	// events. Nil is the default kubeconfig, as `adhar events` reaches it.
+	Cluster *rest.Config
 	// Topics to read; at least one.
 	Topics []string
 	// Since drops events older than this instant; zero keeps everything retained.
@@ -50,7 +56,11 @@ func ReadHistory(ctx context.Context, q HistoryQuery) ([]platformevents.Event, [
 	if base == "" {
 		var cleanup func()
 		var err error
-		base, cleanup, err = portForwardBridge(ctx)
+		if q.Cluster != nil {
+			base, cleanup, err = bridgeThrough(ctx, q.Cluster)
+		} else {
+			base, cleanup, err = portForwardBridge(ctx)
+		}
 		if err != nil {
 			return nil, nil, err
 		}

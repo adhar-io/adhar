@@ -205,6 +205,13 @@ func TestStopResumeAndHoldAreTheConsolesWrites(t *testing.T) {
 	if resume := resumeRequest(run); toJSON(resume.Body) != `{"spec":{"suspend":false}}` {
 		t.Errorf("resume = %+v", resume)
 	}
+	// A run a backfill still holds back stops being one in the patch that
+	// resumes it, whoever sends it (backfill.go).
+	held := jobObject("importer-09932cb3", "prod", "importer", "stopped", testNow)
+	held.SetAnnotations(map[string]string{annotationActor: "alice", annotationQueued: queuedByBackfill})
+	if resume := resumeRequest(held); toJSON(resume.Body) != `{"metadata":{"annotations":{"adhar.io/batch-queued":null}},"spec":{"suspend":false}}` {
+		t.Errorf("resume of a queued run = %s", toJSON(resume.Body))
+	}
 	volcano := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "batch.volcano.sh/v1alpha1", "kind": "Job",
 		"metadata": map[string]interface{}{"name": "v", "namespace": "prod", "uid": "u1"},

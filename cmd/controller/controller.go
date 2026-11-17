@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package controller implements the `adhar controller` command: the long-running
 // controller-manager mode used when the platform controllers run adhar-controlplane as a
-// Deployment (installed by `adhar up --adhar-controlplane`) instead of inside the CLI
+// Deployment (installed by `adhar up --in-cluster`) instead of inside the CLI
 // process. It reconciles AdharPlatform, GitRepository and CustomPackage
 // continuously and never exits on sync.
 package controller
@@ -79,7 +79,7 @@ var ControllerCmd = &cobra.Command{
 
 Runs the AdharPlatform, GitRepository and CustomPackage controllers as a
 long-lived manager process. This is the entrypoint used by the adhar-controlplane
-controller Deployment (installed with 'adhar up --adhar-controlplane') so the platform
+controller Deployment (installed with 'adhar up --in-cluster') so the platform
 keeps reconciling continuously after the CLI exits.
 
 The manager reads its build configuration (host, port, TLS settings) from the

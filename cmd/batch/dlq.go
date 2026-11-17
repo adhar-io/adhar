@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"adhar-io/adhar/cmd/helpers"
@@ -70,7 +71,7 @@ is retried as -r<n>.`,
 			return err
 		}
 		ns, name := parseRef(args[0], ns)
-		report, err := deadLetters(ctx(cmd), cl.dc, ns, name, dlqBridge, !dlqNoEvents)
+		report, err := deadLetters(ctx(cmd), cl.dc, ns, name, eventBus{cluster: cl.cfg, bridge: dlqBridge}, !dlqNoEvents)
 		if err != nil {
 			return err
 		}
@@ -213,7 +214,7 @@ func dlqEntriesOf(rows []runRow, evs []platformevents.Event) []dlqEntry {
 // deadLetters builds the report. The bus is optional: a cluster without it,
 // or a bridge that does not answer, still shows what the runs say, and the
 // report says the events were not read.
-func deadLetters(c context.Context, dc dynamic.Interface, ns, name, bridge string, withEvents bool) (*dlqReport, error) {
+func deadLetters(c context.Context, dc dynamic.Interface, ns, name string, bus eventBus, withEvents bool) (*dlqReport, error) {
 	if _, err := getBatchJob(c, dc, ns, name); err != nil {
 		return nil, err
 	}
@@ -224,9 +225,12 @@ func deadLetters(c context.Context, dc dynamic.Interface, ns, name, bridge strin
 	report := &dlqReport{BatchJob: name, Namespace: ns, Events: "not read", rows: rows}
 	var evs []platformevents.Event
 	if withEvents {
-		got, _, err := readBatchHistory(c, bridge, ns+"/"+name, time.Time{}, 0)
+		got, _, err := readBatchHistory(c, bus, ns+"/"+name, time.Time{}, 0)
 		if err != nil {
-			report.Events = "unavailable: " + err.Error()
+			// One line: this ends a table's footer and is a field of -o json; the
+			// remedy the error goes on to explain belongs to `adhar batch history`.
+			why, _, _ := strings.Cut(err.Error(), "\n")
+			report.Events = "unavailable: " + why
 		} else {
 			report.Events = "read"
 			evs = got

@@ -32,7 +32,7 @@ func create(cmd *cobra.Command, args []string) error {
 
 | Mode | Entry | Cluster creation | Controller posture |
 |---|---|---|---|
-| Local (default) | `createLocalDevelopmentCluster` → `LocalProvisioner.Provision` ([local.go](../../cmd/up/local.go)) | `kind.NewCluster().Reconcile()` | in-process manager, `ExitOnSync=true`, exits on convergence; optional `--adhar-controlplane` installs the Deployment afterwards |
+| Local (default) | `createLocalDevelopmentCluster` → `LocalProvisioner.Provision` ([local.go](../../cmd/up/local.go)) | `kind.NewCluster().Reconcile()` | in-process manager, `ExitOnSync=true`, exits on convergence; optional `--in-cluster` installs the Deployment afterwards |
 | Production (`-f`) | `createProductionCluster` → `providerManager.ProvisionEnvironment` → `bootstrapPlatformOnCluster` ([production.go](../../cmd/up/production.go), [bootstrap.go](../../cmd/up/bootstrap.go)) | provider factory (`platform/providers/*`) | in-process bootstrap manager (`ExitOnSync=true`), then **always** `EnsureControllerManager` for continuous reconciliation |
 
 Both paths converge on the identical primitive: install CRDs, generate TLS, start the controllers via `controllers.RunControllers`, and create one `AdharPlatform` CR. The CR — not the CLI — drives the foundation.

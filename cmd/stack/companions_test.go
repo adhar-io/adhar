@@ -8,6 +8,7 @@ you may not use this file except in compliance with the License.
 package stack
 
 import (
+	"adhar-io/adhar/platform/stack"
 	"context"
 	"os"
 	"path/filepath"
@@ -105,9 +106,13 @@ func TestEnablingVolcanoEditsBothElementsInEveryFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	oldDir, oldProfile, oldYes := flagStackDir, flagProfile, flagYes
-	flagStackDir, flagProfile, flagYes = dir, "local", true
-	t.Cleanup(func() { flagStackDir, flagProfile, flagYes = oldDir, oldProfile, oldYes })
+	// A stack directory is recognised by its packages/ tree.
+	if err := os.MkdirAll(filepath.Join(dir, "packages"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	oldDir, oldProfile, oldYes, oldSource := flagStackDir, flagProfile, flagYes, stackSource
+	flagStackDir, flagProfile, flagYes, stackSource = dir, "local", true, stack.Source{}
+	t.Cleanup(func() { flagStackDir, flagProfile, flagYes, stackSource = oldDir, oldProfile, oldYes, oldSource })
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())

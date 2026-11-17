@@ -41,6 +41,7 @@ import (
 	"adhar-io/adhar/platform/controllers"
 	"adhar-io/adhar/platform/controllers/adharplatform"
 	"adhar-io/adhar/platform/k8s"
+	"adhar-io/adhar/platform/stack"
 	"adhar-io/adhar/platform/utils"
 
 	"github.com/go-logr/logr"
@@ -77,13 +78,16 @@ Upgrades the platform on the current kubeconfig context in two phases:
    (Gateway API CRDs, Cilium, Gateway, ArgoCD, Gitea, Crossplane; CNPG in HA
    mode) with server-side apply. Unchanged manifests are no-ops; changed
    components roll to the versions this release ships.
-2. **Stack diff & sync** — compares the local platform stack (pre-rendered
+2. **Stack diff & sync** — compares this binary's platform stack (pre-rendered
    manifests, ADR-0004: the Git diff IS the cluster diff) against the
    adhar-controlplane GitOps repositories and shows what would change. On
    confirmation it force-pushes the stack, re-applies the ApplicationSet and
    requests an ArgoCD refresh.
 
-Run from the adhar repository root (or pass --stack-dir).`,
+The stack is the one built into this adhar binary, so upgrading the binary and
+running this command is the whole upgrade. Inside a source checkout the working
+tree's platform/stack is used instead; --stack-dir (or $ADHAR_STACK_DIR) names
+any other copy, such as one written by ` + "`adhar stack export`" + `.`,
 	Example: `  # Review and apply an upgrade interactively
   adhar upgrade
 
@@ -100,7 +104,7 @@ func init() {
 	UpgradeCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Apply without interactive confirmation")
 	UpgradeCmd.Flags().BoolVar(&diffOnly, "diff-only", false, "Show the stack diff and exit without changing anything")
 	UpgradeCmd.Flags().BoolVar(&skipFoundation, "skip-foundation", false, "Skip foundation convergence; only diff/sync the stack")
-	UpgradeCmd.Flags().StringVar(&stackDirFlag, "stack-dir", "platform/stack", "Path to the platform stack directory")
+	UpgradeCmd.Flags().StringVar(&stackDirFlag, "stack-dir", "", "Platform stack directory (default: the stack built into adhar, or ./platform/stack inside a source checkout)")
 	UpgradeCmd.Flags().StringVar(&platformName, "name", globals.DefaultClusterName, "Name of the AdharPlatform resource")
 }
 
@@ -129,13 +133,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		klog.SetOutput(io.Discard)
 	}
 
-	stackDir, err := filepath.Abs(stackDirFlag)
+	stackSource, err := stack.Resolve(stackDirFlag)
 	if err != nil {
-		return fmt.Errorf("resolving stack directory: %w", err)
+		return err
 	}
-	if _, err := os.Stat(stackDir); err != nil {
-		return fmt.Errorf("platform stack directory not found at %s (run from the adhar repository root or pass --stack-dir): %w", stackDir, err)
-	}
+	stackDir := stackSource.Dir
+	helpers.Printf("▸ Platform stack: %s\n", stackSource.Describe())
 
 	// Standard kubeconfig resolution: --kubeconfig, then $KUBECONFIG, then
 	// ~/.kube/config — so the context `adhar up` merged (adhar-<cluster>) or

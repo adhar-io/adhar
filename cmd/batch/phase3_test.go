@@ -195,26 +195,42 @@ func TestBackfillNeverHasMoreThanParallelInFlightAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// queuedByABackfill marks a suspended run the way a backfill creates it.
+func queuedByABackfill(run *unstructured.Unstructured) *unstructured.Unstructured {
+	a := run.GetAnnotations()
+	a[annotationQueued] = queuedByBackfill
+	run.SetAnnotations(a)
+	return run
+}
+
 // A backfill that was interrupted, or that meets a person's runs, continues
 // rather than repeats: a completed date is left alone, a failed one restarted
 // as -r1 (suspended like the rest), one still queued is released, and one a
-// person stopped after it started is never touched. Without --wait the command
-// ends when the last run is released.
+// person stopped is never touched. What tells the last two apart is the
+// backfill's own mark, not the Job's status: a stopped run is suspended with no
+// pods and — since Kubernetes 1.36 clears status.startTime on suspend — no
+// start time either, exactly like a queued one. Without --wait the command ends
+// when the last run is released.
 func TestBackfillContinuesWhatExists(t *testing.T) {
 	fixedClock(t)
 	quietOutput(t)
 	fastPolls(t)
 	at := testNow.Add(-2 * time.Hour)
-	d1, d2, d3, d4 := dateRun(t, "2026-11-01"), dateRun(t, "2026-11-02"), dateRun(t, "2026-11-03"), dateRun(t, "2026-11-04")
-	queued := jobObject(d3, "prod", "importer", "stopped", at)
-	delete(queued.Object["status"].(map[string]interface{}), "startTime")
+	d1, d2, d3, d4, d5 := dateRun(t, "2026-11-01"), dateRun(t, "2026-11-02"), dateRun(t, "2026-11-03"), dateRun(t, "2026-11-04"), dateRun(t, "2026-11-05")
+	queued := queuedByABackfill(jobObject(d3, "prod", "importer", "stopped", at))
+	// Stopped by a person while its pod was still Pending, on Kubernetes 1.36:
+	// no start time, no failed pod, nothing but the missing mark to go by.
 	stopped := jobObject(d4, "prod", "importer", "stopped", at)
-	stopped.Object["status"].(map[string]interface{})["startTime"] = at.Format(time.RFC3339)
+	// Queued, then resumed by a client that left the mark (the Console), then
+	// stopped on a cluster that keeps the start time: it started, so it is a
+	// person's whatever it is annotated with.
+	resumed := queuedByABackfill(jobObject(d5, "prod", "importer", "stopped", at))
+	resumed.Object["status"].(map[string]interface{})["startTime"] = at.Format(time.RFC3339)
 	dc := fakeCluster(batchJobXR("importer", "prod", "", ""), templateConfigMap(backfillParams),
-		jobObject(d1, "prod", "importer", "succeeded", at), jobObject(d2, "prod", "importer", "failed", at), queued, stopped)
-	w := newWorld(t, dc, d1, d2, d3, d4)
+		jobObject(d1, "prod", "importer", "succeeded", at), jobObject(d2, "prod", "importer", "failed", at), queued, stopped, resumed)
+	w := newWorld(t, dc, d1, d2, d3, d4, d5)
 
-	report, err := backfill(context.Background(), dc, "prod", "importer", "2026-11-01", "2026-11-06", nil, 2, false, time.Minute)
+	report, err := backfill(context.Background(), dc, "prod", "importer", "2026-11-01", "2026-11-07", nil, 2, false, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +238,7 @@ func TestBackfillContinuesWhatExists(t *testing.T) {
 	for _, it := range report.Runs {
 		actions[it.BusinessDate] = it.Action
 	}
-	wantActions := map[string]string{"2026-11-01": "completed", "2026-11-02": "restarted", "2026-11-03": "exists", "2026-11-04": "stopped", "2026-11-05": "created", "2026-11-06": "created"}
+	wantActions := map[string]string{"2026-11-01": "completed", "2026-11-02": "restarted", "2026-11-03": "exists", "2026-11-04": "stopped", "2026-11-05": "stopped", "2026-11-06": "created", "2026-11-07": "created"}
 	for d, a := range wantActions {
 		if actions[d] != a {
 			t.Errorf("%s: %s, want %s", d, actions[d], a)
@@ -241,8 +257,8 @@ func TestBackfillContinuesWhatExists(t *testing.T) {
 	if !w.patched[d3] || !w.patched[d2+"-r1"] {
 		t.Errorf("the queued runs are released: %v", w.released)
 	}
-	if w.patched[d4] {
-		t.Error("a run a person stopped was resumed by the backfill")
+	if w.patched[d4] || w.patched[d5] {
+		t.Errorf("a run a person stopped was resumed by the backfill: %v", w.released)
 	}
 	if w.maxLive > 2 {
 		t.Errorf("%d in flight with --parallel 2", w.maxLive)
@@ -283,6 +299,9 @@ func TestBackfillOnVolcanoCreatesEveryRunAndLeavesThrottlingToTheQueue(t *testin
 	for _, it := range list.Items {
 		if _, found, _ := unstructured.NestedFieldNoCopy(it.Object, "spec", "suspend"); found {
 			t.Errorf("%s carries spec.suspend, which a Volcano Job does not have", it.GetName())
+		}
+		if _, marked := it.GetAnnotations()[annotationQueued]; marked {
+			t.Errorf("%s is marked as queued by the backfill; nothing would ever release it, the queue holds it", it.GetName())
 		}
 	}
 }
@@ -561,7 +580,7 @@ func batchEvent(t *testing.T, typ, at string, data map[string]interface{}) platf
 func stubHistory(t *testing.T, evs []platformevents.Event, err error) {
 	t.Helper()
 	prev := readBatchHistory
-	readBatchHistory = func(context.Context, string, string, time.Time, int) ([]platformevents.Event, []error, error) {
+	readBatchHistory = func(context.Context, eventBus, string, time.Time, int) ([]platformevents.Event, []error, error) {
 		return evs, nil, err
 	}
 	t.Cleanup(func() { readBatchHistory = prev })
@@ -592,7 +611,7 @@ func TestDeadLettersJoinSummariesAndEventsAndReplayPerExecution(t *testing.T) {
 		batchEvent(t, platformevents.TypeBatchRunSucceeded, "2026-10-04T02:00:00Z", map[string]interface{}{"run": map[string]interface{}{"name": "importer-ops-dlq-replay-11", "trigger": "ops"}, "springBatch": map[string]interface{}{"executionId": 11}, "counts": counts(5)}),
 	}, nil)
 
-	report, err := deadLetters(ctx, dc, "prod", "importer", "", true)
+	report, err := deadLetters(ctx, dc, "prod", "importer", eventBus{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,10 +641,10 @@ func TestDeadLettersJoinSummariesAndEventsAndReplayPerExecution(t *testing.T) {
 		t.Error("the replay carries the dlq-replay command")
 	}
 
-	stubHistory(t, nil, errors.New("no event bridge on this cluster"))
-	offline, err := deadLetters(ctx, dc, "prod", "importer", "", true)
-	if err != nil || len(offline.Entries) != 1 || !strings.HasPrefix(offline.Events, "unavailable") {
-		t.Errorf("without the bus the runs still count: %+v %v", offline, err)
+	stubHistory(t, nil, errors.New("no event bridge on this cluster (the API server has no Service)\n  The event bus is opt-in: enable the kafka-operator package"))
+	offline, err := deadLetters(ctx, dc, "prod", "importer", eventBus{}, true)
+	if err != nil || len(offline.Entries) != 1 || offline.Events != "unavailable: no event bridge on this cluster (the API server has no Service)" {
+		t.Errorf("without the bus the runs still count, and the report says why in one line: %+v %v", offline, err)
 	}
 	if err := replayDeadLetters(ctx, dc, &dlqReport{BatchJob: "importer", Namespace: "prod"}, 0, false, 0); err == nil {
 		t.Error("a replay with nothing known to replay must say so")

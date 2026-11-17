@@ -104,6 +104,13 @@ func runVerify(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if verifyWrite {
+		// Evidence is written into the package contracts, which only a real
+		// directory can hold.
+		if err := requireEditableStack("verify --write"); err != nil {
+			return err
+		}
+	}
 	if len(liveApplications(ctx)) == 0 {
 		return fmt.Errorf("no Argo CD Applications reachable — verification needs a running cluster (profile detected from %s)", source)
 	}

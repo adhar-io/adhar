@@ -436,7 +436,7 @@ spec:
             # pinned v1.16.0 predates Kubernetes 1.37 support (v1.17 is the production gate,
             # design §4.6), so it is enabled from the Marketplace, knowingly. Needs
             # cert-manager. Only pods naming schedulerName: volcano ever reach it.
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/volcano/manifests"
@@ -445,7 +445,7 @@ spec:
           # not serve, so this is enabled exactly where "volcano" is (design 0025 §4.3,
           # §10.3; TestQueueBindingIsSyncedWhereVolcanoIs).
           - name: "adhar-batch-volcano"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/adhar-batch/manifests/volcano"

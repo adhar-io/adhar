@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -77,12 +78,21 @@ type createConsumerResponse struct {
 // `fromBeginning` chooses between reading the history and following only what
 // arrives next. Both are wanted: "what happened" needs the history, "what is
 // happening" does not want to replay two weeks of it first.
+//
+// Every reader is a consumer GROUP of its own, named `<group>-<nanoseconds>`.
+// Kafka gives each partition of a topic to exactly one member of a group, so
+// readers sharing one would share the stream out between them: a history read
+// while somebody's `adhar events tail` is open would return the partitions
+// that tail was not holding, and say nothing about the rest. The group commits
+// no offsets and is empty again when the consumer is deleted, so the broker
+// drops it.
 func (c *bridgeClient) open(ctx context.Context, group string, topics []string, fromBeginning bool) error {
 	offset := "latest"
 	if fromBeginning {
 		offset = "earliest"
 	}
 	c.name = fmt.Sprintf("%s-%d", group, time.Now().UnixNano())
+	group = c.name // the reader's own group; the consumer in it carries the same name
 	body, err := json.Marshal(createConsumerRequest{
 		Name:   c.name,
 		Format: "json",
@@ -101,12 +111,9 @@ func (c *bridgeClient) open(ctx context.Context, group string, topics []string, 
 		fmt.Sprintf("%s/consumers/%s", c.base, group), body, &created); err != nil {
 		return fmt.Errorf("creating a bridge consumer: %w", err)
 	}
-	// The bridge returns the URI to use for this consumer. It must be used as
-	// given — it encodes the group and instance, and rebuilding it by hand is
-	// how a poll ends up against a consumer that does not exist.
-	c.consumer = strings.TrimRight(created.BaseURI, "/")
-	if c.consumer == "" {
-		return fmt.Errorf("the bridge created a consumer with no base URI")
+	c.consumer, err = c.consumerURI(created.BaseURI)
+	if err != nil {
+		return err
 	}
 	sub, err := json.Marshal(map[string][]string{"topics": topics})
 	if err != nil {
@@ -116,6 +123,32 @@ func (c *bridgeClient) open(ctx context.Context, group string, topics []string, 
 		return fmt.Errorf("subscribing to %s: %w", strings.Join(topics, ", "), err)
 	}
 	return nil
+}
+
+// consumerURI is where this client reaches the consumer the bridge just
+// created: the PATH the bridge names for it — which encodes the group and the
+// instance, and rebuilding that by hand is how a poll ends up against a
+// consumer that does not exist — at the address the bridge was reached by.
+//
+// The address cannot be the bridge's. It builds base_uri from the Host header
+// it saw and the path it was asked, and takes a proxy's path only from
+// X-Forwarded-Path; the API server's service proxy says it in X-Forwarded-Uri,
+// which the bridge does not read. So behind that proxy base_uri is
+// `http://<api server>/consumers/<group>/instances/<name>`, without the
+// `/api/v1/namespaces/…/proxy` every request has to carry: used as given, the
+// subscription goes to the API server's own `/consumers/…` and fails there,
+// which reads like a broken bridge.
+func (c *bridgeClient) consumerURI(baseURI string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(baseURI))
+	if err != nil {
+		return "", fmt.Errorf("the bridge created a consumer with no usable base URI (%q)", baseURI)
+	}
+	path := strings.TrimRight(u.EscapedPath(), "/")
+	at := strings.LastIndex(path, "/consumers/")
+	if at < 0 {
+		return "", fmt.Errorf("the bridge created a consumer whose base URI names no consumer (%q)", baseURI)
+	}
+	return c.base + path[at:], nil
 }
 
 // record is one message as the bridge reports it.

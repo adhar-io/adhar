@@ -52,12 +52,12 @@ const (
 	protocolUsage                  = "⛨ Protocol for web UIs (http or https)"
 	portUsage                      = "⇄ Port for web UIs (default: 8443)"
 	pathRoutingUsage               = "⇄ Use single domain with path routing"
-	extraPackagesUsage             = "▣ Paths to custom package locations"
+	extraPackagesUsage             = "▣ Paths to custom package locations; a platform stack directory here replaces the stack built into adhar"
 	packageCustomizationFilesUsage = "⎔ Package customization files (e.g., argocd:/tmp/argocd.yaml)"
 	noExitUsage                    = "◌ Keep running to continuously sync directories"
-	inClusterUsage                 = "⎔ Install the controller manager adhar-controlplane for continuous reconciliation after the CLI exits"
+	inClusterUsage                 = "⎔ Install the controller manager in-cluster for continuous reconciliation after the CLI exits"
 	haModeUsage                    = "⎔ Render foundation components in HA mode (replicas, PDBs); default for production configs with enableHAMode"
-	controllerImageUsage           = "▣ Container image for the adhar-controlplane controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
+	controllerImageUsage           = "▣ Container image for the in-cluster controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
 )
 
 var (
@@ -165,11 +165,11 @@ func init() {
 	UpCmd.PersistentFlags().StringVar(&protocol, "protocol", "https", protocolUsage)
 	UpCmd.PersistentFlags().StringVar(&port, "port", "8443", portUsage)
 	UpCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, pathRoutingUsage)
-	UpCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, extraPackagesUsage)
+	UpCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{}, extraPackagesUsage)
 	UpCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
 	UpCmd.Flags().Bool("no-exit", false, "Keep running after initial sync (don't exit)")
 	UpCmd.Flags().DurationVar(&appsTimeout, "apps-timeout", 15*time.Minute, "◌ How long to keep driving the platform apps to Synced + Healthy before exiting (0 exits as soon as the foundation is ready)")
-	UpCmd.Flags().BoolVar(&inClusterController, "adhar-controlplane", false, inClusterUsage)
+	UpCmd.Flags().BoolVar(&inClusterController, "in-cluster", false, inClusterUsage)
 	UpCmd.Flags().StringVar(&controllerImage, "controller-image", "", controllerImageUsage)
 	UpCmd.Flags().BoolVar(&haMode, "ha", false, haModeUsage)
 

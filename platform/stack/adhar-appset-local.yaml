@@ -337,7 +337,7 @@ spec:
             category: "application"
             manifestPath: "application/argo-events/manifests"
           - name: "argo-rollout"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/argo-rollout/manifests"
@@ -459,7 +459,7 @@ spec:
           # Required by kargo (webhook/api Certificates + Issuer come from
           # cert-manager CRDs).
           - name: "cert-manager"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cert-manager/manifests"
@@ -573,13 +573,18 @@ spec:
           # Nexus Repository OSS — artefact repository for language packages
           # (Maven/npm/PyPI). Harbor stays OCI-images-only; Nexus owns the rest.
           #
-          # OFF locally again (2026-09-30). It was enabled a day earlier only because
-          # adhar-libraries needs it to build, and adhar-libraries is off again: a 2Gi
-          # JVM that also waits on `keycloak-clients` lengthens the very chain the
-          # GitOps phase is already bound by. Costs 500m CPU / 2Gi memory / 8Gi disk
-          # when on.
+          # ON locally since 2026-11-17, together with adhar-libraries, kargo,
+          # cert-manager and argo-rollout: without them the local platform could not
+          # do what it exists to demonstrate. Every Java and Node template resolves
+          # adhar-kit / @adhar/ui from Nexus, so with no Nexus and no release
+          # pipelines a scaffolded service failed its first build; and the Project
+          # and Application compositions compose Kargo Stages, Warehouses and
+          # AnalysisTemplates, so with no Kargo the XR never went Ready. It was OFF
+          # from 2026-09-30 because the 2Gi JVM also waits on `keycloak-clients` and
+          # lengthens the chain the GitOps phase is bound by. That cost is accepted:
+          # 500m CPU / 2Gi memory / 8Gi disk.
           - name: "nexus"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/nexus/manifests"
@@ -624,27 +629,22 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-preview-environments/kyverno"
-          # OFF locally, restored 2026-09-30 after a measured failure.
-          #
-          # It was enabled on 2026-09-29 purely to get adhar/adhar-templates into
-          # Gitea for the Console's Create New page. That works, but it drags in the
-          # release pipelines: each push fires the Gitea → Tekton webhook and each
-          # build costs ~1 full CPU core, spent precisely while CNPG and Keycloak are
-          # booting — the critical path that 8 of the local apps wait on. Enabling it
-          # also forced `nexus` on (the maven Task carries nexus-credentials on the
-          # one step that runs build, test AND publish), adding a 2Gi JVM that is
-          # itself on that gated list. The local bring-up then failed outright.
-          #
-          # The templates repo no longer needs this package: bootstrap mirrors it into
-          # Gitea directly (platform/controllers/adharplatform/controller.go), which
-          # needs no ArgoCD app, no Nexus and no Tekton.
+          # The adhar-kit and adhar-ui release pipelines: they mirror both libraries
+          # into Gitea and publish them to Nexus, which is where every scaffolded
+          # Java and Node service resolves them from. ON locally since 2026-11-17
+          # (see the note on `nexus`). It was off because each release build costs
+          # about one CPU core while CNPG and Keycloak boot; the releases queue
+          # behind `nexus-credentials`, which Nexus publishes only after the
+          # identity chain has finished, so the builds start after that window.
+          # The templates repo does not depend on this package: bootstrap mirrors
+          # it into Gitea directly.
           - name: "adhar-libraries"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-libraries/manifests"
           - name: "kargo"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/kargo/manifests"

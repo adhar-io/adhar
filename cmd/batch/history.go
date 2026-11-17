@@ -21,6 +21,7 @@ import (
 	platformevents "adhar-io/adhar/platform/events"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/rest"
 )
 
 // History (design 0025 §8.1, §12, D12): what happened to a job beyond the
@@ -69,9 +70,11 @@ package), as ` + "`adhar events list`" + ` does.`,
 		if since > 0 {
 			cutoff = now().Add(-since)
 		}
-		evs, problems, err := readBatchHistory(ctx(cmd), historyBridge, ns+"/"+name, cutoff, historyLimit)
+		evs, problems, err := readBatchHistory(ctx(cmd), eventBus{cluster: cl.cfg, bridge: historyBridge}, ns+"/"+name, cutoff, historyLimit)
 		if err != nil {
-			return err
+			// The bus is opt-in and the history lives nowhere else; what the
+			// cluster itself still holds is one command away.
+			return fmt.Errorf("%w\n  `adhar batch runs %s` lists the runs the cluster still holds", err, name)
 		}
 		if machineReadable() {
 			if evs == nil {
@@ -93,16 +96,34 @@ func init() {
 	historyCmd.Flags().StringVar(&historyBridge, "bridge", "", "Kafka bridge base URL (default: the platform's, through the API server)")
 }
 
+// eventBus is where a command reads adhar.batch: the platform's bridge in the
+// cluster the command connected to, or a bridge URL the person reaches
+// themselves (--bridge). The cluster travels with it because the job was read
+// there: `adhar batch` follows --kubeconfig and $KUBECONFIG, and events read
+// from the default kubeconfig instead would be another cluster's — a history
+// that is not this job's, and for `dlq --replay` execution ids to replay that
+// this job never had.
+type eventBus struct {
+	cluster *rest.Config
+	bridge  string
+}
+
+// historyQuery is one job's events on adhar.batch, as the bus is asked.
+func (b eventBus) historyQuery(subject string, since time.Time, limit int) events.HistoryQuery {
+	return events.HistoryQuery{
+		Bridge:  b.bridge,
+		Cluster: b.cluster,
+		Topics:  []string{platformevents.TopicBatch},
+		Since:   since,
+		Limit:   limit,
+		Keep:    subjectIs(subject),
+	}
+}
+
 // readBatchHistory reads one job's events from adhar.batch. It is a variable so
 // the tests can stand in for the bridge.
-var readBatchHistory = func(c context.Context, bridge, subject string, since time.Time, limit int) ([]platformevents.Event, []error, error) {
-	return events.ReadHistory(c, events.HistoryQuery{
-		Bridge: bridge,
-		Topics: []string{platformevents.TopicBatch},
-		Since:  since,
-		Limit:  limit,
-		Keep:   subjectIs(subject),
-	})
+var readBatchHistory = func(c context.Context, bus eventBus, subject string, since time.Time, limit int) ([]platformevents.Event, []error, error) {
+	return events.ReadHistory(c, bus.historyQuery(subject, since, limit))
 }
 
 // subjectIs keeps one job's events. Exactly the subject, unlike `adhar events

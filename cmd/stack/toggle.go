@@ -72,6 +72,12 @@ Packages that depend on the one being disabled are named before anything is writ
 
 func runToggle(cmd *cobra.Command, names []string, on bool) error {
 	ctx := cmd.Context()
+	if err := useStack(); err != nil {
+		return err
+	}
+	if err := requireEditableStack(map[bool]string{true: "enable", false: "disable"}[on]); err != nil {
+		return err
+	}
 	p, source, err := detectProfile(ctx, flagStackDir)
 	if err != nil {
 		return err

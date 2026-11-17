@@ -57,6 +57,14 @@ func portForwardBridge(ctx context.Context) (string, func(), error) {
 	if err != nil {
 		return "", nil, unreachable(err)
 	}
+	return bridgeThrough(ctx, cfg)
+}
+
+// bridgeThrough reaches the bridge of the cluster cfg names. A command that
+// already connected somewhere (`adhar batch`, by --kubeconfig or $KUBECONFIG)
+// hands in that config, so the events it reads are that cluster's and never
+// the default kubeconfig's.
+func bridgeThrough(ctx context.Context, cfg *rest.Config) (string, func(), error) {
 	// A client built from the kubeconfig: same CA, same credentials, same
 	// proxy settings as every other call this CLI makes.
 	httpClient, err := rest.HTTPClientFor(cfg)

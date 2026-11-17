@@ -332,6 +332,56 @@ subjects:
   name: console
   namespace: adhar-system
 ---
+# Batch history (design 0025 D12): `GET /api/batch/history` in the console reads
+# the `adhar.batch` topic the way `adhar batch history` does, through the API
+# server's SERVICE PROXY to the Strimzi bridge, as THIS ServiceAccount. No
+# second credential and no new network path.
+#
+# The grant is the bridge Service and nothing else. `resourceNames` carries the
+# port because that is the name the API server authorises for
+# `/services/adhar-events-bridge-service:8080/proxy/...`; a rule naming the bare
+# Service would not match it.
+#
+# Three verbs, because the bridge has no stateless read: a reader creates a
+# consumer (POST -> `create`), polls it (GET -> `get`) and deletes it
+# (DELETE -> `delete`). `read-all` above covers only the GET, so without this
+# Role the first request is refused and History says the console may not reach
+# the bridge. Pinned by `TestConsoleReachesOnlyTheEventBridgeThroughTheServiceProxy`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-batch-history
+  namespace: adhar-system
+  labels:
+    adhar.io/component: rbac
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - services/proxy
+  resourceNames:
+  - adhar-events-bridge-service:8080
+  verbs:
+  - get
+  - create
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-batch-history
+  namespace: adhar-system
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-batch-history
+subjects:
+- kind: ServiceAccount
+  name: console
+  namespace: adhar-system
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -447,7 +497,7 @@ spec:
           readOnly: true
       containers:
       - name: adhar-console
-        image: ghcr.io/adhar-io/adhar-console:0.1.178
+        image: ghcr.io/adhar-io/adhar-console:0.1.180
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

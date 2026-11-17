@@ -93,7 +93,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: manifests generate stack-bundle fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -timeout 30m $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
@@ -163,6 +163,10 @@ e2e-volcano-rehearsal: setup-envtest ## Volcano (pinned tag) on the shipped RBAC
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" VOLCANO_BIN_DIR="$(VOLCANO_BIN_DIR)" \
 		go test ./platform/controllers/adharplatform/ -run 'TestVolcanoComponentsRunOnTheirNarrowedRBAC' -count=1 -v
 
+.PHONY: stack-bundle
+stack-bundle: ## Build the gitignored archive of stack directories go:embed cannot carry (template skeletons with a go.mod), so the binary holds the whole stack.
+	go generate ./platform/stack/
+
 .PHONY: validate-packages
 validate-packages: ## Validate every package marketplace contract (platform/stack/packages/*/*/adhar-package.yaml).
 	./hack/validate-packages.sh
@@ -190,7 +194,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet build-control-plane preload-images ## Build adhar binary and control-plane package (also warms the image cache for a fast `adhar up`).
+build: manifests generate stack-bundle fmt vet build-control-plane preload-images ## Build adhar binary and control-plane package (also warms the image cache for a fast `adhar up`).
 	go build $(LD_FLAGS) -o $(OUT_FILE) ./cmd
 
 .PHONY: build-control-plane

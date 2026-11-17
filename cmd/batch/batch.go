@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -188,6 +189,9 @@ func ctx(cmd *cobra.Command) context.Context {
 type clients struct {
 	dc dynamic.Interface
 	cs kubernetes.Interface
+	// cfg is the cluster both were built for; the event bridge is reached
+	// through it too (history.go), so a job and its events are one cluster's.
+	cfg *rest.Config
 }
 
 // connect resolves the kubeconfig the way `adhar upgrade` does — --kubeconfig,
@@ -210,7 +214,7 @@ func connect(cmd *cobra.Command) (*clients, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create kubernetes client: %w", err)
 	}
-	return &clients{dc: dc, cs: cs}, nil
+	return &clients{dc: dc, cs: cs, cfg: cfg}, nil
 }
 
 // resolveNamespace is where the command looks. -n names a namespace directly;

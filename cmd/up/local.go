@@ -710,7 +710,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	// The in-process (--no-exit) and adhar-controlplane controller managers would both
 	// reconcile the same AdharPlatform without sharing leader election.
 	if inClusterController && !exitOnSync {
-		return fmt.Errorf("--adhar-controlplane cannot be combined with --no-exit: only one controller manager may reconcile the platform")
+		return fmt.Errorf("--in-cluster cannot be combined with --no-exit: only one controller manager may reconcile the platform")
 	}
 
 	// If registry-config is unset we pass nil
@@ -721,15 +721,13 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		maybeRegistryConfig = registryConfig
 	}
 
-	// Resolve the stack directory (first package dir or default)
-	stackDir := "platform/stack"
-	if len(localDirs) > 0 {
-		stackDir = localDirs[0]
-	}
-	absStackDir, err := filepath.Abs(stackDir)
+	// The platform stack: a directory named with -p, the working tree of a
+	// source checkout, or — for an installed binary — the stack built into it.
+	stackSource, err := resolveStack()
 	if err != nil {
-		return fmt.Errorf("resolving stack directory path: %w", err)
+		return err
 	}
+	absStackDir := stackSource.Dir
 
 	// Create LocalProvisioner with options
 	options := &LocalOptions{

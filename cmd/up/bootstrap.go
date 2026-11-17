@@ -22,7 +22,6 @@ import (
 	"io"
 	stdlog "log"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -381,13 +380,11 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	}
 
 	// The stack directory is required for GitOps repo seeding.
-	stackDir, err := filepath.Abs("platform/stack")
+	stackSource, err := resolveStack()
 	if err != nil {
-		return fmt.Errorf("resolving stack directory: %w", err)
+		return err
 	}
-	if _, err := os.Stat(stackDir); err != nil {
-		return fmt.Errorf("platform stack directory not found at %s (run from the adhar repository root or provide -p): %w", stackDir, err)
-	}
+	stackDir := stackSource.Dir
 
 	tmpDir, err := os.MkdirTemp("", "adhar-bootstrap-")
 	if err != nil {

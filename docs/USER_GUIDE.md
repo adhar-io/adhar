@@ -225,7 +225,12 @@ one run per business date, each named for its identity, so repeating it starts
 only what has not run (a completed date is left alone, a failed one restarted as
 `-r<n>`). On the native path the runs are created suspended and released in date
 order, never more than `--parallel` in flight, while the command waits; interrupted,
-the rest stay suspended until the same command runs again. On Volcano every run is
+the rest stay suspended until the same command runs again. Only the runs a backfill
+queued (annotation `adhar.io/batch-queued`, removed when the run is released or
+resumed) are ever released by one — a run a person stopped stays stopped. Every date
+in the range gets a run, weekends and holidays included: the job's calendar is the
+runner's to read, and a date that is not a business day ends as `Skipped`, exit 0,
+which the report's OUTCOME column shows. On Volcano every run is
 created at once and the job's queue throttles them. `abandon`, `recover` and
 `dlq --replay` act on a Spring Batch execution without the CLI touching the job's
 database: each starts an ops Job from the run template with `ADHAR_BATCH_COMMAND`
@@ -950,7 +955,7 @@ With no config file `adhar up` creates a **local Kind** platform and runs the co
 | `--host <name>` | Platform host name (default `adhar.localtest.me`) |
 | `--kube-version <v>` | Kubernetes version for **any** provider (default `v1.37.0`) |
 | `--ha` | Render foundation components in HA mode (replicas, PDBs, HA redis, CNPG for Gitea) |
-| `--adhar-controlplane` | Also install the `adhar-controller-manager` Deployment (always done in production mode) |
+| `--in-cluster` | Also install the `adhar-controller-manager` Deployment (always done in production mode) |
 | `-d, --dry-run` | Preview without applying |
 | `--dev-password` | Set ArgoCD and Gitea admin passwords to `developer` |
 | `--kind-config <path>` | Custom Kind configuration file or URL |
@@ -1001,7 +1006,7 @@ adhar upgrade -y              # non-interactive (CI)
 adhar upgrade --skip-foundation   # only diff and sync the stack
 ```
 
-Phase 1 re-applies this binary's embedded foundation manifests (unchanged ones are no-ops). Phase 2 diffs the local platform stack against the adhar-controlplane Gitea repos, and on confirmation force-pushes, re-applies the ApplicationSet and requests an ArgoCD refresh. Run it from the repository root, or pass `--stack-dir`.
+Phase 1 re-applies this binary's embedded foundation manifests (unchanged ones are no-ops). Phase 2 diffs the platform stack (built into the binary; `--stack-dir` or `ADHAR_STACK_DIR` names another copy) against the adhar-controlplane Gitea repos, and on confirmation force-pushes, re-applies the ApplicationSet and requests an ArgoCD refresh. Run it from the repository root, or pass `--stack-dir`.
 
 ### Teardown
 

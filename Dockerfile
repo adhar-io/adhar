@@ -30,6 +30,10 @@ COPY knowledge.go README.md CHANGELOG.md ./
 COPY docs/ docs/
 COPY examples/ examples/
 
+# The stack directories go:embed cannot carry (see platform/stack/embed.go).
+COPY hack/stack-bundle/ hack/stack-bundle/
+RUN go generate ./platform/stack/
+
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO

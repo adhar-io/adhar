@@ -101,6 +101,12 @@ func readElements(appsetFile string) ([]element, error) {
 // looked nothing like what they asked for. With no cluster reachable it falls back
 // to production, which is the one an operator is nearly always editing.
 func detectProfile(ctx context.Context, stackDir string) (profile, string, error) {
+	if stackDir == flagStackDir {
+		if err := useStack(); err != nil {
+			return profile{}, "", err
+		}
+		stackDir = flagStackDir
+	}
 	if flagProfile != "" {
 		p, err := profileFor(flagProfile, stackDir)
 		return p, "--profile", err

@@ -639,13 +639,19 @@ func stopRequest(run *unstructured.Unstructured) runRequest {
 		Body: map[string]interface{}{"spec": map[string]interface{}{"suspend": true}}}
 }
 
-// resumeRequest: the new pod finds the execution STOPPED and restarts it.
+// resumeRequest: the new pod finds the execution STOPPED and restarts it. A run
+// a backfill still holds back (backfill.go) loses that mark in the same patch,
+// whoever resumes it: from then on it is a run that started, and a later stop
+// is a person's.
 func resumeRequest(run *unstructured.Unstructured) runRequest {
 	if runKindOf(run) == "VolcanoJob" {
 		return runRequest{Verb: "create", GVR: commandGVR, Namespace: run.GetNamespace(), Body: volcanoCommand(run, "ResumeJob")}
 	}
-	return runRequest{Verb: "patch", GVR: jobGVR, Namespace: run.GetNamespace(), Name: run.GetName(),
-		Body: map[string]interface{}{"spec": map[string]interface{}{"suspend": false}}}
+	body := map[string]interface{}{"spec": map[string]interface{}{"suspend": false}}
+	if _, queued := run.GetAnnotations()[annotationQueued]; queued {
+		body["metadata"] = map[string]interface{}{"annotations": map[string]interface{}{annotationQueued: nil}}
+	}
+	return runRequest{Verb: "patch", GVR: jobGVR, Namespace: run.GetNamespace(), Name: run.GetName(), Body: body}
 }
 
 // holdPatch is the ONE thing an operator may change on a BatchJob (§3.5,

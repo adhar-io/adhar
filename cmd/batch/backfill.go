@@ -38,6 +38,14 @@ import (
 //
 // A run counts as in flight from the moment it is released until it ends, and
 // one a person suspended while it ran keeps counting until its pods are gone.
+//
+// A run the backfill holds back and a run a person stopped are the same Job to
+// read — suspended, no pods — and since Kubernetes 1.36 not even status.startTime
+// tells them apart (MutableSchedulingDirectivesForSuspendedJobs: the Job
+// controller clears it on every suspend). So the backfill says which runs are
+// its own: it creates them annotated adhar.io/batch-queued=backfill and removes
+// the annotation in the patch that releases them. Only a run still carrying it
+// is ever released; anything else suspended is a person's, and is left alone.
 
 var (
 	backfillFrom      string
@@ -51,6 +59,14 @@ var (
 // maxBackfillDates bounds one backfill: a mistyped year would otherwise create
 // thousands of Jobs before anyone noticed.
 const maxBackfillDates = 366
+
+// annotationQueued marks a run created suspended that its creator has not
+// released yet; the value names the creator. On the run only, which run
+// integrity does not compare (§10.3), and removed by resumeRequest.
+const (
+	annotationQueued = "adhar.io/batch-queued"
+	queuedByBackfill = "backfill"
+)
 
 var backfillCmd = &cobra.Command{
 	Use:   "backfill <job>",
@@ -68,7 +84,13 @@ run again. Where the job runs on Volcano, every run is created at once and the
 job's queue decides how many start.
 
 The date goes into the job's business-date parameter (businessDate, else the
-first date parameter its schedule supplies); -p gives the others.`,
+first date parameter its schedule supplies); -p gives the others. Every date in
+the range gets a run, weekends and holidays included: the job's calendar is the
+runner's to read, and a date that is not a business day ends at once as
+Skipped, exit 0.
+
+Only the runs a backfill queued (annotation adhar.io/batch-queued) are ever
+released by one; a run a person stopped stays stopped until it is resumed.`,
 	Example: `  adhar batch backfill importer --from 2026-11-01 --to 2026-11-07 --parallel 2
   adhar batch backfill importer --from 2026-11-01 --to 2026-11-07 -p region=uk --wait -o json`,
 	Args: cobra.ExactArgs(1),
@@ -77,9 +99,6 @@ first date parameter its schedule supplies); -p gives the others.`,
 		// to read, not forty lines of usage (silenceUsageOnceParsed).
 		if backfillFrom == "" || backfillTo == "" {
 			return fmt.Errorf("--from and --to name the first and last business date, yyyy-mm-dd")
-		}
-		if backfillParallel < 1 {
-			return fmt.Errorf("--parallel must be at least 1")
 		}
 		cl, err := connect(cmd)
 		if err != nil {
@@ -172,8 +191,12 @@ type backfillItem struct {
 	// Action is what this invocation found or did: created, restarted, exists
 	// (in flight, or still queued from an earlier invocation), completed, or
 	// stopped (suspended by a person after it started: left alone).
-	Action   string `json:"action" yaml:"action"`
-	Status   string `json:"status" yaml:"status"`
+	Action string `json:"action" yaml:"action"`
+	Status string `json:"status" yaml:"status"`
+	// Outcome is the run's own word for how it ended, from its summary: exit 0
+	// is also a date the runner skipped because the calendar says it is not a
+	// business day (D5), and a range across a holiday should show which.
+	Outcome  string `json:"outcome,omitempty" yaml:"outcome,omitempty"`
 	ExitCode *int   `json:"exitCode,omitempty" yaml:"exitCode,omitempty"`
 
 	params    map[string]string
@@ -220,7 +243,10 @@ const (
 // suspended reads as Stopped exactly as a run a person stopped does, and one
 // just released can still carry its Suspended condition for a sync. A
 // conservative count is the A3.3 guarantee, so anything not provably queued,
-// stopped or ended is in flight.
+// stopped or ended is in flight. Queued is the one state the backfill acts on
+// (it resumes the run), so it needs the backfill's own mark AND no sign the run
+// ever started: a suspended run without the mark was stopped by a person, or
+// queued by something this command knows nothing about.
 func backfillState(r runRow) string {
 	if r.Phase == phaseSucceeded || r.Phase == phaseFailed || r.Phase == phaseDeleting {
 		return bfDone
@@ -235,6 +261,9 @@ func backfillState(r runRow) string {
 	if statusInt(r.obj, "active") > 0 || statusInt(r.obj, "terminating") > 0 {
 		return bfInFlight
 	}
+	if r.obj.GetAnnotations()[annotationQueued] != queuedByBackfill {
+		return bfStopped
+	}
 	started, _, _ := unstructured.NestedString(r.obj.Object, "status", "startTime")
 	if started == "" && statusInt(r.obj, "failed") == 0 && statusInt(r.obj, "succeeded") == 0 {
 		return bfQueued
@@ -247,6 +276,11 @@ func backfillState(r runRow) string {
 // refused date creates nothing. A non-nil report with an error is a backfill
 // that started and then could not finish waiting.
 func backfill(c context.Context, dc dynamic.Interface, ns, name, from, to string, extra map[string]string, parallel int, wait bool, timeout time.Duration) (*backfillReport, error) {
+	// Refused here, where the release loop is: with no run allowed in flight it
+	// would create every date suspended and then wait for ever to release one.
+	if parallel < 1 {
+		return nil, fmt.Errorf("--parallel must be at least 1: it is how many runs may be in flight at once")
+	}
 	dates, err := backfillDates(from, to)
 	if err != nil {
 		return nil, err
@@ -347,6 +381,12 @@ func backfill(c context.Context, dc dynamic.Interface, ns, name, from, to string
 			if err := unstructured.SetNestedField(run.Object, true, "spec", "suspend"); err != nil {
 				return nil, err
 			}
+			annotations := run.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[annotationQueued] = queuedByBackfill
+			run.SetAnnotations(annotations)
 		}
 		if _, err := createRun(c, dc, run); err != nil && !errors.Is(err, errRunExists) {
 			return report, err
@@ -451,7 +491,7 @@ func fillBackfillStatus(c context.Context, dc dynamic.Interface, report *backfil
 			it.Status = "Queued"
 		default:
 			o := outcomeOf(r)
-			it.Status = o.Status
+			it.Status, it.Outcome = o.Status, outcomeLabel(r.Summary)
 			if r.ExitCode != nil {
 				code := *r.ExitCode
 				it.ExitCode = &code
@@ -465,13 +505,13 @@ func printBackfill(r *backfillReport) {
 	if r == nil {
 		return
 	}
-	tb := helpers.NewTable("DATE", "RUN", "ACTION", "STATUS", "EXIT")
+	tb := helpers.NewTable("DATE", "RUN", "ACTION", "STATUS", "OUTCOME", "EXIT")
 	for _, it := range r.Runs {
 		exit := "—"
 		if it.ExitCode != nil {
 			exit = fmt.Sprintf("%d", *it.ExitCode)
 		}
-		tb.Row(it.BusinessDate, it.Run, it.Action, it.Status, exit)
+		tb.Row(it.BusinessDate, it.Run, it.Action, it.Status, dash(it.Outcome), exit)
 	}
 	fmt.Println(helpers.SectionHeading(helpers.IconApp, fmt.Sprintf("Backfill of %s/%s", r.Namespace, r.BatchJob)))
 	fmt.Println(tb.Render())

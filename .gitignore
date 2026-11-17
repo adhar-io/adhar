@@ -65,3 +65,7 @@ config.civo.yaml
 # Python bytecode from the dashboard generators (build-*-dashboards.py)
 __pycache__/
 *.pyc
+
+# Built by `go generate ./platform/stack/` (make build / make test / release)
+platform/stack/generated/*
+!platform/stack/generated/.gitkeep

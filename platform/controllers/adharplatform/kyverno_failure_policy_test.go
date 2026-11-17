@@ -32,9 +32,9 @@ import (
 	"time"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -182,7 +182,7 @@ func TestComposedKyvernoPoliciesStateTheirFailurePolicy(t *testing.T) {
 	xr := map[string]any{
 		"apiVersion": "platform.adhar.io/v1alpha1", "kind": "CompliancePolicy",
 		"metadata": map[string]any{"name": "baseline", "namespace": "adhar-system"},
-		"spec": map[string]any{"parameters": map[string]any{"enforcementMode": "enforce"}},
+		"spec":     map[string]any{"parameters": map[string]any{"enforcementMode": "enforce"}},
 	}
 	req := map[string]any{"observed": map[string]any{"composite": map[string]any{"resource": xr}}}
 	rendered := 0

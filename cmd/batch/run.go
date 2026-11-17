@@ -52,6 +52,15 @@ that is stopped is reported as Stopped with a hint to resume. The process exit
 code is the run's (0 includes a skipped run), 4 for a stopped one, and -o json
 prints {run, namespace, batchJob, kind, status, exitCode, executionId, summary}.
 
+As the workflow step adhar-batch-steps/run (design 0025 §12.1) the command reads
+what a command line cannot carry from its environment: ADHAR_BATCH_STEP_WORKFLOW
+names the workflow (the run then carries the trigger workflow and the
+annotation adhar.io/batch-workflow), ADHAR_BATCH_STEP_PARAMETERS is a JSON
+object of parameters (-p wins), ADHAR_BATCH_STEP_OUTPUTS a directory the outcome
+is written into, one file per field, and ADHAR_BATCH_STEP_RETRY Argo's retry
+count: a retried step that finds a failed run its own workflow started reports
+that failure instead of restarting it.
+
 --smoke starts the job's smoke run (design 0025 D6), which the promotion into
 a test environment waits for: the parameters are the BatchJob's
 spec.parameters.smoke, the trigger is smoke and the run is named
@@ -72,8 +81,13 @@ BatchJob's image before naming anything.`,
 		if err != nil {
 			return err
 		}
+		step, err := stepFromEnv(os.Getenv)
+		if err != nil {
+			return err
+		}
+		values = step.withParameters(values)
 		if runSmoke && len(values) > 0 {
-			return fmt.Errorf("a smoke run takes its parameters from the BatchJob's spec.parameters.smoke, not from -p")
+			return fmt.Errorf("a smoke run takes its parameters from the BatchJob's spec.parameters.smoke, not from -p or %s", envStepParameters)
 		}
 		cl, err := connect(cmd)
 		if err != nil {
@@ -92,12 +106,9 @@ BatchJob's image before naming anything.`,
 		if runSmoke {
 			outcome, err = startSmokeRun(ctx(cmd), cl.dc, logs, ns, name, runWait, runTimeout)
 		} else {
-			outcome, err = startRun(ctx(cmd), cl.dc, logs, ns, name, values, runWait, runTimeout)
+			outcome, err = startStepRun(ctx(cmd), cl.dc, logs, ns, name, values, step, runWait, runTimeout)
 		}
-		if err != nil {
-			return err
-		}
-		return finishOutcome(outcome)
+		return finishStep(step, outcome, err)
 	},
 }
 
@@ -112,6 +123,14 @@ func init() {
 // startRun is `adhar batch run`, in full, with the kube access behind the
 // dynamic client so the fake can drive it end to end.
 func startRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name string, values map[string]string, wait bool, timeout time.Duration) (runOutcome, error) {
+	return startStepRun(c, dc, logs, ns, name, values, workflowStep{}, wait, timeout)
+}
+
+// startStepRun is startRun for a caller that may be the workflow step of
+// §12.1 (step.go): the same run, by the same name, with the trigger and the
+// annotation that say a workflow asked for it. values already holds the step's
+// parameters under the command line's.
+func startStepRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name string, values map[string]string, step workflowStep, wait bool, timeout time.Duration) (runOutcome, error) {
 	job, err := getBatchJob(c, dc, ns, name)
 	if err != nil {
 		return runOutcome{}, err
@@ -136,8 +155,13 @@ func startRun(c context.Context, dc dynamic.Interface, logs logSource, ns, name 
 	}
 	spec := runSpec{Base: base, Trigger: "manual", RestartTrigger: "restart",
 		build: func(n, trigger, restartOf string) *unstructured.Unstructured {
-			return buildRun(t, n, ns, trigger, resolved.Params, restartOf)
+			return step.annotate(buildRun(t, n, ns, trigger, resolved.Params, restartOf))
 		}}
+	if step.Workflow != "" {
+		// A restart stays a `restart`, as a person's does (§8.3); the annotation
+		// is what ties every member of the chain to the workflow.
+		spec.Trigger, spec.Workflow, spec.StepRetry = triggerWorkflow, step.Workflow, step.Retry
+	}
 	return executeRun(c, dc, logs, job, spec, wait, timeout)
 }
 
@@ -154,6 +178,11 @@ type runSpec struct {
 	// person's run, the run's own trigger for a smoke run or an ops command, so
 	// a retried smoke run is still a smoke run.
 	RestartTrigger string
+	// Workflow and StepRetry are set for the workflow step (§12.1): the
+	// workflow the run is started for and Argo's retry count for the step,
+	// which together decide reportsFailure (step.go).
+	Workflow  string
+	StepRetry int
 	// build makes the run named name; restartOf names the run it retries.
 	build func(name, trigger, restartOf string) *unstructured.Unstructured
 }
@@ -218,6 +247,11 @@ func executeRun(c context.Context, dc dynamic.Interface, logs logSource, job *un
 		target = decision.Target
 	case "restart":
 		prev := decision.Existing
+		if spec.reportsFailure(prev) {
+			say("%s", helpers.CreateWarning(fmt.Sprintf("%s failed, and this is retry %d of the step of workflow %s that started it; reporting that failure instead of restarting it", prev.Name, spec.StepRetry, spec.Workflow)))
+			showRun(*prev)
+			return outcomeOf(*prev), nil
+		}
 		if w := restartWarning(prev.ExitCode); w != "" {
 			say("%s", helpers.CreateWarning(w))
 		}
@@ -234,6 +268,11 @@ func executeRun(c context.Context, dc dynamic.Interface, logs logSource, job *un
 		target = base
 	}
 	row, err := waitForRun(c, dc, logs, ns, target, timeout)
+	if errors.Is(err, errStillRunning) {
+		// The run goes on without the command. Its name travels with the
+		// error, so a workflow step that gave up waiting still says WHICH run.
+		return runOutcome{Run: target, Namespace: ns, BatchJob: name, Kind: runKindOf(spec.build(target, spec.Trigger, "")), Status: "Running"}, err
+	}
 	if err != nil {
 		return runOutcome{}, err
 	}
@@ -283,6 +322,9 @@ func defaultWait(job *unstructured.Unstructured) time.Duration {
 	return time.Duration(deadline)*time.Second + 10*time.Minute
 }
 
+// errStillRunning marks a wait that gave up on a run that had not ended.
+var errStillRunning = errors.New("timed out waiting")
+
 // waitForRun polls the run until it ends, streaming each of its pods' logs
 // once when a log source is given, and returns its final row. A run that
 // disappears while being waited for (TTL, or deleted) is an error, not a
@@ -320,7 +362,7 @@ func waitForRun(c context.Context, dc dynamic.Interface, logs logSource, ns, nam
 			return row, nil
 		}
 		if time.Now().After(deadline) {
-			return runRow{}, helpers.ExitCode(1, fmt.Errorf("%s is still %s after %s; it keeps running — `adhar batch runs %s` shows it", name, row.Phase, timeout, row.BatchJob))
+			return runRow{}, helpers.ExitCode(1, fmt.Errorf("%w: %s is still %s after %s; it keeps running — `adhar batch runs %s` shows it", errStillRunning, name, row.Phase, timeout, row.BatchJob))
 		}
 		select {
 		case <-c.Done():
