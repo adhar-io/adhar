@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 )
 
@@ -134,4 +135,42 @@ func (r *AdharPlatformReconciler) storageClassInUse(ctx context.Context, name st
 		}
 	}
 	return false, nil
+}
+
+// reconcileLocalBlockStorageClass publishes globals.BlockStorageClass on a Kind
+// cluster, as a copy of the default class.
+//
+// The name is a contract: a package that must not live on a node-local volume
+// in the cloud (Nexus, whose published versions cannot be re-published) asks
+// for `adhar-block` by name. Cloud clusters get that class from the
+// cloud-integration steps; a Kind cluster had no such class at all, so the
+// claim stayed Pending with `storageclass "adhar-block" not found`, the Nexus
+// pod never scheduled, `nexus-credentials` was never published, and the
+// adhar-kit / adhar-ui release pipelines waited on it forever (2026-11-18). On
+// one node there is nothing to be durable against, so the default class is the
+// honest answer to the same request.
+//
+// Kind only: on a cloud the real class arrives from the cloud-integration
+// steps, and an alias created first would hold the name with the wrong
+// provisioner — parameters are immutable, so the real one could not replace it.
+func (r *AdharPlatformReconciler) reconcileLocalBlockStorageClass(ctx context.Context, platform *v1alpha1.AdharPlatform) error {
+	if platform.Spec.Provider != v1alpha1.ProviderKind {
+		return nil
+	}
+	current := &storagev1.StorageClass{}
+	err := r.Get(ctx, client.ObjectKey{Name: globals.BlockStorageClass}, current)
+	if err == nil {
+		return nil
+	}
+	if !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("reading StorageClass %s: %w", globals.BlockStorageClass, err)
+	}
+	source, err := r.ciStorageSource(ctx)
+	if err != nil || source == nil {
+		return err
+	}
+	alias := ciStorageClassFrom(source)
+	alias.Name = globals.BlockStorageClass
+	alias.Parameters = maps.Clone(source.Parameters)
+	return r.Create(ctx, alias)
 }

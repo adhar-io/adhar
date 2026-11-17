@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,16 +106,69 @@ func (m RegistryMirror) RunArgs() []string {
 		"--restart", "unless-stopped",
 		"--network", registryCacheNetwork,
 		"--label", "io.adhar.role=registry-cache",
+		"--label", cacheConfigLabel + "=" + cacheConfigVersion,
 		"-v", RegistryCacheVolume + ":/var/lib/registry",
 		"-e", "REGISTRY_PROXY_REMOTEURL=" + m.Upstream,
 		"-e", "REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY=" + m.StorageRoot(),
 		"-e", "REGISTRY_STORAGE_DELETE_ENABLED=true",
+		// Never expire. The proxy's default 7-day TTL deletes a blob's DATA when
+		// the first repository that pulled it expires, while every other
+		// repository keeps its link to it — and the layer nearly every image
+		// shares (the 32-byte empty one) is the first to go. The cache then
+		// answers 200 with an empty body, which containerd does not treat as
+		// "mirror unavailable": a week-old volume left Argo CD in
+		// ImagePullBackOff for 14 hours with `short read: expected 32 bytes but
+		// got 0` (2026-11-17). Blobs are content-addressed, so nothing goes stale.
+		"-e", "REGISTRY_PROXY_TTL=0",
 		"-e", "REGISTRY_LOG_LEVEL=warn",
 		// registry 3.x enables an OTLP trace exporter by default and logs a
 		// connection error every ten seconds when nothing listens.
 		"-e", "OTEL_TRACES_EXPORTER=none",
 		RegistryCacheImage,
 	}
+}
+
+// cacheConfigLabel marks which RunArgs a cache container was created with. A
+// stopped container keeps the environment it was created with, so a change to
+// RunArgs reaches an existing machine only if the container is replaced;
+// bump cacheConfigVersion whenever RunArgs changes behaviour.
+const (
+	cacheConfigLabel   = "io.adhar.cache-config"
+	cacheConfigVersion = "2"
+)
+
+// cacheHealScript removes every layer and manifest link whose blob data is
+// missing or empty, and prints how many it removed. With the link gone the
+// registry treats the blob as not cached and fetches it from upstream again;
+// with the link present it serves a 200 with no body, forever. Runs with the
+// busybox sh of the registry image; $1 is the mirror's storage root.
+const cacheHealScript = `root="$1/docker/registry/v2"; n=0
+[ -d "$root/repositories" ] || { echo 0; exit 0; }
+for l in $(find "$root/repositories" -type f -name link \( -path '*/_layers/*' -o -path '*/_manifests/revisions/*' \)); do
+  d=$(sed 's/^sha256://' "$l")
+  if [ ! -s "$root/blobs/sha256/$(echo "$d" | cut -c1-2)/$d/data" ]; then rm -rf "$(dirname "$l")"; n=$((n+1)); fi
+done
+echo $n`
+
+// healCache repairs a running cache whose volume outlived its blobs (see
+// REGISTRY_PROXY_TTL in RunArgs) and restarts it when anything was removed,
+// because the registry also remembers blob descriptors in memory.
+func healCache(ctx context.Context, run engineRunner, m RegistryMirror) (int, error) {
+	out, err := run(ctx, "exec", m.ContainerName(), "sh", "-c", cacheHealScript, "heal", m.StorageRoot())
+	if err != nil {
+		return 0, fmt.Errorf("checking %s: %w (%s)", m.ContainerName(), err, strings.TrimSpace(out))
+	}
+	fields := strings.Fields(out)
+	if len(fields) == 0 {
+		return 0, nil
+	}
+	removed, _ := strconv.Atoi(fields[len(fields)-1])
+	if removed > 0 {
+		if out, err := run(ctx, "restart", m.ContainerName()); err != nil {
+			return removed, fmt.Errorf("restarting %s: %w (%s)", m.ContainerName(), err, strings.TrimSpace(out))
+		}
+	}
+	return removed, nil
 }
 
 // mirrorFor returns the mirror serving a registry host.
@@ -186,6 +240,15 @@ func realEngineRunner(binary string) engineRunner {
 func ensureCacheContainer(ctx context.Context, run engineRunner, m RegistryMirror) error {
 	name := m.ContainerName()
 	state, err := run(ctx, "container", "inspect", "-f", "{{.State.Running}}", name)
+	if err == nil {
+		// Created by an older adhar with other settings: replace it. The volume,
+		// and with it every cached layer, is not the container's and survives.
+		version, verr := run(ctx, "container", "inspect", "-f", `{{index .Config.Labels "`+cacheConfigLabel+`"}}`, name)
+		if verr == nil && strings.TrimSpace(version) != cacheConfigVersion {
+			_, _ = run(ctx, "rm", "-f", name)
+			err = fmt.Errorf("replaced")
+		}
+	}
 	switch {
 	case err == nil && strings.TrimSpace(state) == "true":
 		return ensureCacheNetwork(ctx, run, name)
@@ -235,6 +298,11 @@ func (c *Cluster) ensureRegistryCache(ctx context.Context) {
 			continue
 		}
 		started++
+		if removed, err := healCache(ctx, run, m); err != nil {
+			setupLog.V(1).Info("registry cache not checked for missing blobs", "registry", m.Host, "error", err)
+		} else if removed > 0 {
+			setupLog.Info("repaired the local image cache: entries without their data were dropped and will be pulled again", "registry", m.Host, "entries", removed)
+		}
 	}
 	setupLog.Info("local image cache ready: the node pulls through it and populates it on first use", "registries", started, "volume", RegistryCacheVolume)
 }

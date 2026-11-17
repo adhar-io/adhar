@@ -218,8 +218,11 @@ func TestTeamComposesItsThreeLeafQueues(t *testing.T) {
 		if o == nil {
 			t.Fatalf("no batch-queue-%s", tier)
 		}
-		if dig(o, "spec", "deletionPolicy") != "Orphan" {
-			t.Errorf("batch-queue-%s deletionPolicy = %v: deleting an Open queue is refused by Volcano and would wedge the Team", tier, dig(o, "spec", "deletionPolicy"))
+		// Orphaned by withholding Delete. A namespaced Object has no
+		// spec.deletionPolicy; this test once pinned that field, and on a live
+		// cluster the whole Team then failed to compose (2026-11-18).
+		if mp := fmt.Sprint(dig(o, "spec", "managementPolicies")); mp != "[Observe Create Update LateInitialize]" {
+			t.Errorf("batch-queue-%s managementPolicies = %s: deleting an Open queue is refused by Volcano and would wedge the Team", tier, mp)
 		}
 		if dig(o, "spec", "providerConfigRef", "name") != "kubernetes-provider" || dig(o, "spec", "providerConfigRef", "kind") != "ClusterProviderConfig" {
 			t.Errorf("batch-queue-%s providerConfigRef = %v", tier, dig(o, "spec", "providerConfigRef"))

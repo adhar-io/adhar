@@ -74,6 +74,10 @@ spec:
             {{- $project := dig "project" "" $p -}}
             {{- $env := dig "environment" "dev" $p -}}
             {{- $policy := dig "deletionPolicy" "Delete" $p -}}
+            {{- /* Namespaced (`.m`) managed resources have no spec.deletionPolicy: the
+                   field is refused outright ("field not declared in schema") and the
+                   XR then composes nothing. Orphan is spelled by withholding Delete. */ -}}
+            {{- $mgmt := ternary (list "Observe" "Create" "Update" "LateInitialize") (list "*") (eq $policy "Orphan") | toJson -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
             {{- $host := printf "%s.%s.svc.cluster.local" $name $ns -}}
             {{- $repo := printf "%s-snapshots" $name -}}
@@ -111,7 +115,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: admin-password
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -142,7 +146,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: admin-credentials
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -192,7 +196,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: monitoring-password
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -223,7 +227,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: monitoring-credentials
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -272,7 +276,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: s3-credentials
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -306,7 +310,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: cluster
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -426,7 +430,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: monitoring-role
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -459,7 +463,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: monitoring-user
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -486,7 +490,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: monitoring-binding
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -513,7 +517,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: ism-policy
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:
@@ -572,7 +576,7 @@ spec:
                 gotemplating.fn.crossplane.io/composition-resource-name: snapshot-policy
               labels: {feature: search, managed-by: adhar}
             spec:
-              deletionPolicy: {{ $policy }}
+              managementPolicies: {{ $mgmt }}
               providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               forProvider:
                 manifest:

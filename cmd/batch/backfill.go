@@ -189,9 +189,12 @@ type backfillItem struct {
 	BusinessDate string `json:"businessDate" yaml:"businessDate"`
 	Run          string `json:"run" yaml:"run"`
 	// Action is what this invocation found or did: created, restarted, exists
-	// (in flight, or still queued from an earlier invocation), completed, or
-	// stopped (suspended by a person after it started: left alone).
+	// (in flight, or still queued from an earlier invocation), completed,
+	// stopped (suspended by a person after it started: left alone), or not
+	// created (the backfill was refused part way, before this date's run).
 	Action string `json:"action" yaml:"action"`
+	// Status is the run's as it stands (D2's, or Queued, or Gone); empty for a
+	// date whose run was not created.
 	Status string `json:"status" yaml:"status"`
 	// Outcome is the run's own word for how it ended, from its summary: exit 0
 	// is also a date the runner skipped because the calendar says it is not a
@@ -231,6 +234,9 @@ func (r *backfillReport) exitCode() int {
 	return code
 }
 
+// actionNotCreated is the action of a date a refused backfill never reached.
+const actionNotCreated = "not created"
+
 // The state of a backfill's run, as the release loop counts it.
 const (
 	bfDone     = "done"     // ended: succeeded or failed (or gone)
@@ -269,6 +275,15 @@ func backfillState(r runRow) string {
 		return bfQueued
 	}
 	return bfStopped
+}
+
+// justReleased says a native run reads as Stopped only by the Suspended
+// condition it was created with: spec.suspend is already false, and the Job
+// controller has not synced since the release. It is in flight (backfillState
+// counts it so), and nobody stopped it.
+func justReleased(r runRow) bool {
+	suspended, _, _ := unstructured.NestedBool(r.obj.Object, "spec", "suspend")
+	return r.Kind != "VolcanoJob" && r.Phase == phaseStopped && !suspended
 }
 
 // backfill is `adhar batch backfill` with the kube access behind the dynamic
@@ -389,7 +404,16 @@ func backfill(c context.Context, dc dynamic.Interface, ns, name, from, to string
 			run.SetAnnotations(annotations)
 		}
 		if _, err := createRun(c, dc, run); err != nil && !errors.Is(err, errRunExists) {
-			return report, err
+			// Refused part way (a quota on Jobs, the API server): this date and
+			// the ones after it have no run, and the report must not say they do.
+			// Nothing was released, so what exists waits for the command again.
+			for j := i; j < len(report.Runs); j++ {
+				if a := report.Runs[j].Action; a == "created" || a == "restarted" {
+					report.Runs[j].Action = actionNotCreated
+				}
+			}
+			fillBackfillStatus(c, dc, report)
+			return report, fmt.Errorf("%w\n  the runs created before it stay queued; the same command continues the backfill, and one over fewer dates releases them", err)
 		}
 	}
 	created := 0
@@ -485,6 +509,8 @@ func fillBackfillStatus(c context.Context, dc dynamic.Interface, report *backfil
 		it := &report.Runs[i]
 		r, ok := byName[it.Run]
 		switch {
+		case !ok && it.Action == actionNotCreated:
+			// Never there: no status to give.
 		case !ok:
 			it.Status = "Gone"
 		case backfillState(r) == bfQueued:
@@ -492,6 +518,11 @@ func fillBackfillStatus(c context.Context, dc dynamic.Interface, report *backfil
 		default:
 			o := outcomeOf(r)
 			it.Status, it.Outcome = o.Status, outcomeLabel(r.Summary)
+			// Without --wait the command ends the moment the last run is
+			// released, before the Job controller has seen the release.
+			if justReleased(r) {
+				it.Status = "Running"
+			}
 			if r.ExitCode != nil {
 				code := *r.ExitCode
 				it.ExitCode = &code
@@ -511,7 +542,7 @@ func printBackfill(r *backfillReport) {
 		if it.ExitCode != nil {
 			exit = fmt.Sprintf("%d", *it.ExitCode)
 		}
-		tb.Row(it.BusinessDate, it.Run, it.Action, it.Status, dash(it.Outcome), exit)
+		tb.Row(it.BusinessDate, it.Run, it.Action, dash(it.Status), dash(it.Outcome), exit)
 	}
 	fmt.Println(helpers.SectionHeading(helpers.IconApp, fmt.Sprintf("Backfill of %s/%s", r.Namespace, r.BatchJob)))
 	fmt.Println(tb.Render())

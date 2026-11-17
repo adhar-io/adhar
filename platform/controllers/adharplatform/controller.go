@@ -245,6 +245,11 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.reconcileCiliumGatewayControllers(ctx, &localBuild); err != nil {
 		log.FromContext(ctx).Info("Could not check that Cilium answers the platform Gateway's routes", "error", err)
 	}
+	// A package that names the block class must find it on a cluster with no
+	// cloud block storage; see reconcileLocalBlockStorageClass.
+	if err := r.reconcileLocalBlockStorageClass(ctx, &localBuild); err != nil {
+		log.FromContext(ctx).Info("Could not publish the block StorageClass on this local cluster yet", "error", err)
+	}
 	// CI workspaces need a volume that follows the pod; see globals.CIStorageClass.
 	if err := r.reconcileCIStorageClass(ctx); err != nil {
 		log.FromContext(ctx).Info("Could not publish the CI StorageClass yet", "error", err)

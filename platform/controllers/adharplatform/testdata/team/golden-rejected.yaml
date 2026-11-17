@@ -9,7 +9,6 @@ metadata:
     adhar.io/organisation: acme
     adhar.io/team: payments
 spec:
-  deletionPolicy: Orphan
   forProvider:
     manifest:
       apiVersion: scheduling.volcano.sh/v1beta1
@@ -28,6 +27,11 @@ spec:
         parent: adhar-batch
         priority: 100
         reclaimable: true
+  managementPolicies:
+  - Observe
+  - Create
+  - Update
+  - LateInitialize
   providerConfigRef:
     kind: ClusterProviderConfig
     name: kubernetes-provider
@@ -42,7 +46,6 @@ metadata:
     adhar.io/organisation: acme
     adhar.io/team: payments
 spec:
-  deletionPolicy: Orphan
   forProvider:
     manifest:
       apiVersion: scheduling.volcano.sh/v1beta1
@@ -64,6 +67,11 @@ spec:
         parent: adhar-batch
         priority: 300
         reclaimable: false
+  managementPolicies:
+  - Observe
+  - Create
+  - Update
+  - LateInitialize
   providerConfigRef:
     kind: ClusterProviderConfig
     name: kubernetes-provider
@@ -143,7 +151,6 @@ metadata:
     adhar.io/organisation: acme
     adhar.io/team: payments
 spec:
-  deletionPolicy: Orphan
   forProvider:
     manifest:
       apiVersion: scheduling.volcano.sh/v1beta1
@@ -162,6 +169,11 @@ spec:
         parent: adhar-batch
         priority: 200
         reclaimable: true
+  managementPolicies:
+  - Observe
+  - Create
+  - Update
+  - LateInitialize
   providerConfigRef:
     kind: ClusterProviderConfig
     name: kubernetes-provider

@@ -5,12 +5,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"adhar-io/adhar/cmd/helpers"
 
+	"github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -377,5 +380,125 @@ func TestRunReadsTheStepContractBeforeTouchingTheCluster(t *testing.T) {
 	t.Setenv(envStepParameters, `{"businessDate":"2026-11-01"}`)
 	if err := runCmd.RunE(runCmd, []string{"importer"}); err == nil || !strings.Contains(err.Error(), "spec.parameters.smoke") {
 		t.Errorf("--smoke with step parameters: %v", err)
+	}
+}
+
+// stepTemplatePath is the other side of the contract: the step as the
+// argo-workflows package ships it.
+const stepTemplatePath = "../../platform/stack/packages/application/argo-workflows/manifests/catalog/adhar-batch-steps.yaml.tmpl"
+
+// The contract has two sides in two packages, and each is pinned by its own
+// test against literals (TestBatchStepRunsTheCLIContract there,
+// TestStepContractIsReadFromTheEnvironment here), so the two could drift apart
+// with both green. This reads the template itself: the ADHAR_BATCH_STEP_*
+// variables it sets are exactly the ones this command reads, each fed from
+// what the command takes it for; the files it tells Argo to read its outputs
+// from are exactly the files the command writes, in the directory it is given;
+// and the command line it runs parses with this command's own flags, for both
+// values of `wait` and the default `timeout`.
+func TestTheStepTemplateSpeaksThisCommandsContract(t *testing.T) {
+	raw, err := os.ReadFile(stepTemplatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(l), "#") {
+			lines = append(lines, l)
+		}
+	}
+	// The seed-time escape {{`{{x}}`}} is the Argo variable {{x}}.
+	text := strings.NewReplacer("{{`", "", "`}}", "").Replace(strings.Join(lines, "\n"))
+
+	// The environment.
+	sets := map[string]string{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*- name: (ADHAR_BATCH_STEP_[A-Z_]+)\n\s*value: "?([^"\n]*)"?$`).FindAllStringSubmatch(text, -1) {
+		sets[m[1]] = m[2]
+	}
+	feeds := map[string]string{
+		envStepWorkflow:   "{{workflow.name}}",
+		envStepParameters: "{{inputs.parameters.parameters}}",
+		envStepRetry:      "{{retries}}",
+	}
+	if len(sets) != len(feeds)+1 {
+		t.Errorf("the template sets %v; this command reads %s, %s, %s and %s", sets, envStepWorkflow, envStepParameters, envStepOutputs, envStepRetry)
+	}
+	for name, want := range feeds {
+		if sets[name] != want {
+			t.Errorf("the template sets %s to %q; the command takes it for %s", name, sets[name], want)
+		}
+	}
+	dir := sets[envStepOutputs]
+	if !filepath.IsAbs(dir) {
+		t.Fatalf("the template sets %s to %q, which is not a directory to write into", envStepOutputs, dir)
+	}
+
+	// The outputs: Argo reads the files this command writes.
+	var reads []string
+	for _, m := range regexp.MustCompile(`(?m)^\s*path: (\S+)$`).FindAllStringSubmatch(text, -1) {
+		if filepath.Dir(m[1]) != dir {
+			t.Errorf("the template reads the output %s outside %s, where the command writes", m[1], dir)
+		}
+		reads = append(reads, filepath.Base(m[1]))
+	}
+	// A run that has only started has the least to say, and still writes every
+	// file: one left out would hand the next step the template's default.
+	var writes []string
+	for name := range stepOutputsOf(runOutcome{Run: "importer-09932cb3", Status: "Running"}) {
+		writes = append(writes, name)
+	}
+	sort.Strings(reads)
+	sort.Strings(writes)
+	if strings.Join(reads, ",") != strings.Join(writes, ",") {
+		t.Errorf("the template reads the outputs %v; the command writes %v", reads, writes)
+	}
+
+	// The command line.
+	block := regexp.MustCompile(`(?s)\n\s*args:\n(.*?)\n\s*env:\n`).FindStringSubmatch(text)
+	if block == nil {
+		t.Fatal("the template's container has no args followed by env")
+	}
+	defaultOf := func(input string) string {
+		m := regexp.MustCompile(`(?s)- name: ` + input + `\n.*?default: "?([^"\n]*)"?\n`).FindStringSubmatch(text)
+		if m == nil {
+			t.Fatalf("the template's input %s has no default", input)
+		}
+		return m[1]
+	}
+	prevNS, prevOut, prevWait, prevTimeout := namespaceFlag, outputFlag, runWait, runTimeout
+	t.Cleanup(func() {
+		namespaceFlag, outputFlag, runWait, runTimeout = prevNS, prevOut, prevWait, prevTimeout
+		runCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+	})
+	for _, wait := range []string{"true", "false"} {
+		inputs := strings.NewReplacer(
+			"{{inputs.parameters.batchJob}}", "importer",
+			"{{inputs.parameters.namespace}}", "prod",
+			"{{inputs.parameters.wait}}", wait,
+			"{{inputs.parameters.timeout}}", defaultOf("timeout"))
+		var args []string
+		for _, l := range strings.Split(block[1], "\n") {
+			args = append(args, inputs.Replace(strings.Trim(strings.TrimPrefix(strings.TrimSpace(l), "- "), `"`)))
+		}
+		if len(args) < 2 || args[0] != "batch" {
+			t.Fatalf("the step runs %v, not `adhar batch …`", args)
+		}
+		cmd, rest, err := BatchCmd.Find(args[1:])
+		if err != nil || cmd != runCmd {
+			t.Fatalf("the step runs %v, which is not `adhar batch run`: %v", args, err)
+		}
+		runWait, runTimeout, namespaceFlag, outputFlag = wait != "true", time.Hour, "", "table"
+		if err := cmd.ParseFlags(rest); err != nil {
+			t.Fatalf("`adhar %s` does not parse: %v", strings.Join(args, " "), err)
+		}
+		if got := cmd.Flags().Args(); len(got) != 1 || got[0] != "importer" {
+			t.Errorf("the job is the one positional argument: %v", got)
+		}
+		if (runWait != (wait == "true")) || runTimeout != 0 || namespaceFlag != "prod" || !machineReadable() {
+			t.Errorf("wait=%s parsed as --wait %v --timeout %s -n %q -o %q", wait, runWait, runTimeout, namespaceFlag, outputFlag)
+		}
+	}
+	if d := defaultOf("wait"); d != "true" {
+		t.Errorf("the step waits by default (§12.1): wait defaults to %q", d)
 	}
 }

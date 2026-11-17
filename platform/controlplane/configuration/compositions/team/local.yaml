@@ -43,7 +43,8 @@
 #     ((acme, a-b) and (acme-a, b)), and adopting would hand one team's
 #     namespaces the other's queue. core/adhar-batch's queue binding checks the
 #     same labels at admission.
-#   • deletionPolicy Orphan: Volcano refuses to delete a queue that is not Closed,
+#   • No Delete in managementPolicies (a namespaced Object has no
+#     deletionPolicy; the field is refused outright): Volcano refuses to delete a queue that is not Closed,
 #     and when Volcano is removed (A2.10) the CRD may be gone before the Objects
 #     are, so deleting would wedge every Team on a finalizer.
 # Without Volcano nothing of this is composed and BatchQueuesReady is True with
@@ -302,7 +303,7 @@ spec:
                 adhar.io/organisation: {{ $org | quote }}
                 adhar.io/team: {{ $name | quote }}
             spec:
-              deletionPolicy: Orphan
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
               providerConfigRef:
                 name: kubernetes-provider
                 kind: ClusterProviderConfig

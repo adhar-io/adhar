@@ -3,6 +3,9 @@ package kind
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -162,6 +165,7 @@ func TestEnsureCacheContainerIsIdempotentWhenRunningOnTheNetwork(t *testing.T) {
 		err error
 	}{
 		"container inspect -f {{.State.Running}}": answer("true\n", nil),
+		"container inspect -f {{index":            answer(cacheConfigVersion+"\n", nil),
 		"container inspect -f {{range":            answer("bridge kind \n", nil),
 	}}
 	if err := ensureCacheContainer(context.Background(), f.run, m); err != nil {
@@ -181,6 +185,7 @@ func TestEnsureCacheContainerReattachesAfterTheNetworkWasRecreated(t *testing.T)
 		err error
 	}{
 		"container inspect -f {{.State.Running}}": answer("true", nil),
+		"container inspect -f {{index":            answer(cacheConfigVersion+"\n", nil),
 		"container inspect -f {{range":            answer("bridge", nil),
 	}}
 	if err := ensureCacheContainer(context.Background(), f.run, m); err != nil {
@@ -198,6 +203,7 @@ func TestEnsureCacheContainerStartsAStoppedCache(t *testing.T) {
 		err error
 	}{
 		"container inspect -f {{.State.Running}}": answer("false", nil),
+		"container inspect -f {{index":            answer(cacheConfigVersion+"\n", nil),
 		"container inspect -f {{range":            answer("kind", nil),
 	}}
 	if err := ensureCacheContainer(context.Background(), f.run, m); err != nil {
@@ -305,4 +311,96 @@ func containsPrefix(list []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+// A stopped container keeps the settings it was created with. Without this a
+// machine that already has caches would keep the 7-day expiry — the setting
+// that empties the cache from under its own index — until the user purged it.
+func TestEnsureCacheContainerReplacesOneCreatedWithOlderSettings(t *testing.T) {
+	m, _ := mirrorFor("quay.io")
+	f := &fakeEngine{answers: map[string]struct {
+		out string
+		err error
+	}{
+		"container inspect -f {{.State.Running}}": answer("true", nil),
+		"container inspect -f {{index":            answer("\n", nil),
+	}}
+	if err := ensureCacheContainer(context.Background(), f.run, m); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(f.calls, "rm -f "+m.ContainerName()) || !containsPrefix(f.calls, "run ") {
+		t.Errorf("a cache created by an older adhar must be replaced; calls: %v", f.calls)
+	}
+	if !strings.Contains(strings.Join(m.RunArgs(), " "), "REGISTRY_PROXY_TTL=0") {
+		t.Error("the cache must never expire blobs: expiry deletes data other repositories still link to")
+	}
+}
+
+func TestHealCacheRestartsOnlyWhenItRemovedSomething(t *testing.T) {
+	m, _ := mirrorFor("quay.io")
+	for removed, wantRestart := range map[string]bool{"0\n": false, "2\n": true} {
+		f := &fakeEngine{answers: map[string]struct {
+			out string
+			err error
+		}{"exec " + m.ContainerName(): answer(removed, nil)}}
+		n, err := healCache(context.Background(), f.run, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (n > 0) != wantRestart || contains(f.calls, "restart "+m.ContainerName()) != wantRestart {
+			t.Errorf("removed %q: n=%d calls=%v", removed, n, f.calls)
+		}
+	}
+}
+
+// The script itself, against a real directory laid out like the registry's:
+// one healthy layer, one link whose blob is gone, one whose blob is empty.
+func TestCacheHealScriptDropsOnlyLinksWithoutData(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	digest := func(c string) string { return strings.Repeat(c, 64) }
+	link := func(repo, d string) string {
+		dir := filepath.Join(v2, "repositories", repo, "_layers", "sha256", d)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "link"), []byte("sha256:"+d), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	blob := func(d string, content []byte) {
+		dir := filepath.Join(v2, "blobs", "sha256", d[:2], d)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "data"), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	good := link("argoproj/argocd", digest("a"))
+	blob(digest("a"), []byte("layer"))
+	gone := link("argoproj/argocd", digest("b"))
+	empty := link("cilium/hubble-relay", digest("c"))
+	blob(digest("c"), nil)
+
+	out, err := exec.Command(sh, "-c", cacheHealScript, "heal", root).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "2" {
+		t.Errorf("removed count = %q, want 2", out)
+	}
+	if _, err := os.Stat(good); err != nil {
+		t.Error("a link whose blob is intact was removed")
+	}
+	for _, d := range []string{gone, empty} {
+		if _, err := os.Stat(d); err == nil {
+			t.Errorf("%s survived: the registry would keep serving an empty 200 for it", d)
+		}
+	}
 }

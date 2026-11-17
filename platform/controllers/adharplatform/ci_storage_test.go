@@ -2,8 +2,12 @@ package adharplatform
 
 import (
 	"context"
+	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 )
 
@@ -158,5 +163,75 @@ func TestEveryCIWorkspaceUsesTheCIStorageClass(t *testing.T) {
 				t.Errorf("%s: a CI workspace asks for %q, want %q", f, m[2], globals.CIStorageClass)
 			}
 		}
+	}
+}
+
+// A Kind cluster has no cloud block class, and the packages that name
+// `adhar-block` (Nexus) stayed Pending on it forever. The controller answers
+// the name with a copy of the default class — on Kind only, because on a cloud
+// the real class must be free to take the name.
+func TestALocalClusterPublishesTheBlockStorageClass(t *testing.T) {
+	ctx := context.Background()
+	s := storageScheme(t)
+	kind := &v1alpha1.AdharPlatform{Spec: v1alpha1.AdharPlatformSpec{Provider: v1alpha1.ProviderKind}}
+
+	r := &AdharPlatformReconciler{Client: fake.NewClientBuilder().WithScheme(s).WithObjects(
+		class("standard", "rancher.io/local-path", true),
+	).Build(), Scheme: s}
+	if err := r.reconcileLocalBlockStorageClass(ctx, kind); err != nil {
+		t.Fatal(err)
+	}
+	got := &storagev1.StorageClass{}
+	if err := r.Get(ctx, client.ObjectKey{Name: globals.BlockStorageClass}, got); err != nil {
+		t.Fatalf("a Kind cluster has no %s class: %v", globals.BlockStorageClass, err)
+	}
+	if got.Provisioner != "rancher.io/local-path" {
+		t.Fatalf("the local block class does not copy the default class: %+v", got)
+	}
+	if err := r.reconcileLocalBlockStorageClass(ctx, kind); err != nil {
+		t.Fatalf("a second pass must be a no-op: %v", err)
+	}
+
+	cloud := &AdharPlatformReconciler{Client: fake.NewClientBuilder().WithScheme(s).WithObjects(
+		class(globals.DefaultStorageClass, "rancher.io/local-path", true),
+	).Build(), Scheme: s}
+	aws := &v1alpha1.AdharPlatform{Spec: v1alpha1.AdharPlatformSpec{Provider: v1alpha1.EnvironmentProvider("aws")}}
+	if err := cloud.reconcileLocalBlockStorageClass(ctx, aws); err != nil {
+		t.Fatal(err)
+	}
+	if err := cloud.Get(ctx, client.ObjectKey{Name: globals.BlockStorageClass}, got); err == nil {
+		t.Fatal("an alias on a cloud cluster holds the name the real block class needs")
+	}
+}
+
+// Every StorageClass a package names must exist on a local cluster, or its
+// claim is Pending with nothing to explain it but an event.
+func TestEveryNamedStorageClassExistsOnALocalCluster(t *testing.T) {
+	published := map[string]bool{globals.BlockStorageClass: true, globals.CIStorageClass: true}
+	re := regexp.MustCompile(`(?m)^\s*storageClass(?:Name)?:\s*"?([a-z0-9][a-z0-9.-]*)"?\s*(?:#.*)?$`)
+	root := filepath.Join(stackRoot(t), "packages")
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.Contains(p, string(filepath.Separator)+"manifests"+string(filepath.Separator)) {
+			return err
+		}
+		if !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".tmpl") {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+			name := m[1]
+			if name == "null" || published[name] {
+				continue
+			}
+			rel, _ := filepath.Rel(root, p)
+			t.Errorf("%s names StorageClass %q, which a local cluster does not have", rel, name)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
