@@ -714,7 +714,7 @@ func TestEnvironmentCompositionRendersDaprWithCrossplane(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		cmd := exec.Command(bin, "render", xr, filepath.Join(controlPlaneDir(t), daprEnvComposition), functions, "--required-resources="+required)
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		if err := cmd.Run(); err != nil {
+		if err := runRender(cmd); err != nil {
 			t.Fatalf("crossplane render: %v\n%s", err, stderr.String())
 		}
 		var names []string

@@ -1,6 +1,7 @@
 package adharplatform
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -183,10 +184,13 @@ func TestQuotaRefusalPassesWithCrossplane(t *testing.T) {
 		return p
 	}
 	render := func(name string, cluster []map[string]any) (string, error) {
-		out, err := exec.Command(bin, "render", write(name+"-xr.yaml", vcXR(t, "xr-partitioned.yaml")),
+		var out bytes.Buffer
+		cmd := exec.Command(bin, "render", write(name+"-xr.yaml", vcXR(t, "xr-partitioned.yaml")),
 			filepath.Join(controlPlaneDir(t), bjComposition), filepath.Join(bjFixtureDir, "functions.yaml"),
-			"--required-resources="+write(name+"-required.yaml", cluster...)).CombinedOutput()
-		return string(out), err
+			"--required-resources="+write(name+"-required.yaml", cluster...))
+		cmd.Stdout, cmd.Stderr = &out, &out
+		err := runRender(cmd)
+		return out.String(), err
 	}
 	over := map[string]any{"requests.cpu": "4", "limits.cpu": "16", "requests.memory": "32Gi", "limits.memory": "32Gi", "pods": "100"}
 	for _, c := range []struct {

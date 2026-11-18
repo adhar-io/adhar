@@ -1057,7 +1057,7 @@ func TestVolcanoBatchJobRendersWithCrossplane(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			cmd := exec.Command(bin, args...)
 			cmd.Stdout, cmd.Stderr = &stdout, &stderr
-			if err := cmd.Run(); err != nil {
+			if err := runRender(cmd); err != nil {
 				t.Fatalf("crossplane render: %v\n%s", err, stderr.String())
 			}
 			real := map[string]map[string]any{}
@@ -1229,7 +1229,7 @@ func TestVolcanoBatchJobPassesWithCrossplane(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		cmd := exec.Command(bin, args...)
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		err := cmd.Run()
+		err := runRender(cmd)
 		var docs []map[string]any
 		for _, d := range strings.Split(stdout.String(), "\n---") {
 			var m map[string]any

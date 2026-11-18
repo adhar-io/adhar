@@ -339,7 +339,7 @@ func TestTheSmokeGateRendersWithCrossplane(t *testing.T) {
 	cmd := exec.Command(bin, "render", filepath.Join(fdFixtureDir, "project.yaml"), filepath.Join(controlPlaneDir(t), "compositions/project/local.yaml"),
 		filepath.Join(bjFixtureDir, "functions.yaml"), "--required-resources="+write("required.yaml", required...))
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := runRender(cmd); err != nil {
 		t.Fatalf("crossplane render: %v\n%s", err, stderr.String())
 	}
 	var docs []map[string]any

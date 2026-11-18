@@ -479,7 +479,7 @@ func TestBatchJobCalendarRendersWithCrossplane(t *testing.T) {
 	cmd := exec.Command(bin, "render", write("xr.yaml", xr), filepath.Join(controlPlaneDir(t), bjComposition), filepath.Join(bjFixtureDir, "functions.yaml"),
 		"--required-resources="+write("required.yaml", cluster...))
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := runRender(cmd); err != nil {
 		t.Fatalf("crossplane render: %v\n%s", err, stderr.String())
 	}
 	var copyCM, runCM, status map[string]any

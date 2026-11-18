@@ -529,7 +529,7 @@ func TestALaterEnvironmentAwaitsItsFirstPromotion(t *testing.T) {
 			filepath.Join(controlPlaneDir(t), "compositions", "apps", "argocd-multienv.yaml"),
 			filepath.Join(fnFixtureDir, "functions.yaml"), "--observed-resources="+observed)
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		if err := cmd.Run(); err != nil {
+		if err := runRender(cmd); err != nil {
 			t.Fatalf("crossplane render: %v\n%s", err, stderr.String())
 		}
 		for _, d := range strings.Split(stdout.String(), "\n---") {

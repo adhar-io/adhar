@@ -328,9 +328,9 @@ spec:
             category: "core"
             manifestPath: "core/Kamaji/manifests"
           - name: "volcano"
-            # The batch scheduler (ADR-0028, docs/design/0025 §4). Opt-in in every profile:
-            # pinned v1.16.0 predates Kubernetes 1.37 support (v1.17 is the production gate,
-            # design §4.6), so it is enabled from the Marketplace, knowingly. Needs
+            # The batch scheduler (ADR-0028, docs/design/0025 §4). ON in production, OFF
+            # here: one Kind node cannot spare it (localSafe: false), and the native path
+            # runs every BatchJob without it. Enable from the Marketplace, knowingly. Needs
             # cert-manager. Only pods naming schedulerName: volcano ever reach it.
             enabled: "false"
             namespace: "adhar-system"

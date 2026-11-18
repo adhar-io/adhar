@@ -305,7 +305,7 @@ ADR-0028 records the decision and its evidence. This section is the engineering.
 | Descriptor | `ConfigMap adhar-batch-scheduler` in `adhar-system`, rendered at seed time beside the root queue: `scheduler: volcano`, `version`, `gang: "true"`, `rootQueue: adhar-batch`, `prodDeservedCPU`, `prodDeservedMemory` (D7, D17). The `BatchJob` and Team compositions read it as an extra resource. Absent means the native path. |
 | Metrics | ServiceMonitors for the scheduler and controllers. Useful series [S22]: `volcano_e2e_job_scheduling_latency_milliseconds`, `volcano_queue_{allocated,deserved,capability,inqueue}_*`, `volcano_unschedule_job_counts`, `volcano_eviction_transactions_total`. |
 | Contract | `adhar-package.yaml`: category `core`, `planeAffinity: data-plane` (it schedules workload pods; ADR-0023), `stability: alpha` → `beta` after the canary, `dependencies: [cert-manager]`. |
-| Profiles | Wired in the local, production and gitops ApplicationSets plus `environments/{local,prod}/config.yaml`. `enabled: "false"` everywhere until the production gate; then production `true`. **Local stays opt-in** (memory), and the native path covers it. |
+| Profiles | Wired in the local, production and gitops ApplicationSets plus `environments/{local,prod}/config.yaml`. `enabled: "false"` everywhere until the production gate; then production `true` — **passed 2026-11-19 by maintainer sign-off** (v1.16.0 healthy on Kubernetes 1.37.2, DigitalOcean, 2026-11-18): production `true`, local and gitops `false`. **Local stays opt-in** (memory), and the native path covers it. |
 | Optional | The Headlamp Volcano plugin [S26] in the `headlamp` package (P2-nice). |
 
 ### 4.2 Scheduler configuration
@@ -2326,7 +2326,7 @@ Q:        KIT-Q.1 → KIT-Q.2 → KIT-Q.3 → (KIT-Q.4, Q.5, Q.7) → KIT-Q.6 �
 
 | # | Risk | Likelihood / impact | Mitigation | Owner |
 |---|---|---|---|---|
-| R1 | Volcano not validated on Kubernetes 1.37 [S5][S6] | Medium / Medium | Disabled by default; canary on 1.37; production gate on v1.17 [S7]; native path is the product until then | platform |
+| R1 | Volcano not validated on Kubernetes 1.37 [S5][S6] | Medium / Medium | Disabled by default; canary on 1.37; production gate on v1.17 [S7]; native path is the product until then | platform — **gate passed by maintainer sign-off 2026-11-19**: on in production, v1.16.0 ran healthy on 1.37.2; move to v1.17 when it ships |
 | R2 | API server memory (97%) and +CRDs | Medium / High | Measure (A2.8); JobFlow off; native path needs no CRDs beyond the XRD | platform |
 | R3 | Autoscaler blind to gangs held at enqueue [S20] | High / High (P2) | PodGroup demand rule (PLAT-2.6) | platform |
 | R4 | Two schedulers bind to the same nodes | Medium / Low–Medium | `PodFailed → RestartJob`; Count with backoff; P4 batch node group | platform |

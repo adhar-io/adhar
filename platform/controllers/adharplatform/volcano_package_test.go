@@ -217,8 +217,11 @@ func TestVolcanoIsNotTheDefaultScheduler(t *testing.T) {
 			}
 		}
 	}
-	// No profile turns it on: the production gate is v1.17 or a maintainer's
-	// sign-off (design 0025 §4.6). The Marketplace flips Gitea's copy, never these.
+	// ON in production (the maintainer sign-off design 0025 §4.6 allows in place of
+	// v1.17, given 2026-11-19), OFF locally and in the GitOps profile: one Kind node
+	// cannot spare it, and the native path runs every BatchJob without it. The
+	// Marketplace flips Gitea's copy either way.
+	wantOn := map[string]bool{"adhar-appset-production.yaml": true}
 	for _, appset := range []string{"adhar-appset-local.yaml", "adhar-appset-production.yaml", "adhar-appset-gitops.yaml"} {
 		found := false
 		for _, e := range loadAppSetElements(t, appset) {
@@ -226,8 +229,8 @@ func TestVolcanoIsNotTheDefaultScheduler(t *testing.T) {
 				continue
 			}
 			found = true
-			if e.Enabled != "false" {
-				t.Errorf("%s ships volcano enabled=%q; it is opt-in from the Marketplace", appset, e.Enabled)
+			if want := map[bool]string{true: "true", false: "false"}[wantOn[appset]]; e.Enabled != want {
+				t.Errorf("%s ships volcano enabled=%q, want %q", appset, e.Enabled, want)
 			}
 			if e.Namespace != "adhar-system" || e.ManifestPath != "core/volcano/manifests" || e.Category != "core" {
 				t.Errorf("%s wires volcano wrongly: %+v", appset, e)
@@ -242,10 +245,10 @@ func TestVolcanoIsNotTheDefaultScheduler(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if on, listed := appSetEnabledFlags(raw)["volcano"]; !listed || on {
+		if on, listed := appSetEnabledFlags(raw)["volcano"]; !listed || on != wantOn[appset] {
 			t.Errorf("%s: the text scan reads volcano as listed=%v enabled=%v", appset, listed, on)
 		}
-		if !appSetEnabledFlags(setAppSetFlags(raw, map[string]bool{"volcano": true}))["volcano"] {
+		if appSetEnabledFlags(setAppSetFlags(raw, map[string]bool{"volcano": !wantOn[appset]}))["volcano"] == wantOn[appset] {
 			t.Errorf("%s: a Marketplace flip does not reach volcano's enabled line", appset)
 		}
 	}
