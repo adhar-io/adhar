@@ -339,6 +339,10 @@ type observation struct {
 	// DependsOn is the jobs a dependency run was started after (the observer
 	// writes it on the run it creates).
 	DependsOn string
+	// Queued says a backfill holds this native run back: it carries
+	// adhar.io/batch-queued=backfill. Suspended with the mark, it was never
+	// stopped by anyone.
+	Queued bool
 }
 
 func parseTime(s string) time.Time {
@@ -366,6 +370,7 @@ func observe(run *unstructured.Unstructured, allPods []unstructured.Unstructured
 		Actor:       annotations[annotationActor],
 		ScheduledAt: annotations[annotationScheduled],
 		DependsOn:   annotations[annotationDependsOn],
+		Queued:      runKindOf(run) == kindJob && annotations[annotationQueued] == queuedByBackfill,
 		Params:      runParams(run),
 		Created:     run.GetCreationTimestamp().Time,
 		PodNames:    map[string]bool{},

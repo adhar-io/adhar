@@ -263,9 +263,12 @@ func TestTheNpmExceptionCannotExcuseTheApplicationsOwnPackages(t *testing.T) {
 		"CVE-2026-19534":  {"undici", "6.28.0"},
 		"CVE-2026-109383": {"undici", "6.28.0"},
 		"CVE-2026-87018":  {"undici", "6.28.0"},
+		// Nested in npm's tree: npm/node_modules/tinyglobby/node_modules/picomatch
+		// (Node 24.22.2's npm 11.19.1; deno-func, 2026-11-18).
+		"CVE-2026-112366": {"tinyglobby/node_modules/picomatch", "4.0.4"},
 	}
 	for id, pkg := range findings {
-		purl := "pkg:npm/" + pkg[0] + "@" + pkg[1]
+		purl := "pkg:npm/" + pkg[0][strings.LastIndex(pkg[0], "/")+1:] + "@" + pkg[1]
 		npm := npmBundledInNodeEngine + pkg[0] + "/package.json"
 		// Only checked while an entry for the id exists: when the exception is
 		// retired, the gate is meant to fail again, not this test.

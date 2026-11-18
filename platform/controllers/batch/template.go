@@ -50,6 +50,11 @@ const (
 	// compares labels and the pod template, never the Job's own annotations, so
 	// it is client-settable like the workflow step's adhar.io/batch-workflow.
 	annotationDependsOn = "adhar.io/batch-depends-on"
+	// annotationQueued is on a run a backfill created suspended and has not
+	// released yet (cmd/batch/backfill.go, the Console's backfill dialog). The
+	// release removes it in the same patch as suspend=false.
+	annotationQueued = "adhar.io/batch-queued"
+	queuedByBackfill = "backfill"
 
 	envParams    = "ADHAR_BATCH_PARAMS"
 	envTrigger   = "ADHAR_BATCH_TRIGGER"

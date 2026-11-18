@@ -22,10 +22,10 @@ import (
 	"net/http"
 	"strings"
 
-	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
 
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // bridgeService is the Service Strimzi creates for `KafkaBridge/adhar-events`.
@@ -52,18 +52,35 @@ const (
 //
 // The returned cleanup exists so callers need not care which mechanism was
 // used; today it is a no-op.
-func portForwardBridge(ctx context.Context) (string, func(), error) {
-	cfg, err := helpers.GetKubeConfig()
+//
+// kubeconfig is the --kubeconfig flag; empty follows $KUBECONFIG, then
+// ~/.kube/config (clusterConfig).
+func portForwardBridge(ctx context.Context, kubeconfig string) (string, func(), error) {
+	cfg, err := clusterConfig(kubeconfig)
 	if err != nil {
 		return "", nil, unreachable(err)
 	}
 	return bridgeThrough(ctx, cfg)
 }
 
+// clusterConfig is the cluster `adhar events` reads: the --kubeconfig file
+// when one is given, else client-go's standard rules ($KUBECONFIG, which may
+// list several files, then ~/.kube/config), at the current context. It is how
+// `adhar batch` connects (cmd/batch connect), so `adhar events list` and
+// `adhar batch history` pointed the same way read the same cluster's bus.
+// helpers.GetKubeConfig is not used: it reads helpers.KubeConfigPath, which
+// nothing assigns, so it always meant ~/.kube/config whatever the flag said.
+func clusterConfig(kubeconfig string) (*rest.Config, error) {
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfig != "" {
+		rules.ExplicitPath = kubeconfig
+	}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{}).ClientConfig()
+}
+
 // bridgeThrough reaches the bridge of the cluster cfg names. A command that
 // already connected somewhere (`adhar batch`, by --kubeconfig or $KUBECONFIG)
-// hands in that config, so the events it reads are that cluster's and never
-// the default kubeconfig's.
+// hands in that config, so the events it reads are that cluster's.
 func bridgeThrough(ctx context.Context, cfg *rest.Config) (string, func(), error) {
 	// A client built from the kubeconfig: same CA, same credentials, same
 	// proxy settings as every other call this CLI makes.

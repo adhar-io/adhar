@@ -90,8 +90,16 @@ func transitionsOf(o observation, rec *runRecord, baseline bool) []transition {
 	}
 	rec.Running = append([]string(nil), o.RunningPods...)
 
+	// A native backfill creates every date's run suspended and releases them a
+	// few at a time. A run still held back — the backfill's mark, and nothing
+	// ever ran — is queued, not stopped: publishing run.stopped at its creation
+	// and run.resumed at its release would put two things nobody did on the
+	// bus for every date of every backfill. Once it has run, a stop is a stop,
+	// mark or not.
+	heldBack := o.Queued && !rec.Started
+
 	switch {
-	case o.Phase == phaseStopped && rec.Stops == rec.Resumes:
+	case o.Phase == phaseStopped && rec.Stops == rec.Resumes && !heldBack:
 		rec.Stops++
 		out = append(out, transition{Type: events.TypeBatchRunStopped})
 	case rec.Stops > rec.Resumes && (o.Phase == phasePending || o.Phase == phaseRunning):

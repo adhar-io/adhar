@@ -152,6 +152,70 @@ func TestStopAndResumeArePublishedEachTime(t *testing.T) {
 	want(t, "stopped twice", step(rec, run), events.TypeBatchRunStopped)
 }
 
+// A native backfill creates every date's run suspended, marked
+// adhar.io/batch-queued=backfill, and releases them a few at a time, removing
+// the mark in the same patch. Nobody stopped such a run and nobody resumed it:
+// its events are requested, started and its end, exactly as a run created
+// running — not run.stopped at its creation and run.resumed at its release.
+func TestARunABackfillHoldsBackIsNeitherStoppedNorResumed(t *testing.T) {
+	queue := func(run *unstructured.Unstructured, value string) {
+		run.SetAnnotations(map[string]string{annotationQueued: value})
+		_ = unstructured.SetNestedField(run.Object, true, "spec", "suspend")
+		setCond(run, "Suspended", "JobSuspended", "2026-11-03T17:30:00Z")
+	}
+	release := func(run *unstructured.Unstructured) {
+		run.SetAnnotations(nil)
+		_ = unstructured.SetNestedField(run.Object, false, "spec", "suspend")
+		_ = unstructured.SetNestedSlice(run.Object, nil, "status", "conditions")
+	}
+
+	rec := &runRecord{UID: "u1"}
+	run := runJob("importer-09932cb3", "u1", "backfill", map[string]string{"businessDate": "2026-11-01"})
+	queue(run, queuedByBackfill)
+	want(t, "created queued", step(rec, run), events.TypeBatchRunRequested)
+	want(t, "still queued", step(rec, run))
+	release(run)
+	want(t, "released, no pod yet", step(rec, run))
+	setStatus(run, "active", int64(1))
+	running := runPod("p1", run, t0, podState{phase: "Running", running: true})
+	want(t, "released and running", step(rec, run, running), events.TypeBatchRunStarted)
+	if rec.Stops != 0 || rec.Resumes != 0 {
+		t.Errorf("a queued run is no stop and no resume: %+v", rec)
+	}
+
+	// Once it has run, a stop is a person's, whatever annotations a hand-made
+	// release left behind.
+	run.SetAnnotations(map[string]string{annotationQueued: queuedByBackfill})
+	_ = unstructured.SetNestedField(run.Object, true, "spec", "suspend")
+	setStatus(run, "active", int64(0))
+	want(t, "stopped after it ran", step(rec, run), events.TypeBatchRunStopped)
+	release(run)
+	setStatus(run, "active", int64(1))
+	want(t, "resumed", step(rec, run, running), events.TypeBatchRunResumed)
+
+	// Suspended without the backfill's mark — a person stopped it before any
+	// pod ran (Kubernetes 1.36 clears startTime on suspend, so the status
+	// looks the same) — or with a mark someone else wrote: a stop.
+	for what, value := range map[string]string{"no mark": "", "another writer's mark": "someone-else"} {
+		rec := &runRecord{UID: "u2", Requested: true}
+		run := runJob("importer-1f3a9c20", "u2", "manual", nil)
+		queue(run, value)
+		if value == "" {
+			run.SetAnnotations(nil)
+		}
+		want(t, what, step(rec, run), events.TypeBatchRunStopped)
+	}
+
+	// Only a native run is held back by suspension. A Volcano run is created
+	// as it is and its queue decides; an Aborted one carrying the mark (copied
+	// over by hand) was aborted by someone.
+	volcano := runJob("trainer-5be1d7aa", "u3", "backfill", nil)
+	volcano.SetAPIVersion("batch.volcano.sh/v1alpha1")
+	volcano.SetAnnotations(map[string]string{annotationQueued: queuedByBackfill})
+	_ = unstructured.SetNestedField(volcano.Object, "Aborted", "status", "state", "phase")
+	want(t, "an aborted Volcano run", step(&runRecord{UID: "u3", Requested: true}, volcano), events.TypeBatchRunStopped)
+}
+
 // Exit 0 covers four outcomes (D13). A run the kit skipped is `run.skipped`,
 // never also `run.succeeded`, and only "already-complete" counts as succeeded
 // for a job that depends on it.

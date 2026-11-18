@@ -253,6 +253,19 @@ data:
           undici 6.29.1, merged into npm/cli on 2026-10-27 and in no npm release
           yet (11.21.1 and 12.2.1 bundle 6.29.0).
         expired_at: 2026-12-03
+      - id: CVE-2026-112366
+        # Refused deno-func on 2026-11-18: Node 24.22.2 ships npm 11.19.1, whose
+        # tinyglobby carries picomatch 4.0.4 (read from the official
+        # node-v24.22.2-linux-x64 tarball, the one node-engine installs).
+        paths: ["layers/paketo-buildpacks_node-engine/node/lib/node_modules/npm/node_modules/tinyglobby/node_modules/picomatch/package.json"]
+        statement: >-
+          picomatch bundled in the npm CLI (through tinyglobby, npm's file
+          globbing), not a picomatch the application imports: a ReDoS on a
+          crafted glob pattern, and only npm hands this copy a pattern; the
+          running process is node, never npm. No fixed release: the advisory
+          (GHSA-fc5q-39xc-vjpf) covers picomatch through 4.0.7, the newest
+          release, so no npm or Node release can carry a fix yet.
+        expired_at: 2026-12-03
   # Class (3), see the header. Applied by trivy-scan's evaluate step
   # (adhar-scan-lib runtime-layer-exceptions.jq), not by Trivy, and only to a
   # finding whose id, purl (name AND version), CNB layer (from the image's

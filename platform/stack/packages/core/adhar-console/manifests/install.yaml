@@ -497,7 +497,7 @@ spec:
           readOnly: true
       containers:
       - name: adhar-console
-        image: ghcr.io/adhar-io/adhar-console:0.1.182
+        image: ghcr.io/adhar-io/adhar-console:0.1.183
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

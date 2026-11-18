@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"adhar-io/adhar/cmd/helpers"
 	platformevents "adhar-io/adhar/platform/events"
 
 	"k8s.io/client-go/rest"
@@ -196,16 +195,16 @@ func kubeconfigFor(t *testing.T, server string) string {
 // subscribed, polled and deleted where it lives. A cluster with no bridge says
 // so in one sentence instead of failing inside the consumer protocol.
 func TestReadHistoryReadsTheBridgeOfTheClusterItIsGiven(t *testing.T) {
-	prev, prevPath, prevTransport := historyPollTimeout, helpers.KubeConfigPath, sharedTransport
+	prev, prevTransport := historyPollTimeout, sharedTransport
 	historyPollTimeout = time.Millisecond
-	t.Cleanup(func() { historyPollTimeout, helpers.KubeConfigPath, sharedTransport = prev, prevPath, prevTransport })
+	t.Cleanup(func() { historyPollTimeout, sharedTransport = prev, prevTransport })
 
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("the default kubeconfig's cluster was asked %s %s; the caller named another", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer other.Close()
-	helpers.KubeConfigPath = kubeconfigFor(t, other.URL)
+	t.Setenv("KUBECONFIG", kubeconfigFor(t, other.URL))
 
 	f := &fakeBridge{records: [][]record{{batchRecord(t, 0, platformevents.TypeBatchRunFailed, "prod/importer", "2026-11-02T01:10:00Z")}}}
 	bridge := http.StripPrefix(bridgeProxy, f.handler(t))

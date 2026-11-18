@@ -27,7 +27,7 @@ type HistoryQuery struct {
 	Bridge string
 	// Cluster is the cluster whose bridge that is: the config the caller
 	// connected with, so a command pointed at one cluster reads that cluster's
-	// events. Nil is the default kubeconfig, as `adhar events` reaches it.
+	// events. Nil is $KUBECONFIG, else ~/.kube/config (clusterConfig).
 	Cluster *rest.Config
 	// Topics to read; at least one.
 	Topics []string
@@ -59,7 +59,7 @@ func ReadHistory(ctx context.Context, q HistoryQuery) ([]platformevents.Event, [
 		if q.Cluster != nil {
 			base, cleanup, err = bridgeThrough(ctx, q.Cluster)
 		} else {
-			base, cleanup, err = portForwardBridge(ctx)
+			base, cleanup, err = portForwardBridge(ctx, "")
 		}
 		if err != nil {
 			return nil, nil, err

@@ -208,7 +208,10 @@ func run(cmd *cobra.Command) error {
 	var cleanup func()
 	if base == "" {
 		var err error
-		base, cleanup, err = portForwardBridge(ctx)
+		// --kubeconfig is the root command's persistent flag; a command
+		// built without it (a test) reads "" and follows $KUBECONFIG.
+		kubeconfig, _ := cmd.Flags().GetString("kubeconfig")
+		base, cleanup, err = portForwardBridge(ctx, kubeconfig)
 		if err != nil {
 			return err
 		}

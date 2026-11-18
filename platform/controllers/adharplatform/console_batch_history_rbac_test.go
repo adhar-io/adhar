@@ -148,6 +148,32 @@ func TestConsoleReachesOnlyTheEventBridgeThroughTheServiceProxy(t *testing.T) {
 	}
 }
 
+// D12 in design 0025 states the grant the console holds, and it is read as the
+// contract by the next lane: it once said `get` alone, which the envtest
+// (TestConsoleBridgeReadOnARealAPIServer) proves is refused on the first POST.
+// The row must name every verb the Role grants and the name it grants it on.
+func TestTheDesignStatesTheBridgeGrantTheConsoleHolds(t *testing.T) {
+	grants, _ := consoleProxyGrants(t)
+	if len(grants) != 1 {
+		t.Fatalf("want exactly one services/proxy grant, got %+v", grants)
+	}
+	row := batchDocTableRow(batchDocSection(t, batchDoc(t, batchDesignDoc), "### 15.1 "), "D12")
+	if row == nil || row[0] != "D12" {
+		t.Fatal("design 0025 §15.1 has no D12 row")
+	}
+	text := strings.Join(row, " | ")
+	for _, v := range grants[0].verbs {
+		if !strings.Contains(text, "`"+v+"`") {
+			t.Errorf("D12 does not name the verb `%s` the Role grants on services/proxy (Role grants %v)", v, grants[0].verbs)
+		}
+	}
+	for _, want := range []string{consoleBatchHistoryRole, eventBridgeProxyName} {
+		if !strings.Contains(text, want) {
+			t.Errorf("D12 does not name %q", want)
+		}
+	}
+}
+
 // The name in the Role is the name both readers put in the URL. The CLI's is in
 // this repository; the console's is checked when its checkout is beside this
 // one (the same arrangement as consoleEventsDir).

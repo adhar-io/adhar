@@ -34,7 +34,9 @@ import (
 //   - narrow: an exact id at an exact package location, never a severity, a
 //     package type or a glob, and never a match on the application's own copy;
 //   - justified: why the running image cannot reach it, and which upstream
-//     release removes it;
+//     release removes it — or, when the advisory names no patched version at
+//     all (GHSA-fc5q-39xc-vjpf, picomatch through its newest release,
+//     2026-11-18), that there is none, citing the advisory;
 //   - short: each expires no more than 30 days after the review recorded on
 //     the ConfigMap, and once expired the finding fails the gate again.
 
@@ -52,6 +54,7 @@ var runtimeLayerExceptionIDs = map[string][]string{
 	"npm (class 2, ignore.yaml)": {
 		"CVE-2026-102276", "CVE-2026-102278", "CVE-2026-109383",
 		"CVE-2026-109869", "CVE-2026-19534", "CVE-2026-87018",
+		"CVE-2026-112366",
 	},
 	"pip (class 3, runtime-layers.yaml)": {
 		"CVE-2025-47273", "CVE-2026-114613", "CVE-2026-97687",
@@ -126,7 +129,11 @@ var (
 	advisoryID = regexp.MustCompile(`^(CVE-\d{4}-\d{4,}|GHSA(-[23456789cfghjmpqrvwx]{4}){3})$`)
 	// One package.json directly under npm's own node_modules: no nesting (a
 	// dependency of a dependency is a different copy) and no glob.
-	npmPackageJSON = regexp.MustCompile(`^(@[a-z0-9._-]+/)?[a-z0-9._-]+/package\.json$`)
+	// One package.json in npm's own tree: a package npm bundles, or one nested
+	// under it (npm/node_modules/tinyglobby/node_modules/picomatch). Exact, so
+	// it still names exactly one location; never a glob.
+	ghsaID         = regexp.MustCompile(`GHSA(-[23456789cfghjmpqrvwx]{4}){3}`)
+	npmPackageJSON = regexp.MustCompile(`^((@[a-z0-9._-]+/)?[a-z0-9._-]+/node_modules/)*(@[a-z0-9._-]+/)?[a-z0-9._-]+/package\.json$`)
 	// pkg:pypi/<name>@<exact version>, nothing else: no qualifiers, no subpath,
 	// no range.
 	exactPypiPURL = regexp.MustCompile(`^pkg:pypi/[a-z0-9._-]+@[0-9][0-9A-Za-z.+!-]*$`)
@@ -174,7 +181,7 @@ func TestRuntimeLayerExceptionsAreNarrowJustifiedAndShortLived(t *testing.T) {
 			rest, ok := strings.CutPrefix(p, npmBundledInNodeEngine)
 			if !ok || !npmPackageJSON.MatchString(rest) {
 				t.Errorf("%s is scoped to %q; it may only name one package.json directly under %s — the "+
-					"npm CLI node-engine bundles — with no glob and no nesting", v.ID, p, npmBundledInNodeEngine)
+					"npm CLI node-engine bundles — exactly, with no glob", v.ID, p, npmBundledInNodeEngine)
 			}
 			if seenNpm[v.ID+" "+p] {
 				t.Errorf("%s at %s is listed twice", v.ID, p)
@@ -185,8 +192,9 @@ func TestRuntimeLayerExceptionsAreNarrowJustifiedAndShortLived(t *testing.T) {
 		if len(s) < 80 || !strings.Contains(s, "npm") || !(strings.Contains(s, "never") || strings.Contains(s, "not ")) {
 			t.Errorf("%s: %q does not say why the running image cannot reach npm's copy", v.ID, s)
 		}
-		if !strings.Contains(s, "Fixed in") {
-			t.Errorf("%s: the statement must name the upstream release that removes it (\"Fixed in …\")", v.ID)
+		if !strings.Contains(s, "Fixed in") && !(strings.Contains(s, "No fixed release") && ghsaID.MatchString(s)) {
+			t.Errorf("%s: the statement must name the upstream release that removes it (\"Fixed in …\"), "+
+				"or say \"No fixed release\" and cite the advisory (GHSA-…) that names no patched version", v.ID)
 		}
 		box(v.ID, v.ExpiredAt)
 	}
