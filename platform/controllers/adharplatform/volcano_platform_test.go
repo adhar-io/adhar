@@ -452,7 +452,8 @@ func TestVolcanoObjectNamesConflictWithNoOtherPackage(t *testing.T) {
 			}
 		}
 	}
-	if len(ours) < 40 || len(serviceEnv) != 3 {
+	// Five Services: admission, controllers, scheduler, and the dashboard with its sign-in proxy.
+	if len(ours) < 40 || len(serviceEnv) != 5 {
 		t.Fatalf("read %d Volcano objects and %d Services; this guard read too little", len(ours), len(serviceEnv))
 	}
 

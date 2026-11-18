@@ -1,0 +1,220 @@
+# Volcano Dashboard (volcano-sh/dashboard v0.2.0) — queues, Volcano jobs,
+# PodGroups and their pods in the browser, at https://volcano.<host>. It is the
+# one Volcano component with a UI, and what gives Volcano a tile in the
+# Console's App drawer, which lists the platform UIs that have a route.
+#
+# Adapted from upstream deployment/volcano-dashboard.yaml at v0.2.0 (two
+# containers: nginx serving the SPA on 8080 and proxying /api/ to the Node
+# backend on localhost:3001, which calls the Kubernetes API as its
+# ServiceAccount). Three deliberate departures, all about who can do what
+# through it:
+#
+#   1. READ-ONLY RBAC. Upstream grants create/update/patch/delete on Volcano
+#      Jobs and Queues and the backend also exposes POST /api/pods — all of it
+#      performed as THIS ServiceAccount, not as the person clicking. Behind a
+#      shared sign-in that would let anyone who reaches the page delete a team's
+#      queue or run a pod in adhar-system. Queues belong to the Team composition
+#      (GitOps) and runs to the BatchJob API, so the dashboard only reads; its
+#      write buttons answer 403.
+#   2. ONLY platform-admin gets in (--allowed-group in sso.yaml). Even read-only,
+#      the backend lists pods in every namespace, and a pod's spec includes the
+#      literal values of its env. platform-admin is cluster-admin already
+#      (security/keycloak k8s-rbac.yaml), so this shows them nothing new; teams
+#      see their own queues in the Console (Develop → Batch → Queues) under their
+#      own RBAC.
+#   3. A NetworkPolicy admits only the oauth2-proxy. Without it any pod in the
+#      cluster could call the dashboard Service directly and skip the sign-in.
+#
+# Images pinned by tag AND multi-arch index digest; upstream ships :latest with
+# imagePullPolicy: Always.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volcano-dashboard
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano-dashboard
+    app.kubernetes.io/part-of: volcano
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-volcano-dashboard
+  labels:
+    app.kubernetes.io/name: volcano-dashboard
+    app.kubernetes.io/part-of: volcano
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+rules:
+  - apiGroups: [batch.volcano.sh]
+    resources: [jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [scheduling.volcano.sh]
+    resources: [queues, podgroups]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods, namespaces, events]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-volcano-dashboard
+  labels:
+    app.kubernetes.io/name: volcano-dashboard
+    app.kubernetes.io/part-of: volcano
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-volcano-dashboard
+subjects:
+  - kind: ServiceAccount
+    name: volcano-dashboard
+    namespace: adhar-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: volcano-dashboard
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano-dashboard
+    app.kubernetes.io/part-of: volcano
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: volcano-dashboard
+  template:
+    metadata:
+      labels:
+        app: volcano-dashboard
+        app.kubernetes.io/name: volcano-dashboard
+        app.kubernetes.io/part-of: volcano
+    spec:
+      serviceAccountName: volcano-dashboard
+      # One shared namespace: without this every Service becomes an env var.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: frontend
+          image: docker.io/volcanosh/vc-dashboard-frontend:v0.2.0@sha256:1bd19525666aa3d59b79252d7c80ab1734ac903eef70dcacbfd0c527510a9d55
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /, port: 8080}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /, port: 8080}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-run, mountPath: /run}
+        - name: backend
+          image: docker.io/volcanosh/vc-dashboard-backend:v0.2.0@sha256:5f463eed2059015d233eba21b8e16b1a850eb0e1cd42e23d0dd5bf94e9006c41
+          env:
+            - {name: NODE_ENV, value: production}
+            - {name: PORT, value: "3001"}
+          ports:
+            # localhost only: nginx proxies /api/ to it; the Service does not expose it.
+            - {name: api, containerPort: 3001, protocol: TCP}
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          readinessProbe:
+            tcpSocket: {port: 3001}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: 3001}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-run, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: volcano-dashboard
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano-dashboard
+    app.kubernetes.io/part-of: volcano
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  type: ClusterIP
+  selector:
+    app: volcano-dashboard
+  ports:
+    - {name: http, port: 8080, targetPort: 8080, protocol: TCP}
+---
+# Only the sign-in proxy may reach the dashboard (see 3. above).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: volcano-dashboard
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano-dashboard
+    app.kubernetes.io/part-of: volcano
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  podSelector:
+    matchLabels:
+      app: volcano-dashboard
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: volcano-oauth2-proxy
+      ports:
+        - {port: 8080, protocol: TCP}
+---
+# Through the Cilium Gateway (adhar-gateway); TLS terminates at the Gateway.
+# The backend is the oauth2-proxy (sso.yaml) — never the dashboard directly.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: volcano
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: volcano
+    app.kubernetes.io/part-of: volcano
+  annotations:
+    # After the oauth2-proxy (sso.yaml, wave 5): a route whose backend Service
+    # does not exist yet is Degraded (ResolvedRefs=False) and deadlocks the sync.
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - volcano.adhar.localtest.me
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: volcano-oauth2-proxy
+          port: 4180
