@@ -90,7 +90,7 @@ For your own applications, use ` + "`adhar application`" + `.`,
 func init() {
 	p := StackCmd.PersistentFlags()
 	p.StringVar(&flagProfile, "profile", "", "Stack profile to edit: local or production (default: detected from the cluster)")
-	p.StringVar(&flagStackDir, "stack-dir", "", "Platform stack directory (default: the stack built into adhar, or ./platform/stack inside a source checkout)")
+	p.StringVar(&flagStackDir, "stack-dir", "", "Platform stack directory to use instead of the one built into adhar (also $ADHAR_STACK_DIR); in the adhar repository, platform/stack")
 	p.StringVarP(&flagNamespace, "namespace", "n", "adhar-system", "Namespace the platform runs in")
 	p.BoolVar(&flagJSON, "json", false, "Machine-readable output")
 
@@ -104,8 +104,8 @@ func init() {
 var stackSource stack.Source
 
 // useStack resolves the stack once per invocation and points flagStackDir at it:
-// --stack-dir or $ADHAR_STACK_DIR when given, the working tree inside a source
-// checkout, otherwise the stack built into the binary. Every subcommand reads
+// --stack-dir or $ADHAR_STACK_DIR when given, otherwise the stack built into the
+// binary, in every working directory. Every subcommand reads
 // files through flagStackDir, so none of them needs a clone of the repository.
 func useStack() error {
 	if stackSource.Dir != "" {
@@ -136,8 +136,12 @@ func requireEditableStack(verb string) error {
     adhar stack %s <package>
     adhar upgrade
 
+  In the adhar repository itself, edit its stack by naming it:
+
+    adhar stack %s <package> --stack-dir platform/stack
+
   Or toggle the package in the Console's Marketplace, which writes to the
-  platform's GitOps repository directly`, verb, stack.EnvStackDir, verb)
+  platform's GitOps repository directly`, verb, stack.EnvStackDir, verb, verb)
 }
 
 var exportCmd = &cobra.Command{

@@ -85,9 +85,10 @@ Upgrades the platform on the current kubeconfig context in two phases:
    requests an ArgoCD refresh.
 
 The stack is the one built into this adhar binary, so upgrading the binary and
-running this command is the whole upgrade. Inside a source checkout the working
-tree's platform/stack is used instead; --stack-dir (or $ADHAR_STACK_DIR) names
-any other copy, such as one written by ` + "`adhar stack export`" + `.`,
+running this command is the whole upgrade, from any directory: the CLI never
+reads a platform/stack folder it was not pointed at. --stack-dir (or
+$ADHAR_STACK_DIR) names another copy — one written by ` + "`adhar stack export`" + `, or
+the adhar repository's own platform/stack while developing it.`,
 	Example: `  # Review and apply an upgrade interactively
   adhar upgrade
 
@@ -104,7 +105,7 @@ func init() {
 	UpgradeCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Apply without interactive confirmation")
 	UpgradeCmd.Flags().BoolVar(&diffOnly, "diff-only", false, "Show the stack diff and exit without changing anything")
 	UpgradeCmd.Flags().BoolVar(&skipFoundation, "skip-foundation", false, "Skip foundation convergence; only diff/sync the stack")
-	UpgradeCmd.Flags().StringVar(&stackDirFlag, "stack-dir", "", "Platform stack directory (default: the stack built into adhar, or ./platform/stack inside a source checkout)")
+	UpgradeCmd.Flags().StringVar(&stackDirFlag, "stack-dir", "", "Platform stack directory to use instead of the one built into adhar (also $ADHAR_STACK_DIR); in the adhar repository, platform/stack")
 	UpgradeCmd.Flags().StringVar(&platformName, "name", globals.DefaultClusterName, "Name of the AdharPlatform resource")
 }
 

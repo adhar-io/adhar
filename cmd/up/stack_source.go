@@ -11,9 +11,9 @@ import (
 // resolveStack returns the platform stack `adhar up` seeds into the GitOps
 // repositories. A -p directory that IS a stack (it has packages/) is used as
 // given; any other -p value is an extra package location and leaves the choice
-// to stack.Resolve: $ADHAR_STACK_DIR, a source checkout's working tree, or the
-// stack built into the binary — which is what lets an installed adhar bring a
-// platform up from any directory, with no clone.
+// to stack.Resolve: $ADHAR_STACK_DIR, else the stack built into the binary —
+// in every directory, the adhar repository included, so what is seeded is what
+// the binary ships.
 func resolveStack() (stack.Source, error) {
 	explicit := ""
 	for _, p := range extraPackages {

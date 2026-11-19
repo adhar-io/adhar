@@ -201,8 +201,6 @@ const (
 	OriginEmbedded Origin = "embedded"
 	// OriginExplicit is a directory named by a flag or by ADHAR_STACK_DIR.
 	OriginExplicit Origin = "explicit"
-	// OriginCheckout is ./platform/stack of an adhar source checkout.
-	OriginCheckout Origin = "checkout"
 )
 
 // Source is a stack on disk, and where it came from.
@@ -220,8 +218,6 @@ func (s Source) Describe() string {
 	switch s.Origin {
 	case OriginEmbedded:
 		return "built into this adhar binary"
-	case OriginCheckout:
-		return "source checkout " + s.Dir
 	default:
 		return s.Dir
 	}
@@ -233,14 +229,16 @@ func (s Source) Describe() string {
 //     falling back to the embedded stack when a named directory is missing
 //     would push a different stack than the one they asked for.
 //  2. $ADHAR_STACK_DIR — the same, for a whole shell session.
-//  3. ./platform/stack, but ONLY inside an adhar source checkout. A developer
-//     who edits a package and runs the CLI from the repository root means the
-//     working tree; using the embedded copy there would silently push the stack
-//     of the last build.
-//  4. The stack embedded in the binary, extracted to the user cache.
+//  3. The stack embedded in the binary, extracted to the user cache.
 //
-// A directory that merely happens to be called platform/stack is not used: the
-// installed CLI must behave the same in every working directory.
+// Nothing else, and in particular never ./platform/stack: the CLI behaves the
+// same in every working directory, the repository root included, so the stack a
+// command pushes is the one the binary was built with — `make build` embeds the
+// working tree, so a rebuilt binary carries an edited package. (Until
+// 2026-11-19 a source checkout's working tree was preferred, and an
+// `adhar upgrade` run from the repository root pushed whatever the tree held
+// rather than what the binary shipped.) To push a stack that is not the one
+// built in, name it: --stack-dir platform/stack, or ADHAR_STACK_DIR.
 func Resolve(explicit string) (Source, error) {
 	if explicit == "" {
 		explicit = os.Getenv(EnvStackDir)
@@ -255,9 +253,6 @@ func Resolve(explicit string) (Source, error) {
 		}
 		return Source{Dir: dir, Origin: OriginExplicit}, nil
 	}
-	if dir, ok := checkoutStack(); ok {
-		return Source{Dir: dir, Origin: OriginCheckout}, nil
-	}
 	dir, err := Materialize()
 	if err != nil {
 		return Source{}, err
@@ -271,24 +266,6 @@ func looksLikeStack(dir string) error {
 			"omit the flag to use the stack built into adhar, or write an editable copy with `adhar stack export <dir>`", dir)
 	}
 	return nil
-}
-
-// checkoutStack returns ./platform/stack when the working directory is the root
-// of an adhar source checkout — recognised by its go.mod, not by the folder name.
-func checkoutStack() (string, bool) {
-	mod, err := os.ReadFile("go.mod")
-	if err != nil {
-		return "", false
-	}
-	first, _, _ := strings.Cut(string(mod), "\n")
-	if strings.TrimSpace(first) != "module adhar-io/adhar" {
-		return "", false
-	}
-	dir, err := filepath.Abs(filepath.Join("platform", "stack"))
-	if err != nil || looksLikeStack(dir) != nil {
-		return "", false
-	}
-	return dir, true
 }
 
 var (

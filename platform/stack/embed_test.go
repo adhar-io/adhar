@@ -155,10 +155,14 @@ func TestResolvePrecedence(t *testing.T) {
 	withCache(t)
 	t.Setenv(EnvStackDir, "")
 
-	// Outside a checkout — even beside a folder called platform/stack — the
-	// installed CLI uses what it was built with.
+	// Beside a folder called platform/stack — even at the root of an adhar source
+	// checkout — the CLI uses what it was built with. `adhar upgrade` run from the
+	// repository root once pushed the working tree instead of the binary's stack.
 	work := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(work, "platform", "stack", "packages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "go.mod"), []byte("module adhar-io/adhar\n\ngo 1.26\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(work)
@@ -167,22 +171,10 @@ func TestResolvePrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !src.Embedded() {
-		t.Fatalf("a look-alike ./platform/stack was used outside a source checkout: %+v", src)
+		t.Fatalf("a local ./platform/stack was used instead of the stack built into the binary: %+v", src)
 	}
 
-	// Inside a checkout the working tree wins, so an edited package is the one pushed.
-	if err := os.WriteFile(filepath.Join(work, "go.mod"), []byte("module adhar-io/adhar\n\ngo 1.26\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	src, err = Resolve("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if src.Origin != OriginCheckout {
-		t.Fatalf("a source checkout did not use its working tree: %+v", src)
-	}
-
-	// The environment variable beats the checkout; a flag beats both.
+	// Only a directory the operator names replaces it: the environment variable, or a flag.
 	exported := filepath.Join(t.TempDir(), "mine")
 	if err := Export(exported); err != nil {
 		t.Fatal(err)

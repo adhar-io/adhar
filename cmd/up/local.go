@@ -721,8 +721,8 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		maybeRegistryConfig = registryConfig
 	}
 
-	// The platform stack: a directory named with -p, the working tree of a
-	// source checkout, or — for an installed binary — the stack built into it.
+	// The platform stack: a directory named with -p or $ADHAR_STACK_DIR,
+	// otherwise the stack built into the binary.
 	stackSource, err := resolveStack()
 	if err != nil {
 		return err
