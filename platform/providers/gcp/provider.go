@@ -232,6 +232,8 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	// legacy single size and keeps sizing whatever these do not.
 	gcpConfig.ControlPlaneMachineType = provider.ConfigString(config, provider.KeyControlPlaneMachineType)
 	gcpConfig.WorkerMachineType = provider.ConfigString(config, provider.KeyWorkerMachineType)
+	// The batch pool's own type, for a scale path that finds the pool empty.
+	gcpConfig.BatchMachineType = provider.ConfigString(config, provider.KeyBatchMachineType)
 
 	// Machine configuration
 	if machineType, ok := config["machineType"].(string); ok {
@@ -412,10 +414,14 @@ type Config struct {
 	MachineType             string `json:"machineType"`
 	ControlPlaneMachineType string `json:"controlPlaneMachineType,omitempty"`
 	WorkerMachineType       string `json:"workerMachineType,omitempty"`
-	DiskSize                int32  `json:"diskSize"`
-	DiskType                string `json:"diskType"`
-	ImageFamily             string `json:"imageFamily"`
-	ImageProject            string `json:"imageProject"`
+	// BatchMachineType is the batch node pool's machine type
+	// (environments[].batchPool.machineType, provider.KeyBatchMachineType): what
+	// a scale path gives a pool node when the pool has no member to copy.
+	BatchMachineType string `json:"batchMachineType,omitempty"`
+	DiskSize         int32  `json:"diskSize"`
+	DiskType         string `json:"diskType"`
+	ImageFamily      string `json:"imageFamily"`
+	ImageProject     string `json:"imageProject"`
 }
 
 // NewProvider creates a new GCP provider instance
@@ -966,6 +972,17 @@ func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
 // group's existing members run (scale paths), else the configured/default size.
 func (c *Config) workerSize(groupType, membersType string, managed bool) string {
 	return provider.WorkerSize("gcp", managed, groupType, membersType, c.WorkerMachineType, c.MachineType)
+}
+
+// scaleWorkerSize is the machine type a self-managed scale path gives a new node
+// of a group: the type it was asked for (a new node group's own), else the size
+// its members run, else — for the batch pool, when it is empty — the pool's
+// configured type, else the configured/default worker size.
+func (c *Config) scaleWorkerSize(nodeGroup, groupType, membersType string) string {
+	if groupType == "" {
+		groupType = provider.EmptyBatchGroupType(nodeGroup, membersType, c.BatchMachineType)
+	}
+	return c.workerSize(groupType, membersType, false)
 }
 
 // plannedCPUs is the vCPU total of a spec with each node at its own size; ok is
@@ -3360,7 +3377,8 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 		// both `adhar cluster scale` and the adhar-controlplane autoscaler (neither sees
 		// clusterConfig). A cluster built with e2-standard-8 workers grew
 		// e2-standard-4 ones.
-		machineType = p.config.workerSize(machineType, workersMachineType(infra.WorkerNodes, prefix), false)
+		// An EMPTY batch pool takes the pool's own type (scaleWorkerSize).
+		machineType = p.config.scaleWorkerSize(nodeGroupName, machineType, workersMachineType(infra.WorkerNodes, prefix))
 		for _, name := range plan.Add {
 			nodeInfo, err := p.createComputeInstance(ctx, clusterName, name, subnetURL, machineType, false, sshPubKey, startupScript)
 			if err != nil {
@@ -3451,7 +3469,7 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 	return &types.NodeGroup{
 		Name:         nodeGroupName,
 		Replicas:     replicas,
-		InstanceType: p.config.workerSize("", workersMachineType(infra.WorkerNodes, prefix), false),
+		InstanceType: p.config.scaleWorkerSize(nodeGroupName, "", workersMachineType(infra.WorkerNodes, prefix)),
 		Status:       "ready",
 		UpdatedAt:    time.Now(),
 	}, nil

@@ -190,9 +190,10 @@ nodes down to `minNodes`. Its view is `status.autoscaling.batchPool` on the
 `AdharPlatform`, and `adhar get status` prints it under *Node Autoscaling*, beside the
 general workers. A run admitted while no pool node existed carries no toleration; that is
 why the pool's floor is one node. A new pool node takes the size the pool's nodes already
-run. On AWS, DigitalOcean and Civo compute clusters, a pool that has lost every node
-takes `machineType` (recorded for the autoscaler in `adhar-cluster-spec`) rather than the
-general workers' size.
+run. On every compute cluster (AWS, Azure, GCP, DigitalOcean, Civo), a pool that has
+lost every node takes `machineType` rather than the general workers' size, whether the
+node autoscaler adds it (the type is recorded in `adhar-cluster-spec`) or
+`adhar cluster scale <name> --node-group batch -f config.yaml` does.
 
 `batchPool` is refused on `kind` and `custom` (they build no node groups) and on
 `clusterMode: provided` (the nodes are not the platform's). On a provided cluster, label

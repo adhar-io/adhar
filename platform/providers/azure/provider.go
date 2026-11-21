@@ -143,6 +143,7 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 		// and still does when these are absent; see provider.ControlPlaneSize.
 		azureConfig.ControlPlaneVMSize = get("controlPlaneMachineType", "controlPlaneVmSize")
 		azureConfig.WorkerVMSize = get("workerMachineType", "workerVmSize")
+		azureConfig.BatchVMSize = get(provider.KeyBatchMachineType)
 		azureConfig.ImagePublisher = get("imagePublisher")
 		azureConfig.ImageOffer = get("imageOffer")
 		azureConfig.ImageSKU = get("imageSku")
@@ -231,6 +232,11 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	}
 	if azureConfig.WorkerVMSize == "" {
 		azureConfig.WorkerVMSize = provider.ConfigString(topLevelOnly(config), provider.KeyWorkerMachineType)
+	}
+	// The batch pool's own size (environment layer, or the autoscaler's recorded
+	// map), for a scale path that finds the pool empty.
+	if azureConfig.BatchVMSize == "" {
+		azureConfig.BatchVMSize = provider.ConfigString(topLevelOnly(config), provider.KeyBatchMachineType)
 	}
 
 	// Parse top-level region as location if not set in config section
@@ -620,13 +626,17 @@ type Config struct {
 	VMSize             string `json:"vmSize"`
 	ControlPlaneVMSize string `json:"controlPlaneVmSize,omitempty"`
 	WorkerVMSize       string `json:"workerVmSize,omitempty"`
-	DiskSizeGB         int32  `json:"diskSizeGB"`
-	DiskType           string `json:"diskType"`
-	ImagePublisher     string `json:"imagePublisher"`
-	ImageOffer         string `json:"imageOffer"`
-	ImageSKU           string `json:"imageSKU"`
-	VNetCIDR           string `json:"vnetCIDR"`
-	SubnetCIDR         string `json:"subnetCIDR"`
+	// BatchVMSize is the batch node pool's VM size
+	// (environments[].batchPool.machineType, provider.KeyBatchMachineType): what
+	// a scale path gives a pool VM when the pool has no member to copy.
+	BatchVMSize    string `json:"batchVmSize,omitempty"`
+	DiskSizeGB     int32  `json:"diskSizeGB"`
+	DiskType       string `json:"diskType"`
+	ImagePublisher string `json:"imagePublisher"`
+	ImageOffer     string `json:"imageOffer"`
+	ImageSKU       string `json:"imageSKU"`
+	VNetCIDR       string `json:"vnetCIDR"`
+	SubnetCIDR     string `json:"subnetCIDR"`
 
 	// Authentication options
 
@@ -1141,6 +1151,14 @@ func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
 // existing members run (scale paths), else the configured/default size.
 func (c *Config) workerSize(groupSize, membersSize string, managed bool) string {
 	return provider.WorkerSize("azure", managed, groupSize, membersSize, c.WorkerVMSize, c.VMSize)
+}
+
+// emptyGroupSize is the VM size a self-managed scale path gives a new node of a
+// group with no member to copy: for the batch pool, the pool's configured size;
+// for any other group (or a pool that names none), the configured/default worker
+// size.
+func (c *Config) emptyGroupSize(nodeGroup string) string {
+	return c.workerSize(provider.EmptyBatchGroupType(nodeGroup, "", c.BatchVMSize), "", false)
 }
 
 // createClusterInfrastructure creates the Azure infrastructure for a manual Kubernetes cluster
@@ -2365,9 +2383,10 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 // ScaleNodeGroup scales a node group
 // workerVMSize reports the VM size a new member of a node group should take:
 // whatever its existing members run. Falls back to the configured size only
-// when the group is empty (a group scaled to zero and back).
-func (p *Provider) workerVMSize(ctx context.Context, tracker *ResourceTracker, prefix string) string {
-	return pickWorkerVMSize(tracker.VirtualMachines, prefix, p.config.workerSize("", "", false), func(vmName string) string {
+// when the group is empty (a group scaled to zero and back) — for the batch
+// pool, the pool's own size (emptyGroupSize).
+func (p *Provider) workerVMSize(ctx context.Context, tracker *ResourceTracker, prefix, nodeGroup string) string {
+	return pickWorkerVMSize(tracker.VirtualMachines, prefix, p.config.emptyGroupSize(nodeGroup), func(vmName string) string {
 		vm, err := p.virtualMachineClient.Get(ctx, tracker.ResourceGroup, vmName, nil)
 		if err != nil || vm.Properties == nil || vm.Properties.HardwareProfile == nil || vm.Properties.HardwareProfile.VMSize == nil {
 			return ""
@@ -2496,7 +2515,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		// gained half the CPU and half the data-disk slots the autoscaler had
 		// counted on, and the preflight's quota budget no longer matched what
 		// was built.
-		vmSize := p.workerVMSize(ctx, tracker, prefix)
+		vmSize := p.workerVMSize(ctx, tracker, prefix, nodeGroupName)
 		if len(tracker.VirtualNetworks) == 0 || len(tracker.Subnets) == 0 || len(tracker.NetworkSecurityGroups) == 0 {
 			return fmt.Errorf("cluster %s tracker lacks network resources; cannot add workers", clusterID)
 		}

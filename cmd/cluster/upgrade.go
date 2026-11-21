@@ -39,7 +39,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	prov, clusterID, err := resolveClusterProvider(cmd, cfg, clusterName, providerFlag)
+	prov, clusterID, err := resolveClusterProvider(cmd, cfg, clusterName, providerFlag, nil)
 	if err != nil {
 		return err
 	}

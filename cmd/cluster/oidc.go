@@ -40,7 +40,7 @@ func enableClusterOIDC(cmd *cobra.Command, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-	prov, clusterID, err := resolveClusterProvider(cmd, cfg, name, providerFlag)
+	prov, clusterID, err := resolveClusterProvider(cmd, cfg, name, providerFlag, nil)
 	if err != nil {
 		return err
 	}

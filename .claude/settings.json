@@ -72,7 +72,8 @@
       "Bash(awk 'NR<=76 && /^func /{f=$0; n=NR} NR==76{print n\": \"f}' platform/providers/civo/provider.go)",
       "Bash(python3 -I -)",
       "Bash(unzip -oq ~/.m2/repository/org/springframework/batch/spring-batch-core/6.0.4/spring-batch-core-6.0.4-sources.jar 'org/springframework/batch/core/launch/*')",
-      "Bash(make policy-test *)"
+      "Bash(make policy-test *)",
+      "Bash(gofmt -l cmd/cluster)"
     ],
     "additionalDirectories": [
       "/Users/tapas-pc/Documents/Work/Adhar/AdharWS/adhar-kit/adhar-kit-batch/src/main/java/com/adhar/kit/batch/scheduler/quartz",
