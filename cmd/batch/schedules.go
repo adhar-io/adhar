@@ -159,17 +159,24 @@ type scheduledJob struct {
 	LastRun  *scheduleLastRun  `json:"lastRun,omitempty" yaml:"lastRun,omitempty"`
 }
 
-// scheduleTrigger is one Quartz trigger of a job.
+// scheduleTrigger is one Quartz trigger of a job, with the fields of its kind
+// under the property names (§5.20.6): expression (cron); every and start
+// (interval); every, from, to and days (daily).
 type scheduleTrigger struct {
-	Key        string `json:"key,omitempty" yaml:"key,omitempty"`
-	Kind       string `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Expression string `json:"expression,omitempty" yaml:"expression,omitempty"`
-	TimeZone   string `json:"timeZone,omitempty" yaml:"timeZone,omitempty"`
-	Calendar   string `json:"calendar,omitempty" yaml:"calendar,omitempty"`
-	Misfire    string `json:"misfire,omitempty" yaml:"misfire,omitempty"`
-	State      string `json:"state,omitempty" yaml:"state,omitempty"`
-	Previous   string `json:"previous,omitempty" yaml:"previous,omitempty"`
-	Next       string `json:"next,omitempty" yaml:"next,omitempty"`
+	Key        string   `json:"key,omitempty" yaml:"key,omitempty"`
+	Kind       string   `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Expression string   `json:"expression,omitempty" yaml:"expression,omitempty"`
+	Every      string   `json:"every,omitempty" yaml:"every,omitempty"`
+	Start      string   `json:"start,omitempty" yaml:"start,omitempty"`
+	From       string   `json:"from,omitempty" yaml:"from,omitempty"`
+	To         string   `json:"to,omitempty" yaml:"to,omitempty"`
+	Days       []string `json:"days,omitempty" yaml:"days,omitempty"`
+	TimeZone   string   `json:"timeZone,omitempty" yaml:"timeZone,omitempty"`
+	Calendar   string   `json:"calendar,omitempty" yaml:"calendar,omitempty"`
+	Misfire    string   `json:"misfire,omitempty" yaml:"misfire,omitempty"`
+	State      string   `json:"state,omitempty" yaml:"state,omitempty"`
+	Previous   string   `json:"previous,omitempty" yaml:"previous,omitempty"`
+	Next       string   `json:"next,omitempty" yaml:"next,omitempty"`
 }
 
 // scheduleLastRun is a job's newest execution in the JobRepository.
@@ -298,6 +305,7 @@ func scheduleReportOf(cm *unstructured.Unstructured) scheduleReport {
 			}
 			j.Triggers = append(j.Triggers, scheduleTrigger{
 				Key: str(t, "key"), Kind: str(t, "kind"), Expression: str(t, "expression"),
+				Every: str(t, "every"), Start: str(t, "start"), From: str(t, "from"), To: str(t, "to"), Days: days(t),
 				TimeZone: str(t, "timeZone"), Calendar: str(t, "calendar"), Misfire: str(t, "misfire"),
 				State: str(t, "state"), Previous: str(t, "previous"), Next: str(t, "next"),
 			})
@@ -337,6 +345,25 @@ func (r *scheduleReport) fallbackApplication(scheduler string) {
 func str(o map[string]interface{}, key string) string {
 	s, _ := o[key].(string)
 	return s
+}
+
+// days reads a daily trigger's days of the week: names as the kit writes them
+// (MON … SUN), or Quartz's numbers (1 = Sunday), as the Console accepts both.
+// Anything else in the list is left out.
+func days(o map[string]interface{}) []string {
+	items, _ := o["days"].([]interface{})
+	var out []string
+	for _, item := range items {
+		switch d := item.(type) {
+		case string:
+			if d != "" {
+				out = append(out, d)
+			}
+		case json.Number:
+			out = append(out, d.String())
+		}
+	}
+	return out
 }
 
 // renderSchedules is the table view: one section per service, with a table of
@@ -442,9 +469,21 @@ func triggerName(key string) string {
 	return key
 }
 
+// scheduleCellOf is the SCHEDULE cell: the kind, then the fields of that kind
+// (a cron expression; an interval's every; a daily window's every, from-to and
+// days), then the zone. An interval's grid start is an absolute time, and like
+// the fire times it is in -o json.
 func scheduleCellOf(t scheduleTrigger) string {
 	var parts []string
-	for _, p := range []string{t.Kind, t.Expression, t.TimeZone} {
+	every := ""
+	if t.Every != "" {
+		every = "every " + t.Every
+	}
+	window := ""
+	if t.From != "" || t.To != "" {
+		window = dash(t.From) + "-" + dash(t.To)
+	}
+	for _, p := range []string{t.Kind, t.Expression, every, window, strings.Join(t.Days, ","), t.TimeZone} {
 		if p != "" {
 			parts = append(parts, p)
 		}

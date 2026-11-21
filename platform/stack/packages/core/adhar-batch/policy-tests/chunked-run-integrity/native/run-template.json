@@ -1,0 +1,354 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "annotations": {
+      "adhar.io/batch-actor": ""
+    },
+    "labels": {
+      "adhar.io/application": "ledger",
+      "adhar.io/batch-job": "ledger",
+      "adhar.io/batch-role": "indexed",
+      "adhar.io/batch-trigger": "manual",
+      "adhar.io/component": "app",
+      "adhar.io/environment": "dev",
+      "adhar.io/organisation": "acme",
+      "adhar.io/plane": "workload",
+      "adhar.io/project": "shop",
+      "adhar.io/team": "payments",
+      "adhar.io/workload": "batch",
+      "app.kubernetes.io/name": "ledger"
+    },
+    "namespace": "dev"
+  },
+  "spec": {
+    "activeDeadlineSeconds": 21600,
+    "backoffLimit": 2,
+    "completionMode": "Indexed",
+    "completions": 3,
+    "parallelism": 3,
+    "podFailurePolicy": {
+      "rules": [
+        {
+          "action": "Ignore",
+          "onPodConditions": [
+            {
+              "status": "True",
+              "type": "DisruptionTarget"
+            }
+          ]
+        },
+        {
+          "action": "FailJob",
+          "onExitCodes": {
+            "containerName": "batch",
+            "operator": "In",
+            "values": [
+              2,
+              3,
+              4,
+              6,
+              7
+            ]
+          }
+        }
+      ]
+    },
+    "podReplacementPolicy": "Failed",
+    "successPolicy": {
+      "rules": [
+        {
+          "succeededIndexes": "0"
+        }
+      ]
+    },
+    "template": {
+      "metadata": {
+        "annotations": {
+          "adhar.io/batch-actor": "",
+          "cluster-autoscaler.kubernetes.io/safe-to-evict": "false"
+        },
+        "labels": {
+          "adhar.io/application": "ledger",
+          "adhar.io/batch-job": "ledger",
+          "adhar.io/batch-role": "indexed",
+          "adhar.io/batch-trigger": "manual",
+          "adhar.io/component": "app",
+          "adhar.io/environment": "dev",
+          "adhar.io/organisation": "acme",
+          "adhar.io/plane": "workload",
+          "adhar.io/project": "shop",
+          "adhar.io/team": "payments",
+          "adhar.io/workload": "batch",
+          "app.kubernetes.io/name": "ledger"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "ADHAR_BATCH_JOB",
+                "value": "ledgerJob"
+              },
+              {
+                "name": "ADHAR_BATCH_NAME",
+                "value": "ledger"
+              },
+              {
+                "name": "ADHAR_BATCH_ROLE",
+                "value": "indexed"
+              },
+              {
+                "name": "ADHAR_BATCH_TRIGGER",
+                "value": "manual"
+              },
+              {
+                "name": "ADHAR_BATCH_PARAMS",
+                "value": "{}"
+              },
+              {
+                "name": "ADHAR_BATCH_TIME_ZONE",
+                "value": "UTC"
+              },
+              {
+                "name": "ADHAR_BATCH_REPOSITORY_SCHEMA",
+                "value": "batch"
+              },
+              {
+                "name": "ADHAR_BATCH_SHUTDOWN_TIMEOUT",
+                "value": "90s"
+              },
+              {
+                "name": "ADHAR_BATCH_RETENTION_DAYS",
+                "value": "90"
+              },
+              {
+                "name": "ADHAR_BATCH_RETENTION_KEEP_LAST",
+                "value": "30"
+              },
+              {
+                "name": "ADHAR_BATCH_DISTRIBUTION",
+                "value": "chunked"
+              },
+              {
+                "name": "ADHAR_BATCH_CHUNKING_TIMEOUT",
+                "value": "21300s"
+              },
+              {
+                "name": "ADHAR_BATCH_CHUNKING_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "rabbitmq-password",
+                    "name": "ledger-batch-broker"
+                  }
+                }
+              },
+              {
+                "name": "JOB_COMPLETION_INDEX",
+                "valueFrom": {
+                  "fieldRef": {
+                    "apiVersion": "v1",
+                    "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                  }
+                }
+              },
+              {
+                "name": "ADHAR_BATCH_K8S_JOB",
+                "valueFrom": {
+                  "fieldRef": {
+                    "apiVersion": "v1",
+                    "fieldPath": "metadata.labels['batch.kubernetes.io/job-name']"
+                  }
+                }
+              },
+              {
+                "name": "ADHAR_BATCH_ACTOR",
+                "valueFrom": {
+                  "fieldRef": {
+                    "apiVersion": "v1",
+                    "fieldPath": "metadata.annotations['adhar.io/batch-actor']"
+                  }
+                }
+              },
+              {
+                "name": "POD_NAME",
+                "valueFrom": {
+                  "fieldRef": {
+                    "apiVersion": "v1",
+                    "fieldPath": "metadata.name"
+                  }
+                }
+              },
+              {
+                "name": "POD_UID",
+                "valueFrom": {
+                  "fieldRef": {
+                    "apiVersion": "v1",
+                    "fieldPath": "metadata.uid"
+                  }
+                }
+              },
+              {
+                "name": "NODE_NAME",
+                "valueFrom": {
+                  "fieldRef": {
+                    "apiVersion": "v1",
+                    "fieldPath": "spec.nodeName"
+                  }
+                }
+              },
+              {
+                "name": "ADHAR_ENVIRONMENT",
+                "value": "dev"
+              },
+              {
+                "name": "SPRING_DATASOURCE_URL",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "jdbc-uri",
+                    "name": "ledger-db-app"
+                  }
+                }
+              },
+              {
+                "name": "SPRING_DATASOURCE_USERNAME",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "username",
+                    "name": "ledger-db-app"
+                  }
+                }
+              },
+              {
+                "name": "SPRING_DATASOURCE_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "password",
+                    "name": "ledger-db-app"
+                  }
+                }
+              },
+              {
+                "name": "BPL_JVM_THREAD_COUNT",
+                "value": "50"
+              },
+              {
+                "name": "JAVA_TOOL_OPTIONS",
+                "value": "-XX:ReservedCodeCacheSize=64M"
+              },
+              {
+                "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "value": "http://alloy.adhar-system.svc.cluster.local:4318"
+              },
+              {
+                "name": "OTEL_EXPORTER_OTLP_PROTOCOL",
+                "value": "http/protobuf"
+              },
+              {
+                "name": "OTEL_METRICS_EXPORTER",
+                "value": "otlp"
+              },
+              {
+                "name": "OTEL_RESOURCE_ATTRIBUTES",
+                "value": "deployment.environment.name=dev,deployment.environment=dev,service.namespace=dev,k8s.namespace.name=dev,k8s.pod.name=$(POD_NAME),adhar.application=ledger,adhar.batch.job=ledger"
+              },
+              {
+                "name": "OTEL_SERVICE_NAME",
+                "value": "ledger"
+              },
+              {
+                "name": "OPENLINEAGE_URL",
+                "value": "http://openmetadata.adhar-system.svc.cluster.local:8585"
+              },
+              {
+                "name": "OPENLINEAGE_ENDPOINT",
+                "value": "/api/v1/openlineage/lineage"
+              },
+              {
+                "name": "OPENLINEAGE_NAMESPACE",
+                "value": "adhar/acme/payments/shop/dev"
+              },
+              {
+                "name": "OPENLINEAGE_API_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "token",
+                    "name": "ledger-openmetadata",
+                    "optional": true
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "prefix": "ADHAR_BATCH_CHUNKING_REQUESTS_",
+                "secretRef": {
+                  "name": "ledger-chunks-queue"
+                }
+              },
+              {
+                "prefix": "ADHAR_BATCH_CHUNKING_REPLIES_",
+                "secretRef": {
+                  "name": "ledger-replies-queue"
+                }
+              }
+            ],
+            "image": "harbor-core.adhar-system.svc.cluster.local/library/ledger:1.0.0",
+            "name": "batch",
+            "resources": {
+              "limits": {
+                "cpu": "1",
+                "memory": "1536Mi"
+              },
+              "requests": {
+                "cpu": "1",
+                "memory": "1536Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "volumeMounts": [
+              {
+                "mountPath": "/tmp",
+                "name": "tmp"
+              }
+            ]
+          }
+        ],
+        "enableServiceLinks": false,
+        "imagePullSecrets": [
+          {
+            "name": "harbor-dockercfg"
+          }
+        ],
+        "priorityClassName": "adhar-batch",
+        "restartPolicy": "Never",
+        "schedulerName": "default-scheduler",
+        "securityContext": {
+          "runAsNonRoot": true,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "serviceAccountName": "ledger-batch",
+        "terminationGracePeriodSeconds": 120,
+        "volumes": [
+          {
+            "emptyDir": {
+              "sizeLimit": "1Gi"
+            },
+            "name": "tmp"
+          }
+        ]
+      }
+    },
+    "ttlSecondsAfterFinished": 604800
+  }
+}

@@ -1,0 +1,121 @@
+# Batch runs use the batch node pool while one exists (design 0025 D14, Phase 4).
+#
+# A batch node pool is the node group `batch` an environment declares with
+# `batchPool:` in config.yaml. Its nodes register with the label
+# adhar.io/node-pool=batch and the taint adhar.io/batch=true:NoSchedule, so nothing
+# lands there unasked. This policy is the asking: a pod labelled
+# adhar.io/workload: batch (every run pod the BatchJob composition renders, native or
+# Volcano, single or gang) gets the pool's toleration and a PREFERRED node affinity
+# for it — but ONLY while a node labelled adhar.io/node-pool=batch exists.
+#
+# Three decisions a reader would otherwise have to reverse-engineer:
+#
+# * Placement is policy, not composition (D14). Every existing BatchJob moves onto
+#   the pool without a definition change, a cluster without a pool is unaffected,
+#   and nothing in the run template changes, so run integrity (which compares a run
+#   with its template, kyverno-run-integrity.yaml) is untouched: the mutation is on
+#   the POD, which no integrity rule compares. Autogen is off for the same reason —
+#   mutating the Job or CronJob template would diff against Argo CD and against the
+#   run template.
+#
+# * The affinity is preferred, not required. A full pool must not strand a run that
+#   a general worker could take: the scheduler tries the pool first and falls back.
+#   The node autoscaler grows the POOL for a waiting run that may buy nodes
+#   (adhar.io/scale-up: "true", a prod run), and never the general workers while a
+#   pool exists (platform/controllers/autoscaler/batch_pool.go).
+#
+# * "A pool exists" is read at admission, which is why a pool's floor is one node
+#   (config validation refuses minNodes: 0). A run admitted while no pool node exists
+#   carries no toleration and can never use one — not even the node its own demand
+#   would buy — so a pool that could scale to zero would buy nodes nothing runs on.
+#
+# The node lookup is a plain LIST of /api/v1/nodes filtered in JMESPath, once per
+# batch pod admission (a few a minute at most). A label selector in the urlPath
+# would be cheaper and is left out until it is verified that the pinned Kyverno
+# passes query parameters through; the lookup's default (0) keeps an unreadable node
+# list from mutating anything. Kyverno's admission controller may list nodes through
+# the aggregated ClusterRole adhar-batch-kyverno-nodes (rbac.yaml).
+#
+# Fails OPEN (failurePolicy: Ignore): a run admitted during a Kyverno outage simply
+# runs on the general workers, which is what it did before pools existed.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-batch-node-pool
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # Pods only: a workload's pods are mutated as they are created, never its
+    # template (no Argo CD diff, no run-integrity difference).
+    pod-policies.kyverno.io/autogen-controllers: none
+    policies.kyverno.io/title: "Batch: run pods use the batch node pool"
+    policies.kyverno.io/category: Batch
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      While a node labelled adhar.io/node-pool=batch exists, a pod labelled
+      adhar.io/workload: batch gets the toleration for adhar.io/batch=true:NoSchedule
+      and a preferred node affinity for the pool. A cluster without a batch pool,
+      and every pod that is not a batch run, is left alone.
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Ignore
+  rules:
+    - name: a-run-pod-tolerates-and-prefers-the-batch-pool
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE"]
+              selector:
+                matchLabels:
+                  adhar.io/workload: batch
+      context:
+        - name: poolNodes
+          apiCall:
+            urlPath: "/api/v1/nodes"
+            jmesPath: "items[?metadata.labels.\"adhar.io/node-pool\" == 'batch'] | length(@)"
+            default: 0
+        # The pool's entries as YAML values, not JSON literals inside the expressions
+        # below: Kyverno recognises a variable only while the braces inside it nest
+        # one level deep, so a preferred term written as a literal ({"preference":
+        # {"matchExpressions": [{...}]}}) leaves the whole expression an unsubstituted
+        # string.
+        - name: poolToleration
+          variable:
+            value:
+              - key: adhar.io/batch
+                operator: Equal
+                value: "true"
+                effect: NoSchedule
+        - name: poolPreference
+          variable:
+            value:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: adhar.io/node-pool
+                      operator: In
+                      values: ["batch"]
+      preconditions:
+        all:
+          # A cluster without a pool is unaffected.
+          - key: "{{ poolNodes }}"
+            operator: GreaterThan
+            value: 0
+          # Idempotent: a pod that already tolerates the pool's taint (a re-invocation,
+          # or a template that says so itself) is left as it is.
+          - key: "{{ length(request.object.spec.tolerations[?key == 'adhar.io/batch'] || `[]`) }}"
+            operator: Equals
+            value: 0
+      mutate:
+        # Both lists are rebuilt whole from what the pod had plus the pool's entry:
+        # neither tolerations nor preferred terms have a strategic-merge key, so a
+        # bare list here would REPLACE the pod's own (the Job controller's, Volcano's,
+        # a template's) instead of adding to them.
+        patchStrategicMerge:
+          spec:
+            tolerations: "{{ [request.object.spec.tolerations || `[]`, poolToleration][] }}"
+            affinity:
+              nodeAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution: >-
+                  {{ [request.object.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution || `[]`, poolPreference][] }}

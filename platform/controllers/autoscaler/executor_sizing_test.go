@@ -1,8 +1,14 @@
 package autoscaler
 
 import (
+	"context"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"adhar-io/adhar/globals"
 	pfactory "adhar-io/adhar/platform/providers"
 )
 
@@ -23,5 +29,28 @@ func TestScalingProviderMapCarriesTheRecordedWorkerSize(t *testing.T) {
 	spec.ProviderConfig[pfactory.KeyWorkerMachineType] = "n2-standard-8"
 	if cfg := providerMapFor(spec); cfg[pfactory.KeyWorkerMachineType] != "n2-standard-8" {
 		t.Errorf("the configured workerMachineType was overwritten: %v", cfg[pfactory.KeyWorkerMachineType])
+	}
+}
+
+// The batch pool's machine type, recorded in adhar-cluster-spec's providerConfig,
+// reaches the provider a scaling action builds — through loadClusterSpec, as the
+// controller reads it — so a node added to an EMPTY pool takes the pool's type.
+func TestScalingProviderMapCarriesTheBatchPoolsMachineType(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: globals.ClusterSpecConfigMapName, Namespace: globals.AdharSystemNamespace},
+		Data: map[string]string{"provider": "aws", "clusterName": "prod", "size": "m6i.xlarge",
+			"providerConfig": `{"region":"ap-southeast-1","batchMachineType":"c6i.4xlarge"}`},
+	}
+	c := fake.NewClientBuilder().WithObjects(cm).Build()
+	spec, err := loadClusterSpec(context.Background(), c, globals.AdharSystemNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := providerMapFor(spec)
+	if got := pfactory.ConfigString(cfg, pfactory.KeyBatchMachineType); got != "c6i.4xlarge" {
+		t.Errorf("batchMachineType = %q, want the recorded c6i.4xlarge", got)
+	}
+	if got := pfactory.ConfigString(cfg, pfactory.KeyWorkerMachineType); got != "m6i.xlarge" {
+		t.Errorf("the pool's type displaced the worker size: %q", got)
 	}
 }

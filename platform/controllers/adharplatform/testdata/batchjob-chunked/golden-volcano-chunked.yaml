@@ -1,0 +1,591 @@
+composed:
+  broker-credentials:
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    metadata:
+      annotations:
+        gotemplating.fn.crossplane.io/composition-resource-name: broker-credentials
+        gotemplating.fn.crossplane.io/ready: "False"
+      labels:
+        adhar.io/application: ledger
+        adhar.io/batch-job: ledger
+        adhar.io/environment: dev
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: ledger
+      name: ledger-batch-broker
+      namespace: dev
+    spec:
+      data:
+      - remoteRef:
+          key: rabbitmq
+          property: rabbitmq-password
+        secretKey: rabbitmq-password
+      refreshInterval: 1h
+      secretStoreRef:
+        kind: ClusterSecretStore
+        name: platform-messaging
+      target:
+        creationPolicy: Owner
+        name: ledger-batch-broker
+  rules:
+    alerts:
+    - BatchRunFailed
+    - BatchGangPending
+    - BatchGangQueueRejected
+    - BatchRunTooLong
+    - BatchRunStuckPending
+    - BatchRunOOMKilled
+    kind: PrometheusRule
+  run-template:
+    data.kind: VolcanoJob
+    kind: ConfigMap
+    template.yaml:
+      apiVersion: batch.volcano.sh/v1alpha1
+      kind: Job
+      metadata:
+        annotations:
+          adhar.io/batch-actor: ""
+        labels:
+          adhar.io/application: ledger
+          adhar.io/batch-job: ledger
+          adhar.io/batch-trigger: manual
+          adhar.io/environment: dev
+          adhar.io/organisation: acme
+          adhar.io/plane: workload
+          adhar.io/project: shop
+          adhar.io/team: payments
+          adhar.io/workload: batch
+          app.kubernetes.io/name: ledger
+        namespace: dev
+      spec:
+        maxRetry: 3
+        minAvailable: 3
+        plugins:
+          env: []
+        policies:
+        - action: TerminateJob
+          exitCode: 2
+        - action: TerminateJob
+          exitCode: 3
+        - action: TerminateJob
+          exitCode: 4
+        - action: TerminateJob
+          exitCode: 6
+        - action: TerminateJob
+          exitCode: 7
+        - action: RestartJob
+          events:
+          - PodEvicted
+          - PodFailed
+        priorityClassName: adhar-batch-volcano
+        queue: acme-payments-dev
+        schedulerName: volcano
+        tasks:
+        - minAvailable: 1
+          name: manager
+          policies:
+          - action: CompleteJob
+            events:
+            - TaskCompleted
+          replicas: 1
+          template:
+            metadata:
+              annotations:
+                adhar.io/batch-actor: ""
+                cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+              labels:
+                adhar.io/application: ledger
+                adhar.io/batch-job: ledger
+                adhar.io/batch-role: manager
+                adhar.io/batch-trigger: manual
+                adhar.io/component: app
+                adhar.io/environment: dev
+                adhar.io/organisation: acme
+                adhar.io/plane: workload
+                adhar.io/project: shop
+                adhar.io/team: payments
+                adhar.io/workload: batch
+                app.kubernetes.io/name: ledger
+            spec:
+              activeDeadlineSeconds: 21600
+              containers:
+              - env:
+                - name: ADHAR_BATCH_JOB
+                  value: ledgerJob
+                - name: ADHAR_BATCH_NAME
+                  value: ledger
+                - name: ADHAR_BATCH_ROLE
+                  value: manager
+                - name: ADHAR_BATCH_TRIGGER
+                  value: manual
+                - name: ADHAR_BATCH_PARAMS
+                  value: '{}'
+                - name: ADHAR_BATCH_TIME_ZONE
+                  value: UTC
+                - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+                  value: batch
+                - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+                  value: 90s
+                - name: ADHAR_BATCH_RETENTION_DAYS
+                  value: "90"
+                - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+                  value: "30"
+                - name: ADHAR_BATCH_DISTRIBUTION
+                  value: chunked
+                - name: ADHAR_BATCH_CHUNKING_TIMEOUT
+                  value: 21300s
+                - name: ADHAR_BATCH_CHUNKING_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: rabbitmq-password
+                      name: ledger-batch-broker
+                - name: ADHAR_BATCH_K8S_JOB
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.labels['volcano.sh/job-name']
+                - name: ADHAR_BATCH_ACTOR
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.annotations['adhar.io/batch-actor']
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.uid
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: spec.nodeName
+                - name: ADHAR_ENVIRONMENT
+                  value: dev
+                - name: SPRING_DATASOURCE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      key: jdbc-uri
+                      name: ledger-db-app
+                - name: SPRING_DATASOURCE_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      key: username
+                      name: ledger-db-app
+                - name: SPRING_DATASOURCE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: password
+                      name: ledger-db-app
+                - name: BPL_JVM_THREAD_COUNT
+                  value: "50"
+                - name: JAVA_TOOL_OPTIONS
+                  value: -XX:ReservedCodeCacheSize=64M
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: http://alloy.adhar-system.svc.cluster.local:4318
+                - name: OTEL_EXPORTER_OTLP_PROTOCOL
+                  value: http/protobuf
+                - name: OTEL_METRICS_EXPORTER
+                  value: otlp
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: deployment.environment.name=dev,deployment.environment=dev,service.namespace=dev,k8s.namespace.name=dev,k8s.pod.name=$(POD_NAME),adhar.application=ledger,adhar.batch.job=ledger
+                - name: OTEL_SERVICE_NAME
+                  value: ledger
+                - name: OPENLINEAGE_URL
+                  value: http://openmetadata.adhar-system.svc.cluster.local:8585
+                - name: OPENLINEAGE_ENDPOINT
+                  value: /api/v1/openlineage/lineage
+                - name: OPENLINEAGE_NAMESPACE
+                  value: adhar/acme/payments/shop/dev
+                - name: OPENLINEAGE_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: token
+                      name: ledger-openmetadata
+                      optional: true
+                envFrom:
+                - prefix: ADHAR_BATCH_CHUNKING_REQUESTS_
+                  secretRef:
+                    name: ledger-chunks-queue
+                - prefix: ADHAR_BATCH_CHUNKING_REPLIES_
+                  secretRef:
+                    name: ledger-replies-queue
+                image: harbor-core.adhar-system.svc.cluster.local/library/ledger:1.0.0
+                name: batch
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 1Gi
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+                volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+              enableServiceLinks: false
+              imagePullSecrets:
+              - name: harbor-dockercfg
+              priorityClassName: adhar-batch-volcano
+              restartPolicy: Never
+              schedulerName: volcano
+              securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+              serviceAccountName: ledger-batch
+              terminationGracePeriodSeconds: 120
+              volumes:
+              - emptyDir:
+                  sizeLimit: 1Gi
+                name: tmp
+        - minAvailable: 2
+          name: worker
+          replicas: 2
+          template:
+            metadata:
+              annotations:
+                adhar.io/batch-actor: ""
+                cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+              labels:
+                adhar.io/application: ledger
+                adhar.io/batch-job: ledger
+                adhar.io/batch-role: worker
+                adhar.io/batch-trigger: manual
+                adhar.io/component: app
+                adhar.io/environment: dev
+                adhar.io/organisation: acme
+                adhar.io/plane: workload
+                adhar.io/project: shop
+                adhar.io/team: payments
+                adhar.io/workload: batch
+                app.kubernetes.io/name: ledger
+            spec:
+              activeDeadlineSeconds: 21600
+              containers:
+              - env:
+                - name: ADHAR_BATCH_JOB
+                  value: ledgerJob
+                - name: ADHAR_BATCH_NAME
+                  value: ledger
+                - name: ADHAR_BATCH_ROLE
+                  value: worker
+                - name: ADHAR_BATCH_TRIGGER
+                  value: manual
+                - name: ADHAR_BATCH_PARAMS
+                  value: '{}'
+                - name: ADHAR_BATCH_TIME_ZONE
+                  value: UTC
+                - name: ADHAR_BATCH_REPOSITORY_SCHEMA
+                  value: batch
+                - name: ADHAR_BATCH_SHUTDOWN_TIMEOUT
+                  value: 90s
+                - name: ADHAR_BATCH_RETENTION_DAYS
+                  value: "90"
+                - name: ADHAR_BATCH_RETENTION_KEEP_LAST
+                  value: "30"
+                - name: ADHAR_BATCH_DISTRIBUTION
+                  value: chunked
+                - name: ADHAR_BATCH_CHUNKING_TIMEOUT
+                  value: 21300s
+                - name: ADHAR_BATCH_CHUNKING_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: rabbitmq-password
+                      name: ledger-batch-broker
+                - name: ADHAR_BATCH_K8S_JOB
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.labels['volcano.sh/job-name']
+                - name: ADHAR_BATCH_ACTOR
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.annotations['adhar.io/batch-actor']
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.uid
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: spec.nodeName
+                - name: ADHAR_ENVIRONMENT
+                  value: dev
+                - name: SPRING_DATASOURCE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      key: jdbc-uri
+                      name: ledger-db-app
+                - name: SPRING_DATASOURCE_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      key: username
+                      name: ledger-db-app
+                - name: SPRING_DATASOURCE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: password
+                      name: ledger-db-app
+                - name: BPL_JVM_THREAD_COUNT
+                  value: "50"
+                - name: JAVA_TOOL_OPTIONS
+                  value: -XX:ReservedCodeCacheSize=64M
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: http://alloy.adhar-system.svc.cluster.local:4318
+                - name: OTEL_EXPORTER_OTLP_PROTOCOL
+                  value: http/protobuf
+                - name: OTEL_METRICS_EXPORTER
+                  value: otlp
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: deployment.environment.name=dev,deployment.environment=dev,service.namespace=dev,k8s.namespace.name=dev,k8s.pod.name=$(POD_NAME),adhar.application=ledger,adhar.batch.job=ledger
+                - name: OTEL_SERVICE_NAME
+                  value: ledger
+                - name: OPENLINEAGE_URL
+                  value: http://openmetadata.adhar-system.svc.cluster.local:8585
+                - name: OPENLINEAGE_ENDPOINT
+                  value: /api/v1/openlineage/lineage
+                - name: OPENLINEAGE_NAMESPACE
+                  value: adhar/acme/payments/shop/dev
+                - name: OPENLINEAGE_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: token
+                      name: ledger-openmetadata
+                      optional: true
+                envFrom:
+                - prefix: ADHAR_BATCH_CHUNKING_REQUESTS_
+                  secretRef:
+                    name: ledger-chunks-queue
+                - prefix: ADHAR_BATCH_CHUNKING_REPLIES_
+                  secretRef:
+                    name: ledger-replies-queue
+                image: harbor-core.adhar-system.svc.cluster.local/library/ledger:1.0.0
+                name: batch
+                resources:
+                  limits:
+                    cpu: "1"
+                    memory: 1536Mi
+                  requests:
+                    cpu: "1"
+                    memory: 1536Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+                volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+              enableServiceLinks: false
+              imagePullSecrets:
+              - name: harbor-dockercfg
+              priorityClassName: adhar-batch-volcano
+              restartPolicy: Never
+              schedulerName: volcano
+              securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+              serviceAccountName: ledger-batch
+              terminationGracePeriodSeconds: 120
+              volumes:
+              - emptyDir:
+                  sizeLimit: 1Gi
+                name: tmp
+        ttlSecondsAfterFinished: 604800
+  runner-role:
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      annotations:
+        gotemplating.fn.crossplane.io/composition-resource-name: runner-role
+        gotemplating.fn.crossplane.io/ready: "False"
+      labels:
+        adhar.io/application: ledger
+        adhar.io/batch-job: ledger
+        adhar.io/environment: dev
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: ledger
+      name: ledger-batch
+      namespace: dev
+    rules:
+    - apiGroups:
+      - batch
+      - batch.volcano.sh
+      resources:
+      - jobs
+      verbs:
+      - get
+    - apiGroups:
+      - ""
+      resources:
+      - pods
+      verbs:
+      - get
+  runner-rolebinding:
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      annotations:
+        gotemplating.fn.crossplane.io/composition-resource-name: runner-rolebinding
+        gotemplating.fn.crossplane.io/ready: "False"
+      labels:
+        adhar.io/application: ledger
+        adhar.io/batch-job: ledger
+        adhar.io/environment: dev
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: ledger
+      name: ledger-batch
+      namespace: dev
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: ledger-batch
+    subjects:
+    - kind: ServiceAccount
+      name: ledger-batch
+      namespace: dev
+  runner-sa:
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      annotations:
+        gotemplating.fn.crossplane.io/composition-resource-name: runner-sa
+        gotemplating.fn.crossplane.io/ready: "False"
+      labels:
+        adhar.io/application: ledger
+        adhar.io/batch-job: ledger
+        adhar.io/environment: dev
+        adhar.io/organisation: acme
+        adhar.io/plane: workload
+        adhar.io/project: shop
+        adhar.io/team: payments
+        adhar.io/workload: batch
+        app.kubernetes.io/name: ledger
+      name: ledger-batch
+      namespace: dev
+conditions:
+- message: PriorityClass adhar-batch-volcano exists; runs on Volcano queue acme-payments-dev
+  reason: Met
+  status: "True"
+  target: Composite
+  type: PrerequisitesReady
+- message: creating ConfigMap ledger-run
+  reason: Creating
+  status: Unknown
+  target: Composite
+  type: TemplateReady
+- message: 'no schedule: this job runs when somebody starts it'
+  reason: OnDemand
+  status: "True"
+  target: Composite
+  type: ScheduleReady
+- message: the schedule is not on hold
+  reason: NotHeld
+  status: "False"
+  target: Composite
+  type: Held
+- message: runs on queue acme-payments-dev
+  reason: Fits
+  status: "True"
+  target: Composite
+  type: QueueFits
+- message: no schedule
+  reason: Settled
+  status: "True"
+  target: Composite
+  type: SchedulerSwitch
+- message: environment dev of project shop (team payments, organisation acme)
+  reason: EnvironmentNamespace
+  status: "True"
+  target: Composite
+  type: Placement
+requirements:
+  chunkReplyQueue:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Queue
+    matchName: ledger-replies
+    namespace: dev
+  chunkRequestQueue:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: Queue
+    matchName: ledger-chunks
+    namespace: dev
+  leafQueue:
+    apiVersion: scheduling.volcano.sh/v1beta1
+    kind: Queue
+    matchName: acme-payments-dev
+  lineageReceiver:
+    apiVersion: v1
+    kind: Service
+    matchName: openmetadata
+    namespace: adhar-system
+  namespace:
+    apiVersion: v1
+    kind: Namespace
+    matchName: dev
+  priorityClass:
+    apiVersion: scheduling.k8s.io/v1
+    kind: PriorityClass
+    matchName: adhar-batch
+  quota:
+    apiVersion: v1
+    kind: ResourceQuota
+    matchName: dev-quota
+    namespace: dev
+  schedulerDescriptor:
+    apiVersion: v1
+    kind: ConfigMap
+    matchName: adhar-batch-scheduler
+    namespace: adhar-system
+  volcanoCronJobCRD:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    matchName: cronjobs.batch.volcano.sh
+  volcanoJobCRD:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    matchName: jobs.batch.volcano.sh
+  volcanoPriorityClass:
+    apiVersion: scheduling.k8s.io/v1
+    kind: PriorityClass
+    matchName: adhar-batch-volcano
+  volcanoQueueCRD:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    matchName: queues.scheduling.volcano.sh
+status:
+  activeRuns: []
+  message: on demand
+  queue: acme-payments-dev
+  runTemplate: ledger-run
+  scheduler: volcano

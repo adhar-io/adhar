@@ -156,3 +156,18 @@ spec:
           annotations:
             summary: "BatchJob {{ $labels.namespace }}/{{ $labels.adhar_batch_job }} missed its deadline for {{ $labels.business_date }}"
             description: "sla.finishBy passed with no successful run for {{ $labels.business_date }}. The alert resolves once that date succeeds; `adhar batch runs` shows where the run is."
+        # The run-summary archive (design 0025 Phase 4, A4.22). The observer's writes
+        # to RustFS are advisory: a store that refuses them fails no run and delays
+        # no event, so this counter is the only way anyone learns that finished
+        # runs are no longer being kept past the topic's 90 days. Labelled by the
+        # run's environment and the result only (never the job: an outage is one
+        # fact), so it is critical when prod's runs are the ones not kept.
+        - alert: BatchArchiveWritesFailing
+          expr: |
+            label_replace(label_replace(
+              sum by (cluster, adhar_environment, result) (increase(adhar_batch_archive_writes_total{result=~"failed|dropped"}[1h])) > 0,
+            "severity", "warning", "", ""), "severity", "critical", "adhar_environment", "prod")
+          for: 30m
+          annotations:
+            summary: "The batch run-summary archive is not keeping finished {{ $labels.adhar_environment }} runs ({{ $labels.result }})"
+            description: "{{ $value | humanize }} run summaries of {{ $labels.adhar_environment }} runs were {{ $labels.result }} in the last hour instead of being written to s3://adhar-batch-archive. The runs and their events are unaffected and the adhar.batch topic still holds them for 90 days; check RustFS, Secret adhar-system/root-creds and the controller manager's log (`batch-observer`)."

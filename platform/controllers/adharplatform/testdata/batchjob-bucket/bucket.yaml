@@ -1,0 +1,13 @@
+# The Bucket XR the job names, as the Bucket composition (compositions/bucket) leaves
+# it: its connection Secret is <name>-bucket.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Bucket
+metadata:
+  name: inbound
+  namespace: prod
+spec:
+  parameters: { versioning: true, expireAfterDays: 30 }
+status:
+  bucket: inbound
+  endpoint: http://rustfs.adhar-system.svc.cluster.local:9000
+  connectionSecret: inbound-bucket

@@ -77,7 +77,7 @@ func prepareAndJoinAWSWorker(ctx context.Context, signer ssh.Signer, node *NodeI
 	if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, node.PublicIP, 15*time.Minute); err != nil {
 		return fmt.Errorf("not ready: %w", err)
 	}
-	if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, true, true, node.PrivateDNSName); err != nil {
+	if err := provider.EnableWorkerKubelet(signer, awsSSHUser, node.PublicIP, node.PrivateIP, true, true, provider.WorkerRegistration(node.Name), node.PrivateDNSName); err != nil {
 		return err
 	}
 	return provider.KubeadmJoinWorker(signer, awsSSHUser, node.PublicIP, joinCmd, node.PrivateDNSName)

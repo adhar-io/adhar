@@ -79,12 +79,13 @@ spec:
 # `get` on `secrets` in a SelfSubjectRulesReview, which a resourceNames rule
 # satisfies, and reads by name, which the rule permits.
 #
-# Both serve only namespaces the platform itself labels `adhar.io/plane`
+# Each serves only namespaces the platform itself labels `adhar.io/plane`
 # workload (Project namespaces, golden-path namespaces) or preview (PR
 # previews). Tenant roles are namespace-scoped and cannot label a Namespace.
 #
 #   platform-object-storage  root-creds                  database / pipeline backups to RustFS
 #   platform-delivery        gitea-ci-creds, harbor-push  Kargo in a Project namespace
+#   platform-messaging       rabbitmq                    a Queue's declare Job, chunked BatchJob runs
 # ---------------------------------------------------------------------------
 ---
 apiVersion: v1
@@ -190,3 +191,66 @@ spec:
         caProvider: {type: ConfigMap, name: kube-root-ca.crt, namespace: adhar-system, key: ca.crt}
       auth:
         serviceAccount: {name: eso-store-delivery, namespace: adhar-system}
+# ---------------------------------------------------------------------------
+# platform-messaging — the shared RabbitMQ broker's credential (design 0025
+# §18 R15). The Queue composition's declare Job and every chunked BatchJob run
+# authenticate to the broker in adhar-system as its `admin` user, whose password
+# is key rabbitmq-password of Secret `rabbitmq` (the chart's). The Queue and
+# BatchJob compositions project that one key beside themselves as
+# `<queue>-broker` / `<job>-batch-broker` through this store. The Role names
+# ONLY `rabbitmq`: the Secret also holds the Erlang cookie, but an ExternalSecret
+# here can read nothing else in adhar-system. R16: it is the broker's admin
+# credential, so a broker is one team's until per-queue users exist.
+# ---------------------------------------------------------------------------
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-store-messaging
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eso-store-messaging
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [rabbitmq]
+    verbs: [get]
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectrulesreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eso-store-messaging
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+subjects:
+  - {kind: ServiceAccount, name: eso-store-messaging, namespace: adhar-system}
+roleRef: {kind: Role, name: eso-store-messaging, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: platform-messaging
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  conditions:
+    - namespaceSelector:
+        matchExpressions:
+          - {key: adhar.io/plane, operator: In, values: [workload, preview]}
+  provider:
+    kubernetes:
+      remoteNamespace: adhar-system
+      server:
+        caProvider: {type: ConfigMap, name: kube-root-ca.crt, namespace: adhar-system, key: ca.crt}
+      auth:
+        serviceAccount: {name: eso-store-messaging, namespace: adhar-system}

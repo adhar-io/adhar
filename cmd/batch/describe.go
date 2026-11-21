@@ -92,6 +92,7 @@ func printDescription(job *unstructured.Unstructured, v jobView, last []runRow, 
 	helpers.Printf("environment    %s\n", dash(v.Environment))
 	helpers.Printf("job bean       %s\n", dash(v.Job))
 	helpers.Printf("image          %s\n", dash(v.Image))
+	helpers.Printf("mode           %s\n", modeDetail(job))
 	helpers.Printf("schedule       %s\n", scheduleCell(v))
 	helpers.Printf("next run       %s\n", dash(v.NextRun))
 	scheduler := dash(v.Scheduler)
@@ -104,6 +105,9 @@ func printDescription(job *unstructured.Unstructured, v jobView, last []runRow, 
 	grace, _, _ := unstructured.NestedInt64(job.Object, "spec", "parameters", "timeouts", "terminationGracePeriodSeconds")
 	helpers.Printf("timeouts       deadline %ds, grace %ds\n", deadline, grace)
 	helpers.Printf("database       %s (schema %s)\n", dash(p("database", "secretRef")), dash(p("database", "schema")))
+	if l := lineageDetail(job); l != "" {
+		helpers.Printf("lineage        %s\n", l)
+	}
 	helpers.Printf("last success   %s\n", dash(v.LastSuccess))
 	if v.Held != "" {
 		since := ""

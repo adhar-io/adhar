@@ -411,7 +411,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, ip, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", d.Name, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, ip, privIP, true, true); err != nil {
+		if err := provider.EnableWorkerKubelet(signer, computeSSHUser, ip, privIP, true, true, provider.WorkerRegistration(d.Name)); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", d.Name, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd); err != nil {
@@ -970,13 +970,15 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 
 	// Workers are named adhar-<cluster>-<nodeGroup>-<n> at create time; keep
 	// the same scheme (and the same droplet size as the existing workers) so a
-	// scaled cluster stays homogeneous.
-	workers = sortedByIndex(workers)
+	// scaled cluster stays homogeneous. Only this group's droplets count: the
+	// batch node pool is a group of its own (nodeGroupDroplets).
+	workers = sortedByIndex(nodeGroupDroplets(workers, nodeGroup))
 	membersSize := ""
 	if len(workers) > 0 {
 		membersSize = workers[0].SizeSlug
 	}
-	size := p.config.workerSize("", membersSize, false)
+	// An EMPTY batch pool takes the pool's own size (scaleWorkerSize).
+	size := p.config.scaleWorkerSize(nodeGroup, membersSize)
 
 	// Count NODES, not droplets: a droplet whose join failed is not capacity
 	// (see reconcileWorkers). One that has been an orphan past the grace period
@@ -1062,7 +1064,7 @@ func (p *Provider) prepareAndJoinComputeWorker(ctx context.Context, signer ssh.S
 		return fmt.Errorf("not ready: %w", err)
 	}
 	privIP, _ := d.PrivateIPv4()
-	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, ip, privIP, true, true); err != nil {
+	if err := provider.EnableWorkerKubelet(signer, computeSSHUser, ip, privIP, true, true, provider.WorkerRegistration(d.Name)); err != nil {
 		return err
 	}
 	return provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd)

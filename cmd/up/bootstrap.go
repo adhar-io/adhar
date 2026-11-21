@@ -506,6 +506,11 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		if err != nil {
 			return err
 		}
+		// The batch node pool's bounds ride on the autoscaling spec: the pool is
+		// autoscaled only where the environment autoscales (design 0025 D14).
+		if autoscaling != nil {
+			autoscaling.BatchPool = batchPoolSpecFromConfig(envConfig.BatchPool)
+		}
 	}
 	// Say now whether the workers can hold the profile. A slow bring-up is almost
 	// always this, and until now the only sign was the apps count climbing slowly.

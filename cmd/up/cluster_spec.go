@@ -241,6 +241,12 @@ func ensureClusterSpecConfigMap(
 				sanitized[kv.Key] = strings.TrimSpace(kv.Value)
 			}
 		}
+		// The batch pool's machine type: the autoscaler is the pool's only
+		// scaler, and a pool it finds EMPTY has no node to copy a size from, so
+		// without this a pool node came back at the general workers' size.
+		if t := pfactory.BatchPoolMachineType(envConfig); t != "" {
+			sanitized[pfactory.KeyBatchMachineType] = t
+		}
 		encoded, err := json.Marshal(sanitized)
 		if err != nil {
 			return fmt.Errorf("encoding provider config: %w", err)
@@ -381,6 +387,19 @@ func autoscalingSpecFromConfig(a *config.AutoscalingConfig) (*v1alpha1.Autoscali
 		return nil, err
 	}
 	return spec, nil
+}
+
+// batchPoolSpecFromConfig converts environments[].batchPool into the bounds the
+// node autoscaler scales the pool between; nil when there is no pool.
+func batchPoolSpecFromConfig(b *config.BatchPoolConfig) *v1alpha1.BatchPoolSpec {
+	if b == nil {
+		return nil
+	}
+	return &v1alpha1.BatchPoolSpec{
+		NodeGroup: config.BatchNodeGroupName,
+		MinNodes:  b.MinNodes,
+		MaxNodes:  b.MaxNodes,
+	}
 }
 
 func firstNonEmpty(values ...string) string {

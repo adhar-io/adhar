@@ -40,15 +40,20 @@ var (
 
 var historyCmd = &cobra.Command{
 	Use:   "history <job>",
-	Short: "A job's run history from the adhar.batch event stream (90 days)",
+	Short: "A job's run history from the adhar.batch event stream (90 days) and the run-summary archive",
 	Long: `Show what happened to a job, oldest first, from the adhar.batch events the
 batch observer published: runs requested, started, succeeded, failed, stopped,
 resumed, skipped and lost; holds, releases and missed schedule slots; deadlines
 endangered and missed. Unlike ` + "`runs`" + `, which lists the run Jobs the cluster still
-holds, this reaches back as far as the topic retains (90 days).
+holds, this reaches back as far as the topic retains (90 days), and past that
+through the run-summary archive: the final event of every finished run, which
+the batch observer keeps in the platform object store (rows marked "archive").
 
-It reads through the platform's event bridge (opt-in: the kafka-operator
-package), as ` + "`adhar events list`" + ` does.`,
+It reads the stream through the platform's event bridge (opt-in: the
+kafka-operator package), as ` + "`adhar events list`" + ` does, and the archive with
+the platform's object-store credential (Secret adhar-system/root-creds) through
+a port-forward to RustFS — so the archive is read only by an identity that may
+read that Secret; anyone else gets the stream and a line saying so.`,
 	Example: `  adhar batch history importer --env prod
   adhar batch history importer --since 7d -o json | jq -r '.[].type'`,
 	Args: cobra.ExactArgs(1),
@@ -70,22 +75,38 @@ package), as ` + "`adhar events list`" + ` does.`,
 		if since > 0 {
 			cutoff = now().Add(-since)
 		}
-		evs, problems, err := readBatchHistory(ctx(cmd), eventBus{cluster: cl.cfg, bridge: historyBridge}, ns+"/"+name, cutoff, historyLimit)
-		if err != nil {
-			// The bus is opt-in and the history lives nowhere else; what the
-			// cluster itself still holds is one command away.
-			return fmt.Errorf("%w\n  `adhar batch runs %s` lists the runs the cluster still holds", err, name)
-		}
-		if machineReadable() {
-			if evs == nil {
-				evs = []platformevents.Event{}
+		evs, problems, busErr := readBatchHistory(ctx(cmd), eventBus{cluster: cl.cfg, bridge: historyBridge}, ns+"/"+name, cutoff, historyLimit)
+		// The run-summary archive (Phase 4): each finished run's final event,
+		// kept past the topic's retention. A second source, never a reason to
+		// fail: what it cannot read is said in one line.
+		var archived []platformevents.Event
+		consulted := false
+		if historyArchive {
+			a, aProblems, aErr := readBatchArchive(ctx(cmd), cl, ns, name, cutoff, historyLimit)
+			if aErr != nil {
+				problems = append(problems, fmt.Errorf("the run-summary archive was not consulted: %w", aErr))
+			} else {
+				archived, consulted = a, true
+				problems = append(problems, aProblems...)
 			}
-			return printMachine(evs)
+		}
+		if busErr != nil {
+			if !consulted {
+				// The bus is opt-in and, without the archive, the history
+				// lives nowhere else; what the cluster itself still holds is
+				// one command away.
+				return fmt.Errorf("%w\n  `adhar batch runs %s` lists the runs the cluster still holds", busErr, name)
+			}
+			problems = append([]error{fmt.Errorf("the adhar.batch stream could not be read, so this is the archive alone — finished runs only: %w", busErr)}, problems...)
+		}
+		merged := mergeHistory(evs, archived, historyLimit)
+		if machineReadable() {
+			return printMachine(merged)
 		}
 		for _, p := range problems {
 			helpers.Printf("%s\n", helpers.CreateWarning(p.Error()))
 		}
-		printHistory(ns, name, historyRowsOf(evs))
+		printHistory(ns, name, mergedRowsOf(merged))
 		return nil
 	},
 }
@@ -212,9 +233,27 @@ func eventDataOf(e platformevents.Event) batchEventData {
 	return d
 }
 
-// historyRow is one line of `adhar batch history`.
+// historyRow is one line of `adhar batch history`. From says where the event
+// was read: the bus, or the run-summary archive.
 type historyRow struct {
-	Time, Event, Run, BusinessDate, Detail string
+	Time, Event, Run, BusinessDate, Detail, From string
+}
+
+// mergedRowsOf is historyRowsOf over a merged history, each row labelled with
+// its source.
+func mergedRowsOf(h []historyEvent) []historyRow {
+	evs := make([]platformevents.Event, len(h))
+	for i := range h {
+		evs[i] = h[i].Event
+	}
+	rows := historyRowsOf(evs)
+	for i := range rows {
+		rows[i].From = "bus"
+		if h[i].Archived {
+			rows[i].From = "archive"
+		}
+	}
+	return rows
 }
 
 func historyRowsOf(evs []platformevents.Event) []historyRow {
@@ -295,12 +334,12 @@ func eventDetail(d batchEventData) string {
 
 func printHistory(ns, name string, rows []historyRow) {
 	if len(rows) == 0 {
-		helpers.Printf("%s\n", helpers.CreateMuted(fmt.Sprintf("No adhar.batch events for %s/%s on the bus.", ns, name)))
+		helpers.Printf("%s\n", helpers.CreateMuted(fmt.Sprintf("No adhar.batch events for %s/%s on the bus or in the archive.", ns, name)))
 		return
 	}
-	tb := helpers.NewTable("TIME", "EVENT", "RUN", "DATE", "DETAIL")
+	tb := helpers.NewTable("TIME", "EVENT", "RUN", "DATE", "FROM", "DETAIL")
 	for _, r := range rows {
-		tb.Row(r.Time, r.Event, dash(r.Run), dash(r.BusinessDate), dash(r.Detail))
+		tb.Row(r.Time, r.Event, dash(r.Run), dash(r.BusinessDate), dash(r.From), dash(r.Detail))
 	}
 	fmt.Println(helpers.SectionHeading(helpers.IconInfo, fmt.Sprintf("History of %s/%s", ns, name)))
 	fmt.Println(tb.Render())

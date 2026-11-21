@@ -10,6 +10,10 @@
 #   CronJob     <name>        when `schedule` is set: batch/v1, or Volcano's for a gang
 #   PrometheusRule <name>-batch  the alerts of §11.3
 #   ConfigMap   <name>-calendar  when `schedule.calendar` names one: its copy (D5)
+#   ExternalSecret <name>-s3  when `bucket` names a Bucket: the object store's
+#                credential, beside the Bucket's own connection Secret (D26, R5)
+#   ExternalSecret <name>-batch-broker  in mode chunked: the broker's password,
+#                which the Queues' connection Secrets only name (R15)
 #
 # Every run also carries the JobRepository's retention (ADHAR_BATCH_RETENTION_DAYS,
 # _KEEP_LAST, D4) and, with a calendar, ADHAR_BATCH_CALENDAR, the path of the copy
@@ -22,6 +26,10 @@
 #                and the Job succeeds when index 0 does (§4.5 native fallback).
 #   VolcanoJob   mode partitioned on Volcano: a gang of 1 manager + N workers that
 #                starts whole or not at all; the manager finishing completes it.
+# Mode chunked (Phase 4, D11) is remote chunking in exactly that shape: the same
+# kinds, roles and policies, with ADHAR_BATCH_DISTRIBUTION=chunked instead of the
+# partition channel, and the two RabbitMQ Queue XRs `chunking` names mounted by
+# envFrom. `lineage.enabled` adds the OpenLineage client's variables to any mode.
 # The scheduler resolves per job: `kubernetes` is native; `auto` is Volcano where
 # its descriptor (D7) names it, its CRDs are served and the namespace's leaf queue
 # `<organisation>-<team>-<tier>` is this team's and open, otherwise native — so
@@ -82,7 +90,20 @@ spec:
                    kube-scheduler never schedules a schedulerName: volcano pod, so it never
                    preempts for one; Volcano picks victims among its own jobs only. */ -}}
             {{- $volcanoClass := ternary "adhar-batch-volcano-critical" "adhar-batch-volcano" (eq $priority "critical") -}}
-            {{- $partitioned := eq (dig "mode" "single" $p) "partitioned" -}}
+            {{- /* Phase 4 (D11): `chunked` is remote chunking in the partitioned SHAPE (one
+                   manager, `workers` workers, a gang or an Indexed Job), so $partitioned
+                   below means that shape; only the partition channel is partitioned's own. */ -}}
+            {{- $mode := dig "mode" "single" $p -}}
+            {{- $chunked := eq $mode "chunked" -}}
+            {{- $partitioned := or (eq $mode "partitioned") $chunked -}}
+            {{- $requestQueue := dig "chunking" "requestQueue" "" $p -}}
+            {{- $replyQueue := dig "chunking" "replyQueue" "" $p -}}
+            {{- /* Lineage (D11): the platform's OpenMetadata unless another receiver is named. */ -}}
+            {{- $lineageOn := eq (toString (dig "lineage" "enabled" false $p)) "true" -}}
+            {{- $lineageURL := dig "lineage" "url" "" $p -}}
+            {{- $openMetadata := "http://openmetadata.adhar-system.svc.cluster.local:8585" -}}
+            {{- /* D26: the Bucket a run reads and writes, a Bucket XR of this namespace. */ -}}
+            {{- $bucketRef := dig "bucket" "" $p -}}
             {{- $workers := int (dig "workers" 2 $p) -}}
             {{- $gridSize := int (dig "gridSize" (mul 4 $workers) $p) -}}
             {{- /* D5: the business calendar is a ConfigMap of this name labelled
@@ -168,6 +189,36 @@ spec:
                 matchName: {{ $calendarName | quote }}
                 namespace: {{ $platformNS | quote }}
               {{- end }}
+              {{- /* D11: the two Queue XRs a chunked run's traffic rides on; a Queue in
+                     this namespace is necessarily this project environment's. */ -}}
+              {{- if and $chunked $requestQueue }}
+              chunkRequestQueue:
+                apiVersion: platform.adhar.io/v1alpha1
+                kind: Queue
+                matchName: {{ $requestQueue | quote }}
+                namespace: {{ $ns | quote }}
+              {{- end }}
+              {{- if and $chunked $replyQueue }}
+              chunkReplyQueue:
+                apiVersion: platform.adhar.io/v1alpha1
+                kind: Queue
+                matchName: {{ $replyQueue | quote }}
+                namespace: {{ $ns | quote }}
+              {{- end }}
+              {{- if and $lineageOn (not $lineageURL) }}
+              lineageReceiver:
+                apiVersion: v1
+                kind: Service
+                matchName: openmetadata
+                namespace: {{ $platformNS | quote }}
+              {{- end }}
+              {{- if $bucketRef }}
+              bucket:
+                apiVersion: platform.adhar.io/v1alpha1
+                kind: Bucket
+                matchName: {{ $bucketRef | quote }}
+                namespace: {{ $ns | quote }}
+              {{- end }}
               {{- if and $volcanoInstalled $leaf }}
               leafQueue:
                 apiVersion: scheduling.volcano.sh/v1beta1
@@ -220,6 +271,36 @@ spec:
             {{-   if or (hasPrefix "ADHAR_BATCH_" $k) (has $k (list "ADHAR_ENVIRONMENT" "POD_NAME" "POD_UID" "NODE_NAME" "JOB_COMPLETION_INDEX" "SPRING_DATASOURCE_URL" "SPRING_DATASOURCE_USERNAME" "SPRING_DATASOURCE_PASSWORD")) -}}
             {{-     fail (printf "env %s is owned by the runner's contract and cannot be set on a BatchJob; parameters go in parameters.parameters and the database in parameters.database" $k) -}}
             {{-   end -}}
+            {{-   if and $lineageOn (hasPrefix "OPENLINEAGE_" $k) -}}
+            {{-     fail (printf "env %s contradicts lineage.enabled, which sets the OpenLineage client's variables itself; name another receiver with lineage.url and lineage.endpoint" $k) -}}
+            {{-   end -}}
+            {{-   if and $bucketRef (hasPrefix "ADHAR_S3_" $k) -}}
+            {{-     fail (printf "env %s contradicts bucket, which sets every ADHAR_S3_ variable from Bucket %s; drop it, or drop bucket and give all five yourself" $k $bucketRef) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* The same names must not arrive through envFrom. A Secret's keys are not
+                   known here, but a prefix is: ADHAR_BATCH_ (or a shorter one an
+                   ADHAR_BATCH_ name starts with, such as ADHAR_) would turn a key MODE
+                   into ADHAR_BATCH_MODE, which a partitioned or chunked run must never
+                   carry, or add keys under a chunking Queue's prefix. The template is
+                   what Kyverno holds a run to, so whatever it admits here every run
+                   carries unquestioned (D11, verifier 2026-11-21). */ -}}
+            {{- range $src := (dig "envFrom" (list) $p) -}}
+            {{-   $pfx := toString (dig "prefix" "" $src) -}}
+            {{-   if and $pfx (or (hasPrefix "ADHAR_BATCH_" $pfx) (hasPrefix $pfx "ADHAR_BATCH_")) -}}
+            {{-     fail (printf "envFrom prefix %s is owned by the runner's contract: it can produce ADHAR_BATCH_ variables, which a BatchJob cannot set; use a prefix of your own" $pfx) -}}
+            {{-   end -}}
+            {{-   if and $lineageOn $pfx (or (hasPrefix "OPENLINEAGE_" $pfx) (hasPrefix $pfx "OPENLINEAGE_")) -}}
+            {{-     fail (printf "envFrom prefix %s contradicts lineage.enabled, which sets the OpenLineage client's variables itself; name another receiver with lineage.url and lineage.endpoint" $pfx) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* D11. The XRD's rules say the same; this keeps a definition that reached
+                   the composition some other way from rendering a run with no broker. */ -}}
+            {{- if and $chunked (or (not $requestQueue) (not $replyQueue)) -}}
+            {{-   fail "mode chunked needs chunking.requestQueue and chunking.replyQueue: the Queue objects in this namespace that carry its chunks" -}}
+            {{- end -}}
+            {{- if and $chunked (eq $requestQueue $replyQueue) -}}
+            {{-   fail (printf "chunking.requestQueue and chunking.replyQueue are both %s: a worker would read its own replies as chunks" $requestQueue) -}}
             {{- end -}}
             {{- /* Phase 3. The smoke run (D6) and a dependency run (§12) are started by
                    the platform with values for DECLARED parameters; a name the job does
@@ -394,7 +475,7 @@ spec:
             {{-   $volcanoBlocker = printf "PriorityClass %s does not exist: the installed core/adhar-batch predates Volcano support" $volcanoClass -}}
             {{-   $volcanoBlockerReason = "PriorityClassMissing" -}}
             {{- else if and $partitioned (eq (toString (get $desc "gang")) "false") -}}
-            {{-   $volcanoBlocker = printf "the scheduler descriptor %s/adhar-batch-scheduler says gang: \"false\", and a partitioned job on Volcano is a gang" $platformNS -}}
+            {{-   $volcanoBlocker = printf "the scheduler descriptor %s/adhar-batch-scheduler says gang: \"false\", and a %s job on Volcano is a gang" $platformNS $mode -}}
             {{- end -}}
             {{- $useVolcano := and (ne $schedulerAsked "kubernetes") (eq $volcanoBlocker "") -}}
             {{- $scheduler := ternary "volcano" "kubernetes" $useVolcano -}}
@@ -445,7 +526,7 @@ spec:
             {{-     end -}}
             {{-   end -}}
             {{-   if $overQuota -}}
-            {{-     fail (printf "a partitioned run of 1 manager and %d workers asks at once for more than ResourceQuota %s-quota allows in namespace %s (%s)%s: it could never start; lower workers or the run's resources (workerCpu, workerMemory, cpuLimit), or raise the environment's quota" $workers $ns $ns (join ", " $overQuota) (ternary "; natively every index is sized like the larger of manager and worker" "" (eq $shape "indexed"))) -}}
+            {{-     fail (printf "a %s run of 1 manager and %d workers asks at once for more than ResourceQuota %s-quota allows in namespace %s (%s)%s: it could never start; lower workers or the run's resources (workerCpu, workerMemory, cpuLimit), or raise the environment's quota" $mode $workers $ns $ns (join ", " $overQuota) (ternary "; natively every index is sized like the larger of manager and worker" "" (eq $shape "indexed"))) -}}
             {{-   end -}}
             {{- end -}}
 
@@ -485,6 +566,42 @@ spec:
             {{-   if not $calendarSource -}}
             {{-     $missing = append $missing (printf "calendar %s cannot be resolved: no ConfigMap of that name labelled adhar.io/batch-calendar \"true\" with a calendar.yaml key in namespace %s or %s" $calendarName $ns $platformNS) -}}
             {{-     if not $missingReason }}{{ $missingReason = "CalendarUnresolvable" }}{{ end -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* D11: a chunked run's two Queues. Each must exist here, and must publish its
+                   connection under the name the run template mounts (<queue>-queue, the
+                   Queue composition's contract): the template names it before the Queue
+                   reports it, so a renamed Secret would otherwise surface only as every
+                   run pod stuck in CreateContainerConfigError. Readiness is not required:
+                   the Queue composition's Secret is statusless and never reports Ready. */ -}}
+            {{- $chunkQueues := list -}}
+            {{- if $chunked }}{{ $chunkQueues = list (dict "key" "chunkRequestQueue" "field" "requestQueue" "name" $requestQueue) (dict "key" "chunkReplyQueue" "field" "replyQueue" "name" $replyQueue) }}{{ end -}}
+            {{- range $cq := $chunkQueues -}}
+            {{-   $qxr := dict -}}
+            {{-   range (default (list) (getExtraResources $ $cq.key)) }}{{ $qxr = dig "resource" (dict) . }}{{ end -}}
+            {{-   $published := dig "status" "connectionSecret" "" $qxr -}}
+            {{-   if not $qxr -}}
+            {{-     $missing = append $missing (printf "chunking.%s names Queue %s, which does not exist in namespace %s: declare it (kind Queue, platform.adhar.io) beside this BatchJob" $cq.field $cq.name $ns) -}}
+            {{-     if not $missingReason }}{{ $missingReason = "ChunkQueueUnavailable" }}{{ end -}}
+            {{-   else if and $published (ne $published (printf "%s-queue" $cq.name)) -}}
+            {{-     $missing = append $missing (printf "Queue %s publishes its connection as Secret %s, not %s-queue, which every chunked run mounts" $cq.name $published $cq.name) -}}
+            {{-     if not $missingReason }}{{ $missingReason = "ChunkQueueUnavailable" }}{{ end -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* D26: the Bucket must exist here and publish its connection as
+                   <bucket>-bucket, the Bucket composition's contract and the name the run
+                   template reads. Readiness is not required: the Bucket's Job runs once,
+                   and a run that starts before it finished gets the bucket a moment later. */ -}}
+            {{- if $bucketRef -}}
+            {{-   $bxr := dict -}}
+            {{-   range (default (list) (getExtraResources $ "bucket")) }}{{ $bxr = dig "resource" (dict) . }}{{ end -}}
+            {{-   $bPublished := dig "status" "connectionSecret" "" $bxr -}}
+            {{-   if not $bxr -}}
+            {{-     $missing = append $missing (printf "bucket names Bucket %s, which does not exist in namespace %s: declare it (kind Bucket, platform.adhar.io) beside this BatchJob" $bucketRef $ns) -}}
+            {{-     if not $missingReason }}{{ $missingReason = "BucketUnavailable" }}{{ end -}}
+            {{-   else if and $bPublished (ne $bPublished (printf "%s-bucket" $bucketRef)) -}}
+            {{-     $missing = append $missing (printf "Bucket %s publishes its connection as Secret %s, not %s-bucket, which every run reads" $bucketRef $bPublished $bucketRef) -}}
+            {{-     if not $missingReason }}{{ $missingReason = "BucketUnavailable" }}{{ end -}}
             {{-   end -}}
             {{- end -}}
             {{- $prereqOK := not $missing -}}
@@ -610,11 +727,73 @@ spec:
                    ADHAR_BATCH_MODE: Spring would bind it to adhar.batch.mode
                    (auto|kubernetes|embedded), and the role already says partitioned. */ -}}
             {{- $partitionEnv := list -}}
-            {{- if $partitioned -}}
+            {{- $managerWait := printf "%ds" (max (sub $deadline 300) (div $deadline 2)) -}}
+            {{- if and $partitioned (not $chunked) -}}
             {{-   $partitionEnv = list
                     (dict "name" "ADHAR_BATCH_PARTITION_TRANSPORT" "value" "jdbc")
                     (dict "name" "ADHAR_BATCH_PARTITION_GRIDSIZE" "value" (toString $gridSize))
-                    (dict "name" "ADHAR_BATCH_PARTITION_TIMEOUT" "value" (printf "%ds" (max (sub $deadline 300) (div $deadline 2)))) -}}
+                    (dict "name" "ADHAR_BATCH_PARTITION_TIMEOUT" "value" $managerWait) -}}
+            {{- end -}}
+            {{- /* Remote chunking (D11, §5.11): the same roles, a different distribution.
+                   ADHAR_BATCH_DISTRIBUTION binds to adhar.batch.distribution and selects
+                   the kit's remote-chunking manager and worker beans; there is still no
+                   ADHAR_BATCH_MODE. The manager stops waiting for replies before the pod
+                   is killed, as a partitioned manager does. The broker's password is the
+                   one thing the Queue's connection Secret only REFERENCES (key
+                   rabbitmq-password of adhar-system's Secret `rabbitmq`), so it is read
+                   here; host, port, vhost, queue, dead-letter queue and user arrive whole by
+                   envFrom, one prefix per Queue. R15: the job projects that key beside
+                   itself as <name>-batch-broker (below), as it projects root-creds as
+                   <name>-s3, rather than reading the Queue's own <queue>-broker: it does
+                   not depend on how the Queue composition names its copy, and the
+                   `-batch-` keeps a Queue and a BatchJob of one name from composing the
+                   same ExternalSecret. There is no adhar-system case: a BatchJob there
+                   is refused above, so every chunked job is in a namespace the
+                   platform-messaging store serves. */ -}}
+            {{- $brokerSecret := printf "%s-batch-broker" $name -}}
+            {{- $chunkEnv := list -}}
+            {{- $chunkEnvFrom := list -}}
+            {{- if $chunked -}}
+            {{-   $chunkEnv = list
+                    (dict "name" "ADHAR_BATCH_DISTRIBUTION" "value" "chunked")
+                    (dict "name" "ADHAR_BATCH_CHUNKING_TIMEOUT" "value" $managerWait)
+                    (dict "name" "ADHAR_BATCH_CHUNKING_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $brokerSecret "key" "rabbitmq-password"))) -}}
+            {{-   $chunkEnvFrom = list
+                    (dict "prefix" "ADHAR_BATCH_CHUNKING_REQUESTS_" "secretRef" (dict "name" (printf "%s-queue" $requestQueue)))
+                    (dict "prefix" "ADHAR_BATCH_CHUNKING_REPLIES_" "secretRef" (dict "name" (printf "%s-queue" $replyQueue))) -}}
+            {{- end -}}
+            {{- /* OpenLineage (D11): the client's own variables, nothing kit-specific. The
+                   namespace is the job's place in the hierarchy, so lineage from dev and
+                   prod, or from two teams' jobs of one name, never merges. */ -}}
+            {{- $lineageEnv := list -}}
+            {{- if $lineageOn -}}
+            {{-   $olNamespace := list "adhar" $org $team -}}
+            {{-   if $project }}{{ $olNamespace = append $olNamespace $project }}{{ end -}}
+            {{-   $olNamespace = append $olNamespace $env -}}
+            {{-   $lineageEnv = list (dict "name" "OPENLINEAGE_URL" "value" (default $openMetadata $lineageURL)) -}}
+            {{-   $olEndpoint := dig "lineage" "endpoint" "" $p -}}
+            {{-   if and (not $olEndpoint) (not $lineageURL) }}{{ $olEndpoint = "/api/v1/openlineage/lineage" }}{{ end -}}
+            {{-   if $olEndpoint }}{{ $lineageEnv = append $lineageEnv (dict "name" "OPENLINEAGE_ENDPOINT" "value" $olEndpoint) }}{{ end -}}
+            {{-   $lineageEnv = append $lineageEnv (dict "name" "OPENLINEAGE_NAMESPACE" "value" (join "/" $olNamespace)) -}}
+            {{-   with dig "lineage" "credentialsSecretRef" "name" "" $p -}}
+            {{-     $lineageEnv = append $lineageEnv (dict "name" "OPENLINEAGE_API_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" . "key" (dig "lineage" "credentialsSecretRef" "key" "token" $p) "optional" true))) -}}
+            {{-   end -}}
+            {{- end -}}
+            {{- /* D26: the object store the kit's AdharS3EnvironmentPostProcessor points
+                   Spring Cloud AWS at. Endpoint, region and bucket come from the Bucket's
+                   connection Secret; the credential it only REFERENCES (root-creds, R5) is
+                   projected into this namespace as <name>-s3, below, because a pod reads a
+                   Secret of its own namespace only. */ -}}
+            {{- $bucketEnv := list -}}
+            {{- if $bucketRef -}}
+            {{-   $conn := printf "%s-bucket" $bucketRef -}}
+            {{-   $s3Secret := printf "%s-s3" $name -}}
+            {{-   $bucketEnv = list
+                    (dict "name" "ADHAR_S3_ENDPOINT" "valueFrom" (dict "secretKeyRef" (dict "name" $conn "key" "endpoint")))
+                    (dict "name" "ADHAR_S3_REGION" "valueFrom" (dict "secretKeyRef" (dict "name" $conn "key" "region")))
+                    (dict "name" "ADHAR_S3_BUCKET" "valueFrom" (dict "secretKeyRef" (dict "name" $conn "key" "bucket")))
+                    (dict "name" "ADHAR_S3_ACCESS_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" $s3Secret "key" "ADHAR_S3_ACCESS_KEY")))
+                    (dict "name" "ADHAR_S3_SECRET_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" $s3Secret "key" "ADHAR_S3_SECRET_KEY"))) -}}
             {{- end -}}
             {{- /* A Volcano Job's pods carry its name as volcano.sh/job-name; a batch/v1
                    Job's as batch.kubernetes.io/job-name. */ -}}
@@ -652,7 +831,7 @@ spec:
                       (dict "name" "ADHAR_BATCH_RETENTION_DAYS" "value" $retentionDays)
                       (dict "name" "ADHAR_BATCH_RETENTION_KEEP_LAST" "value" $retentionKeep) -}}
             {{-     if $calendarName }}{{ $envList = append $envList (dict "name" "ADHAR_BATCH_CALENDAR" "value" $calendarPath) }}{{ end -}}
-            {{-     $envList = concat $envList $partitionEnv -}}
+            {{-     $envList = concat $envList $partitionEnv $chunkEnv -}}
             {{- /* The kit resolves `indexed` to manager at index 0 (BatchRole.effective).
                    Kubernetes injects the same variable itself; naming it here keeps the
                    contract in the template a client compares against. */ -}}
@@ -668,6 +847,7 @@ spec:
                       (dict "name" "SPRING_DATASOURCE_USERNAME" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "username")))
                       (dict "name" "SPRING_DATASOURCE_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $dbSecret "key" "password")))) -}}
             {{-     range $k := (keys $platformEnv | sortAlpha) }}{{ $envList = append $envList (dict "name" $k "value" (get $platformEnv $k)) }}{{ end -}}
+            {{-     $envList = concat $envList $lineageEnv $bucketEnv -}}
             {{-     $rr := get $roleResources $role -}}
             {{- /* limits.cpu is always set, to the request unless cpuLimit says more: every
                    environment namespace's LimitRange defaults a missing CPU limit to 500m,
@@ -697,7 +877,7 @@ spec:
                       "resources" (dict "requests" (dict "cpu" (get $rr "cpu") "memory" (get $rr "memory")) "limits" $limits)
                       "securityContext" (dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")))
                       "volumeMounts" $mounts -}}
-            {{-     with dig "envFrom" (list) $p }}{{ $_ := set $container "envFrom" . }}{{ end -}}
+            {{-     with concat (dig "envFrom" (list) $p) $chunkEnvFrom }}{{ $_ := set $container "envFrom" . }}{{ end -}}
             {{-     $podSpec := dict
                       "restartPolicy" "Never"
                       "schedulerName" (ternary "volcano" "default-scheduler" $useVolcano)
@@ -791,7 +971,7 @@ spec:
 
             {{- /* What has been observed: a statusless kind is ready once it exists. */ -}}
             {{- $seen := dict -}}
-            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "schedule-volcano" "rules" "calendar" -}}
+            {{- range $r := list "runner-sa" "runner-role" "runner-rolebinding" "run-template" "schedule-native" "schedule-volcano" "rules" "calendar" "s3-credentials" "broker-credentials" -}}
             {{-   $_ := set $seen $r (ne (toString (dig $r "resource" "metadata" "uid" "" $observed)) "") -}}
             {{- end -}}
             {{- /* The calendar copy. While the source cannot be resolved the copy already
@@ -849,6 +1029,11 @@ spec:
             {{- $warnings := list -}}
             {{- if eq (get $queueFits "status") "False" }}{{ $warnings = append $warnings (get $queueFits "message") }}{{ end -}}
             {{- if $switchWaits }}{{ $warnings = append $warnings (get $switchCond "message") }}{{ end -}}
+            {{- /* Lineage is advisory, so a receiver that is not there is a warning, never a
+                   refusal: open-metadata is opt-in in every profile. */ -}}
+            {{- if and $lineageOn (not $lineageURL) (not (getExtraResources . "lineageReceiver")) -}}
+            {{-   $warnings = append $warnings (printf "lineage is enabled but OpenMetadata is not installed (no Service %s/openmetadata): its runs send their lineage nowhere until the open-metadata package is enabled, or lineage.url names another receiver" $platformNS) -}}
+            {{- end -}}
 
             {{- /* Conditions and the summary line. */ -}}
             {{- $scheduleCond := dict "status" "True" "reason" "OnDemand" "message" "no schedule: this job runs when somebody starts it" -}}
@@ -988,6 +1173,61 @@ spec:
                 adhar.io/batch-calendar-source: {{ $calendarCopyFrom | quote }}
             data:
               calendar.yaml: {{ $calendarCopy | toJson }}
+            {{- end }}
+            {{- if $bucketRef }}
+            ---
+            # D26: the object store's credential for ADHAR_S3_ACCESS_KEY / _SECRET_KEY. The
+            # Bucket's connection Secret only names it (root-creds in adhar-system), so it
+            # is projected here through the platform-object-storage store, which serves
+            # only namespaces labelled adhar.io/plane workload or preview (an environment
+            # namespace is) and can read root-creds and nothing else. It IS RustFS's root
+            # credential (design 0025 R5, accepted 2026-11-13): a Bucket is one team's.
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $name }}-s3
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: s3-credentials
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "s3-credentials") | quote }}
+            spec:
+              refreshInterval: 1h
+              secretStoreRef: {kind: ClusterSecretStore, name: platform-object-storage}
+              target:
+                name: {{ $name }}-s3
+              data:
+                - secretKey: ADHAR_S3_ACCESS_KEY
+                  remoteRef: {key: root-creds, property: rootUser}
+                - secretKey: ADHAR_S3_SECRET_KEY
+                  remoteRef: {key: root-creds, property: rootPassword}
+            {{- end }}
+            {{- if $chunked }}
+            ---
+            # R15: the broker's password for ADHAR_BATCH_CHUNKING_PASSWORD. The Queues'
+            # connection Secrets only name it (key rabbitmq-password of `rabbitmq` in
+            # adhar-system), so it is projected here through the platform-messaging
+            # store, which serves only namespaces labelled adhar.io/plane workload or
+            # preview and can read `rabbitmq` and nothing else. It IS the broker's
+            # admin credential (design 0025 R16): a broker is one team's.
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $brokerSecret }}
+              namespace: {{ $ns }}
+              labels: {{ toJson $labels }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: broker-credentials
+                gotemplating.fn.crossplane.io/ready: {{ ternary "True" "False" (get $seen "broker-credentials") | quote }}
+            spec:
+              refreshInterval: 1h
+              secretStoreRef: {kind: ClusterSecretStore, name: platform-messaging}
+              target:
+                name: {{ $brokerSecret }}
+                creationPolicy: Owner
+              data:
+                - secretKey: rabbitmq-password
+                  remoteRef: {key: rabbitmq, property: rabbitmq-password}
             {{- end }}
             {{- if $switchWaits }}
             ---

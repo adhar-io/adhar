@@ -51,8 +51,11 @@ spec:
               valueFrom: {secretKeyRef: {name: root-creds, key: rootPassword}}
             # One line per bucket. Mimir's three are here because Mimir now
             # writes to RustFS instead of its own bundled MinIO.
+            # `adhar-batch-archive` holds the batch observer's run summaries
+            # (design 0025 Phase 4, platform/batcharchive). The observer also
+            # makes it on its first write, so the order does not matter.
             - name: BUCKETS
-              value: "adhar-backups mlpipeline penpot loki airbyte mlflow mimir-blocks mimir-ruler mimir-alertmanager lakehouse strapi plane tolgee"
+              value: "adhar-backups mlpipeline penpot loki airbyte mlflow mimir-blocks mimir-ruler mimir-alertmanager lakehouse strapi plane tolgee adhar-batch-archive"
             - name: WAREHOUSES
               value: "lakehouse"
           command: ["/bin/bash", "-c"]

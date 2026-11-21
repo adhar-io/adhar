@@ -78,3 +78,20 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get"]
+---
+# Kyverno's admission controller lists nodes for adhar-batch-node-pool, which applies
+# only while a node labelled adhar.io/node-pool=batch exists (design 0025 D14).
+# Kyverno aggregates roles carrying this label into its own; read-only, nodes only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-batch-kyverno-nodes
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    rbac.kyverno.io/aggregate-to-admission-controller: "true"
+    app.kubernetes.io/part-of: adhar
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]

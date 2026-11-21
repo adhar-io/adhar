@@ -38,6 +38,10 @@ type clusterDouble struct {
 	requests   []string
 	subscribed []string
 	deleted    int
+	// rootCreds is Secret adhar-system/root-creds (nil: absent);
+	// secretForbidden answers 403 for it instead.
+	rootCreds       map[string]string
+	secretForbidden bool
 }
 
 func (c *clusterDouble) serve(t *testing.T) *httptest.Server {
@@ -59,6 +63,16 @@ func (c *clusterDouble) serve(t *testing.T) *httptest.Server {
 			_, _ = w.Write([]byte(`{"apiVersion":"batch/v1","kind":"JobList","items":[]}`))
 		case path == "/api/v1/namespaces/prod/pods":
 			_, _ = w.Write([]byte(`{"apiVersion":"v1","kind":"PodList","items":[]}`))
+		case path == "/api/v1/namespaces/adhar-system/secrets/root-creds" && c.secretForbidden:
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"Forbidden","code":403}`))
+		case path == "/api/v1/namespaces/adhar-system/secrets/root-creds" && c.rootCreds != nil:
+			data := map[string][]byte{}
+			for k, v := range c.rootCreds {
+				data[k] = []byte(v)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"apiVersion": "v1", "kind": "Secret",
+				"metadata": map[string]string{"name": "root-creds", "namespace": "adhar-system"}, "data": data})
 		case !c.bus || !strings.HasPrefix(path, bridgeProxyPath+"/"):
 			notFound(w)
 		default:

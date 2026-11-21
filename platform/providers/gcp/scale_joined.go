@@ -95,7 +95,7 @@ func prepareAndJoinGCPWorker(ctx context.Context, signer ssh.Signer, n *NodeInfo
 	if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, n.PublicIP, 15*time.Minute); err != nil {
 		return fmt.Errorf("not ready: %w", err)
 	}
-	if err := provider.EnableExternalCloudProvider(signer, gcpSSHUser, n.PublicIP, n.PrivateIP, true, true); err != nil {
+	if err := provider.EnableWorkerKubelet(signer, gcpSSHUser, n.PublicIP, n.PrivateIP, true, true, provider.WorkerRegistration(n.InstanceName)); err != nil {
 		return err
 	}
 	return provider.KubeadmJoinWorker(signer, gcpSSHUser, n.PublicIP, joinCmd)

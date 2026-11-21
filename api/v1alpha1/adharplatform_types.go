@@ -236,6 +236,51 @@ type AutoscalingSpec struct {
 	// +kubebuilder:default="90%"
 	// +optional
 	ScaleUpUtilizationThreshold string `json:"scaleUpUtilizationThreshold,omitempty"`
+
+	// BatchPool is the cluster's batch node pool (design 0025 D14), when the
+	// environment declares one (`environments[].batchPool`). Its nodes carry the
+	// label adhar.io/node-pool=batch, are counted apart from the general workers
+	// (MinWorkers/MaxWorkers never include them), grow only for batch demand that
+	// may buy nodes, and retire down to MinNodes when idle.
+	// +optional
+	BatchPool *BatchPoolSpec `json:"batchPool,omitempty"`
+}
+
+// DefaultBatchPoolNodeGroup is the batch pool's node group (config
+// BatchNodeGroupName, globals.BatchNodeGroupName).
+const DefaultBatchPoolNodeGroup = "batch"
+
+// BatchPoolSpec bounds the batch node pool.
+type BatchPoolSpec struct {
+	// NodeGroup is the provider node group the pool is.
+	// +kubebuilder:default=batch
+	// +optional
+	NodeGroup string `json:"nodeGroup,omitempty"`
+	// MinNodes is the pool's floor: idle pool nodes are retired down to it,
+	// never below. At least 1 (see config.BatchPoolConfig).
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	// +optional
+	MinNodes int32 `json:"minNodes,omitempty"`
+	// MaxNodes is the pool's spend ceiling.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	MaxNodes int32 `json:"maxNodes,omitempty"`
+}
+
+// WithDefaults fills in the pool's unset fields: the node group, a floor of
+// one, and a ceiling no lower than the floor.
+func (b BatchPoolSpec) WithDefaults() BatchPoolSpec {
+	if b.NodeGroup == "" {
+		b.NodeGroup = DefaultBatchPoolNodeGroup
+	}
+	if b.MinNodes < 1 {
+		b.MinNodes = 1
+	}
+	if b.MaxNodes < b.MinNodes {
+		b.MaxNodes = b.MinNodes
+	}
+	return b
 }
 
 // WithDefaults returns a copy with every unset field filled in, so callers can
@@ -333,6 +378,27 @@ type AutoscalingStatus struct {
 	// threshold in the current stretch. It is persisted (rather than kept in
 	// memory) so the ScaleDownDelay survives a controller restart or a leader
 	// election handover.
+	// +optional
+	UnderutilizedSince *metav1.Time `json:"underutilizedSince,omitempty"`
+	// BatchPool is the batch node pool's own view, with its own clocks: the
+	// pool scales independently of the general workers.
+	// +optional
+	BatchPool *BatchPoolStatus `json:"batchPool,omitempty"`
+}
+
+// BatchPoolStatus reports what the node autoscaler last observed and did for
+// the batch node pool.
+type BatchPoolStatus struct {
+	// Nodes is the number of schedulable pool nodes at the last tick.
+	Nodes int32 `json:"nodes"`
+	// +optional
+	LastScaleUp *metav1.Time `json:"lastScaleUp,omitempty"`
+	// +optional
+	LastScaleDown *metav1.Time `json:"lastScaleDown,omitempty"`
+	// LastReason explains the pool's most recent decision in one line.
+	// +optional
+	LastReason string `json:"lastReason,omitempty"`
+	// UnderutilizedSince is when the pool went idle in the current stretch.
 	// +optional
 	UnderutilizedSince *metav1.Time `json:"underutilizedSince,omitempty"`
 }

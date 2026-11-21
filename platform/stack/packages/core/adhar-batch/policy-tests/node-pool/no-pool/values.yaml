@@ -1,0 +1,11 @@
+# No node labelled adhar.io/node-pool=batch exists.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+metadata:
+  name: node-pool-without-a-pool
+policies:
+  - name: adhar-batch-node-pool
+    rules:
+      - name: a-run-pod-tolerates-and-prefers-the-batch-pool
+        values:
+          poolNodes: 0

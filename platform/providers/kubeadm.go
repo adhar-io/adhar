@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1011,6 +1012,17 @@ const ExternalCloudProviderFlag = "--cloud-provider=external"
 // kubeletExtraArgs builds the KUBELET_EXTRA_ARGS value, separated from the SSH
 // plumbing so the flag set can be asserted without a cluster.
 func kubeletExtraArgs(externalCCM, csiStartupTaint bool, privateIP string, hostnameOverride ...string) string {
+	return kubeletFlags(externalCCM, csiStartupTaint, privateIP, NodeRegistration{}, hostnameOverride...)
+}
+
+// kubeletFlags is kubeletExtraArgs plus what the node declares about itself at
+// registration (its node group's labels and taints).
+//
+// Every taint goes into ONE --register-with-taints and every label into ONE
+// --node-labels: the kubelet's taint flag replaces its value on each use rather
+// than appending, so a second flag would silently drop the CSI startup taint (or
+// the pool's) and the node would take pods before it should.
+func kubeletFlags(externalCCM, csiStartupTaint bool, privateIP string, reg NodeRegistration, hostnameOverride ...string) string {
 	var parts []string
 	if externalCCM {
 		parts = append(parts, ExternalCloudProviderFlag)
@@ -1021,10 +1033,82 @@ func kubeletExtraArgs(externalCCM, csiStartupTaint bool, privateIP string, hostn
 	if len(hostnameOverride) > 0 && strings.TrimSpace(hostnameOverride[0]) != "" {
 		parts = append(parts, "--hostname-override="+strings.TrimSpace(hostnameOverride[0]))
 	}
+	if len(reg.Labels) > 0 {
+		keys := make([]string, 0, len(reg.Labels))
+		for k := range reg.Labels {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		labels := make([]string, 0, len(keys))
+		for _, k := range keys {
+			labels = append(labels, k+"="+reg.Labels[k])
+		}
+		parts = append(parts, "--node-labels="+strings.Join(labels, ","))
+	}
+	var taints []string
 	if csiStartupTaint {
-		parts = append(parts, "--register-with-taints="+globals.NodeCSIStartupTaint+"=:NoSchedule")
+		taints = append(taints, globals.NodeCSIStartupTaint+"=:NoSchedule")
+	}
+	for _, t := range reg.Taints {
+		taints = append(taints, t.Key+"="+t.Value+":"+t.Effect)
+	}
+	if len(taints) > 0 {
+		parts = append(parts, "--register-with-taints="+strings.Join(taints, ","))
 	}
 	return strings.Join(parts, " ")
+}
+
+// NodeRegistration is what a worker declares about itself when its kubelet
+// registers: labels and taints that must be on the Node from its first moment,
+// before the scheduler can place anything on it. Applying them afterwards would
+// leave a window in which general pods land on a pool meant for batch only.
+type NodeRegistration struct {
+	Labels map[string]string
+	Taints []types.TaintSpec
+}
+
+// BatchPoolRegistration is the batch node pool's label and taint (design 0025
+// D14): adhar.io/node-pool=batch and adhar.io/batch=true:NoSchedule.
+func BatchPoolRegistration() NodeRegistration {
+	return NodeRegistration{
+		Labels: map[string]string{globals.BatchNodePoolLabel: globals.BatchNodePoolValue},
+		Taints: []types.TaintSpec{{Key: globals.BatchNodePoolTaintKey, Value: globals.BatchNodePoolTaintValue, Effect: "NoSchedule"}},
+	}
+}
+
+// batchPoolMachine matches a machine of the batch node group. Every
+// compute-mode provider names a worker `<…>-<group>-<index>` (DigitalOcean and
+// Civo `adhar-<cluster>-<group>-<n>`, AWS `<cluster>-<group>-<n>`, GCP and
+// Azure `<cluster>-worker-<group>-<n>`), and the group name `batch` is reserved
+// for the pool (config validation refuses it in nodeGroups).
+var batchPoolMachine = regexp.MustCompile(`(^|-)` + regexp.QuoteMeta(globals.BatchNodeGroupName) + `-[0-9]+$`)
+
+// WorkerRegistration is what a compute-mode worker registers with, read from
+// its machine name. The name is the one fact every join path has, the create
+// path and the scale path alike (`adhar cluster scale` and the node autoscaler
+// know only a group name, never the group's labels), so a pool node joined by
+// any of them carries the pool's label and taint.
+func WorkerRegistration(machineName string) NodeRegistration {
+	if IsBatchPoolMachine(machineName) {
+		return BatchPoolRegistration()
+	}
+	return NodeRegistration{}
+}
+
+// IsBatchPoolMachine reports whether a compute-mode machine belongs to the batch
+// node pool, by the same `-batch-<n>` name WorkerRegistration reads. A scale path
+// that counts its group's members by anything coarser than the group name must
+// use it to keep the pool's machines out of the general workers' count and the
+// general workers out of the pool's.
+func IsBatchPoolMachine(machineName string) bool {
+	return batchPoolMachine.MatchString(strings.TrimSpace(machineName))
+}
+
+// EnableWorkerKubelet is EnableExternalCloudProvider for a WORKER: the same
+// flags, plus the labels and taints its node group registers with (see
+// WorkerRegistration).
+func EnableWorkerKubelet(signer ssh.Signer, user, ip, privateIP string, externalCCM, csiStartupTaint bool, reg NodeRegistration, hostnameOverride ...string) error {
+	return writeKubeletArgs(signer, user, ip, kubeletFlags(externalCCM, csiStartupTaint, privateIP, reg, hostnameOverride...))
 }
 
 // EnableExternalCloudProvider writes the kubelet extra args a raw-compute
@@ -1058,7 +1142,12 @@ func kubeletExtraArgs(externalCCM, csiStartupTaint bool, privateIP string, hostn
 // hostnameOverride is variadic so the fifteen existing call sites that do not
 // need it stay untouched; only AWS passes one.
 func EnableExternalCloudProvider(signer ssh.Signer, user, ip, privateIP string, externalCCM, csiStartupTaint bool, hostnameOverride ...string) error {
-	args := kubeletExtraArgs(externalCCM, csiStartupTaint, privateIP, hostnameOverride...)
+	return writeKubeletArgs(signer, user, ip, kubeletExtraArgs(externalCCM, csiStartupTaint, privateIP, hostnameOverride...))
+}
+
+// writeKubeletArgs appends KUBELET_EXTRA_ARGS to /etc/default/kubelet and
+// restarts the kubelet, unless the file already carries them.
+func writeKubeletArgs(signer ssh.Signer, user, ip, args string) error {
 	if args == "" {
 		return nil
 	}

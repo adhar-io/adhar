@@ -132,6 +132,17 @@ spec:
             # never waits on the bus and never fails because of it.
             - name: ADHAR_EVENTS_BRIDGE_URL
               value: http://adhar-events-bridge-service.adhar-system.svc.cluster.local:8080
+            # The batch run-summary archive (design 0025 Phase 4,
+            # platform/batcharchive): setting this TURNS IT ON. The batch
+            # observer writes each finished run's final adhar.batch event to
+            # s3://adhar-batch-archive/<namespace>/<batchJob>/<date>/<run>.json
+            # in RustFS, long after the topic's 90 days. The credential is NOT
+            # an env var: it is read live from Secret root-creds on each write,
+            # because this Deployment starts before RustFS publishes it. Like
+            # the bus it is advisory — a store that is down is counted
+            # (adhar_batch_archive_writes_total{result="failed"}), never waited on.
+            - name: ADHAR_BATCH_ARCHIVE_URL
+              value: http://rustfs.adhar-system.svc.cluster.local:9000
           ports:
             # controller-runtime's default webhook port. Named so the Service in
             # security/adhar-tenant-quotas can target it by name.

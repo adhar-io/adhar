@@ -899,7 +899,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, w.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", w.InstanceName, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, gcpSSHUser, w.PublicIP, w.PrivateIP, true, true); err != nil {
+		if err := provider.EnableWorkerKubelet(signer, gcpSSHUser, w.PublicIP, w.PrivateIP, true, true, provider.WorkerRegistration(w.InstanceName)); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", w.InstanceName, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, gcpSSHUser, w.PublicIP, joinCmd); err != nil {

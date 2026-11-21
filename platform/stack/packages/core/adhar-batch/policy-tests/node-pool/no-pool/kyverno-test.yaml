@@ -1,0 +1,21 @@
+# A cluster WITHOUT a batch pool is unaffected: no pod is mutated, batch or not.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: node-pool-without-a-pool
+policies:
+  - ../../../manifests/kyverno-node-pool.yaml
+resources:
+  - ../resources.yaml
+variables: values.yaml
+results:
+  - policy: adhar-batch-node-pool
+    rule: a-run-pod-tolerates-and-prefers-the-batch-pool
+    kind: Pod
+    resources: [run-plain, run-with-its-own, run-already-tolerating]
+    result: skip
+  - policy: adhar-batch-node-pool
+    rule: a-run-pod-tolerates-and-prefers-the-batch-pool
+    kind: Pod
+    resources: [web, service-pod]
+    result: skip

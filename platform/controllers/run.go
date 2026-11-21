@@ -7,6 +7,7 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/batcharchive"
 	"adhar-io/adhar/platform/controllers/adharplatform"
 	"adhar-io/adhar/platform/controllers/autoscaler"
 	batchobserver "adhar-io/adhar/platform/controllers/batch"
@@ -136,7 +137,25 @@ func RunControllers(
 			defer cancel()
 			batchBus.Close(flush)
 		}()
-		if err := (&batchobserver.Reconciler{Events: batchBus}).SetupWithManager(mgr); err != nil {
+		// The run-summary archive (Phase 4): opt-in by ADHAR_BATCH_ARCHIVE_URL,
+		// nil (nothing archived) otherwise. Its credential is read live through
+		// the uncached reader, never a Secret informer.
+		var archive batchobserver.Archiver
+		if w := batchobserver.NewArchive(mgr.GetAPIReader(), globals.AdharSystemNamespace); w != nil {
+			logger.Info("batch run summaries will be archived", "store", os.Getenv(batcharchive.EnvURL))
+			archive = w
+			go func() {
+				<-ctx.Done()
+				flush, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				w.Close(flush)
+			}()
+		}
+		observer := &batchobserver.Reconciler{
+			Events: batchBus, Archive: archive,
+			Source: events.FromEnv(cfg.Host, "batch-observer").Source,
+		}
+		if err := observer.SetupWithManager(mgr); err != nil {
 			logger.Error(err, "unable to create batch observer")
 		}
 	}

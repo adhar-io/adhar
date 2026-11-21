@@ -291,6 +291,7 @@ type runRow struct {
 	Name         string
 	Namespace    string
 	Kind         string
+	Mode         string
 	BatchJob     string
 	Application  string
 	Environment  string
@@ -492,6 +493,7 @@ func runRowOf(run *unstructured.Unstructured, allPods []unstructured.Unstructure
 		Name:        run.GetName(),
 		Namespace:   run.GetNamespace(),
 		Kind:        runKindOf(run),
+		Mode:        runModeOf(run),
 		BatchJob:    labels[labelBatchJob],
 		Application: labels["adhar.io/application"],
 		Environment: labels["adhar.io/environment"],

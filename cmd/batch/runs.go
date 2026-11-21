@@ -108,6 +108,7 @@ type runView struct {
 	Namespace    string                 `json:"namespace" yaml:"namespace"`
 	BatchJob     string                 `json:"batchJob,omitempty" yaml:"batchJob,omitempty"`
 	Kind         string                 `json:"kind" yaml:"kind"`
+	Mode         string                 `json:"mode" yaml:"mode"`
 	Status       string                 `json:"status" yaml:"status"`
 	Message      string                 `json:"message,omitempty" yaml:"message,omitempty"`
 	Trigger      string                 `json:"trigger,omitempty" yaml:"trigger,omitempty"`
@@ -133,7 +134,7 @@ type runView struct {
 
 func runViewOf(r runRow, at time.Time) runView {
 	v := runView{
-		Name: r.Name, Namespace: r.Namespace, BatchJob: r.BatchJob, Kind: r.Kind,
+		Name: r.Name, Namespace: r.Namespace, BatchJob: r.BatchJob, Kind: r.Kind, Mode: r.Mode,
 		Status: r.Phase.label(), Message: r.Message, Trigger: r.Trigger, Actor: r.Actor,
 		BusinessDate: r.BusinessDate, RestartOf: r.RestartOf, Attempts: r.Attempts,
 		StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, ExitCode: r.ExitCode,
@@ -158,19 +159,28 @@ func runViewOf(r runRow, at time.Time) runView {
 // queue is the same for every run of a job (one leaf per team and tier), so it
 // is in describe and -o json rather than on every row.
 func runsTable(views []runView) *helpers.Table {
-	volcano := false
+	volcano, distributed := false, false
 	for _, v := range views {
 		volcano = volcano || v.Scheduler == schedulerVolcano
+		distributed = distributed || (v.Mode != "" && v.Mode != modeSingle)
 	}
 	headers := []string{"RUN", "STATUS", "TRIGGER", "ACTOR", "BUSINESS DATE", "STARTED", "DURATION", "EXIT", "OUTCOME"}
 	if volcano {
 		headers = append(headers[:2:2], append([]string{"GANG"}, headers[2:]...)...)
+	}
+	// A manager-and-workers run says which distribution it is: partitioned and
+	// chunked runs are the same kind of object (D11).
+	if distributed {
+		headers = append(headers[:1:1], append([]string{"MODE"}, headers[1:]...)...)
 	}
 	t := helpers.NewTable(headers...)
 	for _, v := range views {
 		cells := []string{v.Name, phaseCell(v.phase), dash(v.Trigger), dash(v.Actor), dash(v.BusinessDate), startedCell(v), dash(v.Duration), exitCell(v.ExitCode), dash(v.Outcome)}
 		if volcano {
 			cells = append(cells[:2:2], append([]string{gangCell(v.Gang)}, cells[2:]...)...)
+		}
+		if distributed {
+			cells = append(cells[:1:1], append([]string{dash(v.Mode)}, cells[1:]...)...)
 		}
 		t.Row(cells...)
 	}

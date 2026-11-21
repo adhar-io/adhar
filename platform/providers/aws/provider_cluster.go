@@ -249,7 +249,7 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 		if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, worker.PublicIP, 15*time.Minute); err != nil {
 			return fmt.Errorf("worker node %s not ready: %w", worker.InstanceId, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, worker.PublicIP, worker.PrivateIP, true, true, worker.PrivateDNSName); err != nil {
+		if err := provider.EnableWorkerKubelet(signer, awsSSHUser, worker.PublicIP, worker.PrivateIP, true, true, provider.WorkerRegistration(worker.Name), worker.PrivateDNSName); err != nil {
 			return fmt.Errorf("worker node %s: %w", worker.InstanceId, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, awsSSHUser, worker.PublicIP, joinCmd, worker.PrivateDNSName); err != nil {

@@ -54,13 +54,13 @@ var listCmd = &cobra.Command{
 			helpers.Printf("%s\n", helpers.CreateMuted("No BatchJobs "+where+". A job is declared in Git (deploy/envs/<env>) and reaches the cluster through Argo CD."))
 			return nil
 		}
-		headers := []string{"NAME", "APPLICATION", "SCHEDULE", "NEXT RUN", "LAST RUN", "LAST SUCCESS", "HELD", "STATUS"}
+		headers := []string{"NAME", "APPLICATION", "MODE", "SCHEDULE", "NEXT RUN", "LAST RUN", "LAST SUCCESS", "HELD", "STATUS"}
 		if allNamespaces {
 			headers = append([]string{"NAMESPACE"}, headers...)
 		}
 		t := helpers.NewTable(headers...)
 		for _, v := range views {
-			cells := []string{v.Name, v.Application, scheduleCell(v), dash(v.NextRun), lastRunCell(v), dash(v.LastSuccess), dash(v.Held), jobStatusCell(v.Status)}
+			cells := []string{v.Name, v.Application, v.Mode, scheduleCell(v), dash(v.NextRun), lastRunCell(v), dash(v.LastSuccess), dash(v.Held), jobStatusCell(v.Status)}
 			if allNamespaces {
 				cells = append([]string{v.Namespace}, cells...)
 			}
@@ -81,6 +81,7 @@ type jobView struct {
 	Namespace   string    `json:"namespace" yaml:"namespace"`
 	DisplayName string    `json:"displayName,omitempty" yaml:"displayName,omitempty"`
 	Application string    `json:"application" yaml:"application"`
+	Mode        string    `json:"mode" yaml:"mode"`
 	Environment string    `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Job         string    `json:"job,omitempty" yaml:"job,omitempty"`
 	Image       string    `json:"image,omitempty" yaml:"image,omitempty"`
@@ -157,6 +158,7 @@ func jobViewOf(job *unstructured.Unstructured, allRuns []runRow, at time.Time) j
 		Environment: labels["adhar.io/environment"],
 		Job:         p("job"),
 		Image:       p("image"),
+		Mode:        jobModeOf(job),
 		Age:         duration.HumanDuration(at.Sub(job.GetCreationTimestamp().Time)),
 		job:         job,
 	}

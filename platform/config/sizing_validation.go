@@ -200,6 +200,8 @@ func (v *SchemaValidator) validateNodeGroups(field string, groups []NodeGroupCon
 		switch {
 		case g.Name == "":
 			v.addError(path+".name", g.Name, "a node group needs a name")
+		case g.Name == BatchNodeGroupName:
+			v.addError(path+".name", g.Name, fmt.Sprintf("%q is reserved for the batch node pool; declare it with batchPool (machineType, minNodes, maxNodes), which also gives it the pool's label and taint", BatchNodeGroupName))
 		case g.Name == PrimaryNodeGroupName:
 			v.addError(path+".name", g.Name, fmt.Sprintf("%q is the primary node group; size it with clusterConfig machineType/nodeCount and the autoscaling block, and use nodeGroups only for ADDITIONAL groups", PrimaryNodeGroupName))
 		case !dns1123Label.MatchString(g.Name) || len(g.Name) > maxNodeGroupNameLength:
@@ -223,6 +225,19 @@ func (v *SchemaValidator) validateNodeGroups(field string, groups []NodeGroupCon
 	}
 }
 
+// validateBatchPool checks a batchPool block (design 0025 D14).
+func (v *SchemaValidator) validateBatchPool(field string, b *BatchPoolConfig) {
+	if b == nil {
+		return
+	}
+	if b.MinNodes < 1 {
+		v.addError(field+".minNodes", b.MinNodes, "a batch pool needs at least 1 node: the policy that sends batch runs to the pool applies only while a pool node exists, so a run admitted to an empty pool could never use the node its demand bought")
+	}
+	if b.MaxNodes < b.MinNodes {
+		v.addError(field+".maxNodes", b.MaxNodes, fmt.Sprintf("must be at least minNodes (%d); it is the pool's spend ceiling", b.MinNodes))
+	}
+}
+
 // validateSizing runs every sizing check over a whole configuration.
 func (v *SchemaValidator) validateSizing(config *Config) {
 	for name, provider := range config.Providers {
@@ -233,20 +248,50 @@ func (v *SchemaValidator) validateSizing(config *Config) {
 		v.validateClusterConfigSizing(base+".clusterConfig", tmpl.ClusterConfig)
 		v.validateAutoscaling(base+".autoscaling", tmpl.Autoscaling)
 		v.validateNodeGroups(base+".nodeGroups", tmpl.NodeGroups)
+		v.validateBatchPool(base+".batchPool", tmpl.BatchPool)
 	}
 	for name, env := range config.Environments {
 		base := fmt.Sprintf("environments.%s", name)
 		v.validateClusterConfigSizing(base+".clusterConfig", env.ClusterConfig)
 		v.validateAutoscaling(base+".autoscaling", env.Autoscaling)
 		v.validateNodeGroups(base+".nodeGroups", env.NodeGroups)
-		providerType := ""
+		v.validateBatchPool(base+".batchPool", env.BatchPool)
+		providerType, clusterMode := "", ""
 		if p, ok := config.Providers[env.Provider]; ok {
-			providerType = p.Type
+			providerType, clusterMode = p.Type, p.ClusterMode
 		} else if env.Provider == "" && len(config.Providers) == 1 {
 			for _, p := range config.Providers {
-				providerType = p.Type
+				providerType, clusterMode = p.Type, p.ClusterMode
 			}
 		}
 		v.validateRegion(base+".region", providerType, env.Region)
+		pool, field := env.BatchPool, base+".batchPool"
+		if pool == nil && env.Template != "" {
+			if tmpl, ok := config.EnvironmentTemplates[env.Template]; ok && tmpl.BatchPool != nil {
+				pool, field = tmpl.BatchPool, fmt.Sprintf("environmentTemplates.%s.batchPool (inherited by %s)", env.Template, base)
+			}
+		}
+		v.validateBatchPoolPlacement(field, providerType, clusterMode, pool)
+	}
+}
+
+// validateBatchPoolPlacement refuses a batchPool where the platform cannot build
+// the pool's nodes. Accepted silently, the block built nothing — Kind runs no
+// node groups, the custom provider has one group of user-supplied hosts (and
+// its update path then fails on a group it cannot size), a provided cluster's
+// nodes are not the platform's — while the node autoscaler was still told a pool
+// existed. A pool that is never built is harmless to placement (the policy acts
+// only while a node labelled adhar.io/node-pool=batch exists), so the operator of
+// a provided cluster who wants one labels and taints nodes themselves.
+func (v *SchemaValidator) validateBatchPoolPlacement(field, providerType, clusterMode string, b *BatchPoolConfig) {
+	if b == nil {
+		return
+	}
+	switch {
+	case providerType == "kind" || providerType == "custom":
+		v.addError(field, providerType, fmt.Sprintf("a batch node pool needs a provider that builds node groups; %s does not. Remove batchPool here", providerType))
+	case strings.EqualFold(strings.TrimSpace(clusterMode), clusterModeProvided):
+		v.addError(field, clusterMode, "a batch node pool is not built on a provided cluster (its nodes are not the platform's). "+
+			"Label and taint the nodes yourself (adhar.io/node-pool=batch, adhar.io/batch=true:NoSchedule) and remove batchPool here")
 	}
 }

@@ -18,7 +18,9 @@
 # `dependsOn`, `retention` and `smoke` with Phase 3: the composition copies and
 # mounts the calendar and passes retention to every run (D4, D5), the Project
 # composition runs the smoke run in test (D6), and the batch observer reads
-# `dependsOn` and `sla.finishBy` from the BatchJob itself (§12, §11.4).
+# `dependsOn` and `sla.finishBy` from the BatchJob itself (§12, §11.4). Phase 4
+# added `mode: chunked` with `chunking` (remote chunking over two RabbitMQ Queue
+# XRs, D11) and `lineage` (OpenLineage, opt-in), both rendered onto every run pod.
 #
 # Where a BatchJob runs is decided by its NAMESPACE, never by its parameters: an
 # environment namespace supplies organisation, team, project and environment, and
@@ -69,6 +71,17 @@ spec:
                       message: "timeouts.terminationGracePeriodSeconds must be shorter than timeouts.activeDeadlineSeconds"
                     - rule: "self.mode != 'partitioned' || (has(self.workers) && self.workers >= 1)"
                       message: "mode partitioned needs workers >= 1"
+                    # Phase 4 (D11): remote chunking. The run is the partitioned
+                    # shape, so it needs workers, and the broker carries its chunks,
+                    # so it needs the two Queues; it has no partitions to count.
+                    - rule: "self.mode != 'chunked' || (has(self.workers) && self.workers >= 1)"
+                      message: "mode chunked needs workers >= 1"
+                    - rule: "self.mode != 'chunked' || has(self.chunking)"
+                      message: "mode chunked needs chunking.requestQueue and chunking.replyQueue: the Queue objects (platform.adhar.io) in this namespace that carry its chunks"
+                    - rule: "!has(self.chunking) || self.mode == 'chunked'"
+                      message: "chunking is read only in mode chunked; remove it or set mode: chunked"
+                    - rule: "self.mode != 'chunked' || !has(self.gridSize)"
+                      message: "gridSize counts a partitioned run's partitions; a chunked run has none (the manager reads and sends chunks), so remove it"
                   properties:
                     displayName:
                       type: string
@@ -104,12 +117,15 @@ spec:
                         `single` runs the job in one pod. `partitioned` runs one manager and
                         `workers` workers that consume its partitions (remote partitioning on the
                         JobRepository's database): a Volcano gang where Volcano runs, an Indexed
-                        Job without it.
-                      enum: [single, partitioned]
+                        Job without it. `chunked` is the same manager-and-workers shape for
+                        remote chunking (D11): the manager reads, the workers process and write
+                        the chunks it sends over the RabbitMQ queues `chunking` names, and every
+                        pod is told so by ADHAR_BATCH_DISTRIBUTION=chunked.
+                      enum: [single, partitioned, chunked]
                       default: single
                     workers:
                       type: integer
-                      description: How many worker pods a partitioned run has besides its manager. Ignored in single mode.
+                      description: How many worker pods a partitioned or chunked run has besides its manager. Ignored in single mode.
                       minimum: 1
                       maximum: 64
                       # Two, so a default partitioned run (a 1-CPU manager and two
@@ -121,6 +137,78 @@ spec:
                       description: How many partitions the manager splits a partitioned run into. Defaults to 4 × workers; the gang size and the partition count are independent.
                       minimum: 1
                       maximum: 1024
+                    chunking:
+                      type: object
+                      description: >-
+                        Mode chunked only (D11, design 0025 §5.11). The two RabbitMQ Queue
+                        objects (kind Queue, platform.adhar.io) in THIS namespace that carry a
+                        chunked run's traffic: the manager sends chunks on requestQueue and the
+                        workers answer on replyQueue. Remote chunking needs a durable broker with
+                        a single consumer per message, which is why it is RabbitMQ and never the
+                        JobRepository's database. Each Queue's connection Secret reaches the
+                        manager and every worker by envFrom (prefixes
+                        ADHAR_BATCH_CHUNKING_REQUESTS_ and ADHAR_BATCH_CHUNKING_REPLIES_), and the
+                        broker's password as ADHAR_BATCH_CHUNKING_PASSWORD. A Queue that does not
+                        exist is PrerequisitesReady=False and suspends the schedule.
+                      required: [requestQueue, replyQueue]
+                      x-kubernetes-validations:
+                        - rule: "self.requestQueue != self.replyQueue"
+                          message: "chunking.requestQueue and chunking.replyQueue must be two different Queues: a worker would read its own replies as chunks"
+                      properties:
+                        requestQueue:
+                          type: string
+                          description: The Queue the manager sends chunks on and the workers consume.
+                          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          maxLength: 63
+                        replyQueue:
+                          type: string
+                          description: The Queue the workers answer on and the manager consumes.
+                          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          maxLength: 63
+                    lineage:
+                      type: object
+                      description: >-
+                        OpenLineage, opt-in (D11). With enabled, every run pod carries the
+                        OpenLineage client's own variables: OPENLINEAGE_URL and
+                        OPENLINEAGE_ENDPOINT (by default the platform's OpenMetadata, whose
+                        OpenLineage receiver is /api/v1/openlineage/lineage, not the client's
+                        default /api/v1/lineage), OPENLINEAGE_NAMESPACE (the job's place in the
+                        hierarchy, adhar/<organisation>/<team>/<project>/<environment>) and, when
+                        credentialsSecretRef names one, OPENLINEAGE_API_KEY. Lineage is advisory:
+                        a receiver that is down or refuses the token never fails a run.
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        url:
+                          type: string
+                          description: Another OpenLineage receiver (Marquez, a collector). Unset, the platform's OpenMetadata.
+                          pattern: "^https?://[^\\s]+$"
+                        endpoint:
+                          type: string
+                          description: The receiver's path. Defaults to OpenMetadata's /api/v1/openlineage/lineage when url is unset, and to the client's own default when it is set.
+                          pattern: "^/[^\\s]*$"
+                        credentialsSecretRef:
+                          type: object
+                          description: >-
+                            A Secret in this namespace holding the receiver's token (for
+                            OpenMetadata, a bot's JWT with EditLineage). Read as optional: a
+                            missing Secret leaves the events unauthenticated, never the run unstarted.
+                          required: [name]
+                          # What a secretKeyRef accepts: a name or key the API server
+                          # would reject in the run's pod template is refused here,
+                          # not discovered when every run fails to be created.
+                          properties:
+                            name:
+                              type: string
+                              minLength: 1
+                              maxLength: 253
+                              pattern: "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+                            key:
+                              type: string
+                              default: token
+                              maxLength: 253
+                              pattern: "^[-._a-zA-Z0-9]+$"
                     scheduler:
                       type: string
                       description: >-
@@ -343,6 +431,17 @@ spec:
                           description: The schema of the JobRepository's tables.
                           default: batch
                           pattern: "^[a-z_][a-z0-9_]*$"
+                    bucket:
+                      type: string
+                      description: >-
+                        The Bucket (platform.adhar.io, in this namespace) the job reads and
+                        writes (D26). Every run gets ADHAR_S3_ENDPOINT, ADHAR_S3_REGION and
+                        ADHAR_S3_BUCKET from the Bucket's connection Secret <bucket>-bucket, and
+                        ADHAR_S3_ACCESS_KEY / ADHAR_S3_SECRET_KEY from the object store's
+                        credential, which the kit turns into Spring Cloud AWS's settings. That
+                        credential is RustFS's root (R5): a Bucket is one team's.
+                      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                      maxLength: 63
                     env:
                       type: object
                       description: Extra environment variables. Names the runner owns (ADHAR_BATCH_*, POD_NAME, the datasource) are refused.

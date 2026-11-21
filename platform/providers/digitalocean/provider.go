@@ -64,7 +64,11 @@ type Config struct {
 	DropletSize      string `json:"dropletSize"`
 	ControlPlaneSize string `json:"controlPlaneSize,omitempty"`
 	WorkerSize       string `json:"workerSize,omitempty"`
-	Image            string `json:"image"` // Default OS image
+	// BatchSize is the batch node pool's droplet size
+	// (environments[].batchPool.machineType, provider.KeyBatchMachineType): what
+	// a scale path gives a pool droplet when the pool has no member to copy.
+	BatchSize string `json:"batchSize,omitempty"`
+	Image     string `json:"image"` // Default OS image
 	// PurgeOrphanedVolumes extends cluster deletion to unattached pvc-* volumes
 	// in the region that no other cluster tag claims (pre-tagging leftovers).
 	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
@@ -310,6 +314,8 @@ func parseProviderConfig(configMap map[string]interface{}) (*Config, error) {
 	// then the provider block's `config:` section.
 	doConfig.ControlPlaneSize = provider.ConfigString(configMap, provider.KeyControlPlaneMachineType)
 	doConfig.WorkerSize = provider.ConfigString(configMap, provider.KeyWorkerMachineType)
+	// The batch pool's own size, for a scale path that finds the pool empty.
+	doConfig.BatchSize = provider.ConfigString(configMap, provider.KeyBatchMachineType)
 
 	// Parse configuration section
 	if configSection, ok := configMap["config"].(map[string]interface{}); ok {
@@ -589,11 +595,19 @@ func (p *Provider) buildDOKSNodePools(spec *types.ClusterSpec) []*godo.Kubernete
 		if count <= 0 {
 			count = 1
 		}
+		// The group's taints too: without them a DOKS node pool built for the
+		// batch node pool (design 0025 D14) carried the pool's label but not its
+		// NoSchedule taint, so every general pod could land there.
+		var taints []godo.Taint
+		for _, t := range ng.Taints {
+			taints = append(taints, godo.Taint{Key: t.Key, Value: t.Value, Effect: t.Effect})
+		}
 		pools = append(pools, &godo.KubernetesNodePoolCreateRequest{
 			Name:      ng.Name,
 			Size:      size,
 			Count:     count,
 			Labels:    ng.Labels,
+			Taints:    taints,
 			AutoScale: ng.AutoScaling.MaxReplicas > 0,
 			MinNodes:  ng.AutoScaling.MinReplicas,
 			MaxNodes:  ng.AutoScaling.MaxReplicas,
@@ -709,6 +723,13 @@ func (c *Config) controlPlaneSize(spec *types.ClusterSpec) string {
 // group's existing members run (scale paths), else the configured/default size.
 func (c *Config) workerSize(groupSize, membersSize string, managed bool) string {
 	return provider.WorkerSize("digitalocean", managed, groupSize, membersSize, c.WorkerSize, c.DropletSize)
+}
+
+// scaleWorkerSize is the droplet size a compute scale path gives a new node of a
+// group: the size its members run, else — for the batch pool, when it is empty —
+// the pool's configured size, else the configured/default worker size.
+func (c *Config) scaleWorkerSize(nodeGroup, membersSize string) string {
+	return c.workerSize(provider.EmptyBatchGroupType(nodeGroup, membersSize, c.BatchSize), membersSize, false)
 }
 
 // tokenFromEnv reads the API token from the environment, accepting both the

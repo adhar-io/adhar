@@ -86,6 +86,9 @@ type PlatformStatus struct {
 	Platform []PlatformConditionInfo
 	// Fleet is the data-plane roll-up from the AdharPlatform status (nil when none).
 	Fleet *v1alpha1.FleetStatus
+	// Autoscaling is the node autoscaler's bounds and last decisions, for the
+	// workers and the batch node pool (nil when it was never configured).
+	Autoscaling *NodeAutoscalingView
 	// Packages summarizes ArgoCD-managed platform package health.
 	Packages *PackageHealthSummary
 	// URLs lists every Gateway-routed platform UI endpoint.
@@ -544,6 +547,7 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display AdharPlatform conditions and package readiness
 	displayPlatformHealth(status.Platform, status.Packages)
+	displayAutoscaling(status.Autoscaling)
 	displayFleet(status.Fleet)
 
 	// Display browsable platform endpoints

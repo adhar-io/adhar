@@ -1093,7 +1093,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, w.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", w.VMName, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, w.PublicIP, w.PrivateIP, true, true); err != nil {
+		if err := provider.EnableWorkerKubelet(signer, azureSSHUser, w.PublicIP, w.PrivateIP, true, true, provider.WorkerRegistration(w.VMName)); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", w.VMName, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, azureSSHUser, w.PublicIP, joinCmd); err != nil {
@@ -3832,7 +3832,7 @@ func (p *Provider) prepareAndJoinWorker(ctx context.Context, signer ssh.Signer, 
 	}
 	// cloud-provider-azure initialises the node, the disk CSI node plugin
 	// lifts the taint.
-	if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true); err != nil {
+	if err := provider.EnableWorkerKubelet(signer, azureSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true, provider.WorkerRegistration(nodeInfo.VMName)); err != nil {
 		return err
 	}
 	return provider.KubeadmJoinWorker(signer, azureSSHUser, nodeInfo.PublicIP, joinCmd)

@@ -1,0 +1,24 @@
+# Remote chunking (design 0025 D11, §5.11), on demand, in dev: the partitioned shape
+# with the chunks carried by two RabbitMQ Queue XRs, and lineage to the platform's
+# OpenMetadata with a bot token from a Secret.
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: ledger
+  namespace: dev
+spec:
+  parameters:
+    job: ledgerJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/ledger:1.0.0
+    mode: chunked
+    workers: 2
+    chunking:
+      requestQueue: ledger-chunks
+      replyQueue: ledger-replies
+    lineage:
+      enabled: true
+      credentialsSecretRef: { name: ledger-openmetadata }
+    resources: { cpu: "500m", memory: 1Gi, workerCpu: "1", workerMemory: 1536Mi }
+    parameters:
+      - { name: businessDate, type: date, required: true }
+    database: { secretRef: ledger-db-app }

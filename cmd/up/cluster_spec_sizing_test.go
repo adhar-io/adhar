@@ -12,6 +12,7 @@ import (
 
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
+	pfactory "adhar-io/adhar/platform/providers"
 )
 
 // The adhar-controlplane autoscaler builds its provider from what this ConfigMap
@@ -77,5 +78,43 @@ func TestClusterSpecRecordsTheResolvedWorkerSizeAndDisk(t *testing.T) {
 	}
 	if data, _ := record(aws); data["size"] != "r6i.xlarge" {
 		t.Errorf("recorded size %q, want the built-in r6i.xlarge", data["size"])
+	}
+}
+
+// The autoscaler is the batch pool's only scaler, and a pool it finds EMPTY has no
+// node to copy a size from: the pool's machine type must be in the recorded
+// provider map, under the key the providers read (KeyBatchMachineType).
+func TestClusterSpecRecordsTheBatchPoolsMachineType(t *testing.T) {
+	record := func(env *config.ResolvedEnvironmentConfig) map[string]interface{} {
+		t.Helper()
+		scheme := runtime.NewScheme()
+		if err := corev1.AddToScheme(scheme); err != nil {
+			t.Fatal(err)
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		if err := ensureClusterSpecConfigMap(context.Background(), c, env, "dev", nil); err != nil {
+			t.Fatal(err)
+		}
+		cm := &corev1.ConfigMap{}
+		if err := c.Get(context.Background(), client.ObjectKey{Name: globals.ClusterSpecConfigMapName, Namespace: globals.AdharSystemNamespace}, cm); err != nil {
+			t.Fatal(err)
+		}
+		var pm map[string]interface{}
+		if err := json.Unmarshal([]byte(cm.Data["providerConfig"]), &pm); err != nil {
+			t.Fatal(err)
+		}
+		return pm
+	}
+	env := &config.ResolvedEnvironmentConfig{
+		Name: "prod", ResolvedProvider: "digitalocean", ResolvedRegion: "sgp1",
+		ProviderConfig: &config.ConfigProviderConfig{Type: "digitalocean", Region: "sgp1"},
+		BatchPool:      &config.BatchPoolConfig{MachineType: "c-8", MinNodes: 1, MaxNodes: 4},
+	}
+	if got := pfactory.ConfigString(record(env), pfactory.KeyBatchMachineType); got != "c-8" {
+		t.Errorf("recorded batchMachineType %q, want the pool's c-8", got)
+	}
+	env.BatchPool = nil
+	if _, set := record(env)[pfactory.KeyBatchMachineType]; set {
+		t.Error("no pool, yet a batchMachineType is recorded")
 	}
 }

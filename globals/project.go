@@ -67,6 +67,20 @@ const (
 	// DigitalOcean droplet, observed twice). Tolerated by DaemonSets, so the CNI
 	// and the CSI node plugin still start; everything else waits.
 	NodeCSIStartupTaint = "node.adhar.io/csi-not-ready"
+
+	// The batch node pool (design 0025 D14, Phase 4). A pool node registers
+	// with label BatchNodePoolLabel=BatchNodePoolValue and taint
+	// BatchNodePoolTaintKey=BatchNodePoolTaintValue:NoSchedule, so nothing but
+	// a batch run lands on it; core/adhar-batch's adhar-batch-node-pool policy
+	// adds the toleration and a PREFERRED affinity to batch run pods while a
+	// pool node exists. BatchNodeGroupName is the pool's node group: reserved,
+	// because a compute-mode worker is recognised as a pool node by the
+	// `-<group>-<index>` suffix every provider names its machines with.
+	BatchNodeGroupName      = "batch"
+	BatchNodePoolLabel      = "adhar.io/node-pool"
+	BatchNodePoolValue      = "batch"
+	BatchNodePoolTaintKey   = "adhar.io/batch"
+	BatchNodePoolTaintValue = "true"
 	// and it is NOT KeycloakCLIClientID. A token minted by `adhar auth` carries
 	// `azp: adhar-cli` (the client that asked for it) but `aud: [kubernetes,
 	// account]` — and the API server matches the AUDIENCE. Setting

@@ -109,3 +109,23 @@ tests:
             exp_annotations:
               summary: "BatchJob acme-payments-prod/settlement missed its deadline for 2026-11-14"
               description: "sla.finishBy passed with no successful run for 2026-11-14. The alert resolves once that date succeeds; `adhar batch runs` shows where the run is."
+
+  # The archive's counter (design 0025 Phase 4): a store that refuses prod's
+  # writes for half an hour is critical; written entries never alert.
+  - interval: 1m
+    input_series:
+      - series: 'adhar_batch_archive_writes_total{job="prometheus.scrape.annotated_pods",namespace="adhar-system",pod="adhar-controller-manager-5c7d9-abcde",cluster="management",adhar_environment="prod",result="failed"}'
+        values: '0+1x60'
+      - series: 'adhar_batch_archive_writes_total{job="prometheus.scrape.annotated_pods",namespace="adhar-system",pod="adhar-controller-manager-5c7d9-abcde",cluster="management",adhar_environment="dev",result="written"}'
+        values: '0+5x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: BatchArchiveWritesFailing
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: BatchArchiveWritesFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, cluster: management, adhar_environment: prod, result: failed}
+            exp_annotations:
+              summary: "The batch run-summary archive is not keeping finished prod runs (failed)"
+              description: "40 run summaries of prod runs were failed in the last hour instead of being written to s3://adhar-batch-archive. The runs and their events are unaffected and the adhar.batch topic still holds them for 90 days; check RustFS, Secret adhar-system/root-creds and the controller manager's log (`batch-observer`)."

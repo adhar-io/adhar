@@ -399,7 +399,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		// lifted through a CSINode, a CSINode needs .spec.providerID, and that
 		// needs the CCM compute mode does not run. Requesting it anyway left both
 		// workers Ready and permanently empty.
-		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM); err != nil {
+		if err := provider.EnableWorkerKubelet(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM, provider.WorkerRegistration(instance.Hostname)); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", instance.Hostname, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, instance.PublicIP, joinCmd); err != nil {
@@ -719,6 +719,28 @@ func (p *Provider) upgradeComputeCluster(ctx context.Context, clusterID, version
 	return nil
 }
 
+// civoGroupMembersSize is the size a new worker of a node group takes: the size
+// its group's existing members run. It read the FIRST worker by name across every
+// group, so with a batch node pool (design 0025 D14) "adhar-c-batch-1" sorted
+// ahead of "adhar-c-workers-1" and a general worker added by the autoscaler came
+// up at the pool's machine size (and a pool node at the general size). Empty when
+// the group has no member with a known size.
+func civoGroupMembersSize(prefix string, byName map[string]civogo.Instance) string {
+	names := make([]string, 0, len(byName))
+	for n := range byName {
+		if strings.HasPrefix(n, prefix) {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if byName[n].Size != "" {
+			return byName[n].Size
+		}
+	}
+	return ""
+}
+
 // scaleComputeWorkers moves a self-managed node group to `desired` workers with
 // the lifecycle DigitalOcean established (platform/providers helpers): a fresh
 // join token, prepared-then-joined instances, drain-then-delete on the way
@@ -793,19 +815,8 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		if err != nil {
 			return err
 		}
-		membersSize := ""
-		names := make([]string, 0, len(byName))
-		for n := range byName {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			if byName[n].Size != "" {
-				membersSize = byName[n].Size
-				break
-			}
-		}
-		size := p.config.workerSize("", membersSize, false)
+		// An EMPTY batch pool takes the pool's own size (scaleWorkerSize).
+		size := p.config.scaleWorkerSize(nodeGroupName, civoGroupMembersSize(prefix, byName))
 		// The node-prep script of the running control plane's minor, so a
 		// scaled cluster cannot skew.
 		minor := provider.K8sMinorFromVersion("")

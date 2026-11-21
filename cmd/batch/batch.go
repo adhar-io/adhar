@@ -117,7 +117,9 @@ restart of a failed run is <job>-<hash8>-r<n>.
 Where Volcano is installed, a partitioned job runs as a Volcano Job whose
 manager and workers start together or not at all: its runs show the queue they
 wait in and their gang, stop and resume become Volcano commands, and
-` + "`queues`" + ` shows each team's queues and what they hold.
+` + "`queues`" + ` shows each team's queues and what they hold. A chunked job
+(remote chunking over RabbitMQ) has the same manager-and-workers shape; ` + "`list`" + `,
+` + "`describe`" + ` and ` + "`runs`" + ` say which of the two a job and each run is.
 
 A service that schedules jobs inside itself on the kit's Quartz engine reports
 them in a ConfigMap; ` + "`schedules`" + ` lists those reports, read-only.

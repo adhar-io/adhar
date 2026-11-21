@@ -464,7 +464,7 @@ providers:
 #   environments:
 #     prod:
 #       nodeGroups:
-#         - name: gpu                    # DNS-1123, <= 20 chars, not "workers"
+#         - name: gpu                    # DNS-1123, <= 20 chars, not "workers" or "batch"
 #           machineType: g5.xlarge       # empty = the provider's worker size
 #           count: 1                     # >= 1
 #           labels: {adhar.io/accelerator: nvidia}
@@ -475,6 +475,33 @@ providers:
 #         nodeGroup: workers             # or the name of a nodeGroups entry
 #         minWorkers: 2
 #         maxWorkers: 6
+#
+# A batch node pool (docs/design/0025-batch-platform.md D14, docs/BATCH.md): a
+# node group only batch runs use, so a nightly backlog never squeezes the
+# platform's own pods. Its nodes register with the label adhar.io/node-pool=batch
+# and the taint adhar.io/batch=true:NoSchedule (managed pools from the spec,
+# compute mode from the kubelet's flags at join); while a pool node exists,
+# core/adhar-batch adds the toleration and a PREFERRED affinity to every BatchJob
+# run pod, so existing jobs move onto the pool with no change and still run on
+# the general workers when it is full.
+#
+#   environments:
+#     prod:
+#       batchPool:
+#         machineType: c6i.2xlarge       # empty = the provider's worker size
+#         minNodes: 1                    # >= 1: the pool is created with this many,
+#                                        #   and idle pool nodes retire down to it
+#         maxNodes: 4                    # >= minNodes: the pool's spend ceiling
+#       autoscaling:
+#         enabled: true                  # the pool is autoscaled only when this is on
+#
+# With autoscaling on, the node autoscaler grows the POOL (never the general
+# workers) for batch demand that may buy nodes — a prod run with scaleUp: true,
+# or its Volcano gang — and never grows it for anything else. minWorkers and
+# maxWorkers count the general workers only. The node group name `batch` is
+# reserved for the pool (nodeGroups may not use it). batchPool is refused on the
+# kind and custom providers and with clusterMode: provided, where the platform
+# builds no node groups.
 
 # Environment Templates for reusable configurations
 environmentTemplates:

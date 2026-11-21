@@ -356,7 +356,7 @@ func TestBatchUserGuideDocLinksResolve(t *testing.T) {
 		}
 	}
 	guide := batchDoc(t, batchGuideDoc)
-	for _, heading := range []string{"## Volcano: queues and gangs (Phase 2)", "## In-service jobs on Quartz (planned)"} {
+	for _, heading := range []string{"## Volcano: queues and gangs (Phase 2)", "## In-service jobs on Quartz"} {
 		if !strings.Contains(guide, "\n"+heading+"\n") {
 			t.Errorf("docs/BATCH.md lacks the section %q", heading)
 		}

@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-plain
+  namespace: acme-payments-prod
+  labels:
+    adhar.io/workload: batch
+    adhar.io/batch-job: importer
+spec:
+  restartPolicy: Never
+  tolerations:
+    - key: adhar.io/batch
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: adhar.io/node-pool
+                operator: In
+                values: [batch]
+  containers:
+    - name: run
+      image: registry.example/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-with-its-own
+  namespace: acme-payments-prod
+  labels:
+    adhar.io/workload: batch
+    adhar.io/batch-job: importer
+spec:
+  restartPolicy: Never
+  tolerations:
+    - key: node.kubernetes.io/not-ready
+      operator: Exists
+      effect: NoExecute
+      tolerationSeconds: 300
+    - key: adhar.io/batch
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values: [linux]
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 10
+          preference:
+            matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values: [zone-a]
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: adhar.io/node-pool
+                operator: In
+                values: [batch]
+  containers:
+    - name: run
+      image: registry.example/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000

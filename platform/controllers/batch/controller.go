@@ -110,6 +110,12 @@ type Reconciler struct {
 	Recorder  record.EventRecorder
 	// Events is the bus; nil is a working configuration (nothing published).
 	Events Publisher
+	// Archive keeps each finished run's final event in the object store
+	// (Phase 4); nil is a working configuration (nothing archived).
+	Archive Archiver
+	// Source is the CloudEvents `source` stamped on what is archived, the
+	// same one the bus publisher would stamp, so both copies are one event.
+	Source string
 	// Now is the clock, injectable so the SLA is testable.
 	Now func() time.Time
 
@@ -225,6 +231,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	var pub []events.Event
+	// final are the events in pub that end a run, and where each is archived.
+	var final []archived
+	ended := func(t transition, o observation) {
+		if a, ok := archiveEntry(len(pub)-1, o); ok && endsRun(t) {
+			final = append(final, a)
+		}
+	}
 	var satisfied []observation
 	var observed []observation
 	seen := map[string]bool{}
@@ -250,6 +263,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		wasSatisfied := rec.Satisfies
 		for _, t := range transitionsOf(o, rec, baseline) {
 			pub = append(pub, runEvent(t, o, paramFields(), h))
+			ended(t, o)
 		}
 		if rec.Satisfies && !wasSatisfied && !baseline {
 			satisfied = append(satisfied, o)
@@ -259,7 +273,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// vanished, and that is the last thing said about it.
 		if buried[types.UID(o.UID)] {
 			if rec.End == "" {
-				pub = append(pub, runEvent(vanished(rec), o, paramFields(), h))
+				t := vanished(rec)
+				pub = append(pub, runEvent(t, o, paramFields(), h))
+				ended(t, o)
 			}
 			rec.Gone = true
 		}
@@ -293,6 +309,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			o.Application = spec.Application
 		}
 		pub = append(pub, runEvent(t, o, nil, h))
+		ended(t, o)
 	}
 
 	var result ctrl.Result
@@ -345,9 +362,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Publish last, after the record says it was published: a crash between
 	// the two loses an event (which the bus contract allows) and never sends
 	// one twice (which "exactly one" does not).
+	for i := range pub {
+		pub[i] = r.stamp(pub[i])
+	}
 	if r.Events != nil {
 		for _, e := range pub {
 			r.Events.Publish(ctx, e)
+		}
+	}
+	// The archive takes the same events, after the bus and on the same
+	// terms: once per transition, advisory, never waited for.
+	if r.Archive != nil {
+		for _, a := range final {
+			r.Archive.Archive(ctx, a.key, pub[a.index])
 		}
 	}
 	if len(pub) > 0 {
@@ -867,7 +894,7 @@ func (c ownCache) GetCache() cache.Cache { return c.Cache }
 // with the manager; BatchJob and Volcano Job watches are added by a poller once
 // discovery shows their CRDs (see the package comment).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	registerMetrics.Do(func() { ctrlmetrics.Registry.MustRegister(deadlineRemaining, deadlineSlack) })
+	registerMetrics.Do(func() { ctrlmetrics.Registry.MustRegister(deadlineRemaining, deadlineSlack, archiveWrites) })
 
 	// Two caches, both built with nothing that needs a REST mapping up front:
 	// naming a kind in ByObject resolves it when the cache is BUILT, so a

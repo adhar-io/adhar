@@ -11,6 +11,18 @@
 # The dead-letter queue is created by default. A queue without one either retries
 # a poison message forever or drops it silently, and both are discovered in
 # production.
+#
+# The broker's credential (design 0025 §18 R15, resolved 2026-11-21) is key
+# rabbitmq-password of Secret `rabbitmq`, which exists in adhar-system only, and a
+# pod reads Secrets of its own namespace only. So a Queue anywhere else composes
+# ExternalSecret `<name>-broker`, projecting that one key beside itself through
+# ClusterSecretStore platform-messaging (security/external-secrets; it serves
+# namespaces labelled adhar.io/plane workload or preview, an environment namespace
+# is), and the declare Job and the published `passwordSecret` both name
+# `<name>-broker`. Per Queue, not per namespace: a chunked BatchJob needs two
+# Queues in one namespace, and two XRs must never compose the same object. A Queue
+# in adhar-system itself (plane control, which the store does not serve) composes
+# no ExternalSecret and reads `rabbitmq` where it already is.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -53,6 +65,9 @@ spec:
             {{- $ttl := dig "messageTTLSeconds" 0 $p -}}
             {{- $maxLen := dig "maxLength" 0 $p -}}
             {{- $host := "rabbitmq.adhar-system.svc.cluster.local" -}}
+            {{- /* R15: where the declare Job and the Queue's consumers read the password. */ -}}
+            {{- $inPlatform := eq $ns "adhar-system" -}}
+            {{- $brokerSecret := ternary "rabbitmq" (printf "%s-broker" $name) $inPlatform -}}
             ---
             apiVersion: batch/v1
             kind: Job
@@ -84,7 +99,7 @@ spec:
                           value: "admin"
                         - name: RABBIT_PASS
                           valueFrom:
-                            secretKeyRef: { name: rabbitmq, key: rabbitmq-password }
+                            secretKeyRef: { name: {{ $brokerSecret }}, key: rabbitmq-password }
                         # Payloads as environment variables, never spliced into
                         # the shell string: a routing key is full of characters a
                         # shell would read.
@@ -157,12 +172,39 @@ spec:
               {{- if $dlEnabled }}
               deadLetterQueue: {{ $dlQueue | quote }}
               {{- end }}
-              # The credential is the broker's, in Secret `rabbitmq` (key
-              # rabbitmq-password) — referenced, not copied, so there is one
-              # thing to rotate.
+              # The credential is the broker's, key rabbitmq-password of the
+              # Secret named here: <name>-broker, projected from adhar-system's
+              # `rabbitmq` by the ExternalSecret below (`rabbitmq` itself in
+              # adhar-system) — referenced, not copied into this Secret, so the
+              # broker's Secret stays the one thing to rotate.
               username: "admin"
-              passwordSecret: "rabbitmq"
+              passwordSecret: "{{ $brokerSecret }}"
               passwordKey: "rabbitmq-password"
+            {{- if not $inPlatform }}
+            ---
+            # R15: the broker's password beside the Queue, from ClusterSecretStore
+            # platform-messaging, which can read Secret `rabbitmq` in adhar-system and
+            # nothing else. It IS the broker's admin credential (design 0025 R16): a
+            # broker is one team's until per-queue users exist.
+            apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: {{ $name }}-broker
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: queue-broker
+              labels:
+                platform.adhar.io/queue: {{ $name }}
+            spec:
+              refreshInterval: 1h
+              secretStoreRef: {kind: ClusterSecretStore, name: platform-messaging}
+              target:
+                name: {{ $name }}-broker
+                creationPolicy: Owner
+              data:
+                - secretKey: rabbitmq-password
+                  remoteRef: {key: rabbitmq, property: rabbitmq-password}
+            {{- end }}
             ---
             apiVersion: platform.adhar.io/v1alpha1
             kind: Queue

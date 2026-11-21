@@ -1,0 +1,37 @@
+# What a chunked BatchJob reads besides testdata/batchjob-volcano/required-resources.yaml:
+# its two Queue XRs (compositions/queue, status as that composition writes it) and the
+# platform's OpenMetadata Service, the default lineage receiver.
+apiVersion: platform.adhar.io/v1alpha1
+kind: Queue
+metadata:
+  name: ledger-chunks
+  namespace: dev
+spec:
+  parameters:
+    queueName: ledger.chunks
+status:
+  queue: ledger.chunks
+  amqpURI: amqp://rabbitmq.adhar-system.svc.cluster.local:5672
+  connectionSecret: ledger-chunks-queue
+---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Queue
+metadata:
+  name: ledger-replies
+  namespace: dev
+spec:
+  parameters:
+    queueName: ledger.replies
+status:
+  queue: ledger.replies
+  amqpURI: amqp://rabbitmq.adhar-system.svc.cluster.local:5672
+  connectionSecret: ledger-replies-queue
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openmetadata
+  namespace: adhar-system
+spec:
+  ports:
+    - { name: http, port: 8585 }

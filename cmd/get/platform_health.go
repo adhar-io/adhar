@@ -260,6 +260,7 @@ func attachPlatformHealth(status *PlatformStatus) {
 	defer cancel()
 	status.Platform = collectPlatformConditions(ctx)
 	status.Fleet = collectFleet(ctx)
+	status.Autoscaling = collectAutoscaling(ctx)
 	status.Packages = collectPackageHealth(ctx)
 	status.URLs = collectAccessURLs(ctx)
 	if w := certificateWarning(ctx); w != "" {

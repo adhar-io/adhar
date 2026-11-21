@@ -1,0 +1,29 @@
+# A cluster WITH a batch pool: a batch run pod gets the pool's toleration and a
+# preferred affinity for it, added to whatever it already had; a pod that already
+# tolerates the pool is left alone; a pod that is not a batch run never gets either.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: node-pool-with-a-pool
+policies:
+  - ../../../manifests/kyverno-node-pool.yaml
+resources:
+  - ../resources.yaml
+variables: values.yaml
+results:
+  - policy: adhar-batch-node-pool
+    rule: a-run-pod-tolerates-and-prefers-the-batch-pool
+    kind: Pod
+    resources: [run-plain, run-with-its-own]
+    patchedResources: ../patched.yaml
+    result: pass
+  - policy: adhar-batch-node-pool
+    rule: a-run-pod-tolerates-and-prefers-the-batch-pool
+    kind: Pod
+    resources: [run-already-tolerating]
+    result: skip
+  - policy: adhar-batch-node-pool
+    rule: a-run-pod-tolerates-and-prefers-the-batch-pool
+    kind: Pod
+    resources: [web, service-pod]
+    result: skip

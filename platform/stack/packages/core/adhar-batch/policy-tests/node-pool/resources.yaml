@@ -1,0 +1,97 @@
+# Pods as the API server hands them to admission. Every batch run pod carries
+# adhar.io/workload: batch (the BatchJob composition's identity labels).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-plain
+  namespace: acme-payments-prod
+  labels:
+    adhar.io/workload: batch
+    adhar.io/batch-job: importer
+spec:
+  restartPolicy: Never
+  containers:
+    - name: run
+      image: registry.example/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+# A run pod that already carries tolerations and a preferred node affinity of its
+# own (the API server's not-ready/unreachable defaults, a template's zone
+# preference): the pool's entries are ADDED, nothing of the pod's is lost.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-with-its-own
+  namespace: acme-payments-prod
+  labels:
+    adhar.io/workload: batch
+    adhar.io/batch-job: importer
+spec:
+  restartPolicy: Never
+  tolerations:
+    - key: node.kubernetes.io/not-ready
+      operator: Exists
+      effect: NoExecute
+      tolerationSeconds: 300
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values: [linux]
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 10
+          preference:
+            matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values: [zone-a]
+  containers:
+    - name: run
+      image: registry.example/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+# Already tolerates the pool (a re-invocation): left alone.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-already-tolerating
+  namespace: acme-payments-prod
+  labels:
+    adhar.io/workload: batch
+spec:
+  restartPolicy: Never
+  tolerations:
+    - key: adhar.io/batch
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  containers:
+    - name: run
+      image: registry.example/importer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+# Not a batch run: never gets the toleration, pool or no pool.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  namespace: acme-payments-prod
+  labels:
+    app.kubernetes.io/name: web
+spec:
+  containers:
+    - name: web
+      image: registry.example/web@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+# Labelled as some other workload: still not a batch run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: service-pod
+  namespace: acme-payments-prod
+  labels:
+    adhar.io/workload: service
+spec:
+  containers:
+    - name: svc
+      image: registry.example/svc@sha256:0000000000000000000000000000000000000000000000000000000000000000

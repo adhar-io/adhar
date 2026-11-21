@@ -16,9 +16,11 @@ taken only where Volcano runs (see *Scheduler*).
 | Role + RoleBinding | `<name>-batch` | always | once observed (the Role also waits for the prerequisites) |
 | ConfigMap, the **run template** | `<name>-run` | always | once observed |
 | CronJob (batch/v1), resource `schedule-native` | `<name>` | `schedule.cron` is set, and the run is not a gang | once observed |
-| CronJob (batch.volcano.sh/v1alpha1), resource `schedule-volcano` | `<name>` | `schedule.cron` is set, and the run is a gang (`mode: partitioned` on Volcano) | once observed |
+| CronJob (batch.volcano.sh/v1alpha1), resource `schedule-volcano` | `<name>` | `schedule.cron` is set, and the run is a gang (`mode: partitioned` or `chunked` on Volcano) | once observed |
 | PrometheusRule | `<name>-batch` | `alerts.enabled` (default) | once observed |
 | ConfigMap, the **calendar copy** | `<name>-calendar` | `schedule.calendar` names a calendar that resolves (or, while it does not, a copy made before exists and is kept) | once observed |
+| ExternalSecret, resource `s3-credentials` | `<name>-s3` | `bucket` is set (D26) | once observed |
+| ExternalSecret, resource `broker-credentials` | `<name>-batch-broker` | `mode: chunked` (R15): the broker's password through ClusterSecretStore `platform-messaging` | once observed |
 
 Statusless kinds publish no `Ready` condition and `function-auto-ready` would hold
 the XR unready forever because of one, so each carries
@@ -30,8 +32,8 @@ The run is one of three shapes, written as `kind` in the run template:
 | `kind` | When | The run object |
 |---|---|---|
 | `Job` | `mode: single` | a batch/v1 Job. On Volcano only its pod changes: `schedulerName: volcano`, the annotation `scheduling.volcano.sh/queue-name: <leaf>`, and the class `adhar-batch-volcano` / `-critical`. The CronJob stays batch/v1. |
-| `IndexedJob` | `mode: partitioned`, natively | a batch/v1 Job with `completionMode: Indexed`, `completions` = `parallelism` = workers + 1, `successPolicy` `succeededIndexes: "0"` (the manager finishing ends the run and the Job controller ends the workers), the same `podFailurePolicy`; `ADHAR_BATCH_ROLE=indexed` and `JOB_COMPLETION_INDEX` from the downward API, so index 0 is the manager. One pod template serves every index, so it takes the larger of the manager's and the workers' resources per axis. |
-| `VolcanoJob` | `mode: partitioned` on Volcano | a batch.volcano.sh/v1alpha1 Job (§4.5): `queue` the leaf, `minAvailable` workers + 1 (all or nothing), `maxRetry`, `ttlSecondsAfterFinished`, `plugins: {env: []}`, TerminateJob on exit codes 2, 3, 4, 6, 7 then RestartJob on `PodEvicted`/`PodFailed`; tasks `manager` (1, CompleteJob on its TaskCompleted) and `worker` (N), each pod with `schedulerName: volcano`, `restartPolicy: Never`, its own `activeDeadlineSeconds` (a Volcano Job has none of its own) and `ADHAR_BATCH_ROLE=manager|worker`. The Job's labels (workload, environment, batch-job, scale-up) are the ones Volcano copies onto its PodGroup, which the node autoscaler reads. |
+| `IndexedJob` | `mode: partitioned` or `chunked`, natively | a batch/v1 Job with `completionMode: Indexed`, `completions` = `parallelism` = workers + 1, `successPolicy` `succeededIndexes: "0"` (the manager finishing ends the run and the Job controller ends the workers), the same `podFailurePolicy`; `ADHAR_BATCH_ROLE=indexed` and `JOB_COMPLETION_INDEX` from the downward API, so index 0 is the manager. One pod template serves every index, so it takes the larger of the manager's and the workers' resources per axis. |
+| `VolcanoJob` | `mode: partitioned` or `chunked` on Volcano | a batch.volcano.sh/v1alpha1 Job (§4.5): `queue` the leaf, `minAvailable` workers + 1 (all or nothing), `maxRetry`, `ttlSecondsAfterFinished`, `plugins: {env: []}`, TerminateJob on exit codes 2, 3, 4, 6, 7 then RestartJob on `PodEvicted`/`PodFailed`; tasks `manager` (1, CompleteJob on its TaskCompleted) and `worker` (N), each pod with `schedulerName: volcano`, `restartPolicy: Never`, its own `activeDeadlineSeconds` (a Volcano Job has none of its own) and `ADHAR_BATCH_ROLE=manager|worker`. The Job's labels (workload, environment, batch-job, scale-up) are the ones Volcano copies onto its PodGroup, which the node autoscaler reads. |
 
 The run template and the CronJob's `jobTemplate` are the SAME object built by one
 loop, differing only in `adhar.io/batch-trigger` and `ADHAR_BATCH_TRIGGER`, so a run
@@ -51,8 +53,11 @@ the API server adds to a Job on its way in (`fieldRef.apiVersion`,
 | ConfigMap `adhar-system/adhar-batch-scheduler` | The scheduler descriptor (D7): `scheduler`, `gang`. See *Scheduler*. |
 | CRDs `jobs.batch.volcano.sh`, `cronjobs.batch.volcano.sh`, `queues.scheduling.volcano.sh` | A descriptor without them is not Volcano: composing, or requiring, a kind the cluster does not serve fails the whole reconcile. |
 | Queue `<organisation>-<team>-<tier>` | Asked for only where Volcano runs and the namespace has a tier: the leaf the run is bound to, its owner labels, its state and its `deserved` share (QueueFits). |
+| Queue (platform.adhar.io) `<chunking.requestQueue>` and `<chunking.replyQueue>` in the XR's namespace (`mode: chunked` only) | D11: each must exist and publish its connection as `<queue>-queue`, else `PrerequisitesReady=False` (`ChunkQueueUnavailable`). |
+| Bucket (platform.adhar.io) `<bucket>` in the XR's namespace (`bucket` only) | D26: it must exist and publish its connection as `<bucket>-bucket`, else `PrerequisitesReady=False` (`BucketUnavailable`). Its readiness is not required. |
+| Service `adhar-system/openmetadata` (`lineage.enabled` without `lineage.url` only) | Absent is a warning on `status.message`: the lineage has no receiver. |
 | ConfigMap `<schedule.calendar>` in the XR's namespace, then in `adhar-system` (D5) | The business calendar. The first one labelled `adhar.io/batch-calendar: "true"` with a non-empty `calendar.yaml` wins; none is `PrerequisitesReady=False` (`CalendarUnresolvable`), schedule suspended. Its content is the runner's to judge (an invalid file is exit 2): a template cannot parse YAML without failing the reconcile on a typo. `core/adhar-batch` ships `weekdays`. |
-| ResourceQuota `<namespace>-quota` (`mode: partitioned` only) | The gang-fit refusal: every key of `spec.hard` it sets among `requests.cpu`, `limits.cpu`, `requests.memory`, `limits.memory`, `cpu`, `memory` and `pods`. |
+| ResourceQuota `<namespace>-quota` (`mode: partitioned` and `chunked` only) | The gang-fit refusal: every key of `spec.hard` it sets among `requests.cpu`, `limits.cpu`, `requests.memory`, `limits.memory`, `cpu`, `memory` and `pods`. |
 
 ## Every parameter and what it becomes
 
@@ -66,9 +71,12 @@ Defaults are the XRD's. "Run" means both the CronJob's `jobTemplate` and
 | `job` | `ADHAR_BATCH_JOB` on the run container. Required. |
 | `image` | The run container's image. Kargo pins it per environment. Required. |
 | `imagePullSecrets` | `spec.template.spec.imagePullSecrets` of the run (default `[harbor-dockercfg]`; `[]` names none). |
-| `mode` | The run's shape: `single` (a Job) or `partitioned` (an Indexed Job natively, a Volcano gang on Volcano). |
-| `workers` | `partitioned` only: the workers besides the manager — `completions`/`parallelism` − 1 of the Indexed Job, the `worker` task's `replicas` and `minAvailable` − 1 of the gang. Counted in the quota check. |
-| `gridSize` | `ADHAR_BATCH_PARTITION_GRIDSIZE` (`adhar.batch.partition.grid-size`) on every pod of a partitioned run; default 4 × `workers`. With `ADHAR_BATCH_PARTITION_TRANSPORT=jdbc` and `ADHAR_BATCH_PARTITION_TIMEOUT` (the deadline less five minutes, or half the deadline when that is shorter). |
+| `mode` | The run's shape: `single` (a Job), `partitioned` (an Indexed Job natively, a Volcano gang on Volcano) or `chunked` (Phase 4, D11: remote chunking in exactly the partitioned shape — same kinds, roles, policies and quota check — with `ADHAR_BATCH_DISTRIBUTION=chunked` and `ADHAR_BATCH_CHUNKING_TIMEOUT` instead of the partition channel; never `ADHAR_BATCH_MODE`). |
+| `workers` | `partitioned` and `chunked` only: the workers besides the manager — `completions`/`parallelism` − 1 of the Indexed Job, the `worker` task's `replicas` and `minAvailable` − 1 of the gang. Counted in the quota check. |
+| `gridSize` | `ADHAR_BATCH_PARTITION_GRIDSIZE` (`adhar.batch.partition.grid-size`) on every pod of a partitioned run; default 4 × `workers`. With `ADHAR_BATCH_PARTITION_TRANSPORT=jdbc` and `ADHAR_BATCH_PARTITION_TIMEOUT` (the deadline less five minutes, or half the deadline when that is shorter). Refused with `mode: chunked` (the XRD's rule), which has no partitions. |
+| `chunking` | `mode: chunked` only, and required there (the XRD's rules both ways): the two RabbitMQ `Queue` XRs (`compositions/queue`) in the job's namespace that carry the chunks. Both are read as extra resources; one that does not exist, or publishes its connection under another name than `<queue>-queue`, is `PrerequisitesReady=False` (`ChunkQueueUnavailable`), schedule suspended. Readiness is not required: the Queue composition's Secret is statusless and never reports Ready. |
+| `chunking.requestQueue` | `envFrom` `{prefix: ADHAR_BATCH_CHUNKING_REQUESTS_, secretRef: <requestQueue>-queue}` on every pod of the run (manager and workers alike): `…_host`, `_port`, `_vhost`, `_queue`, `_deadLetterQueue`, `_username` (and `_exchange`/`_routingKey` when the Queue binds one); the manager sends chunks there. Plus `ADHAR_BATCH_CHUNKING_PASSWORD` from Secret `<name>-batch-broker`, key `rabbitmq-password`: the one connection value the Queue's Secret only references (`passwordSecret`/`passwordKey`), which is key `rabbitmq-password` of Secret `rabbitmq` in adhar-system. R15 (resolved 2026-11-21): the job projects that key beside itself with ExternalSecret `<name>-batch-broker` through ClusterSecretStore `platform-messaging` (which serves `adhar.io/plane` workload/preview namespaces and can read Secret `rabbitmq` only), as it projects `root-creds` as `<name>-s3`. It does not read the request Queue's own `<queue>-broker` copy, so it depends on nothing about how the Queue composition names that copy, and the `-batch-` keeps a Queue and a BatchJob of one name from composing the same ExternalSecret (Crossplane adopts no object another XR controls; ESO refuses a target another ExternalSecret owns). A BatchJob is refused in adhar-system, so there is no in-place case. |
+| `chunking.replyQueue` | `envFrom` `{prefix: ADHAR_BATCH_CHUNKING_REPLIES_, secretRef: <replyQueue>-queue}`, the same keys; the workers answer there. Must differ from `requestQueue`. |
 | `scheduler` | `status.scheduler` (and `status.queue` on Volcano). `kubernetes` is native; `auto` is Volcano where the descriptor names it, its CRDs are served, the leaf queue is the team's and open and the Volcano class exists (and, for a gang, the descriptor does not say `gang: "false"`), native otherwise; `volcano` without all of that is `PrerequisitesReady=False` (reason `SchedulerUnavailable`, `QueueUnavailable` or `PriorityClassMissing`), schedule suspended. |
 | `schedule` | A CronJob exists at all. Absent: on-demand only, `ScheduleReady` reason `OnDemand`. |
 | `schedule.cron` | `CronJob.spec.schedule`. Firing more often than every 10 minutes is accepted and reported on `Placement` (a JVM start per run). |
@@ -105,8 +113,14 @@ Defaults are the XRD's. "Run" means both the CronJob's `jobTemplate` and
 | `database` | Where Spring Batch keeps its JobRepository. Required. |
 | `database.secretRef` | `SPRING_DATASOURCE_URL|USERNAME|PASSWORD` from that Secret's `jdbc-uri`, `username`, `password`. |
 | `database.schema` | `ADHAR_BATCH_REPOSITORY_SCHEMA`. |
+| `bucket` | D26: a `Bucket` XR in the job's namespace, read as an extra resource; absent, or publishing its connection as another Secret than `<bucket>-bucket`, is `PrerequisitesReady=False` (`BucketUnavailable`), schedule suspended. Every run pod (each role, both triggers) gets `ADHAR_S3_ENDPOINT`, `ADHAR_S3_REGION` and `ADHAR_S3_BUCKET` from Secret `<bucket>-bucket` (keys `endpoint`, `region`, `bucket`), and `ADHAR_S3_ACCESS_KEY` / `ADHAR_S3_SECRET_KEY` from Secret `<name>-s3`: an ExternalSecret composed beside the job that projects `root-creds` (`rootUser`, `rootPassword`) from `adhar-system` through ClusterSecretStore `platform-object-storage`, which serves environment namespaces (`adhar.io/plane: workload`) only. That is RustFS's ROOT credential (R5): a Bucket is one team's. The kit's `AdharS3EnvironmentPostProcessor` turns the five into Spring Cloud AWS's settings; an `env` entry starting `ADHAR_S3_` beside `bucket` is refused. |
 | `env` | Extra env on the run container. The caller wins over the platform's defaults, except `OTEL_RESOURCE_ATTRIBUTES`, which is merged (the platform's attributes come last). Names the runner owns (`ADHAR_BATCH_*`, `POD_*`, `NODE_NAME`, `ADHAR_ENVIRONMENT`, the datasource) are refused. |
-| `envFrom` | The run container's `envFrom`, verbatim (a `Bucket` Secret, for example). |
+| `envFrom` | The run container's `envFrom`, verbatim (a `Bucket` Secret, for example), followed by a chunked run's two Queue entries. A `prefix` that can produce an `ADHAR_BATCH_*` name, or `OPENLINEAGE_*` while lineage is on, is refused, as the same names in `env` are. |
+| `lineage` | OpenLineage, opt-in (D11): the client's own variables on every run pod, after the platform's env. A user `env` entry named `OPENLINEAGE_*` is refused while it is enabled. Lineage is advisory: a receiver that is missing is a warning in `status.message`, never a refusal. |
+| `lineage.enabled` | `true` adds `OPENLINEAGE_URL`, `OPENLINEAGE_ENDPOINT` (when known) and `OPENLINEAGE_NAMESPACE` = `adhar/<organisation>/<team>[/<project>]/<environment>` from the namespace's labels. Without `url` the composition also reads Service `adhar-system/openmetadata` and warns when it is absent (open-metadata is opt-in in every profile). |
+| `lineage.url` | `OPENLINEAGE_URL`; unset, the platform's OpenMetadata, `http://openmetadata.adhar-system.svc.cluster.local:8585`. |
+| `lineage.endpoint` | `OPENLINEAGE_ENDPOINT`; unset, `/api/v1/openlineage/lineage` (OpenMetadata's OpenLineage receiver; the client's own default `/api/v1/lineage` is OpenMetadata's NATIVE lineage API and refuses an OpenLineage event) when `url` is unset, and nothing (the client's default) when it is set. |
+| `lineage.credentialsSecretRef` | `OPENLINEAGE_API_KEY` from that Secret's `key` (default `token`; for OpenMetadata a bot JWT with `EditLineage`), `optional: true`: a missing Secret sends unauthenticated events, it never keeps a run from starting. |
 | `serviceAccountName` | The run pod's ServiceAccount instead of the composed `<name>-batch`, which is then not composed. The RoleBinding still grants it the runner's Role. |
 | `sla` | Alert thresholds, not a hard stop. |
 | `sla.maxDuration` | Threshold of `BatchRunTooLong`, in seconds; defaults to `timeouts.activeDeadlineSeconds`. |
@@ -155,7 +169,15 @@ that is accepted and breaks at run time in the middle of a night:
 - an `env` name the runner owns (including `JOB_COMPLETION_INDEX`);
 - `resources.cpuLimit` below a CPU request (`cpu`, or `workerCpu` when partitioned):
   the API server rejects such a pod, and only once the Job controller creates it;
-- `mode: partitioned` whose pods together need more than the namespace's
+- `mode: chunked` without both `chunking` Queues, or with the same Queue twice (the XRD
+  refuses both first);
+- an `env` name `OPENLINEAGE_*` while `lineage.enabled` sets them;
+- an `envFrom` `prefix` that can produce an `ADHAR_BATCH_*` name (one starting
+  `ADHAR_BATCH_`, or one `ADHAR_BATCH_` starts with, such as `ADHAR_`), or an
+  `OPENLINEAGE_*` name while `lineage.enabled`: a Secret key `MODE` under `ADHAR_BATCH_`
+  is `ADHAR_BATCH_MODE`, which a partitioned or chunked run must never carry, and the
+  template is what Kyverno holds every run to;
+- `mode: partitioned` or `chunked` whose pods together need more than the namespace's
   ResourceQuota `<namespace>-quota` allows on ANY key it sets (`requests.cpu`,
   `limits.cpu`, `requests.memory`, `limits.memory`, bare `cpu`/`memory`, `pods`): a
   gang that could never start (its leaf admits it, its pods are created and the last
@@ -176,7 +198,7 @@ that is accepted and breaks at run time in the middle of a night:
 
 | Condition | Meaning |
 |---|---|
-| `PrerequisitesReady` | `Met` (naming the calendar's source when there is one), or `PriorityClassMissing` / `SchedulerUnavailable` / `QueueUnavailable` / `CalendarUnresolvable` with the schedule suspended. Argo CD reports `False` as Degraded. |
+| `PrerequisitesReady` | `Met` (naming the calendar's source when there is one), or `PriorityClassMissing` / `SchedulerUnavailable` / `QueueUnavailable` / `CalendarUnresolvable` / `ChunkQueueUnavailable` with the schedule suspended. Argo CD reports `False` as Degraded. |
 | `QueueFits` | DEC-3, a warning (Argo CD does not read it): `NativeScheduler`; `Fits` (the leaf); `LeafQueueUnavailable` — the leaf is missing (Volcano refused a prod leaf the batch ceiling cannot admit), another team's, closed, or the namespace has no tier, so `auto` runs natively instead of being denied; `ExceedsCapability` — a run larger than the leaf's `capability` in any dimension, which Volcano never admits (its PodGroup stays `Pending` and `BatchGangQueueRejected` fires); checked first, on every tier; `ExceedsDeserved` — a prod run larger than the leaf's `deserved` in every dimension it declares, which starts only on idle room and can never reclaim. Also appended to `status.message`. |
 | `SchedulerSwitch` | `Settled`, or `WaitingForRuns` while a schedule's kind switch waits for the run in flight (see *Scheduler*). |
 | `TemplateReady` | `Published` once `<name>-run` is observed. |
@@ -239,7 +261,9 @@ for a Volcano CronJob, which publishes no next-schedule time.
 **The kit's side of the contract** (KIT-2.x): `ADHAR_BATCH_ROLE` is `single`, `indexed`,
 `manager` or `worker`; a gang pod's `ADHAR_BATCH_K8S_JOB` is its `volcano.sh/job-name`
 label (a Volcano Job, whose owner lookup is `batch.volcano.sh/v1alpha1`); the partition
-channel is `ADHAR_BATCH_PARTITION_{TRANSPORT,GRIDSIZE,TIMEOUT}`. There is deliberately
+channel is `ADHAR_BATCH_PARTITION_{TRANSPORT,GRIDSIZE,TIMEOUT}`; a chunked run (KIT-4.x) has
+`ADHAR_BATCH_DISTRIBUTION=chunked`, `ADHAR_BATCH_CHUNKING_TIMEOUT`, `ADHAR_BATCH_CHUNKING_PASSWORD`
+and the two prefixed Queue Secrets instead (design 0025 §5.11). There is deliberately
 no `ADHAR_BATCH_MODE`: Spring would bind it to `adhar.batch.mode`
 (`auto|kubernetes|embedded`).
 
@@ -257,6 +281,14 @@ rewrites them) and a real `crossplane render` of every branch.
 copy while a source is gone, retention on every run, the Phase-3 refusals, and a real
 `crossplane render` of a calendar job; `smoke_gate_test.go`: the Project composition's
 smoke metric.
+`chunked_composition_test.go`: mode chunked on both paths, the Queue prerequisites,
+lineage, the XRD's rules on a real API server
+(envtest), golden renders (`testdata/batchjob-chunked/golden-*.yaml`) and a real
+`crossplane render`.
+`broker_credential_test.go` (R15): the broker's password projected beside every Queue and
+every chunked job through `platform-messaging`, the password contract with the Queue
+composition, no render reading Secret `rabbitmq` outside adhar-system, one credential per
+object, the store's Role limited to `rabbitmq`, and a real `crossplane render` of a Queue.
 `volcano_composition_quota_test.go`: the gang fit on every quota key, the CPU limit on every
 run pod and its refusal, and (opt-in, `ADHAR_LIVE_DRY_RUN=1`) a server dry run of the run
 pods against an environment's LimitRange.

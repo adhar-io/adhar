@@ -55,7 +55,29 @@
       "Bash(brew upgrade:*)",
       "Bash(brew link:*)",
       "Bash(docker ps:*)",
-      "Bash(kind create:*)"
+      "Bash(kind create:*)",
+      "Bash(./bin/adhar-dev batch *)",
+      "Bash(unzip -p ~/.m2/repository/org/quartz-scheduler/quartz/2.5.2/quartz-2.5.2-sources.jar org/quartz/CronExpression.java)",
+      "Bash(gofmt -l api cmd/up globals platform/config platform/providers platform/controllers/autoscaler platform/controllers/adharplatform/batch_node_pool_test.go)",
+      "Bash(KUBEBUILDER_ASSETS=/Users/tapas-pc/Documents/Work/Adhar/adhar/bin/k8s/1.36.2-darwin-arm64 go test ./platform/controllers/autoscaler/... ./platform/providers/... ./platform/config/... ./platform/controllers/adharplatform/ ./cmd/up/ ./api/... -count=1)",
+      "Bash(PAR=3 /private/tmp/claude-501/-Users-tapas-pc-Documents-Work-Adhar-adhar/6c03b94d-36ea-498d-ba6b-4da514abf951/scratchpad/closure/BATCH-FINISH/tpl-quartz/tools/verify-all.sh)",
+      "Bash(grep -nE \"<mirrorOf>|<url>|<id>\" ~/.m2/settings.xml | head -20)",
+      "Read(//Users/tapas-pc/.m2/**)",
+      "Bash(grep -n \"rabbitmq\\\\`\\\\|Secret \\\\`rabbitmq\\\\|broker Secret\\\\|R15\" docs/design/0025-batch-platform.md docs/BATCH.md platform/stack/packages/core/adhar-batch/README.md)",
+      "Bash(shasum adhar-kit-batch/target/adhar-kit-batch-0.1.0.jar ~/.m2/repository/com/adhar/kit/adhar-kit-batch/0.1.0/adhar-kit-batch-0.1.0.jar)",
+      "Bash(unzip -p ~/.m2/repository/com/adhar/kit/adhar-kit-batch/0.1.0/adhar-kit-batch-0.1.0.jar com/adhar/kit/batch/params/JobParameterSpecRegistry.class)",
+      "Bash(awk '/^## In-service jobs on Quartz/{p=1} p&&/^## /&&!/In-service/{exit} p' docs/BATCH.md)",
+      "Bash(awk 'NR<=190 && /^func /{f=$0; n=NR} NR==184{print n\": \"f}' platform/providers/aws/provider.go)",
+      "Bash(awk 'NR<=312 && /^func /{f=$0; n=NR} NR==312{print n\": \"f}' platform/providers/digitalocean/provider.go)",
+      "Bash(awk 'NR<=76 && /^func /{f=$0; n=NR} NR==76{print n\": \"f}' platform/providers/civo/provider.go)",
+      "Bash(python3 -I -)",
+      "Bash(unzip -oq ~/.m2/repository/org/springframework/batch/spring-batch-core/6.0.4/spring-batch-core-6.0.4-sources.jar 'org/springframework/batch/core/launch/*')",
+      "Bash(make policy-test *)"
+    ],
+    "additionalDirectories": [
+      "/Users/tapas-pc/Documents/Work/Adhar/AdharWS/adhar-kit/adhar-kit-batch/src/main/java/com/adhar/kit/batch/scheduler/quartz",
+      "/Users/tapas-pc/Documents/Work/Adhar/AdharWS/adhar-templates/templates/springboot-web-service/skeleton",
+      "/Users/tapas-pc/Documents/Work/Adhar/AdharWS/adhar-kit"
     ]
   }
 }

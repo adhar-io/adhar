@@ -9,6 +9,7 @@ import (
 
 	"github.com/digitalocean/godo"
 
+	"adhar-io/adhar/globals"
 	provider "adhar-io/adhar/platform/providers"
 )
 
@@ -28,6 +29,29 @@ type workerSet struct {
 	InFlight []godo.Droplet
 	// Stale are droplets that never became nodes. They are discarded.
 	Stale []godo.Droplet
+}
+
+// nodeGroupDroplets narrows the cluster's worker droplets to the members of one
+// node group.
+//
+// DigitalOcean compute workers carry one worker tag whatever their group, and the
+// scale path used to count EVERY worker as the group's. With a batch node pool
+// (design 0025 D14) that is two groups in one count, and the autoscaler scales
+// each to its own target: "scale batch to 2" on a cluster of three general
+// workers and one pool node read four members, wanted two and RETIRED two general
+// workers; "scale workers to 4" read four and added nothing, ever. The pool's
+// droplets are recognised by their `-batch-<n>` name (provider.IsBatchPoolMachine),
+// and every other group keeps the pre-pool rule of counting all non-pool workers,
+// so a cluster with legacy `adhar-<cluster>-worker-<n>` names scales as before.
+func nodeGroupDroplets(workers []godo.Droplet, nodeGroup string) []godo.Droplet {
+	pool := nodeGroup == globals.BatchNodeGroupName
+	out := make([]godo.Droplet, 0, len(workers))
+	for _, d := range workers {
+		if provider.IsBatchPoolMachine(d.Name) == pool {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // reconcileWorkers splits worker droplets by whether the control plane lists

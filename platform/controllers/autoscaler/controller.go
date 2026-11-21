@@ -352,14 +352,96 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		} else {
 			st.UnderutilizedSince = nil
 		}
+		if spec.BatchPool == nil {
+			st.BatchPool = nil
+		}
 	}); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if spec.BatchPool != nil {
+		if err := r.reconcileBatchPool(ctx, platform, spec, snapshot, decision.Action); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// A failed action is reported and retried on the next tick rather than
 	// returned as an error: controller-runtime's exponential backoff would
 	// otherwise hammer the cloud API with a broken credential.
 	return ctrl.Result{RequeueAfter: tickInterval}, nil
+}
+
+// reconcileBatchPool decides about the batch node pool and carries it out
+// (batch_pool.go). One cloud action per tick: when the general workers acted
+// this tick, a pool action waits for the next one (a minute), so a tick stays
+// bounded by one scaleActionTimeout and the general workers, which hold the
+// platform itself, go first.
+func (r *Reconciler) reconcileBatchPool(ctx context.Context, platform *v1alpha1.AdharPlatform, spec v1alpha1.AutoscalingSpec, snapshot *snapshotWithCluster, generalAction Action) error {
+	logger := log.FromContext(ctx)
+	pool := spec.BatchPool.WithDefaults()
+	if pool.NodeGroup == spec.NodeGroup {
+		// The pool and the general workers cannot be one group: every rule
+		// here depends on telling them apart.
+		return r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
+			st.BatchPool = &v1alpha1.BatchPoolStatus{LastReason: "batch pool: node group " + pool.NodeGroup +
+				" is also the general workers' group; the pool is not autoscaled"}
+		})
+	}
+	d := DecidePool(snapshot.Snapshot)
+	if d.Action != ActionNone && generalAction != ActionNone {
+		d.Reason += " (deferred: the general workers acted this tick)"
+		d.Action = ActionNone
+	}
+	logger.V(1).Info("batch pool tick", "action", d.Action, "nodes", d.Workers, "reason", d.Reason)
+
+	now := r.Now()
+	var actionErr error
+	switch d.Action {
+	case ActionScaleUp:
+		r.event(platform, corev1.EventTypeNormal, "BatchPoolScalingUp", d.Reason)
+		if err := r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
+			poolStatusOf(st).LastScaleUp = &metav1.Time{Time: now}
+		}); err != nil {
+			return err
+		}
+		actx, cancel := context.WithTimeout(ctx, scaleActionTimeout)
+		actionErr = r.Scaler.ScaleUp(actx, snapshot.cluster, pool.NodeGroup, d.Workers+d.ScaleUpBy)
+		cancel()
+	case ActionScaleDown:
+		r.event(platform, corev1.EventTypeNormal, "BatchPoolScalingDown", d.Reason)
+		if err := r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
+			poolStatusOf(st).LastScaleDown = &metav1.Time{Time: now}
+		}); err != nil {
+			return err
+		}
+		actx, cancel := context.WithTimeout(ctx, scaleActionTimeout)
+		actionErr = r.Scaler.ScaleDown(actx, snapshot.cluster, d.Node)
+		cancel()
+	}
+	reason := d.Reason
+	if actionErr != nil {
+		reason = "batch pool: " + string(d.Action) + " failed: " + actionErr.Error()
+		r.event(platform, corev1.EventTypeWarning, "BatchPool"+string(d.Action)+"Failed", reason)
+		logger.Error(actionErr, "batch pool action failed", "action", d.Action, "node", d.Node)
+	}
+	return r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
+		ps := poolStatusOf(st)
+		ps.Nodes = d.Workers
+		ps.LastReason = reason
+		if d.UnderutilizedSince != nil {
+			ps.UnderutilizedSince = &metav1.Time{Time: *d.UnderutilizedSince}
+		} else {
+			ps.UnderutilizedSince = nil
+		}
+	})
+}
+
+// poolStatusOf returns status.autoscaling.batchPool, creating it.
+func poolStatusOf(st *v1alpha1.AutoscalingStatus) *v1alpha1.BatchPoolStatus {
+	if st.BatchPool == nil {
+		st.BatchPool = &v1alpha1.BatchPoolStatus{}
+	}
+	return st.BatchPool
 }
 
 // snapshotWithCluster bundles the decision input with the cloud facts the
@@ -393,8 +475,12 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 	}
 
 	var status v1alpha1.AutoscalingStatus
+	var poolStatus v1alpha1.BatchPoolStatus
 	if platform.Status.Autoscaling != nil {
 		status = *platform.Status.Autoscaling
+		if status.BatchPool != nil {
+			poolStatus = *status.BatchPool
+		}
 	}
 
 	var usage map[string]int64
@@ -419,6 +505,7 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 			Gangs:             gangs,
 			Queues:            queues,
 			Now:               r.Now(),
+			PoolStatus:        poolStatus,
 		},
 		cluster: cluster,
 	}, nil

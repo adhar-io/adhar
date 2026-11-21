@@ -80,7 +80,7 @@ func prepareAndJoinCivoWorker(ctx context.Context, signer ssh.Signer, inst *civo
 	if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, inst.PublicIP, 15*time.Minute); err != nil {
 		return fmt.Errorf("not ready: %w", err)
 	}
-	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM); err != nil {
+	if err := provider.EnableWorkerKubelet(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, civoComputeHasExternalCCM, civoComputeHasExternalCCM, provider.WorkerRegistration(inst.Hostname)); err != nil {
 		return err
 	}
 	return provider.KubeadmJoinWorker(signer, computeSSHUser, inst.PublicIP, joinCmd)

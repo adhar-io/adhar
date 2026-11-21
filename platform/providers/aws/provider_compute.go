@@ -266,6 +266,7 @@ func (p *Provider) runWorkerInstance(ctx context.Context, w workerInstanceSpec) 
 	}
 	return &NodeInfo{
 		InstanceId:     *inst.InstanceId,
+		Name:           w.Name,
 		PrivateIP:      aws.ToString(inst.PrivateIpAddress),
 		PublicIP:       aws.ToString(inst.PublicIpAddress),
 		PrivateDNSName: aws.ToString(inst.PrivateDnsName),
@@ -311,17 +312,20 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 
 	for _, reservation := range result.Reservations {
 		for _, instance := range reservation.Instances {
-			// Determine role from tags
-			var role string
+			// Determine role (and the Name tag) from tags
+			var role, tagName string
 			for _, tag := range instance.Tags {
-				if *tag.Key == "Role" {
-					role = *tag.Value
-					break
+				switch aws.ToString(tag.Key) {
+				case "Role":
+					role = aws.ToString(tag.Value)
+				case "Name":
+					tagName = aws.ToString(tag.Value)
 				}
 			}
 
 			nodeInfo := NodeInfo{
 				InstanceId:     *instance.InstanceId,
+				Name:           tagName,
 				PrivateIP:      aws.ToString(instance.PrivateIpAddress),
 				PublicIP:       aws.ToString(instance.PublicIpAddress),
 				PrivateDNSName: aws.ToString(instance.PrivateDnsName),
@@ -755,9 +759,10 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		}
 		// A new worker takes the size its group's existing members run, so a
 		// scaled group stays homogeneous; an empty group takes the configured
-		// worker size. This fell back to t3.medium — 2 burstable vCPU, a quarter
-		// of the memory `adhar up` gave every other worker.
-		instanceType := p.config.workerType("", membersInstanceType(members), false)
+		// worker size — or, for the batch pool, the pool's own type. This fell
+		// back to t3.medium — 2 burstable vCPU, a quarter of the memory `adhar
+		// up` gave every other worker.
+		instanceType := p.config.scaleWorkerType(nodeGroupName, membersInstanceType(members))
 		// The same node-prep the cluster was created with; the version comes
 		// from the running control plane so a scaled cluster cannot skew.
 		spec := &types.ClusterSpec{}
@@ -840,6 +845,7 @@ func (p *Provider) nodeGroupInstances(ctx context.Context, clusterName, nodeGrou
 			}
 			members[name] = NodeInfo{
 				InstanceId:     aws.ToString(inst.InstanceId),
+				Name:           name,
 				PrivateIP:      aws.ToString(inst.PrivateIpAddress),
 				PublicIP:       aws.ToString(inst.PublicIpAddress),
 				PrivateDNSName: aws.ToString(inst.PrivateDnsName),
@@ -860,7 +866,7 @@ func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroup
 	if err != nil {
 		return nil, err
 	}
-	instanceType := p.config.workerType("", membersInstanceType(members), false)
+	instanceType := p.config.scaleWorkerType(nodeGroupName, membersInstanceType(members))
 	return &types.NodeGroup{Name: nodeGroupName, Replicas: len(members), InstanceType: instanceType, Status: "ready", UpdatedAt: time.Now()}, nil
 }
 

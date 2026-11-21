@@ -182,6 +182,8 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	// provider.ControlPlaneSize and provider.WorkerSize).
 	awsConfig.ControlPlaneInstanceType = provider.ConfigString(config, provider.KeyControlPlaneMachineType, "controlPlaneInstanceType")
 	awsConfig.WorkerInstanceType = provider.ConfigString(config, provider.KeyWorkerMachineType, "workerInstanceType")
+	// The batch pool's own type, for a scale path that finds the pool empty.
+	awsConfig.BatchInstanceType = provider.ConfigString(config, provider.KeyBatchMachineType)
 
 	// Network. These were hardcoded (10.0.0.0/16 with 10.0.1.0/24 and
 	// 10.0.2.0/24, in the region's first two zones) while the shipped configs
@@ -245,8 +247,12 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 // NodeInfo represents information about a cluster node
 type NodeInfo struct {
 	InstanceId string
-	PrivateIP  string
-	PublicIP   string
+	// Name is the instance's Name tag (`<cluster>-<group>-<n>`), the machine
+	// name a compute-mode worker's node group is read from at join time
+	// (provider.WorkerRegistration). Empty when the instance carries none.
+	Name      string
+	PrivateIP string
+	PublicIP  string
 	// PrivateDNSName is the instance's AWS-assigned FQDN, e.g.
 	// ip-10-0-1-80.ap-southeast-1.compute.internal. The kubelet must register
 	// under exactly this name: the AWS cloud-controller-manager looks a Node up
@@ -337,6 +343,10 @@ type Config struct {
 	// clusterConfig wins over both; the defaults are in provider.MachineDefaultsFor.
 	ControlPlaneInstanceType string `json:"controlPlaneInstanceType,omitempty"`
 	WorkerInstanceType       string `json:"workerInstanceType,omitempty"`
+	// BatchInstanceType is the batch node pool's instance type
+	// (environments[].batchPool.machineType, provider.KeyBatchMachineType): what
+	// a scale path gives a pool node when the pool has no member to copy.
+	BatchInstanceType string `json:"batchInstanceType,omitempty"`
 
 	// Node image. All four are optional; together they replace what used to be a
 	// hardcoded Ubuntu 22.04 lookup that no configuration could reach — so a
@@ -433,6 +443,17 @@ func (c *Config) workerType(groupType, membersType string, managed bool) string 
 		fromProvider = c.WorkerInstanceType
 	}
 	return provider.WorkerSize("aws", managed, groupType, membersType, fromProvider, "")
+}
+
+// scaleWorkerType is the instance type a self-managed scale path gives a new
+// node of a group: the size its members run, else — for the batch pool, when it
+// is empty — the pool's configured type, else the configured/default worker size.
+func (c *Config) scaleWorkerType(nodeGroup, membersType string) string {
+	batch := ""
+	if c != nil {
+		batch = c.BatchInstanceType
+	}
+	return c.workerType(provider.EmptyBatchGroupType(nodeGroup, membersType, batch), membersType, false)
 }
 
 // NewProvider creates a new AWS provider instance

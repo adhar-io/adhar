@@ -75,3 +75,8 @@ func CorrelationFrom(ctx context.Context) string {
 // NewCorrelation mints a correlation id for a unit of work that does not
 // already have one.
 func NewCorrelation() string { return newID() }
+
+// NewID mints an event `id` for a caller that must know it before Publish —
+// the batch observer archives the same event it publishes, and a reader with
+// both copies drops the duplicate by id. Publish keeps an id already set.
+func NewID() string { return newID() }

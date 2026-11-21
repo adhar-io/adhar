@@ -1,0 +1,18 @@
+# D26: the design's scheduled example reading and writing a Bucket of its namespace,
+# named rather than mounted by hand (envFrom of the Bucket's Secret, without the
+# credential the Secret only references).
+apiVersion: platform.adhar.io/v1alpha1
+kind: BatchJob
+metadata:
+  name: importer
+  namespace: prod
+spec:
+  parameters:
+    job: importJob
+    image: harbor-core.adhar-system.svc.cluster.local/library/importer@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    schedule: { cron: "30 1 * * *", timeZone: Asia/Singapore }
+    parameters:
+      - { name: businessDate, type: date, source: schedule }
+    resources: { cpu: "1", memory: 1536Mi }
+    database: { secretRef: importer-db-app }
+    bucket: inbound

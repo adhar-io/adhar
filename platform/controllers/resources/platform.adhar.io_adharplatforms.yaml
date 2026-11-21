@@ -48,6 +48,33 @@ spec:
                   has no cloud provider, so the platform does it itself (see
                   platform/controllers/autoscaler). Nil or disabled = fixed worker count.
                 properties:
+                  batchPool:
+                    description: |-
+                      BatchPool is the cluster's batch node pool (design 0025 D14), when the
+                      environment declares one (`environments[].batchPool`). Its nodes carry the
+                      label adhar.io/node-pool=batch, are counted apart from the general workers
+                      (MinWorkers/MaxWorkers never include them), grow only for batch demand that
+                      may buy nodes, and retire down to MinNodes when idle.
+                    properties:
+                      maxNodes:
+                        description: MaxNodes is the pool's spend ceiling.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      minNodes:
+                        default: 1
+                        description: |-
+                          MinNodes is the pool's floor: idle pool nodes are retired down to it,
+                          never below. At least 1 (see config.BatchPoolConfig).
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      nodeGroup:
+                        default: batch
+                        description: NodeGroup is the provider node group the pool
+                          is.
+                        type: string
+                    type: object
                   enabled:
                     description: |-
                       Enabled turns the autoscaler on for this platform. When false the
@@ -344,6 +371,34 @@ spec:
                 description: Autoscaling reports the node autoscaler's view of the
                   cluster.
                 properties:
+                  batchPool:
+                    description: |-
+                      BatchPool is the batch node pool's own view, with its own clocks: the
+                      pool scales independently of the general workers.
+                    properties:
+                      lastReason:
+                        description: LastReason explains the pool's most recent decision
+                          in one line.
+                        type: string
+                      lastScaleDown:
+                        format: date-time
+                        type: string
+                      lastScaleUp:
+                        format: date-time
+                        type: string
+                      nodes:
+                        description: Nodes is the number of schedulable pool nodes
+                          at the last tick.
+                        format: int32
+                        type: integer
+                      underutilizedSince:
+                        description: UnderutilizedSince is when the pool went idle
+                          in the current stretch.
+                        format: date-time
+                        type: string
+                    required:
+                    - nodes
+                    type: object
                   enabled:
                     description: |-
                       Enabled mirrors spec.autoscaling.enabled so `adhar get status` can show

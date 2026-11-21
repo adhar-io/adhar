@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestSchedulesReadTheExampleReport(t *testing.T) {
 	want := scheduleTrigger{Key: "adhar-batch-config.import-job.nightly", Kind: "cron", Expression: "0 30 1 ? * *",
 		TimeZone: "Asia/Singapore", Calendar: "sg-business", Misfire: "latest", State: "NORMAL",
 		Previous: "2026-11-13T17:30:00Z", Next: "2026-11-16T17:30:00Z"}
-	if tr != want {
+	if !reflect.DeepEqual(tr, want) {
 		t.Errorf("trigger = %+v, want %+v", tr, want)
 	}
 	lr := r.Jobs[0].LastRun
@@ -139,6 +140,48 @@ func TestSchedulesReadTheExampleReport(t *testing.T) {
 	var back []map[string]interface{}
 	if err := json.Unmarshal([]byte(toJSON(reports)), &back); err != nil || len(back) != 1 || back[0]["configMap"] != "importer-batch-schedules" || back[0]["truncated"] != false || back[0]["raw"] != nil {
 		t.Errorf("-o json = %s (%v)", toJSON(reports), err)
+	}
+}
+
+// Each kind's fields: the kit writes an interval trigger's every and grid start
+// and a daily trigger's every, window and days (§5.20.8, the shape of
+// ScheduleReportWriter.toJson). The view shows them rather than a bare
+// "interval" beside the zone, and -o json carries all of them, the grid start
+// included. Days may also be Quartz's numbers.
+func TestSchedulesShowEachTriggerKindsOwnFields(t *testing.T) {
+	doc := `{"v":1,"jobs":[{"job":"importJob","name":"import-job","triggers":[
+	  {"key":"adhar-batch-config.import-job.every","kind":"interval","every":"PT5M","start":"1970-01-01T00:00:00Z","timeZone":"UTC","state":"NORMAL","next":"2026-11-14T09:05:00Z"},
+	  {"key":"adhar-batch-config.import-job.office","kind":"daily","every":"PT15M","from":"09:00","to":"17:30","days":["MON","FRI"],"timeZone":"Asia/Singapore","state":"NORMAL","next":"2026-11-14T09:15:00Z"},
+	  {"key":"adhar-batch-config.import-job.legacy","kind":"daily","every":"PT1H","days":[2,6,"",true]}]}]}`
+	reports := readReports(t, "prod", report("prod", "importer-batch-schedules", doc))
+	triggers := reports[0].Jobs[0].Triggers
+	if len(triggers) != 3 {
+		t.Fatalf("triggers = %+v", triggers)
+	}
+	if got := triggers[0]; got.Every != "PT5M" || got.Start != "1970-01-01T00:00:00Z" {
+		t.Errorf("interval = %+v", got)
+	}
+	if got := triggers[1]; got.Every != "PT15M" || got.From != "09:00" || got.To != "17:30" || !reflect.DeepEqual(got.Days, []string{"MON", "FRI"}) {
+		t.Errorf("daily = %+v", got)
+	}
+	if got := triggers[2].Days; !reflect.DeepEqual(got, []string{"2", "6"}) {
+		t.Errorf("Quartz day numbers are kept, anything else left out: %v", got)
+	}
+	out := renderSchedules(reports, "prod", reportAt)
+	for _, want := range []string{
+		"interval every PT5M UTC",
+		"daily every PT15M 09:00-17:30 MON,FRI",
+		"daily every PT1H 2,6",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the table lacks %q:\n%s", want, out)
+		}
+	}
+	js := toJSON(reports)
+	for _, want := range []string{`"every":"PT5M"`, `"start":"1970-01-01T00:00:00Z"`, `"from":"09:00"`, `"to":"17:30"`, `"days":["MON","FRI"]`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("-o json lacks %s: %s", want, js)
+		}
 	}
 }
 

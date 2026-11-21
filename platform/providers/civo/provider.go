@@ -23,6 +23,7 @@ import (
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -73,6 +74,8 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	// legacy single size.
 	civoConfig.ControlPlaneSize = provider.ConfigString(config, provider.KeyControlPlaneMachineType)
 	civoConfig.WorkerSize = provider.ConfigString(config, provider.KeyWorkerMachineType)
+	// The batch pool's own size, for a scale path that finds the pool empty.
+	civoConfig.BatchSize = provider.ConfigString(config, provider.KeyBatchMachineType)
 
 	// Parse configuration section
 	if configSection, ok := config["config"].(map[string]interface{}); ok {
@@ -204,9 +207,13 @@ type Config struct {
 	// specific sizes. ControlPlaneSize / WorkerSize separate the roles; the
 	// defaults are provider.MachineDefaultsFor("civo") — note compute mode takes
 	// INSTANCE sizes (g3.*) while managed pools take KUBE sizes (g4s.kube.*).
-	Size                 string               `json:"size"`
-	ControlPlaneSize     string               `json:"controlPlaneSize,omitempty"`
-	WorkerSize           string               `json:"workerSize,omitempty"`
+	Size             string `json:"size"`
+	ControlPlaneSize string `json:"controlPlaneSize,omitempty"`
+	WorkerSize       string `json:"workerSize,omitempty"`
+	// BatchSize is the batch node pool's instance size
+	// (environments[].batchPool.machineType, provider.KeyBatchMachineType): what
+	// a compute scale path gives a pool node when the pool has no member to copy.
+	BatchSize            string               `json:"batchSize,omitempty"`
 	ComputeImage         string               `json:"computeImage,omitempty"`
 	DiskImage            string               `json:"diskImage"`
 	DefaultNodeCount     int                  `json:"defaultNodeCount"`
@@ -492,6 +499,13 @@ func (c *Config) workerSize(groupSize, membersSize string, managed bool) string 
 	return provider.WorkerSize("civo", managed, groupSize, membersSize, c.WorkerSize, c.Size)
 }
 
+// scaleWorkerSize is the instance size a compute scale path gives a new node of a
+// group: the size its members run, else — for the batch pool, when it is empty —
+// the pool's configured size, else the configured/default worker size.
+func (c *Config) scaleWorkerSize(nodeGroup, membersSize string) string {
+	return c.workerSize(provider.EmptyBatchGroupType(nodeGroup, membersSize, c.BatchSize), membersSize, false)
+}
+
 func (p *Provider) buildCivoPools(spec *types.ClusterSpec) []civogo.KubernetesClusterPoolConfig {
 	var pools []civogo.KubernetesClusterPoolConfig
 	for _, ng := range spec.NodeGroups {
@@ -500,11 +514,19 @@ func (p *Provider) buildCivoPools(spec *types.ClusterSpec) []civogo.KubernetesCl
 		if count <= 0 {
 			count = 1
 		}
+		// The group's taints too: without them a Civo pool built for the batch
+		// node pool (design 0025 D14) carried the pool's label but not its
+		// NoSchedule taint, so every general pod could land there.
+		var taints []corev1.Taint
+		for _, t := range ng.Taints {
+			taints = append(taints, corev1.Taint{Key: t.Key, Value: t.Value, Effect: corev1.TaintEffect(t.Effect)})
+		}
 		pools = append(pools, civogo.KubernetesClusterPoolConfig{
 			Region: p.config.Region,
 			Count:  count,
 			Size:   size,
 			Labels: ng.Labels,
+			Taints: taints,
 		})
 	}
 	if len(pools) == 0 {

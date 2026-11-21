@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/viper"
+
+	"adhar-io/adhar/globals"
 )
 
 // Config represents the main Adhar configuration
@@ -124,6 +126,10 @@ type EnvironmentConfig struct {
 	// clusterConfig `machineType`/`nodeSize` and `nodeCount` describe) — a GPU
 	// or high-memory pool, say. When set it replaces the template's list.
 	NodeGroups []NodeGroupConfig `mapstructure:"nodeGroups" json:"nodeGroups,omitempty"`
+	// BatchPool gives the environment's cluster a batch node pool (design 0025
+	// D14): a tainted node group only batch runs use, grown by batch demand.
+	// When set it replaces the template's.
+	BatchPool *BatchPoolConfig `mapstructure:"batchPool" json:"batchPool,omitempty"`
 	// Isolation decides what this environment physically IS:
 	//
 	//   namespace (default) — a namespace on the one shared platform cluster.
@@ -161,6 +167,60 @@ type EnvironmentTemplateConfig struct {
 	// NodeGroups is the default list of additional node groups; an
 	// environment's own list replaces it.
 	NodeGroups []NodeGroupConfig `mapstructure:"nodeGroups" json:"nodeGroups,omitempty"`
+	// BatchPool is the default batch node pool; an environment's own replaces it.
+	BatchPool *BatchPoolConfig `mapstructure:"batchPool" json:"batchPool,omitempty"`
+}
+
+// BatchPoolConfig is a batch node pool (design 0025 D14, Phase 4): the node
+// group BatchNodeGroupName whose nodes register with the label
+// adhar.io/node-pool=batch and the taint adhar.io/batch=true:NoSchedule. Nothing
+// but a batch run is placed there: core/adhar-batch's adhar-batch-node-pool
+// policy gives batch run pods the toleration and a PREFERRED affinity while a
+// pool node exists, so every BatchJob moves onto the pool with no definition
+// change, and still runs on the general workers when the pool is full.
+//
+// The node autoscaler grows the pool for batch demand that may buy nodes (a
+// prod run with scaleUp: true, or its Volcano gang) and never for anything
+// else, and retires idle pool nodes down to MinNodes. The pool is autoscaled
+// only when the environment's autoscaling is enabled; otherwise it stays at
+// MinNodes.
+type BatchPoolConfig struct {
+	// MachineType is the pool's instance type / VM size / droplet slug. Empty =
+	// the provider's worker default.
+	MachineType string `mapstructure:"machineType" json:"machineType,omitempty"`
+	// MinNodes is the pool's floor and the count it is created with: at least
+	// 1. A pool at zero would not EXIST, and the policy that sends batch runs to
+	// it keys on a pool node existing when the run's pod is admitted: a run
+	// admitted while the pool was empty carries no toleration and could never
+	// use the node its own demand bought.
+	MinNodes int32 `mapstructure:"minNodes" json:"minNodes"`
+	// MaxNodes is the pool's spend ceiling, at least MinNodes.
+	MaxNodes int32 `mapstructure:"maxNodes" json:"maxNodes"`
+}
+
+// BatchNodeGroupName is the batch pool's node group. Reserved: compute-mode
+// workers are recognised as pool nodes by the `-batch-<n>` suffix of their
+// machine names (platform/providers.WorkerRegistration), so nodeGroups may not
+// name a group `batch`.
+const BatchNodeGroupName = globals.BatchNodeGroupName
+
+// BatchPoolNodeGroup is the pool as the node group every provider builds: the
+// pool's label and taint, MinNodes nodes to start with. ok is false for nil.
+func (b *BatchPoolConfig) BatchPoolNodeGroup() (NodeGroupConfig, bool) {
+	if b == nil {
+		return NodeGroupConfig{}, false
+	}
+	count := int(b.MinNodes)
+	if count < 1 {
+		count = 1
+	}
+	return NodeGroupConfig{
+		Name:        BatchNodeGroupName,
+		MachineType: b.MachineType,
+		Count:       count,
+		Labels:      map[string]string{globals.BatchNodePoolLabel: globals.BatchNodePoolValue},
+		Taints:      []TaintConfig{{Key: globals.BatchNodePoolTaintKey, Value: globals.BatchNodePoolTaintValue, Effect: "NoSchedule"}},
+	}, true
 }
 
 // PrimaryNodeGroupName is the node group every cluster has. Its size and count
@@ -257,6 +317,9 @@ type ResolvedEnvironmentConfig struct {
 	// NodeGroups are the additional node groups, from the environment or else
 	// its template.
 	NodeGroups []NodeGroupConfig `json:"nodeGroups,omitempty"`
+	// BatchPool is the batch node pool, from the environment or else its
+	// template; nil when neither declares one.
+	BatchPool *BatchPoolConfig `json:"batchPool,omitempty"`
 	// ResolvedIsolation is `namespace` or `cluster`, defaulted and validated.
 	ResolvedIsolation string `json:"resolvedIsolation"`
 	// ProviderConfig is the full provider block from `providers.<name>` for the
@@ -848,6 +911,12 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 	if len(resolved.NodeGroups) == 0 && envConfig.Template != "" {
 		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
 			resolved.NodeGroups = template.NodeGroups
+		}
+	}
+	resolved.BatchPool = envConfig.BatchPool
+	if resolved.BatchPool == nil && envConfig.Template != "" {
+		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
+			resolved.BatchPool = template.BatchPool
 		}
 	}
 

@@ -680,6 +680,11 @@ func EnvironmentProviderOverrides(envConfig *config.ResolvedEnvironmentConfig) m
 	for _, kv := range envConfig.ResolvedClusterConfig {
 		out[kv.Key] = kv.Value
 	}
+	// The batch pool's machine type, for a scale path that finds the pool empty
+	// (KeyBatchMachineType).
+	if t := BatchPoolMachineType(envConfig); t != "" {
+		out[KeyBatchMachineType] = t
+	}
 	return out
 }
 
@@ -787,6 +792,30 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig, clusterName s
 		}
 		for _, t := range g.Taints {
 			ng.Taints = append(ng.Taints, types.TaintSpec{Key: t.Key, Value: t.Value, Effect: t.Effect})
+		}
+		spec.NodeGroups = append(spec.NodeGroups, ng)
+	}
+
+	// The batch node pool (design 0025 D14) is one more group, built like the
+	// others, with the pool's label and taint. Managed node pools apply them
+	// from the spec; a compute-mode worker of this group registers with them
+	// because of its machine name (WorkerRegistration). Its range rides along
+	// only when the environment autoscales, exactly like the primary group's.
+	if g, ok := envConfig.BatchPool.BatchPoolNodeGroup(); ok {
+		ng := types.NodeGroupSpec{
+			Name:         g.Name,
+			Replicas:     g.Count,
+			InstanceType: strings.TrimSpace(g.MachineType),
+			Labels:       g.Labels,
+		}
+		for _, t := range g.Taints {
+			ng.Taints = append(ng.Taints, types.TaintSpec{Key: t.Key, Value: t.Value, Effect: t.Effect})
+		}
+		if as := envConfig.Autoscaling; as != nil && as.Enabled {
+			ng.AutoScaling = types.AutoScalingSpec{
+				MinReplicas: int(envConfig.BatchPool.MinNodes),
+				MaxReplicas: int(envConfig.BatchPool.MaxNodes),
+			}
 		}
 		spec.NodeGroups = append(spec.NodeGroups, ng)
 	}

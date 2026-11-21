@@ -247,6 +247,18 @@ type Snapshot struct {
 	Gangs  []Gang
 	Queues map[string]GangQueue
 	Now    time.Time
+	// PoolStatus is the batch node pool's previous status (its own cooldown and
+	// idle clocks), read only when Spec.BatchPool is set. See DecidePool.
+	PoolStatus v1alpha1.BatchPoolStatus
+
+	// batchIsThePools marks the general view of a cluster with a batch pool:
+	// every batch pod's demand is the pool's, so none of it may grow the
+	// general workers (generalView).
+	batchIsThePools bool
+	// reactiveOnly turns off the proactive utilization scale-up: the pool grows
+	// for batch runs that are waiting, never because the runs it already holds
+	// keep it busy (poolView).
+	reactiveOnly bool
 }
 
 // Utilization is the cluster-wide requested share of worker capacity.
@@ -295,7 +307,19 @@ type Decision struct {
 // Order matters — scale-up is evaluated first and wins. A cluster that is
 // simultaneously "underutilized on average" and unable to schedule a pod has a
 // fragmentation problem, and removing a node would make it worse.
+//
+// With a batch node pool (Spec.BatchPool) this decides about the GENERAL
+// workers only: pool nodes are not workers here, and batch demand is the
+// pool's (generalView). DecidePool decides about the pool.
 func Decide(s Snapshot) Decision {
+	if s.Spec.BatchPool != nil {
+		s = generalView(s)
+	}
+	return decide(s)
+}
+
+// decide is Decide on a snapshot already narrowed to one node group.
+func decide(s Snapshot) Decision {
 	spec := s.Spec
 	workers := schedulableWorkers(s.Nodes)
 	util := utilization(workers, s.Pods)
@@ -378,8 +402,12 @@ func Decide(s Snapshot) Decision {
 	// filling a cluster would otherwise do through this door exactly what
 	// pendingForCapacity refuses at the other one. It still counts below, because
 	// it is real load and the question there is whether a node can go.
-	up := scaleUpUtilization(workers, s.Pods, util)
-	if upThreshold := spec.ScaleUpThreshold(); up.CPU >= upThreshold || up.Memory >= upThreshold {
+	holdBack := batchMayNotBuyNodes
+	if s.batchIsThePools {
+		holdBack = isBatchPod
+	}
+	up := scaleUpUtilization(workers, s.Pods, util, holdBack)
+	if upThreshold := spec.ScaleUpThreshold(); !s.reactiveOnly && (up.CPU >= upThreshold || up.Memory >= upThreshold) {
 		switch {
 		case int32(len(workers)) >= spec.MaxWorkers:
 			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold but maxWorkers=%d reached",
@@ -695,7 +723,7 @@ func batchMayNotBuyNodes(p corev1.Pod) bool {
 // requests are subtracted from it as the best available estimate: a run with no CPU
 // limit bursting well above its request can still read as load, and the cooldown and
 // maxWorkers remain the bound on that.
-func scaleUpUtilization(workers []corev1.Node, pods []corev1.Pod, util Utilization) Utilization {
+func scaleUpUtilization(workers []corev1.Node, pods []corev1.Pod, util Utilization, holdBack func(corev1.Pod) bool) Utilization {
 	var others []corev1.Pod
 	var batchCPU int64
 	onWorker := map[string]bool{}
@@ -705,7 +733,7 @@ func scaleUpUtilization(workers []corev1.Node, pods []corev1.Pod, util Utilizati
 		allocCPU += n.Status.Allocatable.Cpu().MilliValue()
 	}
 	for _, p := range pods {
-		if batchMayNotBuyNodes(p) {
+		if holdBack(p) {
 			if onWorker[p.Spec.NodeName] && !isTerminated(p) {
 				c, _ := podRequests(p)
 				batchCPU += c

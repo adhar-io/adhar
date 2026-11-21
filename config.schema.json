@@ -284,6 +284,9 @@
           "items": {
             "$ref": "#/definitions/nodeGroup"
           }
+        },
+        "batchPool": {
+          "$ref": "#/definitions/batchPool"
         }
       },
       "additionalProperties": false
@@ -335,6 +338,9 @@
           "items": {
             "$ref": "#/definitions/nodeGroup"
           }
+        },
+        "batchPool": {
+          "$ref": "#/definitions/batchPool"
         },
         "provider": {
           "type": "string",
@@ -549,6 +555,31 @@
       ],
       "additionalProperties": false
     },
+    "batchPool": {
+      "type": "object",
+      "description": "A batch node pool (design 0025 D14): the node group `batch`, whose nodes register with the label adhar.io/node-pool=batch and the taint adhar.io/batch=true:NoSchedule. While a pool node exists, core/adhar-batch gives every BatchJob run pod the toleration and a preferred affinity for it. With autoscaling enabled, the node autoscaler grows the pool (never the general workers) for batch demand that may buy nodes, never for anything else, and retires idle pool nodes down to minNodes. An environment's block replaces its template's. Refused on the kind and custom providers and with clusterMode: provided, where the platform builds no node groups.",
+      "properties": {
+        "machineType": {
+          "type": "string",
+          "description": "Machine type of the pool's nodes (AWS instance type, Azure VM size, GCP machine type, DigitalOcean droplet slug, Civo size). Empty = the provider's worker size."
+        },
+        "minNodes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The pool's floor and the count it is created with. At least 1: the policy that sends batch runs to the pool applies only while a pool node exists."
+        },
+        "maxNodes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The pool's spend ceiling; at least minNodes."
+        }
+      },
+      "required": [
+        "minNodes",
+        "maxNodes"
+      ],
+      "additionalProperties": false
+    },
     "nodeGroup": {
       "type": "object",
       "description": "An ADDITIONAL node group beside the primary `workers` group (which clusterConfig machineType/nodeCount and the autoscaling block describe) - e.g. a GPU or high-memory pool. Created by every provider in both compute and managed mode; OS disk, image and network are the provider's. Labels and taints are applied by managed node pools; in compute mode they are recorded but kubeadm joins do not apply them yet.",
@@ -558,9 +589,9 @@
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
           "maxLength": 20,
           "not": {
-            "const": "workers"
+            "enum": ["workers", "batch"]
           },
-          "description": "DNS-1123 label, at most 20 characters; becomes part of every VM name. `workers` is the primary group and cannot be redefined here."
+          "description": "DNS-1123 label, at most 20 characters; becomes part of every VM name. `workers` is the primary group and cannot be redefined here; `batch` is reserved for batchPool."
         },
         "machineType": {
           "type": "string",
