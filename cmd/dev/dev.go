@@ -113,6 +113,9 @@ type stack struct {
 	// running against the old tree, which looks like the sync silently failing.
 	deps    []string
 	install string
+	// env is set on the dev container for this kind of project, beside PORT and
+	// ADHAR_DEV.
+	env map[string]string
 }
 
 var stacks = []stack{
@@ -145,12 +148,45 @@ var stacks = []stack{
 		install: "pip install -r requirements.txt",
 	},
 	{
+		// Java 25: what the Adhar templates and adhar-kit compile for. Alpine, like
+		// the other stacks, so the container shell is busybox ash.
 		name: "Java", marker: "pom.xml",
-		image:   "maven:3.9-eclipse-temurin-21",
+		image:   "maven:3.9-eclipse-temurin-25-alpine",
 		command: "mvn -q spring-boot:run",
-		deps:    []string{"pom.xml"},
+		deps:    []string{"pom.xml", "settings.xml"},
 		install: "mvn -q -DskipTests dependency:go-offline",
+		env: map[string]string{
+			// The dev pod runs as its namespace's default ServiceAccount, which the
+			// app's Role (deploy/base/rbac.yaml, bound in its own environment
+			// namespace) does not cover. Spring Cloud Kubernetes in adhar-kit would
+			// get a 403 on every discovery list and hold its health DOWN, so the
+			// loop runs Spring without the Kubernetes cloud platform, as the
+			// templates' own API tests and preview overlays do.
+			"SPRING_MAIN_CLOUD_PLATFORM": "none",
+		},
 	},
+}
+
+// mavenSettingsFile is the settings file the Adhar Java templates ship. It points
+// Maven at the platform's Nexus (in-cluster Service DNS), which is where
+// adhar-kit-parent and the kit modules are published and which also proxies
+// Maven Central. Without it, Maven in the dev pod looks only at Central and
+// fails at the parent POM.
+const mavenSettingsFile = "settings.xml"
+
+// withProjectSettings adapts a detected stack to the project in dir. Today that
+// is one thing: a Maven project that ships a settings.xml gets `-s settings.xml`
+// on every mvn command, as app-ci's buildpack build does.
+func withProjectSettings(st stack, dir string) stack {
+	if st.marker != "pom.xml" {
+		return st
+	}
+	if _, err := os.Stat(filepath.Join(dir, mavenSettingsFile)); err != nil {
+		return st
+	}
+	st.command = strings.Replace(st.command, "mvn ", "mvn -s "+mavenSettingsFile+" ", 1)
+	st.install = strings.Replace(st.install, "mvn ", "mvn -s "+mavenSettingsFile+" ", 1)
+	return st
 }
 
 // detectStack picks the stack for dir, or reports that it cannot tell.
@@ -203,6 +239,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if err != nil && (image == "" || runCommand == "") {
 		return err
 	}
+	st = withProjectSettings(st, dir)
 	if image == "" {
 		image = st.image
 	}

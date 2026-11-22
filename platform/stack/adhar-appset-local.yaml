@@ -537,8 +537,11 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/jupyterhub/manifests"
+          # headlamp is off locally (2026-11-22): the Console's Kubernetes views
+          # cover it on a single-node cluster, and its Keycloak client and the
+          # Console's OIDC reload already tolerate it being absent.
           - name: "headlamp"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/headlamp/manifests"
@@ -788,8 +791,13 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kafka-operator/manifests"
+          # keda is off locally (2026-11-22): no template or composition creates a
+          # ScaledObject (the service-factory backfill CronJob skips when the CRDs
+          # are absent), and its external.metrics.k8s.io APIService fails under a
+          # loaded Kind node, printing a discovery error on every kubectl call —
+          # the kubescape trap. Production keeps it.
           - name: "keda"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/keda/manifests"
@@ -830,10 +838,12 @@ spec:
       # Two controllers mutate resources after ArgoCD applies them: the Gateway
       # controller defaults group/kind/weight on HTTPRoute parent/backend refs
       # (which the manifests omit) and writes .status; external-secrets writes
-      # ExternalSecret .status. These ignoreDifferences use CLIENT-side diff
-      # (jsonPointers/jqPathExpressions) — NOT ServerSideDiff, which was tried
-      # before and broke bootstrap by dry-run-applying against the CNPG webhook
-      # while it was briefly unreachable (apps got stuck ComparisonError/Unknown).
+      # ExternalSecret .status. Argo CD diffs SERVER-side here
+      # (controller.diff.server.side: "true" in hack/argocd/values.yaml), so
+      # admission defaults are already in the predicted object; these rules are
+      # for fields a CONTROLLER writes after the apply, which a dry-run cannot
+      # predict. (An earlier note here said server-side diff had been reverted;
+      # the shipped Argo CD configuration has it on.)
       # RespectIgnoreDifferences=true (below) makes selfHeal skip these fields too,
       # so it never fights the controllers.
       ignoreDifferences:
@@ -892,28 +902,26 @@ spec:
             - /spec/validationFailureAction
           jqPathExpressions:
             - '.spec.rules[]?.skipBackgroundRequests'
-        - group: tekton.dev
-          kind: Task
-          jqPathExpressions:
-            - '.spec.results[]?.type'
-            - '.spec.steps[]?.computeResources'
-            - '.spec.params[]?.type'
-        - group: tekton.dev
-          kind: ClusterTask
-          jqPathExpressions:
-            - '.spec.results[]?.type'
-            - '.spec.steps[]?.computeResources'
-            - '.spec.params[]?.type'
-        - group: tekton.dev
-          kind: Pipeline
-          jqPathExpressions:
-            - '.spec.params[]?.type'
-            - '.spec.results[]?.type'
-            - '.spec.tasks[]?.taskRef.kind'
-        - group: triggers.tekton.dev
-          kind: EventListener
-          jsonPointers:
-            - /status
+        # NO rule may reach into a Tekton object's spec (2026-11-22). Tekton's
+        # CRDs publish a schemaless root (x-kubernetes-preserve-unknown-fields,
+        # no properties), and with RespectIgnoreDifferences=true Argo CD v3
+        # copies every ignored live field back into the target through a
+        # strategic merge built from that schema, which fails with
+        # "Failed to normalize target resources: expected kind, but got map".
+        # The first sync passes (nothing is live yet); every retry after the
+        # Tasks exist fails, forever, so the app's PostSync hooks never run —
+        # on a local `adhar up` that left Gitea with no CI webhooks and no
+        # `Project adhar`. The rules were also unneeded: server-side diff
+        # (controller.diff.server.side, hack/argocd/values.yaml) dry-runs
+        # through Tekton's defaulting webhook, so `results[].type`,
+        # `taskRef.kind: Task` and an empty `computeResources` never register
+        # as drift — and ignoring computeResources made a re-sized Task in Git
+        # never reach the cluster. Guard:
+        # TestNoIgnoreDifferencesReachIntoASchemalessCRD. (The EventListener
+        # `/status` rule went too: Argo CD v3 already leaves every status out of
+        # the diff — resource.compareoptions ignoreResourceStatusField defaults
+        # to `all` — so the rule only added another path into a schemaless
+        # object.)
         # Written by security/trivy's waiver-sync CronJob (platform-wide scan
         # waivers for runtime scans), not by Git.
         - group: ""

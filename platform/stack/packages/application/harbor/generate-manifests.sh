@@ -39,4 +39,7 @@ PY
 # chart mints a new key pair on every render, which invalidates every issued
 # token) — plus `priorityClassName: adhar-node-bound` on the database, redis and
 # trivy StatefulSets. Re-run this script only with those three carried forward;
-# diff against git before committing.
+# diff against git before committing. (2026-11-22) A fourth: the database's
+# liveness probe is failureThreshold 6 (the chart exposes only its timeout,
+# which values.yaml sets) — keep it, or a loaded node restarts a healthy
+# Postgres and Harbor returns 401 to every login while it is down.

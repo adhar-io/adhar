@@ -1,0 +1,134 @@
+# LOCAL PROFILE ONLY (adhar-local-budget is enabled in adhar-appset-local.yaml;
+# production does not run it). Nothing here reaches a cloud cluster.
+#
+# Probe budgets written for a cloud node are kill switches on a single Kind node
+# that is bringing ~100 pods up at once. On 2026-11-22 the node sat at ~87% CPU
+# pressure for the whole bring-up, and probes, not crashes, set the pace:
+#   * adhar-console: startup budget 40 x 3 s = 120 s; killed six times (exit
+#     143) and Ready only after 36 minutes, so `adhar up` failed on the console
+#     gate although every app was converging;
+#   * kargo-api, the CNPG operator, Kyverno's admission controller: 1 s
+#     timeouts; 3-4 restarts each, Ready at 46-53 minutes.
+# A restart throws away the work of the pod's whole start-up and queues it
+# again behind everything else, so each kill makes the next one more likely.
+#
+# At admission this raises, for every container that HAS the probe (the API
+# server defaults periodSeconds before admission, so a probe with no
+# periodSeconds is a probe that does not exist):
+#   * every probe's timeoutSeconds to at least 10;
+#   * a liveness probe's failureThreshold to at least 6;
+#   * a startup probe's failureThreshold to at least 200 (with the usual 3-10 s
+#     period, 10-33 minutes of start-up before a kill).
+# Nothing is lowered, no probe is added, and the handlers are untouched. Pods
+# that start before Kyverno (Cilium, Argo CD, Gitea, the control plane) keep
+# theirs. Guard: TestTheLocalBudgetRelaxesProbesOnlyUpward.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-local-probe-budget
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    policies.kyverno.io/title: Probe budgets a loaded single-node cluster can meet
+    policies.kyverno.io/category: Adhar Local
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Raises probe timeouts, liveness failure thresholds and startup budgets at
+      admission on the local (Kind) profile, so a busy node does not kill pods
+      that are healthy but slow. Never lowers a value.
+  labels:
+    app.kubernetes.io/part-of: adhar-platform
+    app.kubernetes.io/name: adhar-local-budget
+spec:
+  background: false
+  # A missed mutation is a pod that keeps its original probes — never a pod
+  # that cannot be created.
+  failurePolicy: Ignore
+  rules:
+    - name: relax-probes
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE]
+      exclude:
+        any:
+          - resources:
+              namespaces: [kube-system, local-path-storage]
+      mutate:
+        foreach:
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.livenessProbe.periodSeconds || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+                - key: "{{ element.livenessProbe.timeoutSeconds || `1` }}"
+                  operator: LessThan
+                  value: 10
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    livenessProbe:
+                      timeoutSeconds: 10
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.livenessProbe.periodSeconds || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+                - key: "{{ element.livenessProbe.failureThreshold || `1` }}"
+                  operator: LessThan
+                  value: 6
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    livenessProbe:
+                      failureThreshold: 6
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.readinessProbe.periodSeconds || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+                - key: "{{ element.readinessProbe.timeoutSeconds || `1` }}"
+                  operator: LessThan
+                  value: 10
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    readinessProbe:
+                      timeoutSeconds: 10
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.startupProbe.periodSeconds || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+                - key: "{{ element.startupProbe.timeoutSeconds || `1` }}"
+                  operator: LessThan
+                  value: 10
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    startupProbe:
+                      timeoutSeconds: 10
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.startupProbe.periodSeconds || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+                - key: "{{ element.startupProbe.failureThreshold || `1` }}"
+                  operator: LessThan
+                  value: 200
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    startupProbe:
+                      failureThreshold: 200

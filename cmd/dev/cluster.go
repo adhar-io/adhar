@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -104,7 +105,7 @@ spec:
               value: "%[4]d"
             - name: ADHAR_DEV
               value: "true"
-          # No probes on purpose. The app is not running when the pod starts, so a
+%[5]s          # No probes on purpose. The app is not running when the pod starts, so a
           # readiness probe would hold the pod NotReady and a liveness probe would
           # kill the container before the first sync ever landed.
           resources:
@@ -130,7 +131,7 @@ spec:
     - name: http
       port: %[4]d
       targetPort: %[4]d
-`, appName, namespace, image, port)
+`, appName, namespace, image, port, envYAML(st.env))
 
 	c := kubectl(ctx, "apply", "-f", "-")
 	c.Stdin = strings.NewReader(manifest)
@@ -138,6 +139,21 @@ spec:
 		return fmt.Errorf("applying the dev workload: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// envYAML renders extra container env entries at the indentation of the dev
+// Deployment's env list, in a stable order.
+func envYAML(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, "            - name: %s\n              value: %q\n", k, env[k])
+	}
+	return b.String()
 }
 
 // waitForPod returns the name of the running pod for the app.
@@ -199,30 +215,52 @@ func syncAll(ctx context.Context, dir, pod string) error {
 
 // startApp (re)starts the app process inside the container.
 //
-// The previous process is killed by name rather than by tracking a PID: the loop
-// may have been restarted, the pod may have been replaced, and a stale PID file
-// would leave two copies of the app fighting over the port.
+// The script must run under any POSIX sh — busybox ash on the Alpine images and
+// dash on Debian/Ubuntu ones (a user can pass any --image). So no bash-isms:
+// `printf %q` and `exec -a` are both missing from dash, and busybox has no %q,
+// which once left the app never starting at all.
+//
+// The app runs in a process group of its own (setsid), and a restart stops that
+// whole group, not one process: `mvn spring-boot:run` and `npm start` fork the
+// real server as a child, and killing only the parent leaves the child holding
+// the port. The group id lives in /tmp inside the container, so it can never
+// outlive the pod it describes. `kill -SIG -<pgid>` is the one spelling both
+// shells accept: dash reads `-s TERM -<pgid>` and `-- -<pgid>` as bad options.
 func startApp(ctx context.Context, pod string, st stack, install bool) error {
-	script := ""
-	if install && st.install != "" {
-		script += st.install + " >/tmp/adhar-dev-install.log 2>&1 || { echo 'dependency install failed; see /tmp/adhar-dev-install.log'; exit 1; }\n"
-	}
-	script += `
-pkill -f 'adhar-dev-run' 2>/dev/null || true
-sleep 0.2
-# setsid so the app survives this exec session ending, and a marker in the command
-# line so the next restart can find it again.
-setsid sh -c 'exec -a adhar-dev-run sh -c ' "$(printf '%q' "$RUN")" ' >/tmp/adhar-dev-app.log 2>&1' &
-sleep 0.3
-echo started
-`
 	c := kubectl(ctx, "exec", "-i", "-n", namespace, pod, "--",
-		"sh", "-c", "RUN="+shellQuote(runCommand)+"\n"+script)
+		"sh", "-c", startScript(runCommand, st, install))
 	out, err := c.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// startScript is the POSIX sh that startApp runs in the container: an optional
+// dependency install, then stop the previous run's process group and start the
+// app in a new one. Split out so a test can run it under a real sh.
+func startScript(run string, st stack, install bool) string {
+	script := "RUN=" + shellQuote(run) + "\n"
+	if install && st.install != "" {
+		script += st.install + " >/tmp/adhar-dev-install.log 2>&1 || { echo 'dependency install failed; see /tmp/adhar-dev-install.log'; exit 1; }\n"
+	}
+	script += `
+if [ -f /tmp/adhar-dev.pgid ]; then
+  pg=$(cat /tmp/adhar-dev.pgid)
+  kill -TERM -"$pg" 2>/dev/null
+  i=0
+  while kill -0 -"$pg" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.25; i=$((i+1)); done
+  kill -KILL -"$pg" 2>/dev/null
+fi
+printf '%s\n' "$RUN" > /tmp/adhar-dev-run.sh
+# setsid: a new session and process group, so the app survives this exec
+# session ending and a restart can stop everything it started.
+setsid sh /tmp/adhar-dev-run.sh >/tmp/adhar-dev-app.log 2>&1 </dev/null &
+echo $! > /tmp/adhar-dev.pgid
+sleep 0.3
+echo started
+`
+	return script
 }
 
 // forward keeps a port-forward alive for the life of the session, reconnecting

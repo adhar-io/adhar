@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // FS is the platform stack as it was when this binary was built: every package,
@@ -288,14 +289,38 @@ func Digest() (string, error) {
 	return digestVal, digestErr
 }
 
+// CacheEnv overrides where embedded stacks are extracted. Test packages that
+// run a command resolving the embedded stack set it to a temporary directory,
+// so a `go test` never extracts into — or prunes — the cache a running
+// `adhar up` is seeding from.
+const CacheEnv = "ADHAR_STACK_CACHE"
+
 // cacheRoot is where embedded stacks are extracted. A variable so tests can
 // point it somewhere disposable.
 var cacheRoot = func() (string, error) {
+	if dir := os.Getenv(CacheEnv); dir != "" {
+		return dir, nil
+	}
 	base, err := os.UserCacheDir()
 	if err != nil {
 		base = os.TempDir()
 	}
 	return filepath.Join(base, "adhar", "stack"), nil
+}
+
+// pruneAfter is how long an extraction must go unused before another binary's
+// Materialize may delete it. A running `adhar up` reads its extraction for the
+// whole bring-up, so pruning on sight deleted it from under the run: a
+// `go test ./cmd/stack/` (or any second adhar build) started mid-bring-up left
+// the CLI retrying "lstat …/stack/<digest>/environments: no such file or
+// directory" forever at the GitOps repos stage (2026-11-22).
+const pruneAfter = 7 * 24 * time.Hour
+
+// markUsed records that dir was just handed out, so pruneOtherExtractions
+// keeps it.
+func markUsed(dir string) {
+	now := time.Now()
+	_ = os.Chtimes(dir, now, now)
 }
 
 const completeMarker = ".adhar-stack-complete"
@@ -316,6 +341,7 @@ func Materialize() (string, error) {
 	}
 	target := filepath.Join(root, digest)
 	if intact(target) {
+		markUsed(target)
 		return target, nil
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -339,11 +365,13 @@ func Materialize() (string, error) {
 	if err := os.Rename(staging, target); err != nil {
 		// Another adhar process may have won the race with an identical tree.
 		if intact(target) {
+			markUsed(target)
 			return target, nil
 		}
 		return "", fmt.Errorf("installing the extracted stack at %s: %w", target, err)
 	}
-	pruneOtherExtractions(root, digest)
+	markUsed(target)
+	pruneOtherExtractions(root, digest, time.Now())
 	return target, nil
 }
 
@@ -367,14 +395,20 @@ func intact(dir string) bool {
 }
 
 // pruneOtherExtractions removes the stacks of binaries that were replaced, so
-// upgrading adhar does not leave one 45 MB tree behind per release.
-func pruneOtherExtractions(root, keep string) {
+// upgrading adhar does not leave one 45 MB tree behind per release. Only an
+// extraction unused for pruneAfter goes: one another adhar process handed out
+// recently may still be what that process is reading.
+func pruneOtherExtractions(root, keep string, now time.Time) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
 		if !e.IsDir() || e.Name() == keep || strings.HasPrefix(e.Name(), ".extract-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || now.Sub(info.ModTime()) < pruneAfter {
 			continue
 		}
 		_ = os.RemoveAll(filepath.Join(root, e.Name()))

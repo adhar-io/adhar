@@ -9,7 +9,8 @@
 # `adhar up` converged depended on which pods won the race. The E2E jobs failed
 # that way on Docker and Podman alike (2026-10-21).
 #
-# This caps every container's CPU REQUEST at 50m as pods are admitted. LIMITS
+# This caps every container's CPU REQUEST at 50m as pods are admitted, and
+# gives a container that has none a 25m floor (second rule, below). LIMITS
 # are untouched, so a busy pod still gets the CPU it needs; it simply no
 # longer reserves CPU it is not using. Pods that already ran before Kyverno
 # (Cilium, Argo CD, Gitea, the control plane) keep theirs.
@@ -64,3 +65,36 @@ spec:
                     resources:
                       requests:
                         cpu: 50m
+    # FLOOR (2026-11-22): a container with NO cpu request gets the smallest CPU
+    # share on the node (2 shares, against 51 for every container the cap above
+    # leaves at 50m). On a busy single node those containers are the ones that
+    # miss their probes: Harbor's database (5 restarts, Harbor then 401s every
+    # registry login), Harbor's jobservice, both CI EventListeners and Kargo's
+    # webhooks restarted 6 times each in one bring-up. 25m brings them within
+    # 2x of the rest while reserving little enough (~2.5 CPU across ~100
+    # containers) that a 4-vCPU machine still schedules everything.
+    - name: floor-missing-container-cpu-requests
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE]
+      exclude:
+        any:
+          - resources:
+              namespaces: [kube-system, local-path-storage]
+      mutate:
+        foreach:
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ element.resources.requests.cpu || '' }}"
+                  operator: Equals
+                  value: ""
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      requests:
+                        cpu: 25m

@@ -2,6 +2,7 @@ package dev
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -122,5 +123,85 @@ func TestShellQuoteHandlesQuotes(t *testing.T) {
 	// An embedded single quote must not break out of the quoting.
 	if got := shellQuote(`echo 'hi'`); !strings.HasPrefix(got, "'") || strings.Contains(got, `''hi''`) {
 		t.Errorf("embedded quotes not escaped safely: %s", got)
+	}
+}
+
+// The Adhar Java templates and adhar-kit compile for Java 25; an older JDK in the
+// dev pod fails the build before the app ever starts.
+func TestJavaStackRunsJava25(t *testing.T) {
+	for _, s := range stacks {
+		if s.marker == "pom.xml" && !strings.Contains(s.image, "temurin-25") {
+			t.Fatalf("the Java dev image is %s; it must be a Java 25 image", s.image)
+		}
+	}
+}
+
+// A Maven project that ships settings.xml (every Adhar Java template does) must
+// resolve through it: it is what points Maven at the platform's Nexus, where
+// adhar-kit-parent lives. Without it the dev pod fails at the parent POM.
+func TestMavenProjectUsesItsSettingsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pom.xml"), []byte("<project/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := detectStack(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := withProjectSettings(st, dir); strings.Contains(got.command, "-s settings.xml") {
+		t.Errorf("no settings.xml in the project, but the command uses one: %s", got.command)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "settings.xml"), []byte("<settings/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := withProjectSettings(st, dir)
+	for name, cmd := range map[string]string{"command": got.command, "install": got.install} {
+		if !strings.HasPrefix(cmd, "mvn -s settings.xml ") {
+			t.Errorf("%s does not use the project's settings.xml: %s", name, cmd)
+		}
+	}
+	// Other stacks are left alone.
+	goStack := stack{marker: "go.mod", command: "go run ./...", install: "go mod download"}
+	if got := withProjectSettings(goStack, dir); got.command != goStack.command || got.install != goStack.install {
+		t.Error("a non-Maven stack was changed")
+	}
+}
+
+// The start script runs under whatever sh the image has: busybox ash (Alpine) or
+// dash (Debian/Ubuntu). bash-only constructs there once meant the app never
+// started at all, so they must not come back.
+func TestStartScriptIsPortableSh(t *testing.T) {
+	script := startScript("mvn -q spring-boot:run", stack{install: "mvn -q dependency:go-offline"}, true)
+	for _, bashism := range []string{"%q", "exec -a", "kill --", "kill -s", "[[", "pkill -f"} {
+		if strings.Contains(script, bashism) {
+			t.Errorf("the start script uses %q, which busybox or dash does not support", bashism)
+		}
+	}
+	for _, want := range []string{"setsid sh /tmp/adhar-dev-run.sh", "echo $! > /tmp/adhar-dev.pgid", `kill -TERM -"$pg"`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the start script no longer contains %q", want)
+		}
+	}
+	// It must at least parse as POSIX sh on this machine.
+	if sh, err := exec.LookPath("sh"); err == nil {
+		if out, err := exec.Command(sh, "-n", "-c", script).CombinedOutput(); err != nil {
+			t.Errorf("the start script does not parse: %v: %s", err, out)
+		}
+	}
+}
+
+// The Java dev pod must not run Spring Cloud Kubernetes discovery: it runs as a
+// ServiceAccount the app's Role does not cover, and the 403s hold health DOWN.
+func TestJavaDevPodRunsWithoutKubernetesDiscovery(t *testing.T) {
+	for _, s := range stacks {
+		if s.marker == "pom.xml" && s.env["SPRING_MAIN_CLOUD_PLATFORM"] != "none" {
+			t.Fatalf("the Java stack must set SPRING_MAIN_CLOUD_PLATFORM=none, got %v", s.env)
+		}
+	}
+	got := envYAML(map[string]string{"B": "2", "A": "x y"})
+	want := "            - name: A\n              value: \"x y\"\n            - name: B\n              value: \"2\"\n"
+	if got != want {
+		t.Errorf("envYAML:\n%s\nwant:\n%s", got, want)
 	}
 }

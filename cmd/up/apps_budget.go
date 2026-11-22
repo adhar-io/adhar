@@ -21,7 +21,7 @@ import "time"
 // cloudDefaultAppsTimeout is how long a CLOUD bring-up keeps driving the apps
 // when `--apps-timeout` is not given.
 //
-// The flag's default (15m) was written for the local core of 15 apps. A cloud
+// The flag's default (localDefaultAppsTimeout, below) is the LOCAL one. A cloud
 // profile has ~77, and its critical path is the identity chain — CNPG → the
 // keycloak-db cluster → Keycloak's JVM → the client Job writes
 // `keycloak-clients` → every consumer's ExternalSecret and oauth2-proxy,
@@ -33,6 +33,15 @@ import "time"
 // three minutes after that). The budget must cover the chain; an operator who
 // wants a shorter or longer wait still says so with the flag.
 const cloudDefaultAppsTimeout = 45 * time.Minute
+
+// localDefaultAppsTimeout is the flag's default, which is what a LOCAL
+// bring-up runs with (cloud bring-ups use cloudDefaultAppsTimeout unless the
+// flag is given). 15m was sized for the 15-app local core; the local profile
+// now runs 21 apps including the delivery chain (Nexus, Kargo, the library
+// releases), and on a laptop its identity chain alone — Keycloak Ready, then
+// the console — measured 21 and 56 minutes on 2026-11-22. A budget shorter
+// than the chain reports a converging platform as a failed `adhar up`.
+const localDefaultAppsTimeout = 30 * time.Minute
 
 // effectiveAppsTimeout is the apps budget a bring-up runs with: the flag when
 // the operator set it (including 0, "exit when the foundation is ready"),

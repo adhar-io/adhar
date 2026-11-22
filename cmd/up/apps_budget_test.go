@@ -38,3 +38,18 @@ func TestACloudBringUpWaitsForTheIdentityChainByDefault(t *testing.T) {
 		t.Error("the cloud path still hands the raw flag to the watchdog or the controller")
 	}
 }
+
+// A local bring-up runs with the flag's default; it must cover the local
+// profile's identity chain (Keycloak, then the console), which measured 21 and
+// 56 minutes on a laptop (2026-11-22). The cloud default is untouched.
+func TestTheLocalAppsBudgetCoversTheLocalProfile(t *testing.T) {
+	if got := effectiveAppsTimeout(localDefaultAppsTimeout, false, false); got < 30*time.Minute {
+		t.Errorf("local apps budget = %s; the local profile's identity chain needs at least 30m", got)
+	}
+	if f := UpCmd.Flags().Lookup("apps-timeout"); f == nil || f.DefValue != localDefaultAppsTimeout.String() {
+		t.Errorf("--apps-timeout default = %v; want localDefaultAppsTimeout (%s)", f, localDefaultAppsTimeout)
+	}
+	if got := effectiveAppsTimeout(localDefaultAppsTimeout, false, true); got != cloudDefaultAppsTimeout {
+		t.Errorf("cloud apps budget = %s; changing the local default must not change cloud's %s", got, cloudDefaultAppsTimeout)
+	}
+}

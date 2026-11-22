@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withCache points extraction at a throw-away directory.
@@ -129,9 +130,15 @@ func TestExtractionIsReusedAndRepairsATamperedCopy(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A stale extraction from another version must not survive either.
+	// A stale extraction from another version must not survive either. Stale
+	// means unused for pruneAfter: a recent one may belong to a running adhar
+	// (TestMaterializeKeepsAnotherBinarysRecentExtraction).
 	stale := filepath.Join(root, "0000000000000000")
 	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-pruneAfter - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
 		t.Fatal(err)
 	}
 	second, err := Materialize()
@@ -215,5 +222,62 @@ func TestTheNestedModuleBundleIsCurrent(t *testing.T) {
 	}
 	if string(got) != string(want) {
 		t.Fatalf("%s is stale: run `go generate ./platform/stack/`", NestedModuleBundle)
+	}
+}
+
+// An extraction another adhar process is using must survive this binary's
+// Materialize. Pruning on sight deleted a running `adhar up`'s stack when a
+// `go test ./cmd/stack/` extracted mid-bring-up, and the CLI then retried
+// "lstat …/environments: no such file or directory" forever (2026-11-22).
+// Only an extraction unused for pruneAfter is removed.
+func TestMaterializeKeepsAnotherBinarysRecentExtraction(t *testing.T) {
+	root := withCache(t)
+	recent := filepath.Join(root, "0123456789abcdef")
+	stale := filepath.Join(root, "fedcba9876543210")
+	for _, d := range []string{recent, stale} {
+		if err := os.MkdirAll(filepath.Join(d, "environments"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-pruneAfter - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	dir, err := Materialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(recent, "environments")); err != nil {
+		t.Errorf("a recently used extraction was pruned; a running adhar up reading it would fail: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("an extraction unused for longer than %s should be pruned, stat err = %v", pruneAfter, err)
+	}
+
+	// Reusing an intact extraction marks it used, so it is not the next prune's victim.
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(info.ModTime()) > time.Minute {
+		t.Errorf("reusing an extraction did not mark it used (mtime %s)", info.ModTime())
+	}
+}
+
+// ADHAR_STACK_CACHE moves extraction out of the user cache; the CLI's test
+// packages set it so a `go test` never touches a real bring-up's stack.
+func TestTheCacheCanBeMovedByEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(CacheEnv, dir)
+	got, err := cacheRoot()
+	if err != nil || got != dir {
+		t.Fatalf("cacheRoot() = %q, %v; want %q", got, err, dir)
 	}
 }

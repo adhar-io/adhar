@@ -83,6 +83,21 @@ database:
     # See data/cnpg/manifests/priorityclass.yaml. 2026-10-05: harbor-trivy-0 sat
     # Pending behind a worker at 100% CPU with "No preemption victims".
     priorityClassName: adhar-node-bound
+    # A CPU request and a liveness budget a loaded node can meet (2026-11-22).
+    # With no request the database got the smallest CPU share on the node —
+    # every capped 50m pod outranked it — so on a busy local `adhar up` its
+    # healthcheck missed the 5 s timeout three times running, kubelet killed a
+    # healthy Postgres (exit 137, five restarts), and while it was down Harbor
+    # answered every registry login with 401: the kpack ClusterBuilder failed
+    # and no build could run. 10 s x 6 failures is a minute of slow probes.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    livenessProbe:
+      timeoutSeconds: 10
+    readinessProbe:
+      timeoutSeconds: 10
 
 redis:
   type: "internal"

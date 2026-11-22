@@ -449,7 +449,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	stopBudget := make(chan struct{})
 	defer close(stopBudget)
 	// A cloud profile's critical path is the identity chain (~20-25 min); the
-	// flag's 15m default is the local core's. See cloudDefaultAppsTimeout.
+	// flag's default (localDefaultAppsTimeout) is the local profile's. See cloudDefaultAppsTimeout.
 	appsBudget := effectiveAppsTimeout(appsTimeout, appsTimeoutExplicit, true)
 	if appsBudget > 0 {
 		go watchAppsBudget(bootstrapCtx, kubeClient, platformName, appsBudget, appsBudgetPoll, cancel, stopBudget)

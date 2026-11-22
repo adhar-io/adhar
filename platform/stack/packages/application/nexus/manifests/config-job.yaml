@@ -253,7 +253,24 @@ data:
     # then failed with "Could not find org.projectlombok:lombok:
     # edge-SNAPSHOT in nexus-public" although the proxy itself served it.
     # $1=path (e.g. maven/group) $2=name $3=json
+    #
+    # Update ONLY when the live repository does not already hold what we want
+    # (2026-11-22). Nexus stops and restarts a repository on every config
+    # PUT, and this script runs every 10 minutes from the reconcile CronJob:
+    # an unconditional PUT of maven-central and maven-public bounced both
+    # every ten minutes, every build resolving through Nexus at that moment
+    # got `500 Server Error` ("Invalid state: STOPPED; allowed: [STARTED]"),
+    # Maven cached the failures, and the in-cluster adhar-kit release failed
+    # on junit-platform-engine and vertx-dependencies until it timed out at
+    # 1 h. `contains` is jq's recursive subset test: the live config may carry
+    # extra fields and members, but every value we set must already be there.
+    # Guard: TestNexusReconcileDoesNotBounceUnchangedRepositories.
     upsertrepo() {
+      if curl -s -m 30 -o /tmp/cur $AUTH "${API}/repositories/$1/$2" \
+          && jq -e --argjson want "$3" 'contains($want)' /tmp/cur >/dev/null 2>&1; then
+        echo "$2 already configured; not touching it"
+        return 0
+      fi
       code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
         -X POST "${API}/repositories/$1" -d "$3")
       case "$code" in

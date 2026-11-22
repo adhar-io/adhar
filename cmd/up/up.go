@@ -168,7 +168,7 @@ func init() {
 	UpCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{}, extraPackagesUsage)
 	UpCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
 	UpCmd.Flags().Bool("no-exit", false, "Keep running after initial sync (don't exit)")
-	UpCmd.Flags().DurationVar(&appsTimeout, "apps-timeout", 15*time.Minute, "◌ How long to keep driving the platform apps to Synced + Healthy before exiting (0 exits as soon as the foundation is ready)")
+	UpCmd.Flags().DurationVar(&appsTimeout, "apps-timeout", localDefaultAppsTimeout, "◌ How long to keep driving the platform apps to Synced + Healthy before exiting (0 exits as soon as the foundation is ready)")
 	UpCmd.Flags().BoolVar(&inClusterController, "in-cluster", false, inClusterUsage)
 	UpCmd.Flags().StringVar(&controllerImage, "controller-image", "", controllerImageUsage)
 	UpCmd.Flags().BoolVar(&haMode, "ha", false, haModeUsage)

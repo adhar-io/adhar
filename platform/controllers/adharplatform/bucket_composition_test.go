@@ -427,7 +427,6 @@ func TestBatchJobBucketRendersWithCrossplane(t *testing.T) {
 	}
 }
 
-
 /* ─────── the run-integrity suite's fixtures (core/adhar-batch policy-tests) ─────── */
 
 func bkIntegrityDir(t *testing.T) string {

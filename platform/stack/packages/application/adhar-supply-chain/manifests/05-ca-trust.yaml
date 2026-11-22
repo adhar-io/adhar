@@ -5,7 +5,8 @@
 # trust that CA:
 #   * the kpack controller (resolves + pushes the ClusterBuilder image) — trusts
 #     the `adhar-ca` ConfigMap in adhar-system (see buildpack package; kpack moved
-#     out of kpack-system into the shared platform namespace, ADR-0011).
+#     out of kpack-system into the shared platform namespace, ADR-0011), and has
+#     to be RESTARTED after that ConfigMap changes (see the Job below).
 #   * the kpack build pods (lifecycle prepare/analyze/export talk to Harbor) —
 #     kpack exposes no way to add a volume/env to build pods, so a Kyverno mutate
 #     policy injects the CA + SSL_CERT_DIR into them (below).
@@ -33,13 +34,6 @@ rules:
   - apiGroups: [""]
     resources: [configmaps]
     verbs: [get, create, update, patch]
-  # The Job probes for kpack-system before writing there. Without this rule the
-  # probe fails, the loop skipped BOTH namespaces silently, and no `adhar-ca`
-  # existed anywhere — the ClusterBuilder then failed on Harbor's CA exactly as
-  # described below (2026-09-15 DO bring-up).
-  - apiGroups: [""]
-    resources: [namespaces]
-    verbs: [get]
   # The kpack controller builds its CA pool once at start-up, so refreshing the
   # ConfigMap is not enough -- the Deployment has to be restarted.
   - apiGroups: [apps]
@@ -107,38 +101,52 @@ spec:
                 kubectl get secret adhar-cert -n adhar-system \
                   -o jsonpath='{.data.tls\.crt}' | base64 -d >> /tmp/ca.crt
               fi
-              # Three destinations, because kpack is the ONE package that does not
-              # live in adhar-system (ADR-0011: kpack and cosign both hardcode
-              # Secret/webhook-certs, and two knative webhooks cannot share it):
+              # Two destinations, both in adhar-system — kpack moved there from
+              # kpack-system on 2026-09-19 (ADR-0011):
               #
-              #   kpack-system/adhar-ca   — mounted by the kpack-controller
+              #   adhar-system/adhar-ca        — mounted by the kpack-controller
               #     Deployment at /etc/adhar-ca with `optional: true`, which is why
               #     a missing ConfigMap produced no error at all: the mount was
               #     simply empty, SSL_CERT_DIR found nothing, and every registry
               #     call failed to verify Harbor.
-              #   adhar-system/adhar-ca        — anything in the platform namespace
-              #     that mounts the same name.
               #   adhar-system/adhar-ca-bundle — injected into kpack BUILD pods by
               #     the Kyverno mutate below (builds run in adhar-system).
-              # adhar-system always; kpack-system only once the buildpack package
-              # has created it (a missing probe permission must fail loudly, not
-              # skip — see the ClusterRole).
               kubectl create configmap adhar-ca -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
                 --dry-run=client -o yaml | kubectl apply -f -
-              if kubectl get namespace kpack-system >/dev/null; then
-                kubectl create configmap adhar-ca -n kpack-system --from-file=ca.crt=/tmp/ca.crt \
-                  --dry-run=client -o yaml | kubectl apply -f -
-              else
-                echo "kpack-system not created yet; the buildpack package's own sync distributes the CA on its next run"
-              fi
               kubectl create configmap adhar-ca-bundle -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
                 --dry-run=client -o yaml | kubectl apply -f -
-              # Pick up the refreshed bundle: both read it once at boot (Go loads
-              # the system roots on first use). Kyverno's image verifier fetches
-              # signatures from Harbor over the same internal CA.
-              kubectl -n kpack-system rollout restart deployment/kpack-controller 2>/dev/null \
-                || echo "kpack-controller not installed yet; it will read the bundle at start-up"
-              for d in kyverno-admission-controller kyverno-background-controller kyverno-reports-controller; do
-                kubectl -n adhar-system rollout restart deployment/$d 2>/dev/null || echo "$d not installed yet"
+              # Pick up the refreshed bundle: these read it ONCE (Go loads the
+              # system roots on first use and keeps them). kpack's ClusterStore
+              # pulls buildpacks over TLS the moment kpack starts — before this
+              # Job has written the ConfigMap — so without the restart the
+              # controller keeps a trust store with no Harbor CA and the
+              # ClusterBuilder fails `x509: certificate signed by unknown
+              # authority` for good. This restart used to name kpack-system,
+              # which no longer exists, so it never happened (2026-11-22, local
+              # `adhar up`: no builds at all). Guard:
+              # TestTheCADistributorRestartsKpackWhereItRuns.
+              #
+              # Restart ONLY when the bundle a controller was started with is not
+              # this one: each Deployment's pod template carries the bundle's hash
+              # (adhar.io/ca-bundle), and a changed hash is what rolls it. This Job
+              # is a Sync hook, so it runs on every adhar-supply-chain sync — an
+              # unconditional restart would bounce kpack and Kyverno on every push
+              # to the package, on every cloud cluster. The first bring-up (no
+              # hash yet) and a rotated CA (new hash) restart; nothing else does.
+              # Argo CD does not own the annotation (server-side apply), so it is
+              # not drift — the same reason `rollout restart`'s restartedAt is not.
+              bundle=$(sha256sum /tmp/ca.crt | cut -c1-16)
+              for d in kpack-controller kyverno-admission-controller kyverno-background-controller kyverno-reports-controller; do
+                if ! have=$(kubectl -n adhar-system get deployment/$d \
+                    -o jsonpath='{.spec.template.metadata.annotations.adhar\.io/ca-bundle}' 2>/dev/null); then
+                  echo "$d not installed yet; it will read the bundle at start-up"
+                  continue
+                fi
+                if [ "$have" = "$bundle" ]; then
+                  echo "$d already runs with CA bundle $bundle"
+                  continue
+                fi
+                kubectl -n adhar-system patch deployment/$d --type merge \
+                  -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"adhar.io/ca-bundle\":\"$bundle\"}}}}}"
               done
               echo "CA bundle distributed to adhar-system/adhar-ca and adhar-system/adhar-ca-bundle"

@@ -6,9 +6,14 @@
 # `Ready=False` for many minutes after Harbor is actually healthy, which blocks
 # every buildpacks build (the credential itself is correct: admin/Harbor12345).
 #
-# This PostSync hook waits until Harbor's registry endpoint answers, and — only
-# if the builder is still not Ready — nudges kpack to reconcile immediately by
-# restarting its controller. Idempotent: it no-ops once the builder is Ready.
+# A 401 also comes from Harbor whenever its own database is down: it cannot
+# check any user then, and answers every login 401 (2026-11-22, a loaded local
+# cluster restarting harbor-database five times).
+#
+# This PostSync hook waits until Harbor AUTHENTICATES the push credential, and —
+# only if the builder is still not Ready — nudges kpack to reconcile now by
+# restarting its controller, at most twice, five minutes apart. Idempotent: it
+# no-ops once the builder is Ready.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -62,7 +67,8 @@ metadata:
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 3
-  activeDeadlineSeconds: 900
+  # Worst case: 10 min for Harbor to authenticate + 2 x 5 min reconciles.
+  activeDeadlineSeconds: 1500
   template:
     spec:
       serviceAccountName: kpack-harbor-nudge
@@ -70,30 +76,46 @@ spec:
       containers:
         - name: nudge
           image: alpine/k8s:1.31.1
+          env:
+            - {name: HARBOR_USER, valueFrom: {secretKeyRef: {name: harbor-push, key: username}}}
+            - {name: HARBOR_PASS, valueFrom: {secretKeyRef: {name: harbor-push, key: password}}}
           command: [bash, -c]
           args:
             - |
               set -uo pipefail
-              REG="harbor-core.adhar-system.svc.cluster.local"
-              # 1. Wait until Harbor's registry endpoint responds (any HTTP code
-              #    means it's up; connection refused means it isn't yet).
-              echo "waiting for Harbor registry ${REG} ..."
-              for i in $(seq 1 60); do
-                code=$(curl -s -o /dev/null -w '%{http_code}' "http://${REG}/v2/" || echo 000)
-                [ "$code" != "000" ] && { echo "Harbor registry up (HTTP ${code})"; break; }
+              # Two defects made this hook the thing that kept the builder
+              # broken on a loaded local cluster (2026-11-22): it probed
+              # http://harbor-core/v2/ on port 80, which the Service does not
+              # serve, so "Harbor up" was never seen and five minutes were
+              # burned; then it restarted kpack-controller every 30 s for 12
+              # minutes, while one ClusterBuilder reconcile there took 65-125 s,
+              # so every restart killed the reconcile that would have succeeded
+              # (11 ReplicaSets in one bring-up). Now: wait until Harbor really
+              # AUTHENTICATES the push credential (a 401 also means its
+              # database is down — Harbor cannot check any user then), restart
+              # at most twice, and give each reconcile five minutes.
+              H="https://harbor-core.adhar-system.svc.cluster.local"
+              ready() {
+                [ "$(kubectl get clusterbuilder adhar-builder \
+                  -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null)" = "True" ]
+              }
+              if ready; then echo "adhar-builder is Ready — no nudge needed"; exit 0; fi
+              echo "waiting for Harbor to authenticate the push credential ..."
+              for i in $(seq 1 120); do
+                code=$(curl -sk -m 10 -o /dev/null -w '%{http_code}' -u "${HARBOR_USER}:${HARBOR_PASS}" \
+                  "${H}/api/v2.0/users/current" || echo 000)
+                [ "$code" = "200" ] && { echo "Harbor authenticates the push credential"; break; }
                 sleep 5
               done
-              # 2. If the builder is already Ready, nothing to do.
-              for i in $(seq 1 24); do
-                ready=$(kubectl get clusterbuilder adhar-builder \
-                  -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || echo "")
-                if [ "$ready" = "True" ]; then
-                  echo "adhar-builder is Ready — no nudge needed"; exit 0
-                fi
-                echo "adhar-builder not Ready yet (Ready=${ready:-unknown}); nudging kpack-controller"
+              for attempt in 1 2; do
+                if ready; then echo "adhar-builder is Ready"; exit 0; fi
+                echo "adhar-builder not Ready; restarting kpack-controller (attempt ${attempt}/2)"
                 kubectl rollout restart deploy/kpack-controller -n adhar-system || true
-                sleep 30
+                for i in $(seq 1 30); do
+                  ready && { echo "adhar-builder is Ready"; exit 0; }
+                  sleep 10
+                done
               done
-              echo "builder still not Ready after nudging — leaving it to kpack's own retry"
+              echo "builder still not Ready — leaving it to kpack's own retry"
               # Non-fatal: don't wedge the sync on a slow builder.
               exit 0

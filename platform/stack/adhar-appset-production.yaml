@@ -892,28 +892,12 @@ spec:
         - /spec/validationFailureAction
         jqPathExpressions:
         - .spec.rules[]?.skipBackgroundRequests
-      - group: tekton.dev
-        kind: Task
-        jqPathExpressions:
-        - .spec.results[]?.type
-        - .spec.steps[]?.computeResources
-        - .spec.params[]?.type
-      - group: tekton.dev
-        kind: ClusterTask
-        jqPathExpressions:
-        - .spec.results[]?.type
-        - .spec.steps[]?.computeResources
-        - .spec.params[]?.type
-      - group: tekton.dev
-        kind: Pipeline
-        jqPathExpressions:
-        - .spec.params[]?.type
-        - .spec.results[]?.type
-        - .spec.tasks[]?.taskRef.kind
-      - group: triggers.tekton.dev
-        kind: EventListener
-        jsonPointers:
-        - /status
+      # No rule may reach into a Tekton object's spec: see the note in
+      # adhar-appset-local.yaml (schemaless CRD root + RespectIgnoreDifferences
+      # wedges every sync retry; server-side diff already absorbs Tekton's
+      # defaults; Argo CD v3 leaves status out of every diff, so the
+      # EventListener /status rule went too). Guard:
+      # TestNoIgnoreDifferencesReachIntoASchemalessCRD.
       # Written by security/trivy's waiver-sync CronJob (platform-wide scan
       # waivers for runtime scans), not by Git.
       - group: ""

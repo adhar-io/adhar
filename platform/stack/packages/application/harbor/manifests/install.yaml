@@ -1848,8 +1848,8 @@ spec:
             - /docker-healthcheck.sh
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
           successThreshold: 1
         readinessProbe:
           exec:
@@ -1857,9 +1857,13 @@ spec:
             - /docker-healthcheck.sh
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 5
+          timeoutSeconds: 10
           failureThreshold: 3
           successThreshold: 1
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
         envFrom:
           - secretRef:
               name: "harbor-database"
